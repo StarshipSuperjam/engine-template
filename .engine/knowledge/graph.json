@@ -5211,7 +5211,7 @@
       },
       "slug": "ci-assurance",
       "source": {
-        "fingerprint": "sha256:b12f61ec9df77a0645f02e6b263946255ecc9e32660942cc574d28ea4b1c0d26",
+        "fingerprint": "sha256:762bb84a1afc160d14cd143b222c0d3843bf6440a03e9b7fb9f9078dd79cf428",
         "path": ".engine/docs/ci-assurance.md"
       },
       "status": "active",
@@ -5763,7 +5763,7 @@
       },
       "slug": "build-kickoff",
       "source": {
-        "fingerprint": "sha256:a3c99d72a593ad9946254dac4656b5b3a478b2a24e6986b3787eb045a5c88061",
+        "fingerprint": "sha256:b2d0657951b712e5d9bdc26bee61a62261f6d685b6a30baa2a8baad1db972045",
         "path": ".engine/operations/build-kickoff.md"
       },
       "status": "active",
@@ -5963,7 +5963,7 @@
       },
       "slug": "codex-settings",
       "source": {
-        "fingerprint": "sha256:e8eb02fa95c8401f695be9d3f3c3a905f59c9e8d8ebe2e7fa9cbc79ffabf04d3",
+        "fingerprint": "sha256:efa49438d5eda2dfe3d1e326a3110fdf6cf13725b12b297e048c6cf5a15056bc",
         "path": ".engine/operations/codex-settings.md"
       },
       "status": "active",
@@ -5983,7 +5983,7 @@
       },
       "slug": "codex-validation",
       "source": {
-        "fingerprint": "sha256:e90106879d15529a17480172353345c32cfca75ca6cda88fb6b799d973c1d907",
+        "fingerprint": "sha256:65270862eb670cc834014f4c9e46b844dff8cd3fa15784c6f5ea22fc503e2273",
         "path": ".engine/operations/codex-validation.md"
       },
       "status": "active",
@@ -6383,7 +6383,7 @@
       },
       "slug": "plan-orchestration",
       "source": {
-        "fingerprint": "sha256:4df6c6f1ca846ce63a716e9ef95e135bbbbc6e921ba214f4d10bbf35a3d3d992",
+        "fingerprint": "sha256:96d715e5a6ac4747a09346837c83729cb1a8e2a8c74a21f24e92f4983bbdbe5f",
         "path": ".engine/operations/plan-orchestration.md"
       },
       "status": "active",
@@ -9411,7 +9411,7 @@
       },
       "slug": "boot",
       "source": {
-        "fingerprint": "sha256:d2c39ff638a42a6d4640f2c38d4c637463f5f7a4b96aec7f8f1f20b18b10332a",
+        "fingerprint": "sha256:1eff5b645bfe951d653ebf505a22bfbd7e968b4aa000f0bce5b5f5d29291b203",
         "path": ".engine/tools/boot.py"
       },
       "status": "active",
@@ -12715,7 +12715,7 @@
       },
       "slug": "instantiator",
       "source": {
-        "fingerprint": "sha256:0481fa4cdfab94c216177045433cb9103aba355a423a66098adb0c485085540d",
+        "fingerprint": "sha256:162c9daafc9043792510a626f5a0bf882f5b424d0908b64c5b2564c4d66f8472",
         "path": ".engine/tools/instantiator.py"
       },
       "status": "active",
@@ -13730,7 +13730,7 @@
       },
       "slug": "module_manager",
       "source": {
-        "fingerprint": "sha256:70a5d0d1fc268f37681048fd076c1756f36197c0e42c78e525ea0e4337752ccc",
+        "fingerprint": "sha256:f9cb91495392479d54cd10af86a074e25872b7ca37bb546804a89b48a9b6b820",
         "path": ".engine/tools/module_manager.py"
       },
       "status": "active",
@@ -16145,7 +16145,7 @@
       },
       "slug": "test_boot",
       "source": {
-        "fingerprint": "sha256:55e67a6656e1bee59ea12a7881703d012ec7b6060291a5da21b8288c5f4fc9ea",
+        "fingerprint": "sha256:77482325e5051927993a9b9cdaa2a906205dab722319529e225cd593103bef11",
         "path": ".engine/tools/test_boot.py"
       },
       "status": "active",
@@ -16867,6 +16867,31 @@
       },
       "status": "active",
       "summary": "Acceptance pins for the complete, canonical Codex settings audit.",
+      "type": "tool"
+    },
+    {
+      "entrypoint": "test",
+      "guarded": false,
+      "id": "tool:test_codex_trust_surfaces",
+      "name": ".engine/tools/test_codex_trust_surfaces.py",
+      "owner": "core",
+      "predicates": {
+        "provided_by": [
+          "module:core"
+        ],
+        "tests": [
+          "tool:boot",
+          "tool:validate",
+          "tool:wiring"
+        ]
+      },
+      "slug": "test_codex_trust_surfaces",
+      "source": {
+        "fingerprint": "sha256:93430da7916dbe8a9b55c463f8d83b1d65f703a6c244cc2ac9cdd5300b8d0519",
+        "path": ".engine/tools/test_codex_trust_surfaces.py"
+      },
+      "status": "active",
+      "summary": "One rule across every operator-facing surface that tells the operator how to trust the engine's Codex",
       "type": "tool"
     },
     {
@@ -17820,7 +17845,7 @@
       },
       "slug": "test_instantiator",
       "source": {
-        "fingerprint": "sha256:acb61210fabbf8e3a4dae9f0fa4bb69ddebe83b7c9a01b27ae5067cb2e596e83",
+        "fingerprint": "sha256:3fc6a243dbb0e655597835be8b88ef1de7182b722dc360fb9844b8f8e3845326",
         "path": ".engine/tools/test_instantiator.py"
       },
       "status": "active",
@@ -18704,7 +18729,7 @@
       },
       "slug": "test_module_manager",
       "source": {
-        "fingerprint": "sha256:ffa611357cfc03bc0577bd5155d69ea066fc4bf223ccf622e70461bba2e0fc58",
+        "fingerprint": "sha256:3c165b6c01b28782ce4c058838a881f7f337cc5b16a1b706de5dc8bda47ccca7",
         "path": ".engine/tools/test_module_manager.py"
       },
       "status": "active",
@@ -19307,7 +19332,7 @@
       },
       "slug": "test_plan_to_ready_pr_demo",
       "source": {
-        "fingerprint": "sha256:37848deadbdf642d417af9c90b58fe55e6349efa43df03528ad31ea21bcd4b73",
+        "fingerprint": "sha256:faa6d4444d00ad62adbe4cfb64777c342c6a176d0a1835120b103d87af212667",
         "path": ".engine/tools/test_plan_to_ready_pr_demo.py"
       },
       "status": "active",
@@ -21356,7 +21381,7 @@
       },
       "slug": "test_wiring",
       "source": {
-        "fingerprint": "sha256:4b9b2154669aa26ae3f7b86ded2de634e2620bdcb731ca3d374b029ee081d237",
+        "fingerprint": "sha256:3729baf84553a853bccd275216aa1138dbdc3d9885daebee5574336bf0fb5c9a",
         "path": ".engine/tools/test_wiring.py"
       },
       "status": "active",
@@ -21818,7 +21843,7 @@
       },
       "slug": "wiring",
       "source": {
-        "fingerprint": "sha256:28bbc70ab7200868d0c83a557b7af9a23da978040465d2868b62808df158d406",
+        "fingerprint": "sha256:fdbaf2a4423b75651cde6019e152778a89866294ea945c7553d3a518df8a5265",
         "path": ".engine/tools/wiring.py"
       },
       "status": "active",
