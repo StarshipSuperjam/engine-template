@@ -89,10 +89,11 @@ ground each session, guard what gets written while it explores, and capture what
 won't run any of them until you approve them: it records trust for each hook exactly as written and silently
 skips any it doesn't recognise, so until you approve these, three things stay off — session grounding, the
 exploration write-gate, and memory capture. Approving takes a moment: in the Codex CLI, run /hooks and approve
-the engine's hooks; in Codex Desktop, open Settings → Hooks and approve them there. On Desktop and in the VS
-Code extension the approval prompt may not appear on its own, so open that Hooks screen and approve them
-yourself rather than waiting to be asked. Nothing is trusted automatically and I never flip that switch for
-you — approval stays your manual choice. If you don't use Codex, there's nothing to do here.
+the engine's hooks; in Codex Desktop, open Settings → Hooks and approve them there. On Desktop the approval
+prompt may not appear on its own, so open that Hooks screen and approve them yourself rather than waiting to be
+asked; the Codex VS Code extension does not run project hooks at all, so approve from the CLI or the Desktop app
+instead. Nothing is trusted automatically and I never flip that switch for you — approval stays your manual
+choice. If you don't use Codex, there's nothing to do here.
 
 ## If I couldn't set up file ownership for reviews
 

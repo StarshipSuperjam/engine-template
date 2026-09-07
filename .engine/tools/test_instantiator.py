@@ -4530,6 +4530,30 @@ class TestCodexHookTrustHandoff(unittest.TestCase):
             self.assertNotIn(copy["codex-hook-trust"], said,
                              "the operator's own Codex hook does not trip the engine's trust handoff")
 
+    def test_retire_reads_its_own_base_not_the_import_bound_hooks_constant(self):
+        # Plan scope_boundary[0]: the ownership predicate reads base/.codex/hooks.json (base = retire's own
+        # root), NEVER the import-bound wiring.CODEX_HOOKS_PATH constant. The ordinary _redirect_root idiom
+        # moves that constant in lockstep with the root, so it cannot tell the two apart — this test can:
+        # it points the constant at an EMPTY decoy tree while the fixture root carries the engine hook. A
+        # retire that reads its own base still speaks the handoff; one that read the constant would find the
+        # empty decoy and fall silent. (retire only READS the hooks file — it never writes it — so decoying
+        # the constant is safe here.)
+        with tempfile.TemporaryDirectory() as d, tempfile.TemporaryDirectory() as decoy:
+            with inst._redirect_root(d):
+                inst._build_fixture(d)
+                self._add_core_wire(d, self._CODEX_WIRE)
+                inst._plant_first_run_assets(d)
+                inst.confirm([], "solo", engine_release="1.0.0", handle="octocat")
+                inst._finish_apply(d)                             # writes the engine hook to d/.codex/hooks.json
+                copy = inst.load_copy()
+                inst.wiring.CODEX_HOOKS_PATH = os.path.join(decoy, ".codex", "hooks.json")  # decoy the constant
+                said = []
+                res = inst.retire(announce=said.append)
+            self.assertFalse(res["refused"], "retire proceeds on a consistent setup")
+            self.assertIn(copy["codex-hook-trust"], said,
+                          "retire read base/.codex/hooks.json (its own root), not the decoyed import-bound "
+                          "constant — the read follows the caller's root")
+
     # ---- copy surface ----------------------------------------------------------------------------
 
     def test_copy_names_both_approval_paths_and_the_three_that_stay_off(self):
@@ -4537,7 +4561,10 @@ class TestCodexHookTrustHandoff(unittest.TestCase):
         self.assertTrue(fallback.strip(), "the built-in fallback resolves to real copy")
         self.assertIn("/hooks", fallback, "the CLI approval path")
         self.assertIn("Settings -> Hooks", fallback, "the Codex Desktop approval path")
-        self.assertIn("VS Code", fallback, "the extension caveat — the prompt may not appear on its own")
+        self.assertIn("VS Code", fallback, "the extension caveat is named")
+        self.assertIn("does not run project hooks", fallback,
+                      "the VS Code caveat says the extension does not run project hooks — it must not fold "
+                      "VS Code into the Desktop 'open the Hooks screen' remedy")
         for stays_off in ("grounding", "write-gate", "memory"):
             self.assertIn(stays_off, fallback, f"the note names {stays_off!r} as staying off until approval")
         # The template surface carries the same section (rendered by load_copy), with the arrow glyph.

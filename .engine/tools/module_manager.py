@@ -1861,7 +1861,7 @@ def _wiring_delta(old_by_id: dict, new_by_id: dict) -> dict:
     return {"added": added, "removed": removed, "updated": updated}
 
 
-def _apply_wiring_deltas(old_by_id: dict, new_by_id: dict, dropped_ids=()) -> list:
+def _apply_wiring_deltas(old_by_id: dict, new_by_id: dict, dropped_ids=()) -> tuple:
     """Reverse the wires a module no longer declares and (re)apply the wires it declares now (the
     scenario's 'apply/reverse wiring deltas'). For an unchanged version the delta is empty (apply_all is
     idempotent). A removed engine-identifiable wire is reversed so it does not linger; a same-identity

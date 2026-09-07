@@ -387,9 +387,10 @@ FALLBACK_COPY = {
         "exactly as written and silently skips any it doesn't recognise, so until you approve these, three "
         "things stay off — session grounding, the exploration write-gate, and memory capture. Approving takes "
         "a moment: in the Codex CLI, run /hooks and approve the engine's hooks; in Codex Desktop, open "
-        "Settings -> Hooks and approve them there. On Desktop and in the VS Code extension the approval prompt "
-        "may not appear on its own, so open that Hooks screen and approve them yourself rather than waiting to "
-        "be asked. Nothing is trusted automatically and I never flip that switch for you — approval stays your "
+        "Settings -> Hooks and approve them there. On Desktop the approval prompt may not appear on its own, so "
+        "open that Hooks screen and approve them yourself rather than waiting to be asked; the Codex VS Code "
+        "extension does not run project hooks at all, so approve from the CLI or the Desktop app instead. "
+        "Nothing is trusted automatically and I never flip that switch for you — approval stays your "
         "manual choice. If you don't use Codex, there's nothing to do here."
     ),
 }
@@ -1410,7 +1411,12 @@ def _apply_wires(say, copy) -> dict:
         directives.extend(wires)
         for f in wiring.apply_all(wires):
             applied.append(validate.fmt(f))
-    engine_codex_hooks = wiring.codex_hooks_engine_entries(directives, wiring.CODEX_HOOKS_PATH)
+    # Ownership predicate reads the SAME .codex/hooks.json wiring.apply_all just wrote to, derived from this
+    # run's own root (validate.ROOT) rather than the import-bound wiring.CODEX_HOOKS_PATH constant, per plan
+    # scope_boundary[0]. _redirect_root rebinds validate.ROOT in lockstep with that constant, so a fixture run
+    # reads its own tree; TestCodexHookTrustHandoff decoys the constant to prove the read follows the root.
+    engine_codex_hooks = wiring.codex_hooks_engine_entries(
+        directives, os.path.join(validate.ROOT, ".codex", "hooks.json"))
     if engine_codex_hooks:
         say(copy["codex-hook-trust"])
     return {"step": "wires", "status": "done", "applied": applied,
@@ -1992,7 +1998,10 @@ def retire(*, root=None, announce=None) -> dict:
     # none) stays silent.
     _retire_directives = [wire for _p, m in module_coherence.discover_manifests()
                           for wire in (m.get("wires") or [])]
-    if wiring.codex_hooks_engine_entries(_retire_directives, wiring.CODEX_HOOKS_PATH):
+    # Path derived from retire's own base (root or validate.ROOT) — the same base every other retire file
+    # operation uses — not the import-bound wiring.CODEX_HOOKS_PATH constant, per plan scope_boundary[0].
+    if wiring.codex_hooks_engine_entries(_retire_directives,
+                                         os.path.join(base, ".codex", "hooks.json")):
         say(copy["codex-hook-trust"])
     say(copy["retire-applied"])
     return {"refused": False, "durable": False, "next": "land-through-review",

@@ -1427,9 +1427,13 @@ class TestCodexHooksEngineEntries(_Redirected):
         self.assertEqual(_read(wiring.CODEX_HOOKS_PATH), "{not json", "a malformed file is left as-is")
 
     def test_retrust_note_names_both_the_cli_and_the_desktop_path(self):
-        # The re-trust note the seam emits must route the operator to BOTH approval surfaces, so a
-        # Desktop/VS Code user (who may never see a prompt) knows where to go.
+        # The re-trust note the seam emits must route the operator to BOTH approval surfaces, so a Desktop
+        # user (who may never see a prompt) knows where to go — and must not fold the VS Code extension into
+        # the Desktop remedy, because that extension does not run project hooks at all.
         note = wiring.CODEX_RETRUST_NOTE
         self.assertIn("/hooks", note, "the CLI approval path")
         self.assertIn("Settings -> Hooks", note, "the Codex Desktop approval path")
-        self.assertIn("VS Code", note, "the extension caveat — the prompt may not appear on its own")
+        self.assertIn("VS Code", note, "the extension caveat is named")
+        self.assertIn("does not run project hooks", note,
+                      "the VS Code caveat says the extension does not run project hooks — not that its "
+                      "prompt merely may not appear")

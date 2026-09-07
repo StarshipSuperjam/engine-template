@@ -122,14 +122,16 @@ CODEX_CONFIG_PATH = os.path.join(validate.ROOT, ".codex", "config.toml")  # code
 # hook's exact definition, so a new or changed registration is silently SKIPPED until the operator
 # re-trusts it — the one moment to say so is when the engine makes the change. It names BOTH approval
 # paths (the CLI /hooks review and the Codex Desktop Settings -> Hooks screen), warns that on Desktop
-# and in the VS Code extension the prompt may not appear on its own, and names what stays off until the
-# operator approves: session grounding, the exploration write-gate, and memory capture.
+# the prompt may not appear on its own and that the VS Code extension does not run project hooks at all,
+# and names what stays off until the operator approves: session grounding, the exploration write-gate,
+# and memory capture.
 CODEX_RETRUST_NOTE = ("Codex records trust for each hook exactly as written, so a hook the engine just "
                       "added or changed is untrusted until you approve it again — and until you do, its "
                       "session grounding, its exploration write-gate, and its memory capture stay off. "
                       "Approve it in the Codex CLI with /hooks, or in Codex Desktop under "
-                      "Settings -> Hooks; on Desktop and in the VS Code extension the prompt may not "
-                      "appear on its own, so open that Hooks screen and approve it there yourself.")
+                      "Settings -> Hooks; on Desktop the prompt may not appear on its own, so open that "
+                      "Hooks screen and approve it there yourself. The VS Code extension does not run "
+                      "project hooks at all, so approve from the CLI or the Desktop app instead.")
 
 
 class WiringError(Exception):
