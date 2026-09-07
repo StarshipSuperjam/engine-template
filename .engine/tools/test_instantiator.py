@@ -4431,10 +4431,6 @@ class TestArrivalExecution(unittest.TestCase):
             self.assertEqual(prs, [])
 
 
-if __name__ == "__main__":
-    unittest.main()
-
-
 class TestCodexHookTrustHandoff(unittest.TestCase):
     """StarshipSuperjam/engine-template#805: when setup wires the Engine's OWN Codex hooks into
     .codex/hooks.json, the operator is told — right after wiring (STEP 5) and once more in retire's
@@ -4548,3 +4544,7 @@ class TestCodexHookTrustHandoff(unittest.TestCase):
         template = inst.load_copy()["codex-hook-trust"]
         self.assertIn("/hooks", template)
         self.assertIn("Settings → Hooks", template)
+
+
+if __name__ == "__main__":
+    unittest.main()

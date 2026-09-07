@@ -5,10 +5,15 @@ screen — because on Desktop and in the VS Code extension the approval prompt m
 surface that mentions only the CLI would silently strand a Desktop operator with grounding, the exploration
 write-gate, and memory capture all off (StarshipSuperjam/engine-template#805).
 
-The surfaces are spread across code constants, the first-run copy, the boot health line, and four docs; each
-has its own narrower test that pins its exact wording. This file is the single home for the cross-surface
-INVARIANT, so adding a new surface that names /hooks without the Desktop path fails here even if that surface
-has no test of its own yet.
+The surviving surfaces are spread across a code constant, the boot health line, and four docs; each has its
+own narrower test that pins its exact wording. This file is the single home for the cross-surface INVARIANT
+over the surfaces that live on in a set-up project, so adding a new surviving surface that names /hooks
+without the Desktop path fails here even if that surface has no test of its own yet.
+
+The first-run copy surfaces (instantiator.FALLBACK_COPY and instantiator.load_copy) carry the same rule but
+are deliberately NOT checked here: this file survives first-run, and a surviving file may not import the
+setup-only `instantiator` module the engine removes (the reference-closure check forbids it). Their both-
+paths rule is proven in test_instantiator.TestCodexHookTrustHandoff, which is removed with instantiator.
 
 Run: uv run --directory .engine --frozen -- python tools/selftest.py
 """
@@ -22,9 +27,14 @@ from unittest import mock
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import boot           # noqa: E402
-import instantiator   # noqa: E402
 import validate       # noqa: E402
 import wiring         # noqa: E402
+# NOTE: this file must NOT import `instantiator` (or any other setup-only module the engine removes when a
+# project is first set up) — it is a *surviving* file, and a surviving file that references removed setup
+# code trips the first-run reference-closure check (test_first_run_reference_closure). The two first-run
+# copy surfaces (instantiator.FALLBACK_COPY and instantiator.load_copy) carry the same both-paths rule, but
+# they are proven in test_instantiator.TestCodexHookTrustHandoff — which is itself removed alongside
+# instantiator — so this cross-surface invariant covers only the surfaces that live on in a set-up project.
 
 # The Codex Desktop Hooks screen, however a surface happens to phrase it: "Hooks screen under Settings",
 # or "Settings -> Hooks" / "Settings → Hooks" (ASCII or arrow). This is the second path every /hooks surface
@@ -60,15 +70,6 @@ class TestCodexTrustSurfacesNameBothPaths(unittest.TestCase):
 
     def test_wiring_retrust_note_names_both(self):
         self._assert_both_paths("wiring.CODEX_RETRUST_NOTE", wiring.CODEX_RETRUST_NOTE)
-
-    def test_first_run_fallback_copy_names_both(self):
-        self._assert_both_paths("instantiator.FALLBACK_COPY['codex-hook-trust']",
-                                instantiator.FALLBACK_COPY["codex-hook-trust"])
-
-    def test_rendered_first_run_copy_names_both(self):
-        # The copy actually spoken during setup, read from first-run.md by heading (not the fallback).
-        rendered = instantiator.load_copy()["codex-hook-trust"]
-        self._assert_both_paths("first-run.md 'codex-hook-trust' section", rendered)
 
     def test_boot_hooks_health_line_names_both(self):
         with mock.patch.object(boot.providers, "read_live_session", return_value=None):
