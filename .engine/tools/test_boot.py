@@ -5530,7 +5530,7 @@ class TestPreviouslySubmittedAdvisory(unittest.TestCase):
     def setUp(self):
         self._tmp = tempfile.TemporaryDirectory()
         self.addCleanup(self._tmp.cleanup)
-        self.worktree = str(Path(self._tmp.name).resolve())
+        self.worktree = str(__import__("pathlib").Path(self._tmp.name).resolve())
 
     def _snapshot(self, **over):
         snap = {"revision": 6, "submission": "ready",

@@ -38,6 +38,7 @@ import hooks
 import moment
 import repo_identity
 import review_integrity
+import session_relay
 
 ROOT = Path(__file__).resolve().parents[2]
 PROTOCOL_PATH = ROOT / ".engine" / "build-protocol.json"
@@ -5633,8 +5634,16 @@ _REGROUND_ALLOWLIST: tuple[tuple[str, "Any"], ...] = (
 )
 
 
-def reground_pointer(state: dict) -> str:
-    """The injected pointer for one resolved Build, built only from the allowlist above."""
+def reground_pointer(state: dict, slug: "str | None" = None) -> str:
+    """The injected pointer for one resolved Build, built only from the allowlist above.
+
+    For a PREVIOUSLY-SUBMITTED Build (submission=='ready') the unconditional 'continue the next planned
+    step' tail — which would misdirect the session into treating a finished Build as live work — is
+    replaced by the shared previously-submitted advisory (session_relay.advisory_lines): the same wording
+    and three-case new-versus-resume steer boot's relay carries, from ONE definition. Every other
+    submission state keeps the authority framing unchanged. The advisory cites `slug` as its plan
+    selector; a missing or ungrammatical slug falls back to the authority framing rather than printing a
+    broken command."""
     lines = ["Engine: this session was compacted while a Build was running. The Build's durable record —",
              "not this session's summary — is the authority for what follows.", ""]
     for label, extract in _REGROUND_ALLOWLIST:
@@ -5649,10 +5658,24 @@ def reground_pointer(state: dict) -> str:
         "Read the Build's state with `build_coordinator.py status` before changing anything. Every",
         "mutating coordinator verb re-verifies this session against that record and refuses on a",
         "mismatch, so a wrong assumption here fails closed rather than corrupting the Build.",
-        "A progress report is not a handoff. If the record shows actionable work,",
-        "continue the next planned step unless a real authority boundary requires a decision;",
-        "do not schedule a self-wakeup.",
     ]
+    submitted = (state.get("submission") == "ready"
+                 and isinstance(slug, str)
+                 and re.match(session_relay.PLAN_SELECTOR_PATTERN, slug))
+    if submitted:
+        advisory = {"submission": "ready", "plan_selector": slug}
+        pr = (state.get("build") or {}).get("pr")
+        if isinstance(pr, int):
+            advisory["pr_ref"] = f"#{pr}"
+        elif isinstance(pr, str) and pr.strip():
+            advisory["pr_ref"] = pr if pr.startswith("#") else f"#{pr}"
+        lines += ["", *session_relay.advisory_lines(advisory)]
+    else:
+        lines += [
+            "A progress report is not a handoff. If the record shows actionable work,",
+            "continue the next planned step unless a real authority boundary requires a decision;",
+            "do not schedule a self-wakeup.",
+        ]
     return "\n".join(lines)
 
 
@@ -5686,7 +5709,9 @@ def reground_handler(payload: dict) -> dict:
         return hooks.proceed()
     # The compaction itself is not written down anywhere. This hook REACTS to one; nothing reads a
     # history of them, and keeping a record no reader consumes would be bookkeeping for its own sake.
-    return hooks.inject(reground_pointer(state))
+    # `slug` is the snapshot's own plan-directory identity (from bound_snapshots), which the advisory
+    # cites as its plan selector for a previously-submitted Build.
+    return hooks.inject(reground_pointer(state, slug))
 
 
 def main(argv: list[str] | None = None) -> int:
