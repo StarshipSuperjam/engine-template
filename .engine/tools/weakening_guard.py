@@ -214,6 +214,23 @@ _FLOOR_ENFORCEMENT_HOOKS = (
     #                                    widening it (a dropped corner, a dropped root file, a doubt resolved to
     #                                    "the project's") mints a green with no on-disk floored correlate. The
     #                                    gatekeeper's docstring binds any helper it grows to join both sets.
+    ".engine/tools/accepted_hook_dispatch.py",  # the write-dispatch launcher: the live runtime gate that
+    #                                    refuses a dispatched memory write when the activation's commit is no
+    #                                    longer reachable and rebuilds a materialized tree whose bytes differ
+    #                                    from the activated commit. Weakening it (fail-open on reachability-lost,
+    #                                    accepting a forged materialization) un-gates the write authority with NO
+    #                                    other on-disk floored correlate any check catches — its own bytes are
+    #                                    pinned in hooks_path_health's accepted-bundle digest, but that pin lives
+    #                                    in a file that is itself floored just below, so the pair travels
+    #                                    together. Same criterion as mechanic_build.py / ci_gatekeeper.py above:
+    #                                    a live runtime gate whose weakening is otherwise invisible, so it routes
+    #                                    through the guardrail-ack (hard tier).
+    ".engine/tools/hooks_path_health.py",  # the accepted-bundle / hook-path integrity gate. It runs from the
+    #                                    LIVE checkout (outside the dispatcher's tree binding, which only governs
+    #                                    the materialized accepted tree), so a weakening — dropping a pinned
+    #                                    bundle digest, fail-opening on an ambiguous hook path — is not caught by
+    #                                    tree binding and has no other on-disk floored correlate. Hard tier for
+    #                                    the same reason as the dispatcher above.
 )
 # Traveling security-floor provisions — NOT enforcement gates (they check nothing and gate no merge), so they
 # do not belong with _FLOOR_ENFORCEMENT_CONFIG above. They are the git-native security floor the control plane
@@ -379,6 +396,13 @@ _HARD_EXACT = (
     ".engine/tools/protection_guard.py",
     ".engine/tools/dependency_discipline/review.py",
     ".engine/tools/product_design/lock_integrity.py",
+    # the write-dispatch launcher and the accepted-bundle / hook-path health gate: each is a live runtime gate
+    # whose weakening un-gates the memory write authority with NO other on-disk floored correlate any check
+    # catches (the dispatcher's own bytes are pinned in hooks_path_health, which is itself floored here; hook-path
+    # health runs from the live checkout, outside the dispatcher's tree binding). A one-line fail-direction flip
+    # is invisible to any diff read, so both route through the guardrail-ack:
+    ".engine/tools/accepted_hook_dispatch.py",
+    ".engine/tools/hooks_path_health.py",
 )
 
 

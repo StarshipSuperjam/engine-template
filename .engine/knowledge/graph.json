@@ -9034,7 +9034,7 @@
     },
     {
       "entrypoint": "mcp-server",
-      "guarded": false,
+      "guarded": true,
       "id": "tool:accepted_hook_dispatch",
       "name": ".engine/tools/accepted_hook_dispatch.py",
       "owner": "core",
@@ -12613,7 +12613,7 @@
     },
     {
       "entrypoint": "cli",
-      "guarded": false,
+      "guarded": true,
       "id": "tool:hooks_path_health",
       "name": ".engine/tools/hooks_path_health.py",
       "owner": "core",
@@ -20381,7 +20381,7 @@
       },
       "slug": "test_seed",
       "source": {
-        "fingerprint": "sha256:d9ed5740043bfecaece9900ade8cff2c6fafeef2b59e3bfc84d08843220d8745",
+        "fingerprint": "sha256:1f714a0189b2fefd875f60f3027865354339e709544429256b0ec15f29818b1c",
         "path": ".engine/tools/test_seed.py"
       },
       "status": "active",
@@ -21745,7 +21745,7 @@
       },
       "slug": "weakening_guard",
       "source": {
-        "fingerprint": "sha256:a54d82523374ec07783b08cf761d19bbd8dc9cf77fe4d05dff859a2d2dd4ed28",
+        "fingerprint": "sha256:8d33b9648ef9b5322580361876bf74cfac645618da7e11df381c17cbb0b9373b",
         "path": ".engine/tools/weakening_guard.py"
       },
       "status": "active",

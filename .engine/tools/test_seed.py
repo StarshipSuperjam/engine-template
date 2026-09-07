@@ -568,6 +568,20 @@ class TestWeakeningClassifier(unittest.TestCase):
         self.assertTrue(weakening_guard.is_guardrail(".engine/tools/mechanic_build.py", derived_scripts=frozenset()))
         self.assertFalse(weakening_guard.is_guardrail(".engine/tools/checkout_health.py", derived_scripts=frozenset()))
 
+    def test_write_dispatch_and_hook_path_health_are_floored_killswitch(self):
+        # C4's floor: the write-dispatch launcher (accepted_hook_dispatch.py) and the accepted-bundle /
+        # hook-path health gate (hooks_path_health.py) are live runtime gates whose weakening un-gates the
+        # memory write authority with NO other on-disk floored correlate — the dispatcher's own bytes are
+        # pinned in hooks_path_health, which is itself floored here; hook-path health runs from the live
+        # checkout, outside the dispatcher's tree binding. Both must be in the floor configuration AND the
+        # killswitch set, so a future edit that drops either from either tuple is caught here.
+        for p in (".engine/tools/accepted_hook_dispatch.py", ".engine/tools/hooks_path_health.py"):
+            self.assertIn(p, weakening_guard._FLOOR_ENFORCEMENT_HOOKS, p)   # floor configuration
+            self.assertIn(p, weakening_guard._HARD_EXACT, p)               # killswitch set
+            self.assertTrue(weakening_guard.is_guardrail(p, derived_scripts=frozenset()), p)
+            # killswitch tier: a modification blocks pending the ack (hard), not a mere disclosure (soft).
+            self.assertEqual(weakening_guard.classify(p, "modified", instance_guards=(set(), ())), "hard", p)
+
     def test_non_gate_tooling_is_not_guarded(self):
         # The over-firing the narrowing fixes: benign tools (boot, memory, telemetry, status, the self-review renderer,
         # attention) are NOT guarded when the derived set does not name them — the whole point of the narrowing.
@@ -2301,6 +2315,28 @@ class TestWeakeningReHome(unittest.TestCase):
         # #958: the downgrade must carry the authority note so a solo operator is not misled into reading the
         # ack as identity-verified. Pinned here so a future edit cannot silently drop the disclosure.
         self.assertIn("who acknowledged", out[0]["message"].lower())
+
+    def test_weakening_the_write_dispatch_floor_blocks_pending_the_ack(self):
+        # C4's floor, end-to-end through main(): modifying the write-dispatch launcher or the accepted-bundle /
+        # hook-path health gate on a fixture head draws ONE hard finding that blocks pending the guardrail-ack,
+        # and the head-bound ack DOWNGRADES it to a soft ACKNOWLEDGED record (never erased) — the same
+        # killswitch-tier contract the suite declarations get above.
+        for p in (".engine/tools/accepted_hook_dispatch.py", ".engine/tools/hooks_path_health.py"):
+            rc, out = self._main_json(
+                {"pull_request": {"number": 1, "labels": []}},
+                [{"filename": p, "status": "modified"}])
+            self.assertEqual(rc, 0, p)
+            self.assertEqual(len(out), 1, p)
+            self.assertEqual(out[0]["severity"], "hard", p)      # blocks the merge
+            self.assertIn("guardrail-ack", out[0]["message"], p)  # the informed-consent surface
+            # the head-bound ack downgrades the very same weakening to a soft record, never erasing it.
+            rc, out = self._main_json(
+                {"pull_request": {"number": 1, "labels": [{"name": "guardrail-ack"}]}},
+                [{"filename": p, "status": "modified"}], head_ack=True)
+            self.assertEqual(rc, 0, p)
+            self.assertEqual(len(out), 1, p)
+            self.assertEqual(out[0]["severity"], "soft", p)
+            self.assertIn("ACKNOWLEDGED", out[0]["message"], p)
 
     def test_ack_label_leaves_the_disclosure_untouched(self):
         # the ack is about the killswitch tier; a disclosure still emits with the label present.
