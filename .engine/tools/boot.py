@@ -1587,8 +1587,9 @@ def hooks_health_line() -> "str | None":
         return None
     return ("**I can't see the engine's automatic hooks having run recently in this project.** If "
             "this session just started and this line is here, the hooks are not running — on Codex "
-            "that usually means they're waiting for your approval (run /hooks and approve the "
-            "engine's hooks) or your Codex build predates hook support (hooks arrived in 2026 "
+            "that usually means they're waiting for your approval (run /hooks, or in the Desktop "
+            "app open the Hooks screen under Settings, and approve the engine's hooks) or your "
+            "Codex build predates hook support (hooks arrived in 2026 "
             "builds, around v0.114); on Claude Code it usually means the project's hooks aren't "
             "approved yet. Until they run, the parts that ride them are off: the write-gate, "
             "session memory capture, and the automatic start-of-session status. One honest limit: "
