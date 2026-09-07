@@ -74,18 +74,18 @@ rather than from memory.
 
 - **Discuss the shape first.** Before anything is authored into the library, the operator hears what you
   understand the problem to be and what shape a fix would take, and gets to redirect it.
-- **Show the drafted plan with no ask attached.** Present it in full — which means handing over the link to
-  its `PLAN.md` projection, and after a revision the link to the updated head — invite questions, take
-  revisions, and stop there. The depth choice never rides along with the plan's first showing: a plan and an
-  approval menu delivered in one breath is not a stop, it is a formality wearing one.
-- **Then, once they are satisfied, the approval.** Offer only the review depths worth offering for this
-  repository's installed reviewers — no reviewer installed is a disclosed no-extra-review result, never a
-  false green — and fill `.engine/templates/risk-assessment.md` in plain language. Follow that template
-  rather than paraphrasing it: it carries the rules this stop turns on, including that a care level follows
-  the risk and is never lowered to a depth the operator preferred earlier, that no time or cost is invented,
-  and how a weakened guardrail must be worded. Record the operator's approval at the gate with
-  `--operator-decided` — the record is the gate and the moment, never their words. That single choice covers
-  both the plan's cold review and the Build's later one; consent is given once, here.
+- **Show the drafted plan with no ask attached.** In one presentation hand over its `PLAN.md` link (after a
+  revision, the link to the updated head) and the decision context around it: what the change impacts, the
+  surfaces it touches, the risk assessment's one-line care recommendation, and every open question with the
+  answer you propose — then invite revisions. No depth menu rides along; a plan and an approval in one breath is no stop.
+- **Then, once they are satisfied, the approval.** You reach this stop only once the operator has closed
+  every open question — it is a distinct, led step, never a menu posted beside the plan. Offer only the review
+  depths worth offering for this repository's installed reviewers — no reviewer installed is a disclosed
+  no-extra-review result, never a false green — and fill `.engine/templates/risk-assessment.md` in plain
+  language. Follow that template rather than paraphrasing it: it carries the rules this stop turns on — a care
+  level that follows the risk and is never lowered to a depth the operator preferred earlier, no invented time
+  or cost, and how a weakened guardrail must be worded. A single operator reply then approves at a depth with
+  `--operator-decided`, or redirects — the record is the gate and the moment, never their words. That one choice covers the plan's cold review and the Build's later one; consent is given once, here.
 - **One cold review, then its findings.** A plan gets exactly one cold panel. Adjudicate it yourself:
   accepting a concern is not accepting its remedy, and severity is advice that never selects a remedy for
   you. Synthesize the panel into one recommended call rather than relaying raw reviewer output, and return
@@ -144,9 +144,9 @@ Two ways this goes wrong, both observed:
 - **Guidance parroted instead of exercised.** A session asked what to do next answered "the next step is
   preview" — repeatedly, correctly, and uselessly. The tool's mechanics were never the missing piece; the
   reasoning about the issue was.
-- **Ceremony collapsed into one turn.** A session delivered a freshly minted plan and a depth-approval menu
-  in the same breath, with no discussion of shape and no invitation to revise. Every gate was technically
-  offered and none of them was a stop.
+- **A depth ask with no plan behind it.** A session offered a depth-approval menu with no plan context beside
+  it — no impacts, no surfaces, no care recommendation — its open questions still unanswered and no invitation
+  to revise. Every gate was technically offered and none of them was a stop.
 
 Both are the same failure: treating the lifecycle as a sequence to complete rather than a conversation to
 have. The mechanics cannot catch it — a rushed plan and a considered one reach the seal by identical moves.

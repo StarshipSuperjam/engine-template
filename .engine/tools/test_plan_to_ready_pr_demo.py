@@ -18,6 +18,7 @@ Five seconds of suite time is a very small price for the arc that sells the whol
 """
 from __future__ import annotations
 
+import json
 import os
 import re
 import unittest
@@ -82,6 +83,111 @@ class TheOperatorFacingSurfacesDescribeDepthByLenses(unittest.TestCase):
         template = open(os.path.join(ROOT, ".engine", "templates", "risk-assessment.md"), encoding="utf-8").read()
         self.assertIn("a focused subset of the independent reviews", template)
         self.assertIn("every independent review available", template)
+
+
+    def test_the_condensed_consent_template_keeps_its_shape(self):
+        # Node condense-consent-template pins the risk-assessment template's structure here, in the file
+        # that actually reads the template (NOT test_doc). Three obligations:
+        # (a) the required frontmatter sections appear in the body in their declared order — a subsequence,
+        #     because the allowed 'If this weakens a safety guardrail' section may interleave before 'Your
+        #     call' — and the body stays within its declared length_budget;
+        # (b) the care recommendation is one dominant line and the depth ladder is stated once;
+        # (c) the fast-path-collapse and anti-habituation clauses survive the condensing.
+        path = os.path.join(ROOT, ".engine", "templates", "risk-assessment.md")
+        text = open(path, encoding="utf-8").read()
+        fm = re.match(r"^---\n(.*?)\n---\n(.*)$", text, re.S)
+        self.assertIsNotNone(fm, "risk-assessment.md must open with a frontmatter block")
+        front, body = fm.group(1), fm.group(2)
+        required = json.loads(re.search(r"required_sections:\s*(\[.*\])", front).group(1))
+        allowed = json.loads(re.search(r"allowed_sections:\s*(\[.*\])", front).group(1))
+        budget = int(re.search(r"length_budget:\s*(\d+)", front).group(1))
+        headings = re.findall(r"^##\s+(.*?)\s*$", body, re.M)
+        # (a) no section outside required+allowed; the required ones keep their declared order as a subsequence
+        for h in headings:
+            self.assertIn(h, set(required) | set(allowed), f"unexpected section '## {h}'")
+        self.assertEqual([h for h in headings if h in required], required,
+                         "required sections are missing or out of their declared order")
+        self.assertLessEqual(len(body.splitlines()), budget,
+                             f"template body exceeds its {budget}-line length_budget")
+        # (b) exactly one dominant recommendation line; the ladder is stated exactly once
+        self.assertEqual(len(re.findall(r"^>\s*\*\*My recommendation:", body, re.M)), 1,
+                         "the care recommendation must be exactly one dominant line")
+        for rung in ("**Quick check**", "**Standard review**", "**Thorough review**"):
+            self.assertEqual(body.count(rung), 1, f"the ladder rung {rung} must appear exactly once")
+        self.assertEqual(body.count("a focused subset of the independent reviews"), 1)
+        self.assertEqual(body.count("every independent review available"), 1)
+        # (c) the two anti-rubber-stamp clauses survive the condensing
+        self.assertIn("this whole surface collapses to just the Headline", body)  # fast-path collapse
+        self.assertIn("habituation never dulls the high-stakes consent", body)    # anti-habituation
+
+
+    def test_the_first_presentation_carries_its_decision_context(self):
+        # Node first-presentation-doctrine: a drafted plan's FIRST presentation carries its decision context
+        # whole, while the depth/approval stays a distinct, session-led stop reached only once the operator
+        # has closed every open question. Asserted against section 6's prose (what a test can inspect), with whitespace
+        # normalized so a phrase that wraps across source lines still matches.
+        runbook = os.path.join(ROOT, ".engine", "operations", "plan-orchestration.md")
+        text = open(runbook, encoding="utf-8").read()
+        def slab(start, end):
+            i = text.index(start)
+            return " ".join(text[i:text.index(end, i)].split())
+        # (a) the first showing carries the risk information, the open-questions-with-answers, the revise invite
+        show = slab("**Show the drafted plan with no ask attached.**", "**Then, once they are satisfied")
+        self.assertIn("PLAN.md", show)
+        self.assertIn("one-line care recommendation", show)
+        self.assertIn("every open question with the answer you propose", show)
+        self.assertIn("invite revisions", show)
+        self.assertIn("No depth menu rides along", show)  # the depth ask does NOT ride with the first showing
+        # (b) the depth ask is a distinct, led stop reached only once the operator has closed every open question
+        approval = slab("**Then, once they are satisfied, the approval.**", "**One cold review")
+        self.assertIn("only once the operator has closed every open question", approval)
+        self.assertIn("distinct, led step", approval)
+        self.assertIn("--operator-decided", approval)
+        self.assertIn("That one choice covers the plan's cold review and the Build's later one", approval)  # one-choice rule
+        # (c) the guard (the Notes failure-mode) forbids a context-free or questions-unanswered depth offer
+        notes = " ".join(text[text.index("## Notes"):].split())
+        self.assertIn("depth-approval menu with no plan context", notes)
+        self.assertIn("open questions still unanswered", notes)
+        self.assertIn("no invitation to revise", notes)
+        # (d) section 8 and the engine-start skill still name the typed start as the sole Build entry
+        s8 = slab("### 8. Know the seams", "## Done when")
+        self.assertIn("the Build begins only when they type the engine-start command", s8)
+        skill = open(os.path.join(ROOT, ".claude", "skills", "engine-start", "SKILL.md"), encoding="utf-8").read()
+        self.assertIn("the typed command is the only way in", skill)
+
+    def test_both_runbooks_name_the_template_care_recommendation_the_same_way(self):
+        # Obligation 3 (pln_1b11d30d4892): a TEST — not a cold read — pins that both runbooks reference the
+        # risk-assessment template's care recommendation the SAME way, and that neither leans on a template
+        # section the condense removed. Plan-orchestration section 6 and build-kickoff section 2 each name it
+        # with the one shared phrase "one-line care recommendation"; the template still carries all six H2
+        # sections (in order), and a scan of both runbooks rejects any "<Title> section" reference naming a
+        # heading the template no longer has.
+        orch = open(os.path.join(ROOT, ".engine", "operations", "plan-orchestration.md"), encoding="utf-8").read()
+        kickoff = open(os.path.join(ROOT, ".engine", "operations", "build-kickoff.md"), encoding="utf-8").read()
+        template = open(os.path.join(ROOT, ".engine", "templates", "risk-assessment.md"), encoding="utf-8").read()
+        # (a) both runbooks reference the care recommendation with the single shared phrasing
+        self.assertIn("one-line care recommendation", orch)
+        self.assertIn("one-line care recommendation", kickoff)
+        # (b) the template still holds every H2 section — in order — the runbooks' consent stop turns on
+        headings = re.findall(r"^##\s+(.*\S)\s*$", template, re.M)
+        self.assertEqual(
+            headings,
+            ["Headline", "What this touches", "What I'll run",
+             "How careful — your choice", "If this weakens a safety guardrail", "Your call"],
+        )
+        # (c) and NEITHER runbook names a template section the template no longer has. The runbooks reference
+        #     the template by content — today neither file uses the word "section" at all — so this scan is
+        #     silent now, but it fails the moment an edit points a runbook at a "<Title> section" whose name
+        #     is not one of the template's current headings. The optional quote/backtick brackets catch the
+        #     code-styled form (`Impact` section, "Impact" section) a runbook is most likely to reach for.
+        section_ref = re.compile(
+            r"(?:[Tt]he\s+)?[\x60\x22“’\x27]?"
+            r"([A-Z][\w’\x27—\- ]{1,45}?)"
+            r"[\x60\x22”’\x27]?\s+section\b")
+        for label, runbook in (("plan-orchestration", orch), ("build-kickoff", kickoff)):
+            for named in section_ref.findall(runbook):
+                self.assertIn(named.strip(), headings,
+                              "%s names template section %r, absent from the template" % (label, named.strip()))
 
 
 class TheFrontDoorDemoStillWalks(unittest.TestCase):
