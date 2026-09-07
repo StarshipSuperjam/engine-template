@@ -1,7 +1,7 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "title": "session-relay.v1 — the typed session-start envelope",
-  "description": "The whole envelope boot's session-start relay is built from. The platform never injects raw JSON — a validated envelope of this shape is rendered by the session_relay helper into a deterministic prose block. A fact may enter the envelope only under one of seven PUSH WARRANTS, and this schema's seven required top-level sections ARE that taxonomy: grounding_receipt (proof of grounding), identity (who/where this session is), authority_contract (the Explore write-gate contract shape), task_binding (verified-or-none, referencing session-binding.v1), action_forcing_alarms (the governance relays the session must surface — a stable code plus its must-relay text), standing_directives (bounded operator-facing routing), and pointers (closed-enumeration pointers to points of use). additionalProperties is false at every object level so an unrecognized field is a schema change, never silent growth. Every machine-derived string anywhere in this envelope (worktree/branch/PR names, pin text, slugs, paths, memory excerpts) is DATA: the renderer must treat it as inert text and never let it forge relay structure.",
+  "description": "The whole envelope boot's session-start relay is built from. The platform never injects raw JSON — a validated envelope of this shape is rendered by the session_relay helper into a deterministic prose block. A fact may enter the envelope only under one of seven PUSH WARRANTS, and this schema's seven required top-level sections ARE that taxonomy: grounding_receipt (proof of grounding), identity (who/where this session is), authority_contract (the Explore write-gate contract shape), task_binding (verified, or none — where a none result may still carry a bounded advisory that a previously-submitted Build is bound to this worktree — referencing session-binding.v1), action_forcing_alarms (the governance relays the session must surface — a stable code plus its must-relay text), standing_directives (bounded operator-facing routing), and pointers (closed-enumeration pointers to points of use). additionalProperties is false at every object level so an unrecognized field is a schema change, never silent growth. Every machine-derived string anywhere in this envelope (worktree/branch/PR names, pin text, slugs, paths, memory excerpts) is DATA: the renderer must treat it as inert text and never let it forge relay structure.",
   "type": "object",
   "additionalProperties": false,
   "required": [
@@ -109,7 +109,31 @@
           "type": "object",
           "additionalProperties": false,
           "required": ["state"],
-          "properties": {"state": {"const": "none"}}
+          "properties": {
+            "state": {"const": "none"},
+            "advisory": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": ["submission", "plan_selector"],
+              "description": "Optional advisory carried on a 'none' result when a previously-submitted Build (submission=='ready') is bound to this worktree. Such a Build has NO verified binding — its session-binding locator is always revision-stale — so it surfaces under state=none rather than state=verified. The advisory presents it honestly: previously submitted (never proof of finished or merged, since submission survives a plan revision that clears completed work), its coordinator status may be stale, and the new-versus-resume decision governs. It is bounded to the allowlisted fields below so no other snapshot content can leak into the universally-read relay. A 'none' result WITHOUT this field renders exactly as before.",
+              "properties": {
+                "submission": {
+                  "enum": ["ready"],
+                  "description": "The submission state that produced the advisory. Only a previously-submitted (ready) Build yields one; admitting another submission state here is a deliberate schema change, not free text."
+                },
+                "pr_ref": {
+                  "type": "string",
+                  "minLength": 1,
+                  "description": "Optional pull-request reference for the previously-submitted Build. Machine-derived; the renderer treats it as inert text."
+                },
+                "plan_selector": {
+                  "type": "string",
+                  "pattern": "^[a-z0-9][a-z0-9-]*--[0-9a-f]{6}$",
+                  "description": "The stale Build's plan SLUG, sourced from the snapshot's own plan identity (never the expired locator's echoed value), used to cite a runnable `state supersede --plan <selector>` remedy. Pinned to plan_store's slug grammar — whose charset [a-z0-9-] is a strict subset of what the renderer's _inert() never rewrites (no whitespace, no control character, and no fence marker, each of which needs a space or backtick, can occur) — so the printed command stays byte-for-byte runnable and a mismatched or hostile selector is rejected here rather than reformatted."
+                }
+              }
+            }
+          }
         },
         {
           "type": "object",
@@ -146,7 +170,7 @@
           }
         }
       ],
-      "description": "Either 'none' (no verified binding) or a 'verified' state carrying binding evidence shaped like session-binding.v1. See session-binding.v1.json for the authoritative evidence documentation."
+      "description": "Either 'none' (no verified binding) — optionally carrying an advisory that a previously-submitted Build (submission=='ready') is bound to this worktree, presented honestly rather than as live work — or a 'verified' state carrying binding evidence shaped like session-binding.v1. See session-binding.v1.json for the authoritative evidence documentation."
     },
 
     "action_forcing_alarms": {
