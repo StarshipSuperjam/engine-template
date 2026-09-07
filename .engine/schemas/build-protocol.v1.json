@@ -1,25 +1,257 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "title": "build-protocol.v1 — current runtime Build mechanics",
-  "type": "object", "additionalProperties": false,
-  "required": ["schema_version", "deliverable_review", "validation_commands", "preflights", "hard_holds", "review_consumers"],
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_version",
+    "deliverable_review",
+    "validation_commands",
+    "preflights",
+    "hard_holds",
+    "phase_runbooks",
+    "review_consumers"
+  ],
   "properties": {
-    "schema_version": {"const": "build-protocol.v1"},
-    "deliverable_review": {"$ref": "#/$defs/depths"},
+    "schema_version": {
+      "const": "build-protocol.v1"
+    },
+    "deliverable_review": {
+      "$ref": "#/$defs/depths"
+    },
     "validation_commands": {
       "description": "The split evidence model. `candidate` commands run locally during the build loop — the structural suite and the affected-selection self-test run; the only substitution tokens a command may carry are {merge_base} and {run_record_path}, both coordinator-owned, and a brace may appear ONLY as one of those two whole tokens — embedded or compound brace tokens are rejected too, so a placeholder can never be invented in the registry and silently substituted (or half-substituted) downstream. `final` is not a command at all: it names the CI proof the coordinator IMPORTS — the required context, the workflow file the platform must report as the run's source, the receipt artifact, and the age bound — because the full-inventory merge proof is the engine-ci run, never a local execution. Duplicate candidate ids are refused by the registry's own test, since this schema cannot express cross-item uniqueness.",
-      "type": "object", "additionalProperties": false, "required": ["candidate", "final"],
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "candidate",
+        "final"
+      ],
       "properties": {
-        "candidate": {"type": "array", "minItems": 1, "items": {"type": "object", "additionalProperties": false, "required": ["id", "label", "command"], "properties": {"id": {"type": "string", "minLength": 1}, "label": {"type": "string", "minLength": 1}, "command": {"type": "array", "minItems": 1, "items": {"type": "string", "minLength": 1, "pattern": "^(\\{(merge_base|run_record_path)\\}|[^{]+)$"}}}}},
-        "final": {"type": "object", "additionalProperties": false, "required": ["mode", "context", "workflow", "receipt_artifact", "max_age_days"], "properties": {"mode": {"const": "ci-import"}, "context": {"type": "string", "minLength": 1}, "workflow": {"type": "string", "minLength": 1}, "receipt_artifact": {"type": "string", "minLength": 1}, "max_age_days": {"type": "integer", "minimum": 1}}}
+        "candidate": {
+          "type": "array",
+          "minItems": 1,
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "id",
+              "label",
+              "command"
+            ],
+            "properties": {
+              "id": {
+                "type": "string",
+                "minLength": 1
+              },
+              "label": {
+                "type": "string",
+                "minLength": 1
+              },
+              "command": {
+                "type": "array",
+                "minItems": 1,
+                "items": {
+                  "type": "string",
+                  "minLength": 1,
+                  "pattern": "^(\\{(merge_base|run_record_path)\\}|[^{]+)$"
+                }
+              }
+            }
+          }
+        },
+        "final": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "mode",
+            "context",
+            "workflow",
+            "receipt_artifact",
+            "max_age_days"
+          ],
+          "properties": {
+            "mode": {
+              "const": "ci-import"
+            },
+            "context": {
+              "type": "string",
+              "minLength": 1
+            },
+            "workflow": {
+              "type": "string",
+              "minLength": 1
+            },
+            "receipt_artifact": {
+              "type": "string",
+              "minLength": 1
+            },
+            "max_age_days": {
+              "type": "integer",
+              "minimum": 1
+            }
+          }
+        }
       }
     },
-    "preflights": {"type": "array", "items": {"type": "object", "additionalProperties": false, "required": ["id", "command", "required"], "properties": {"id": {"type": "string", "minLength": 1}, "command": {"type": "array", "items": {"type": "string"}}, "required": {"type": "boolean"}}}},
-    "hard_holds": {"type": "array", "minItems": 1, "items": {"type": "object", "additionalProperties": false, "required": ["id", "prevents"], "properties": {"id": {"type": "string", "minLength": 1}, "prevents": {"type": "string", "minLength": 1}}}},
-    "review_consumers": {"type": "array", "minItems": 1, "description": "Which Build stage consumes which review roster; the lens lists live once (deliverable_review here, the plan-review roster with the Project Manager), so a stage can never list a review its roster does not carry.", "items": {"type": "object", "additionalProperties": false, "required": ["stage", "roster"], "properties": {"stage": {"type": "string", "minLength": 1}, "roster": {"type": "string", "enum": ["plan-review", "deliverable-review"]}}}}
+    "preflights": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "id",
+          "command",
+          "required"
+        ],
+        "properties": {
+          "id": {
+            "type": "string",
+            "minLength": 1
+          },
+          "command": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "required": {
+            "type": "boolean"
+          }
+        }
+      }
+    },
+    "hard_holds": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "id",
+          "prevents"
+        ],
+        "properties": {
+          "id": {
+            "type": "string",
+            "minLength": 1
+          },
+          "prevents": {
+            "type": "string",
+            "minLength": 1
+          }
+        }
+      }
+    },
+    "phase_runbooks": {
+      "type": "object",
+      "description": "One runbook per coordinator phase: the file under .engine/operations the session reads now, as `status` and every transition verb name it. Several phases may share a runbook; every phase the coordinator derives must be a key.",
+      "additionalProperties": false,
+      "required": [
+        "planning",
+        "implementation",
+        "engineering-decision",
+        "finding-disposition",
+        "deliverable-review",
+        "repair-assessment",
+        "final-validation",
+        "submission-preflight",
+        "ready"
+      ],
+      "properties": {
+        "planning": {
+          "type": "string",
+          "pattern": "^build-[a-z-]+\\.md$"
+        },
+        "implementation": {
+          "type": "string",
+          "pattern": "^build-[a-z-]+\\.md$"
+        },
+        "engineering-decision": {
+          "type": "string",
+          "pattern": "^build-[a-z-]+\\.md$"
+        },
+        "finding-disposition": {
+          "type": "string",
+          "pattern": "^build-[a-z-]+\\.md$"
+        },
+        "deliverable-review": {
+          "type": "string",
+          "pattern": "^build-[a-z-]+\\.md$"
+        },
+        "repair-assessment": {
+          "type": "string",
+          "pattern": "^build-[a-z-]+\\.md$"
+        },
+        "final-validation": {
+          "type": "string",
+          "pattern": "^build-[a-z-]+\\.md$"
+        },
+        "submission-preflight": {
+          "type": "string",
+          "pattern": "^build-[a-z-]+\\.md$"
+        },
+        "ready": {
+          "type": "string",
+          "pattern": "^build-[a-z-]+\\.md$"
+        }
+      }
+    },
+    "review_consumers": {
+      "type": "array",
+      "minItems": 1,
+      "description": "Which Build stage consumes which review roster; the lens lists live once (deliverable_review here, the plan-review roster with the Project Manager), so a stage can never list a review its roster does not carry.",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "stage",
+          "roster"
+        ],
+        "properties": {
+          "stage": {
+            "type": "string",
+            "minLength": 1
+          },
+          "roster": {
+            "type": "string",
+            "enum": [
+              "plan-review",
+              "deliverable-review"
+            ]
+          }
+        }
+      }
+    }
   },
   "$defs": {
-    "depths": {"type": "object", "additionalProperties": false, "required": ["quick", "standard", "thorough"], "properties": {"quick": {"$ref": "#/$defs/lenses"}, "standard": {"$ref": "#/$defs/lenses"}, "thorough": {"$ref": "#/$defs/lenses"}}},
-    "lenses": {"type": "array", "uniqueItems": true, "items": {"type": "string", "minLength": 1}}
+    "depths": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "quick",
+        "standard",
+        "thorough"
+      ],
+      "properties": {
+        "quick": {
+          "$ref": "#/$defs/lenses"
+        },
+        "standard": {
+          "$ref": "#/$defs/lenses"
+        },
+        "thorough": {
+          "$ref": "#/$defs/lenses"
+        }
+      }
+    },
+    "lenses": {
+      "type": "array",
+      "uniqueItems": true,
+      "items": {
+        "type": "string",
+        "minLength": 1
+      }
+    }
   }
 }

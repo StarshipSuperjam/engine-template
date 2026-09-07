@@ -23,7 +23,7 @@ report at every cut.
    `RELEASE_PAT` secret armed (`gh secret list`; listing secrets needs repo admin — if it is refused, just
    proceed: an unarmed repo stops safely at the workflow's first step with plain recovery — nothing
    changes). Working in an engine-mechanic whose owned product is released elsewhere? Resolve the product
-   checkout and slug per `build-orchestration.md`'s owned-product arm (`mechanic_build.py preflight`),
+   checkout and slug per [Owned-product Build](owned-product-build.md) (`mechanic_build.py preflight`),
    then run every step below against that repo — the preview in its checkout, `gh --repo` pinned to the
    verified slug.
 2. **Preview — read-only, before anything runs.** From the repo root:

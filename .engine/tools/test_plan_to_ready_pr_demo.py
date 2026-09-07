@@ -71,10 +71,11 @@ class TheOperatorFacingSurfacesDescribeDepthByLenses(unittest.TestCase):
         self.assertEqual(hits, [])
 
     def test_the_instructions_that_survive_are_still_there(self):
-        orchestration = open(os.path.join(ROOT, ".engine", "operations", "build-orchestration.md"),
-                             encoding="utf-8").read()
-        self.assertIn("--code-execution none|discarded-copy|in-place", orchestration)
-        self.assertIn("review packet --stage deliverable", orchestration)
+        # The review commands live in the phase runbook the spine names for that phase, not in the spine.
+        review = open(os.path.join(ROOT, ".engine", "operations", "build-validation-and-review.md"),
+                      encoding="utf-8").read()
+        self.assertIn("--code-execution none|discarded-copy|in-place", review)
+        self.assertIn("review packet --stage deliverable", review)
         routing = open(os.path.join(ROOT, ".engine", "policies", "model-routing.md"), encoding="utf-8").read()
         self.assertIn("tools/agent_bindings.py render", routing)
         self.assertIn("not yet supported", routing)

@@ -826,7 +826,7 @@ def render_mechanic_sprawl_note(sprawl: dict | None) -> str:
             "operator cleanup; NEVER delete unprompted — a stray may hold unpushed work (check `git -C <path> log "
             "--branches --not --remotes`, and whether its pull request already merged, FIRST). Their paths and idle "
             "days are on the operator's status dashboard (tell them they can see it with `/engine-status`); the "
-            "remove/prune steps are in the build-sprawl arm of `.engine/operations/build-orchestration.md`.")
+            "remove/prune steps are in `.engine/operations/owned-product-build.md`.")
 
 
 def render_mechanic_grounding(mech: dict | None, *, first_run_pending: bool = False) -> str:
@@ -866,8 +866,8 @@ def render_mechanic_grounding(mech: dict | None, *, first_run_pending: bool = Fa
                 "peer session may be using, so do NOT build in it, switch its branch (that breaks peers), or "
                 "clone a sibling. Run `mechanic_build.py worktree <name>` here (fail-closed) and build in the "
                 "emitted `ENGINE_PRODUCT_WORKTREE`; this tree is a worktree of the MECHANIC, not the product, so "
-                "no build here. Open a DIRECT pull request into the product (owned-product arm of "
-                "`.engine/operations/build-orchestration.md`). The merge gate is the operator's OWN — the same "
+                "no build here. Open a DIRECT pull request into the product (per "
+                "`.engine/operations/owned-product-build.md`). The merge gate is the operator's OWN — the same "
                 "human, not an independent reviewer — NON-REFLEXIVITY: upgrade only to human-approved RELEASED "
                 "output, never an unmerged branch.")
     if state not in ("path-unset", "path-unreachable"):
@@ -884,8 +884,7 @@ def render_mechanic_grounding(mech: dict | None, *, first_run_pending: bool = Fa
             "record it in `.engine/mechanic/product-checkout-path` (durable and gitignored — an environment "
             "variable would not survive the session) on their consent, never a boot-time write; pass a "
             "`~`-relative path through as given, the reader expands it. Do not attempt a mechanic build until "
-            "the checkout resolves; the owned-product arm of `.engine/operations/build-orchestration.md` is the "
-            "runbook once it does.")
+            "the checkout resolves; `.engine/operations/owned-product-build.md` is the runbook once it does.")
 
 
 def render_neighborhood(nb: dict | None, max_groups: int | None = None) -> list:
@@ -2532,7 +2531,7 @@ def render_dashboard(s: dict) -> str:
     # that matter); and surfaces the intent-exit invitation. A RETIRED finding (the operator said "I meant to keep
     # this") renders NOTHING — the retire/collapse decision is HOOK-SIDE (_relay_lines), so the pure status-verb
     # path (no ledger) shows the full offer (fail-toward-showing). boot OFFERS only; on consent the removal lands
-    # as a reviewed pull request the operator merges (build-orchestration's trivial fast path), never a delete here.
+    # as a reviewed pull request the operator merges (build-kickoff's trivial profile), never a delete here.
     fl = s.get("foreign_license")
     if fl and fl.get("present") and not fl.get("retired"):
         if fl.get("pr_open"):
