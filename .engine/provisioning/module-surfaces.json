@@ -2322,6 +2322,9 @@
   ".engine/tools/test_codex_settings.py": [
    "core"
   ],
+  ".engine/tools/test_codex_trust_surfaces.py": [
+   "core"
+  ],
   ".engine/tools/test_conduct.py": [
    "core"
   ],

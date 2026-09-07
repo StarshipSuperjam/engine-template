@@ -5211,7 +5211,7 @@
       },
       "slug": "ci-assurance",
       "source": {
-        "fingerprint": "sha256:3e87cdcd758f6a24b13cd822de388a24849c5ae2de7168ff4af84822f1fc980c",
+        "fingerprint": "sha256:5adcfcedc69d6661b0d8be856f1a525d2c159a59e132094cde34a67b07206645",
         "path": ".engine/docs/ci-assurance.md"
       },
       "status": "active",
@@ -5963,7 +5963,7 @@
       },
       "slug": "codex-settings",
       "source": {
-        "fingerprint": "sha256:e8eb02fa95c8401f695be9d3f3c3a905f59c9e8d8ebe2e7fa9cbc79ffabf04d3",
+        "fingerprint": "sha256:efa49438d5eda2dfe3d1e326a3110fdf6cf13725b12b297e048c6cf5a15056bc",
         "path": ".engine/operations/codex-settings.md"
       },
       "status": "active",
@@ -5983,7 +5983,7 @@
       },
       "slug": "codex-validation",
       "source": {
-        "fingerprint": "sha256:e90106879d15529a17480172353345c32cfca75ca6cda88fb6b799d973c1d907",
+        "fingerprint": "sha256:65270862eb670cc834014f4c9e46b844dff8cd3fa15784c6f5ea22fc503e2273",
         "path": ".engine/operations/codex-validation.md"
       },
       "status": "active",
@@ -9411,7 +9411,7 @@
       },
       "slug": "boot",
       "source": {
-        "fingerprint": "sha256:e2d3de9809c13cb891ef31c84d9868bac632278e5546b875162e367fd130496c",
+        "fingerprint": "sha256:9d005b26d2a98bfe43e3761dc49acaa40fec1fd55f2e3aa30aa6d09613dfc776",
         "path": ".engine/tools/boot.py"
       },
       "status": "active",
@@ -12691,7 +12691,7 @@
       },
       "slug": "instantiator",
       "source": {
-        "fingerprint": "sha256:68ac33619d0c17a599b6f482cfc5caaa12125f0f9ae7bc4d05a3bc9fc4d7cbc7",
+        "fingerprint": "sha256:8b0ee12bf9ada3d3a5d0a89f0f676f1e8a580865346e87f0ee81fde76bc4a759",
         "path": ".engine/tools/instantiator.py"
       },
       "status": "active",
@@ -13681,7 +13681,7 @@
       },
       "slug": "module_manager",
       "source": {
-        "fingerprint": "sha256:70a5d0d1fc268f37681048fd076c1756f36197c0e42c78e525ea0e4337752ccc",
+        "fingerprint": "sha256:e4dedd161481d07070eaab37f978fcc91cb7a6b37ad9f2f8692a8e1dc21617a2",
         "path": ".engine/tools/module_manager.py"
       },
       "status": "active",
@@ -16095,7 +16095,7 @@
       },
       "slug": "test_boot",
       "source": {
-        "fingerprint": "sha256:023faada30788b6df7febc7b9f7c3312e172f9993a0e58d38cd13c051ea15cbc",
+        "fingerprint": "sha256:6285c4de2f42359e3626961c1d034444081b37d3a5f895099197252c01e0924f",
         "path": ".engine/tools/test_boot.py"
       },
       "status": "active",
@@ -16817,6 +16817,32 @@
       },
       "status": "active",
       "summary": "Acceptance pins for the complete, canonical Codex settings audit.",
+      "type": "tool"
+    },
+    {
+      "entrypoint": "test",
+      "guarded": false,
+      "id": "tool:test_codex_trust_surfaces",
+      "name": ".engine/tools/test_codex_trust_surfaces.py",
+      "owner": "core",
+      "predicates": {
+        "provided_by": [
+          "module:core"
+        ],
+        "tests": [
+          "tool:boot",
+          "tool:instantiator",
+          "tool:validate",
+          "tool:wiring"
+        ]
+      },
+      "slug": "test_codex_trust_surfaces",
+      "source": {
+        "fingerprint": "sha256:b165d85b4c81e3258460dd25c98e128a1e2fd8c166cc7215c21a3a979eae5f75",
+        "path": ".engine/tools/test_codex_trust_surfaces.py"
+      },
+      "status": "active",
+      "summary": "One rule across every operator-facing surface that tells the operator how to trust the engine's Codex",
       "type": "tool"
     },
     {
@@ -17770,7 +17796,7 @@
       },
       "slug": "test_instantiator",
       "source": {
-        "fingerprint": "sha256:acb61210fabbf8e3a4dae9f0fa4bb69ddebe83b7c9a01b27ae5067cb2e596e83",
+        "fingerprint": "sha256:c789c22404e3436271b1a5023cdf3d8d1097d2374c2bc5a6d90811aa39e9fd80",
         "path": ".engine/tools/test_instantiator.py"
       },
       "status": "active",
@@ -18627,7 +18653,7 @@
       },
       "slug": "test_module_manager",
       "source": {
-        "fingerprint": "sha256:ffa611357cfc03bc0577bd5155d69ea066fc4bf223ccf622e70461bba2e0fc58",
+        "fingerprint": "sha256:3c165b6c01b28782ce4c058838a881f7f337cc5b16a1b706de5dc8bda47ccca7",
         "path": ".engine/tools/test_module_manager.py"
       },
       "status": "active",
@@ -21253,7 +21279,7 @@
       },
       "slug": "test_wiring",
       "source": {
-        "fingerprint": "sha256:4b9b2154669aa26ae3f7b86ded2de634e2620bdcb731ca3d374b029ee081d237",
+        "fingerprint": "sha256:60ce0096f7e60e78b8324e6291d66e8d5ea558cca7107af8d26d4ea21eba8008",
         "path": ".engine/tools/test_wiring.py"
       },
       "status": "active",
@@ -21688,7 +21714,7 @@
       },
       "slug": "wiring",
       "source": {
-        "fingerprint": "sha256:28bbc70ab7200868d0c83a557b7af9a23da978040465d2868b62808df158d406",
+        "fingerprint": "sha256:c695cbe46d989d22c35f5bf7429dd83e65b8613d2ec395fcd50f7448d08d61e7",
         "path": ".engine/tools/wiring.py"
       },
       "status": "active",
