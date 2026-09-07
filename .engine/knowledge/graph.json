@@ -5211,7 +5211,7 @@
       },
       "slug": "ci-assurance",
       "source": {
-        "fingerprint": "sha256:42063b35bea24f2b5b2d8e0971b90d1779c7a59bf0c94bf9fb6a3c61a4a94696",
+        "fingerprint": "sha256:032f509c497a2b778b27921dd91aa3b38f4df4b3db78017af466ebf7d99e48bb",
         "path": ".engine/docs/ci-assurance.md"
       },
       "status": "active",
@@ -16855,14 +16855,13 @@
         ],
         "tests": [
           "tool:boot",
-          "tool:instantiator",
           "tool:validate",
           "tool:wiring"
         ]
       },
       "slug": "test_codex_trust_surfaces",
       "source": {
-        "fingerprint": "sha256:b165d85b4c81e3258460dd25c98e128a1e2fd8c166cc7215c21a3a979eae5f75",
+        "fingerprint": "sha256:78963a5284d997b18c71b869e9bf78724a6c6e29d40d03f5e0ecb0cbdcc84508",
         "path": ".engine/tools/test_codex_trust_surfaces.py"
       },
       "status": "active",
@@ -17820,7 +17819,7 @@
       },
       "slug": "test_instantiator",
       "source": {
-        "fingerprint": "sha256:c789c22404e3436271b1a5023cdf3d8d1097d2374c2bc5a6d90811aa39e9fd80",
+        "fingerprint": "sha256:3a5fa3bbf5049339e8957bcf5031cae57ba0a7737da36e8e9b7356ba629492b7",
         "path": ".engine/tools/test_instantiator.py"
       },
       "status": "active",
