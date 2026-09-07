@@ -239,11 +239,13 @@ def supersede(library: plan_store.PlanLibrary, slug: str, *, reason: str) -> Pat
     plan may start. Never silent.
 
     This is deliberately NOT the resume path — a genuine continuation keeps its worktree and
-    re-verifies the binding in place, and never comes here — and it is not needed to start a Build
-    of some OTHER plan, or of this plan in a different worktree; those just bind fresh. It clears
-    the one snapshot bound to this worktree so its slot is free again. Once cleared, the binding no
-    longer answers `bound_snapshots` for that worktree (the live snapshot is gone), so a resuming
-    session sees no live work there. Superseding neither completes the plan nor touches the PR.
+    re-verifies the binding in place, and never comes here. Nor is it needed to start a Build of some
+    OTHER plan: each plan gets its own snapshot, so a different plan just binds fresh. But this plan
+    cannot bind fresh in a different worktree — snapshots are keyed by plan, not worktree, so while this
+    snapshot exists a re-bind of the same plan is refused. Superseding clears that one snapshot so its
+    slot is free again. Once cleared, the plan no longer answers `bound_snapshots` (the live snapshot is
+    gone), so a resuming session sees no live work for it. Superseding neither completes the plan nor
+    touches the PR.
 
     The displaced snapshot is MOVED, not removed: it becomes `superseded-<revision>.json` beside the
     new one, byte-for-byte as it stood, with the reason recorded in a sibling `.reason.json`. An
