@@ -1582,12 +1582,16 @@ class TestMcpAvailabilitySurfacing(unittest.TestCase):
         self.assertIn("mcp__engine_memory.health", note)
         self.assertIn("engine knowledge graph health", note)
         self.assertIn("mcp__engine_knowledge_graph.health", note)
-        self.assertIn("MCP payload decodes exactly", note)
-        self.assertIn('{"status":"ok","server":"engine-memory"}', note)
-        self.assertIn('{"status":"ok","server":"engine-knowledge-graph"}', note)
+        # Memory now carries a content-free `diagnostics` object beside status/server, so its clause matches
+        # on those two fields and ignores extra keys; knowledge graph stays an exact-payload match.
+        self.assertNotIn("engine-memory\"}", note)                   # no exact-equality demand on memory
+        self.assertIn('`server` is `"engine-memory"`', note)
+        self.assertIn("ignore every key beyond those", note)          # diagnostics tolerated, not trusted
+        self.assertIn("readiness fields you neither trust nor relay", note)
+        self.assertIn('{"status":"ok","server":"engine-knowledge-graph"}', note)   # KG stays exact
         self.assertIn("accept only exact", note.lower())             # a look-alike cannot satisfy discovery
         self.assertIn("Memory passes only if its MCP payload", note)
-        self.assertIn("knowledge graph passes only if its payload", note)
+        self.assertIn("knowledge graph passes only if its payload is exactly", note)
         self.assertIn("Otherwise fail that helper", note)            # a swapped server identity cannot pass
 
     def test_codex_probe_is_bounded_untrusted_and_ordered_discovery_then_call(self):

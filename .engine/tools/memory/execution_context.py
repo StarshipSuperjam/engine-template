@@ -851,9 +851,17 @@ def _refreshed_context(context: ExecutionContext, operation_id: str | None = Non
     return refreshed
 
 
+#: The operations that OWN a renewable root context: the long-lived accepted memory server, and the
+#: short-lived accepted write-dispatch child. Both are composite roots whose transitive boundary reaches the
+#: canonical write entries, and both must be able to narrow to one child operation and re-observe disk under
+#: the held store lock (C4 node-1 generalizes what was a single memory-server special case; a dispatched write
+#: now gets the same per-operation refresh and post-commit reseal the server has always had).
+RENEWABLE_ROOT = frozenset({"attended-memory-mcp", "attended-write-dispatch"})
+
+
 def refresh_for_operation(context: ExecutionContext, operation_id: str) -> ExecutionContext:
     """Create one exact request context for the accepted memory server under its held store lock."""
-    if context["operation"]["registry_id"] != "attended-memory-mcp":
+    if context["operation"]["registry_id"] not in RENEWABLE_ROOT:
         raise ContextError("per-request operation refresh is only available to the accepted memory server")
     return _refreshed_context(context, operation_id)
 
@@ -877,7 +885,7 @@ def reseal_for_stale_state(context: ExecutionContext) -> ExecutionContext:
 def refresh_current_context(context: ExecutionContext) -> ExecutionContext:
     """Advance the long-lived memory server's root context after one successful request."""
     global _CURRENT_CONTEXT
-    if context["operation"]["registry_id"] != "attended-memory-mcp":
+    if context["operation"]["registry_id"] not in RENEWABLE_ROOT:
         raise ContextError("only the accepted memory server has a renewable root context")
     refreshed = _refreshed_context(context)
     _CURRENT_CONTEXT = refreshed
@@ -904,7 +912,6 @@ _READ_REASONS = frozenset({
     "ArtifactUnreadable", "ContextError", _READ_REASON_ABSENT, _READ_REASON_UNKNOWN,
 })
 _MOVED_CLASSES = (ActivationStale, AcceptedTreeStale)
-_ROOT_REFRESH_REGISTRY_ID = "attended-memory-mcp"
 
 
 class ReadBinding:
@@ -1019,7 +1026,7 @@ def refresh_root_for_read(context: ExecutionContext) -> ExecutionContext:
     global _CURRENT_CONTEXT
     if not isinstance(context, ExecutionContext):
         raise ContextError("execution context has an unsupported runtime type")
-    if context["operation"]["registry_id"] != _ROOT_REFRESH_REGISTRY_ID:
+    if context["operation"]["registry_id"] not in RENEWABLE_ROOT:
         raise ContextError("only the accepted memory server has a read-side root refresh")
     with _CONTEXT_LOCK:
         if _CURRENT_CONTEXT is not None:
@@ -1077,7 +1084,7 @@ def read_binding() -> ReadBinding:
     try:
         revalidate_context(context)
     except ExpectedStateStale:
-        if cached is None and context["operation"]["registry_id"] == _ROOT_REFRESH_REGISTRY_ID:
+        if cached is None and context["operation"]["registry_id"] in RENEWABLE_ROOT:
             try:
                 healed = refresh_root_for_read(context)
             except ExpectedStateStale:

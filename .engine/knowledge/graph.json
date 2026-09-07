@@ -9050,7 +9050,7 @@
       },
       "slug": "accepted_hook_dispatch",
       "source": {
-        "fingerprint": "sha256:090b32e897c524e0b47ddf94f5afe4821a7ae1c0fadd5728fe5598474fb80268",
+        "fingerprint": "sha256:536eae557218e9d028e330916ade28cc53013977a63c703bb38a47b4c5982b9b",
         "path": ".engine/tools/accepted_hook_dispatch.py"
       },
       "status": "active",
@@ -9411,7 +9411,7 @@
       },
       "slug": "boot",
       "source": {
-        "fingerprint": "sha256:e2d3de9809c13cb891ef31c84d9868bac632278e5546b875162e367fd130496c",
+        "fingerprint": "sha256:d2c39ff638a42a6d4640f2c38d4c637463f5f7a4b96aec7f8f1f20b18b10332a",
         "path": ".engine/tools/boot.py"
       },
       "status": "active",
@@ -12304,7 +12304,7 @@
       },
       "slug": "execution_context",
       "source": {
-        "fingerprint": "sha256:f929b8a74c47e2b69785bf3816f85f9e1b02c789649f0a3c50fa30c08c29ea62",
+        "fingerprint": "sha256:0c638b8096e7f9c0dfa705c9690c00b1082689d4afe308f2fb009f515a39c6f8",
         "path": ".engine/tools/memory/execution_context.py"
       },
       "status": "active",
@@ -12627,7 +12627,7 @@
       },
       "slug": "hooks_path_health",
       "source": {
-        "fingerprint": "sha256:79fc83f354d99f02cf52dd6f35d46fd1a7b3b1dbff67cf6f594d7322cb4708d4",
+        "fingerprint": "sha256:429f2184e8cfd6a74e322536d2a30947593b4d7517a8e39910b797ed32c28e09",
         "path": ".engine/tools/hooks_path_health.py"
       },
       "status": "active",
@@ -13790,6 +13790,7 @@
       "owner": "memory-substrate-sqlite-fts5",
       "predicates": {
         "imports": [
+          "tool:accepted_hook_dispatch",
           "tool:execution_context",
           "tool:mutation_contract",
           "tool:refusals"
@@ -13800,7 +13801,7 @@
       },
       "slug": "mutation_authority",
       "source": {
-        "fingerprint": "sha256:38ad94b97742722a02fe823caca8a00882fcd7cd00da0cb8f859b5b9cc5ca17d",
+        "fingerprint": "sha256:6fde25d90335071404f56b71601f50c03faf8f37ddb74a98cabd96869ab40960",
         "path": ".engine/tools/memory/mutation_authority.py"
       },
       "status": "active",
@@ -13820,7 +13821,7 @@
       },
       "slug": "mutation_contract",
       "source": {
-        "fingerprint": "sha256:2b43aa8f3c6a3e13e6ab8895c6b89b27baebe543194b4ca74f8642fd990e81e3",
+        "fingerprint": "sha256:e0461c74d9ea820562bd4577e18f06c640201a4ec306a17213547ce46ce60b9d",
         "path": ".engine/tools/memory/mutation_contract.py"
       },
       "status": "active",
@@ -16120,7 +16121,7 @@
       },
       "slug": "test_boot",
       "source": {
-        "fingerprint": "sha256:023faada30788b6df7febc7b9f7c3312e172f9993a0e58d38cd13c051ea15cbc",
+        "fingerprint": "sha256:55e67a6656e1bee59ea12a7881703d012ec7b6060291a5da21b8288c5f4fc9ea",
         "path": ".engine/tools/test_boot.py"
       },
       "status": "active",
@@ -17688,7 +17689,7 @@
       },
       "slug": "test_hooks",
       "source": {
-        "fingerprint": "sha256:d573332c21baacb1e769641356ae464630e2942e0e5fbc06fa72a9e487e592a3",
+        "fingerprint": "sha256:f3241095635ddf506a109bc19024f0bb738412fb3d90a66b2f5f38fc4a27a1b9",
         "path": ".engine/tools/test_hooks.py"
       },
       "status": "active",
@@ -18460,7 +18461,7 @@
       },
       "slug": "test_mcp_server",
       "source": {
-        "fingerprint": "sha256:0ac9b148212ca144fe8c6c32d7e75fab22c856834f811bb59f9dee248bbaa094",
+        "fingerprint": "sha256:1ffcdb673f1f4eaae5db9990121aa0259bb9c139c6d910390b0e7ece96b1bf6f",
         "path": ".engine/tools/memory/test_mcp_server.py"
       },
       "status": "active",
@@ -18750,6 +18751,7 @@
           "module:memory-substrate-sqlite-fts5"
         ],
         "tests": [
+          "tool:accepted_hook_dispatch",
           "tool:backup_vault",
           "tool:candidate_invocation",
           "tool:capture",
@@ -18772,7 +18774,7 @@
       },
       "slug": "test_mutation_authority",
       "source": {
-        "fingerprint": "sha256:9755e68a435696eb8458a5b50105206470878feee7f5f572a2a5aa7c860468a4",
+        "fingerprint": "sha256:2732266833ec7d2ef0fa04c52d73ec607a485d6b175a65615152b42e87b19a39",
         "path": ".engine/tools/memory/test_mutation_authority.py"
       },
       "status": "active",

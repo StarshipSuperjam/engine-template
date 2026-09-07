@@ -41,6 +41,7 @@ import json
 import os
 import re
 import shutil
+import stat
 import subprocess
 import sys
 import tempfile
@@ -1218,7 +1219,7 @@ class _AcceptedDispatchRepo:
         self._put(".engine/tools/boot.py", "raise SystemExit(0)\n")
         self._put(".engine/tools/memory/__init__.py", "")
         for name in ("execution_context.py", "mutation_contract.py", "mutation_authority.py",
-                     "candidate_invocation.py", "qualification_health.py"):
+                     "candidate_invocation.py", "qualification_health.py", "write_dispatch.py"):
             self._put(f".engine/tools/memory/{name}",
                       (_ACCEPTED_TOOLS / "memory" / name).read_text(encoding="utf-8"))
         for name in ("compact.py", "erasure_observer.py", "backup_vault.py"):
@@ -2373,6 +2374,221 @@ class TestInventoryDriftCheckers(unittest.TestCase):
         self.assertEqual([f for f in claude_only if "over-reports" in f],
                          ["the inventory names modes on UserPromptSubmit, but no engine command mapped to modes "
                           "is bound there in any runtime — the row over-reports"])
+
+
+class TestReachability(unittest.TestCase):
+    """Node-1 default-branch reachability (activation-reachability-and-tree-binding): the sibling mark's
+    reader/recorder and its precedence, plus the network measurement that maps a GitHub compare status to a
+    state. The launcher's place-(b) write hold is exercised end-to-end in TestWriteDispatchReachabilityHold."""
+
+    def setUp(self):
+        import accepted_hook_dispatch
+        self.d = accepted_hook_dispatch
+        self.tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(self.tmp.cleanup)
+        self.root = self.tmp.name
+        _accepted_call("git", "init", "-b", "main", self.root)
+        self.act = {"repository": "owner/project", "commit": "a" * 40, "epoch": 2,
+                    "source": "reviewed-merge"}
+
+    # --- reader / recorder / precedence ---------------------------------------------------------------
+    def test_absent_mark_reads_not_lost(self):
+        self.assertIsNone(self.d.reachability_state(self.root, self.act))
+        self.assertFalse(self.d._reachability_lost(self.root, self.act))
+
+    def test_record_lost_then_reachable_clears_the_mark(self):
+        self.d._record_reachability(self.root, self.act, "lost")
+        self.assertEqual(self.d.reachability_state(self.root, self.act), "lost")
+        self.assertTrue(self.d._reachability_lost(self.root, self.act))
+        self.d._record_reachability(self.root, self.act, "reachable")
+        self.assertIsNone(self.d.reachability_state(self.root, self.act))
+        self.assertFalse(os.path.exists(self.d._reachability_path(self.root)))
+
+    def test_unconfirmed_never_holds_and_never_undoes_a_confirmed_loss(self):
+        self.d._record_reachability(self.root, self.act, "unconfirmed")
+        self.assertIsNone(self.d.reachability_state(self.root, self.act))  # created no hold
+        self.d._record_reachability(self.root, self.act, "lost")
+        self.d._record_reachability(self.root, self.act, "unconfirmed")
+        self.assertEqual(self.d.reachability_state(self.root, self.act), "lost")  # loss survives
+
+    def test_newer_generation_loss_is_not_walked_back_by_an_older_measurement(self):
+        newer = {**self.act, "epoch": 5}
+        self.d._record_reachability(self.root, newer, "lost")
+        self.d._record_reachability(self.root, self.act, "reachable")  # older epoch 2
+        self.assertEqual(self.d.reachability_state(self.root, newer), "lost")
+
+    def test_mark_from_a_different_generation_is_ignored(self):
+        self.d._record_reachability(self.root, self.act, "lost")
+        self.assertIsNone(self.d.reachability_state(self.root, {**self.act, "commit": "b" * 40}))
+        self.assertIsNone(self.d.reachability_state(self.root, {**self.act, "epoch": 9}))
+
+    def test_reader_fails_open_when_the_mark_is_a_symlink(self):
+        self.d._record_reachability(self.root, self.act, "lost")
+        path = self.d._reachability_path(self.root)
+        os.unlink(path)
+        os.symlink(os.path.join(self.root, "elsewhere"), path)
+        self.assertIsNone(self.d.reachability_state(self.root, self.act))
+
+    def test_posture_names_the_verb_and_epoch_and_never_claims_self_heal(self):
+        text = self.d._reachability_posture(7)
+        self.assertIn("activate", text)
+        self.assertIn("epoch 7", text)
+        self.assertNotIn("converges by itself", text)
+        self.assertNotIn(self.act["commit"], text)  # no commit hash in an operator refusal
+        self.assertNotIn("/", text)                  # no path in an operator refusal
+
+    # --- measurement: compare status -> state (GitHub mocked) -----------------------------------------
+    def _measure(self, status, **override):
+        act = {**self.act, **override}
+        notices = []
+        with mock.patch.object(self.d, "_github_default_branch", return_value="main"), \
+             mock.patch.object(self.d, "_github_json", return_value={"status": status}):
+            state = self.d.measure_reachability(self.root, act, notices=notices)
+        return state, notices
+
+    def _clear(self):
+        with contextlib.suppress(OSError):
+            os.unlink(self.d._reachability_path(self.root))
+
+    def test_measure_is_reachable_for_identical_and_behind(self):
+        for status in ("identical", "behind"):
+            with self.subTest(status=status):
+                self._clear()
+                state, notices = self._measure(status)
+                self.assertEqual(state, "reachable")
+                self.assertFalse(self.d._reachability_lost(self.root, self.act))
+                self.assertEqual(notices, [])
+
+    def test_measure_is_lost_for_ahead_and_diverged_and_appends_the_posture_notice(self):
+        for status in ("ahead", "diverged"):
+            with self.subTest(status=status):
+                self._clear()
+                state, notices = self._measure(status)
+                self.assertEqual(state, "lost")
+                self.assertTrue(self.d._reachability_lost(self.root, self.act))
+                self.assertEqual(notices, [self.d._reachability_posture(self.act["epoch"])])
+
+    def test_measure_is_unconfirmed_for_an_unrecognized_status(self):
+        self._clear()
+        state, notices = self._measure("weird")
+        self.assertEqual(state, "unconfirmed")
+        self.assertFalse(self.d._reachability_lost(self.root, self.act))
+        self.assertEqual(notices, [])
+
+    def test_measure_is_unconfirmed_when_github_cannot_be_reached(self):
+        self._clear()
+        notices = []
+        with mock.patch.object(self.d, "_github_default_branch",
+                               side_effect=self.d.QualificationError("offline")):
+            state = self.d.measure_reachability(self.root, self.act, notices=notices)
+        self.assertEqual(state, "unconfirmed")
+        self.assertFalse(self.d._reachability_lost(self.root, self.act))  # offline never holds a write
+        self.assertEqual(notices, [])
+
+    def test_a_published_release_is_never_measured_against_the_default_branch(self):
+        with mock.patch.object(self.d, "_github_default_branch") as gb, \
+             mock.patch.object(self.d, "_github_json") as gj:
+            state = self.d.measure_reachability(self.root, {**self.act, "source": "published-release"})
+        self.assertEqual(state, "reachable")
+        gb.assert_not_called()
+        gj.assert_not_called()
+        self.assertIsNone(self.d.reachability_state(self.root, self.act))
+
+
+class TestWriteDispatchReachabilityHold(unittest.TestCase):
+    """Place (b): the outer launcher refuses a dispatched memory write when the activated commit has left the
+    default branch, relaying the posture sentence as the child's response line — no accepted child is run."""
+
+    def setUp(self):
+        self.repo = _AcceptedDispatchRepo()
+        self.addCleanup(self.repo.cleanup)
+
+    def test_dispatched_write_is_held_and_relays_the_posture_verbatim(self):
+        import accepted_hook_dispatch
+        self.assertEqual(self.repo.activate().returncode, 0)
+        activation = accepted_hook_dispatch.load_activation(str(self.repo.worktree))
+        accepted_hook_dispatch._record_reachability(str(self.repo.worktree), activation, "lost")
+        held = self.repo.run_attended("attended-write-dispatch", ".engine/tools/memory/write_dispatch.py")
+        self.assertEqual(held.returncode, 0, held.stderr)
+        response = None
+        for line in held.stdout.splitlines():
+            if line.strip():
+                event = json.loads(line)
+                if event.get("event") == "response":
+                    response = event["response"]
+        self.assertEqual(response, {"refused": accepted_hook_dispatch._reachability_posture(
+            activation["epoch"])})
+
+class TestExactTreeBindingRejectsForgedCache(unittest.TestCase):
+    """Obligation 4 - the byte-level tree-binding vulnerability. The marker's inventory self-hash catches
+    accidental drift, but a same-user rewrite could forge the materialized tree AND its marker together. The
+    additive git-manifest check derives its expectation from immutable git objects, never the cache, so it
+    rejects a forged tree even when the marker is rewritten to agree with the forgery. Every case below
+    re-seals the marker's inventory to match the tampered tree first, so the inventory self-check passes and
+    the git manifest is the ONLY thing that can fail the validation."""
+
+    def setUp(self):
+        import accepted_hook_dispatch
+        self.d = accepted_hook_dispatch
+        self.repo = _AcceptedDispatchRepo()
+        self.addCleanup(self.repo.cleanup)
+        self.assertEqual(self.repo.activate().returncode, 0)
+        self.root = str(self.repo.worktree)
+        self.activation = self.d.load_activation(self.root)
+
+    def _fresh_tree(self):
+        self.d._COMMIT_MANIFEST_MEMO.clear()
+        tree_path = self.d._materialize(self.root, self.activation)
+        self.assertTrue(self.d._valid_materialization(self.root, self.activation),
+                        "a pristine materialization must validate before tampering")
+        return tree_path
+
+    def _reseal_marker_to_disk(self, tree_path):
+        # Forge the marker so its inventory self-hash matches the tampered tree - defeating the inventory
+        # check, so any remaining rejection is attributable solely to the git manifest.
+        _, marker_path = self.d._materialized_paths(self.root, self.activation)
+        marker = self.d._read_json(marker_path, "accepted-hook materialization marker")
+        marker["inventory"] = self.d._tree_inventory(tree_path)
+        self.d._atomic_json(marker_path, marker)
+        self.assertEqual(marker["inventory"], self.d._tree_inventory(tree_path))
+
+    def test_a_changed_file_is_rejected_even_with_a_matching_marker(self):
+        tree = self._fresh_tree()
+        with open(os.path.join(tree, ".engine", "tools", "helper.py"), "ab") as fh:
+            fh.write(b"\n# forged content the accepted commit never held\n")
+        self._reseal_marker_to_disk(tree)
+        self.assertIsNone(self.d._valid_materialization(self.root, self.activation))
+
+    def test_an_added_file_is_rejected_even_with_a_matching_marker(self):
+        tree = self._fresh_tree()
+        with open(os.path.join(tree, ".engine", "tools", "smuggled.py"), "w") as fh:
+            fh.write("# a file the accepted commit never contained\n")
+        self._reseal_marker_to_disk(tree)
+        self.assertIsNone(self.d._valid_materialization(self.root, self.activation))
+
+    def test_a_deleted_file_is_rejected_even_with_a_matching_marker(self):
+        tree = self._fresh_tree()
+        os.unlink(os.path.join(tree, ".engine", "tools", "helper.py"))
+        self._reseal_marker_to_disk(tree)
+        self.assertIsNone(self.d._valid_materialization(self.root, self.activation))
+
+    def test_a_mode_flip_is_rejected_even_with_a_matching_marker(self):
+        tree = self._fresh_tree()
+        victim = os.path.join(tree, ".engine", "tools", "helper.py")
+        info = os.stat(victim)
+        self.assertFalse(info.st_mode & stat.S_IXUSR, "victim must start non-executable (git mode 100644)")
+        os.chmod(victim, info.st_mode | stat.S_IXUSR | stat.S_IXGRP | stat.S_IXOTH)
+        self._reseal_marker_to_disk(tree)
+        self.assertIsNone(self.d._valid_materialization(self.root, self.activation))
+
+    def test_the_expected_manifest_is_the_git_manifest_not_the_on_disk_cache(self):
+        tree = self._fresh_tree()
+        self.d._COMMIT_MANIFEST_MEMO.clear()
+        expected = self.d._git_manifest(self.root, self.activation["commit"])
+        ondisk = self.d._ondisk_manifest(tree, self.d._object_format(self.root))
+        self.assertEqual(expected, ondisk)  # a pristine tree agrees with git, entry-for-entry
+        self.assertIn(self.activation["commit"], self.d._COMMIT_MANIFEST_MEMO)  # only the immutable git side is memoized
+
 
 if __name__ == "__main__":
     unittest.main()

@@ -635,9 +635,9 @@ class RefusalTranslationTests(unittest.IsolatedAsyncioTestCase):
         for minted in ("mutation_contract.degraded_refusal(", "_stale_refusal(stale)"):
             self.assertNotIn("raise MutationAuthorityError(" + minted, source, minted)
             self.assertIn("raise MutationRefusal(" + minted, source, minted)
-        self.assertEqual(source.count("raise MutationRefusal("), 8,
-                         "the refusal raise sites: 3 qualification refusals, 1 stale-context, 1 re-seal and 3 lock "
-                         "refusals - a new operator sentence must be added here deliberately")
+        self.assertEqual(source.count("raise MutationRefusal("), 9,
+                         "the refusal raise sites: 3 qualification refusals, 1 stale-context, 1 re-seal, 3 lock "
+                         "refusals and 1 reachability-hold - a new operator sentence must be added here deliberately")
         # ...and the plain type still carries the invariant text, which the seam masks.
         self.assertIn('raise MutationAuthorityError(f"persistent writer', source)
 

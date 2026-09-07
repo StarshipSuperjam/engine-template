@@ -55,6 +55,18 @@ AUTOMATIC_MUTATORS = frozenset({
 _FULL_OID = re.compile(r"(?:[0-9a-f]{40}|[0-9a-f]{64})", re.ASCII)
 _SLUG = re.compile(r"[A-Za-z0-9][A-Za-z0-9._-]*/[A-Za-z0-9][A-Za-z0-9._-]*", re.ASCII)
 _SOURCE_KINDS = frozenset({"reviewed-merge", "published-release"})
+#: The sibling reachability mark: written next to activation.json, keyed by the activated commit AND its
+#: activation epoch, so a mark taken for one generation can never speak for a successor. It is NEVER written
+#: into activation.json (that record is the CAS-guarded acceptance fact; reachability is a mutable, network-
+#: derived observation about whether that commit still sits on the default branch).
+REACHABILITY_REL = os.path.join("engine", "accepted-hooks", "reachability.json")
+REACHABILITY_SCHEMA_VERSION = "accepted-hook-reachability.v1"
+#: Reachability gets its OWN wall-clock window, opened only after the ambient boot budget has closed, so a
+#: hung compare read can never eat into the 2.0s the session-start repo read is guaranteed.
+REACHABILITY_BUDGET_SECONDS = 2.0
+#: The registered attended operation a dispatched memory write runs under (mirrors
+#: memory.write_dispatch.OPERATION; kept as a literal so this bootstrap never imports the memory package).
+_WRITE_DISPATCH_OPERATION = "attended-write-dispatch"
 _PYTHON_ENV_PREFIXES = ("PYTHONPATH", "PYTHONHOME", "PYTHONUSERBASE", "PYTHONSTARTUP")
 _DISPOSABLE_PREFIX = "engine-memory-candidate-"
 _DISPOSABLE_OPERATION_TARGETS = frozenset({
@@ -66,6 +78,16 @@ _DISPOSABLE_OPERATION_TARGETS = frozenset({
 
 class QualificationError(RuntimeError):
     """A typed no-mutation outcome.  The CLI always maps it to exit 1, never the host's block code 2."""
+
+class WriteHeld(Exception):
+    """A dispatched memory write is refused because the activated commit is no longer on the default branch.
+
+    It is deliberately NOT a ``QualificationError``: the dispatcher's degraded fallback catches only
+    ``QualificationError`` and would (wrongly) route a write into the reads-only degraded child with the
+    self-healing 'converges by itself' guidance. Reachability-lost does not self-heal — it clears only when
+    the operator re-activates — so it must escape that fallback and carry its own posture sentence, which
+    ``main`` relays to the write parent byte-for-byte.
+    """
 
 
 def _git(root: str, *args: str, check: bool = True) -> str:
@@ -319,6 +341,117 @@ def _materialized_paths(root: str, activation: dict) -> tuple[str, str]:
     return os.path.join(cache_root, key), os.path.join(cache_root, key + ".json")
 
 
+# Exact tree binding (SR "materialized tree matches the accepted commit's git tree exactly"). The inventory
+# self-hash in the marker catches accidental drift, but a same-user rewrite could forge the tree AND its
+# marker together. The check below is ADDITIVE and derives its expectation from git, not the cache: the
+# on-disk materialization must equal, as a set of (path, git-mode, blob-oid) entries, the manifest git
+# records for the activation commit. Only the immutable per-commit git manifest is memoized; a "this tree
+# matched" verdict is NEVER cached, because that is exactly the forgeable thing.
+_COMMIT_MANIFEST_MEMO: dict[str, frozenset] = {}
+_OBJECT_FORMAT_MEMO: dict[str, str] = {}
+
+
+def _object_format(root: str) -> str:
+    """The repository's git object hash (``sha1`` or ``sha256``), read once per root — it decides how an
+    on-disk file's blob oid is computed so it can be compared to what ``git ls-tree`` reports."""
+    memoized = _OBJECT_FORMAT_MEMO.get(root)
+    if memoized is not None:
+        return memoized
+    try:
+        proc = subprocess.run(["git", "-C", root, "rev-parse", "--show-object-format"],
+                              capture_output=True, text=True, timeout=30)
+        fmt = (proc.stdout or "").strip() if proc.returncode == 0 else "sha1"
+    except (OSError, subprocess.SubprocessError):
+        fmt = "sha1"
+    fmt = fmt if fmt in ("sha1", "sha256") else "sha1"
+    _OBJECT_FORMAT_MEMO[root] = fmt
+    return fmt
+
+
+def _blob_oid(path: str, object_format: str, *, is_symlink: bool) -> str:
+    """The git blob oid a file's (or symlink target's) content would hash to under this repo's object format:
+    ``<algo>("blob <size>\\0" + content)``. A symlink hashes the bytes of its target string, exactly as git
+    stores a mode-120000 blob."""
+    hasher = hashlib.sha256() if object_format == "sha256" else hashlib.sha1()
+    if is_symlink:
+        content = os.readlink(path).encode("utf-8", "surrogateescape")
+        hasher.update(b"blob %d\x00" % len(content))
+        hasher.update(content)
+    else:
+        hasher.update(b"blob %d\x00" % os.path.getsize(path))
+        with open(path, "rb") as handle:
+            for chunk in iter(lambda: handle.read(1024 * 1024), b""):
+                hasher.update(chunk)
+    return hasher.hexdigest()
+
+
+def _git_manifest(root: str, commit: str) -> frozenset:
+    """The authoritative ``(path, git-mode, blob-oid)`` set git records for this commit's tree. Immutable per
+    commit, so memoized. Gitlinks (submodules, mode 160000) are excluded: ``git archive`` does not
+    materialize their content, so there is nothing on disk to compare them against."""
+    memoized = _COMMIT_MANIFEST_MEMO.get(commit)
+    if memoized is not None:
+        return memoized
+    try:
+        proc = subprocess.run(["git", "-C", root, "ls-tree", "-r", "-z", commit],
+                              capture_output=True, timeout=60)
+    except (OSError, subprocess.SubprocessError) as exc:
+        raise QualificationError("the accepted commit's tree manifest could not be read") from exc
+    if proc.returncode != 0:
+        raise QualificationError("the accepted commit's tree manifest could not be read")
+    entries = []
+    for raw in proc.stdout.decode("utf-8", "surrogateescape").split("\x00"):
+        if not raw:
+            continue
+        meta, tab, path = raw.partition("\t")
+        if not tab:
+            raise QualificationError("the accepted commit's tree manifest is malformed")
+        parts = meta.split(" ")
+        if len(parts) != 3:
+            raise QualificationError("the accepted commit's tree manifest is malformed")
+        mode, _kind, oid = parts
+        if mode == "160000":  # gitlink: not materialized by archive, so out of the on-disk comparison
+            continue
+        entries.append((path, mode, oid))
+    manifest = frozenset(entries)
+    _COMMIT_MANIFEST_MEMO[commit] = manifest
+    return manifest
+
+
+def _ondisk_manifest(tree_path: str, object_format: str) -> frozenset:
+    """The ``(path, git-mode, blob-oid)`` set the materialized tree actually presents on disk, symlink-as-
+    symlink. Any entry a git tree cannot contain (a fifo, socket, or device) is encoded so the set comparison
+    fails closed rather than silently ignoring it."""
+    base = os.path.realpath(tree_path)
+    entries = []
+    for current, dirs, files in os.walk(base, topdown=True, followlinks=False):
+        dirs.sort()
+        files.sort()
+        # A symlink whose target is a directory is listed in `dirs`; record it as a symlink (mode 120000) and
+        # do not descend. Everything left in `dirs` is a real directory, which git trees do not enumerate.
+        real_dirs = []
+        for name in dirs:
+            path = os.path.join(current, name)
+            if os.path.islink(path):
+                rel = os.path.relpath(path, base).replace(os.sep, "/")
+                entries.append((rel, "120000", _blob_oid(path, object_format, is_symlink=True)))
+            else:
+                real_dirs.append(name)
+        dirs[:] = real_dirs
+        for name in files:
+            path = os.path.join(current, name)
+            rel = os.path.relpath(path, base).replace(os.sep, "/")
+            info = os.lstat(path)
+            if stat.S_ISLNK(info.st_mode):
+                entries.append((rel, "120000", _blob_oid(path, object_format, is_symlink=True)))
+            elif stat.S_ISREG(info.st_mode):
+                mode = "100755" if (info.st_mode & stat.S_IXUSR) else "100644"
+                entries.append((rel, mode, _blob_oid(path, object_format, is_symlink=False)))
+            else:
+                entries.append((rel, "000000", "unsupported-object"))
+    return frozenset(entries)
+
+
 def _valid_materialization(root: str, activation: dict) -> str | None:
     tree_path, marker_path = _materialized_paths(root, activation)
     if not os.path.isdir(tree_path):
@@ -335,6 +468,14 @@ def _valid_materialization(root: str, activation: dict) -> str | None:
     if any(marker.get(key) != value for key, value in expected.items()):
         return None
     if marker.get("inventory") != _tree_inventory(tree_path):
+        return None
+    # Exact tree binding, additive to the inventory self-hash above: the on-disk set of (path, mode, blob-oid)
+    # must equal the manifest git records for the activation commit. The expectation comes from git, never the
+    # cache, and any mismatch fails closed to None so the caller rebuilds the tree under the materialize lock.
+    try:
+        if _ondisk_manifest(tree_path, _object_format(root)) != _git_manifest(root, activation["commit"]):
+            return None
+    except QualificationError:
         return None
     dispatch = os.path.join(tree_path, ".engine", "tools", "accepted_hook_dispatch.py")
     return tree_path if os.path.isfile(dispatch) else None
@@ -932,6 +1073,13 @@ def ensure_activation_ambient(root: str) -> tuple[dict | None, list[str]]:
         notices.append(
             f"Engine memory moved to the code from your merged commit {record['commit'][:12]} (it was "
             f"{before['commit'][:12]}). That is the code now allowed to write to memory.")
+    # Reachability is measured LAST, in its own budget: whether the commit we just kept/advanced to still
+    # sits on GitHub's default branch. A 'lost' result appends its own operator notice and arms the write
+    # hold; 'unconfirmed'/'reachable' stay quiet here. It can never hold up session start — it never raises.
+    try:
+        measure_reachability(_top(root), record, notices=notices)
+    except Exception:  # noqa: BLE001 — defense in depth; measure_reachability already swallows its own faults
+        pass
     return record, notices
 
 
@@ -948,6 +1096,147 @@ def _degraded_notice(detail: str) -> str:
             "and anything said in the meantime is kept in the conversation transcript and written to memory "
             "by the next session that can. It sorts itself out at a session start that can reach GitHub. "
             f"Technical detail, for a bug report rather than for you to act on: {detail}.")
+
+
+def _reachability_posture(epoch: int) -> str:
+    """The operator-facing sentence for a write held because the activated commit left the default branch.
+
+    It names the recovery verb (``activate``) and the activation epoch, and nothing else: no commit, no path,
+    no writer identity — the refusal-text mandate in ``memory/refusals.py``. It never claims the state
+    'converges by itself', because it does not: it clears only when the operator re-activates on a commit that
+    is on the default branch. The same sentence is shown as a session-start notice and relayed as the write
+    refusal, so an operator reads one consistent explanation wherever it surfaces.
+    """
+    return ("The commit this project's memory activated on is no longer on the project's default branch, so "
+            "saving to memory is held until you re-activate on the current commit. Run the activate command "
+            "to clear this. Recall keeps working and nothing was changed. "
+            f"(activation epoch {epoch})")
+
+
+def _reachability_path(root: str) -> str:
+    return os.path.join(_common_dir(root), REACHABILITY_REL)
+
+
+def _reachability_lock(root: str) -> str:
+    _, _, lock_path = _state_paths(root)
+    return lock_path + ".reachability"
+
+
+def reachability_state(root: str, activation: dict) -> str | None:
+    """The recorded reachability state for THIS activation generation, or ``None``.
+
+    Honored only when the mark's commit AND epoch both match the activation asking, so a mark taken for a
+    superseded generation is silently ignored rather than mistaken for the current one. Every read fault —
+    a missing mark, a symlinked or non-regular file, unreadable or non-JSON bytes — fails OPEN to ``None``:
+    this reader only ADDS the default-branch-reachability refusal on top of the activation-object and
+    exact-tree gates, and must never turn its own read trouble into a spurious hold.
+    """
+    try:
+        path = _reachability_path(root)
+        info = os.lstat(path)
+        if stat.S_ISLNK(info.st_mode) or not stat.S_ISREG(info.st_mode):
+            return None
+        with open(path, encoding="utf-8") as handle:
+            mark = json.load(handle)
+    except (OSError, ValueError, QualificationError):
+        # Every read fault fails OPEN: a missing/symlinked/unreadable mark (OSError), non-JSON bytes
+        # (ValueError), or a tree with no readable Git common dir (QualificationError, from _reachability_path
+        # -> _common_dir). This reader only ADDS a hold on a CONFIRMED loss; it must never manufacture one out
+        # of its own read trouble.
+        return None
+    if (not isinstance(mark, dict)
+            or mark.get("schema_version") != REACHABILITY_SCHEMA_VERSION
+            or mark.get("commit") != activation.get("commit")
+            or mark.get("epoch") != activation.get("epoch")):
+        return None
+    state = mark.get("state")
+    return state if state in ("lost", "unconfirmed") else None
+
+
+def _reachability_lost(root: str, activation: dict) -> bool:
+    """True only for a confirmed 'lost'. 'unconfirmed' never holds a write: writing follows the merge, and a
+    session that could not reach GitHub to confirm reachability must still be able to save."""
+    return reachability_state(root, activation) == "lost"
+
+
+def _record_reachability(root: str, activation: dict, state: str) -> None:
+    """Persist the reachability observation under lock, keyed to this activation generation.
+
+    Precedence, so ordering between concurrent or late measurements cannot corrupt the record:
+      * a mark owned by a NEWER generation (higher epoch) is never walked back by an older measurement;
+      * ``reachable`` clears the mark (the write hold, if any, is lifted);
+      * ``lost`` is written, overwriting anything of this-or-older generation;
+      * ``unconfirmed`` is a no-op — it neither creates a hold nor lifts a confirmed ``lost`` (a later
+        timeout can never quietly undo a confirmed loss), and a missing mark already reads as not-lost.
+    """
+    path = _reachability_path(root)
+    with _exclusive_lock(_reachability_lock(root)):
+        current = None
+        try:
+            info = os.lstat(path)
+            if stat.S_ISREG(info.st_mode) and not stat.S_ISLNK(info.st_mode):
+                with open(path, encoding="utf-8") as handle:
+                    current = json.load(handle)
+        except (OSError, ValueError):
+            current = None
+        if (isinstance(current, dict) and isinstance(current.get("epoch"), int)
+                and isinstance(activation.get("epoch"), int)
+                and current["epoch"] > activation["epoch"]):
+            return  # a newer generation already owns the mark; never let an older read overwrite it
+        if state == "reachable":
+            try:
+                os.unlink(path)
+            except OSError:
+                pass
+            return
+        if state == "lost":
+            _atomic_json(path, {
+                "schema_version": REACHABILITY_SCHEMA_VERSION,
+                "commit": activation["commit"],
+                "epoch": activation["epoch"],
+                "state": "lost",
+            })
+        # 'unconfirmed' is intentionally a no-op (see docstring).
+
+
+def measure_reachability(root: str, activation: dict, *, notices: list | None = None) -> str:
+    """Confirm the activated reviewed-merge commit is still on GitHub's default branch, and record it.
+
+    Runs in reachability's OWN budget, opened only here — after the ambient boot budget has already closed in
+    ``ensure_activation_ambient`` — so a hung compare read cannot borrow against the session-start repo read.
+    Reads GitHub's compare of ``default_branch...activated_commit``: ``identical``/``behind`` establish
+    reachability, ``ahead``/``diverged`` do not. Never raises: a time-budget or CLI failure is recorded as
+    ``unconfirmed`` (which does not hold writes). A published release is a pinned operator choice and is not
+    measured against the default branch.
+
+    Returns the state it observed ('reachable' | 'lost' | 'unconfirmed'), for callers and tests.
+    """
+    if activation.get("source") != "reviewed-merge":
+        return "reachable"
+    repository = activation["repository"]
+    commit = activation["commit"]
+    try:
+        with _ambient_budget(REACHABILITY_BUDGET_SECONDS):
+            default_branch = _github_default_branch(repository)
+            comparison = _github_json(
+                f"repos/{repository}/compare/{quote(default_branch, safe='')}...{commit}")
+        status = comparison.get("status") if isinstance(comparison, dict) else None
+    except QualificationError:
+        _record_reachability(root, activation, "unconfirmed")
+        return "unconfirmed"
+    except Exception:  # noqa: BLE001 — reachability must never break session start
+        _record_reachability(root, activation, "unconfirmed")
+        return "unconfirmed"
+    if status in ("identical", "behind"):
+        _record_reachability(root, activation, "reachable")
+        return "reachable"
+    if status in ("ahead", "diverged"):
+        _record_reachability(root, activation, "lost")
+        if notices is not None:
+            notices.append(_reachability_posture(activation["epoch"]))
+        return "lost"
+    _record_reachability(root, activation, "unconfirmed")
+    return "unconfirmed"
 
 
 def _relative_script(root: str, script: str) -> str:
@@ -1113,6 +1402,14 @@ def dispatch_attended(root: str, script: str, operation: str, target_args: list[
     except QualificationError as exc:
         _dispatch_attended_degraded(root, absolute, rel, str(exc), target_args)
         return  # os.execve never returns
+    # Reachability hold (place b), in the OUTER launcher before any exec: for the write-dispatch operation
+    # only, a CONFIRMED-lost activation refuses the write here with the posture sentence, so no accepted
+    # child is ever launched for a write the merge no longer authorizes. It is raised as WriteHeld — NOT a
+    # QualificationError — so the degraded fallback above cannot swallow it into a silent re-exec; main()
+    # turns it into the response line write_dispatch relays verbatim. Reads and health never pass here, and
+    # the accepted child carries its own independent backstop (place a) for the case this is bypassed.
+    if operation == _WRITE_DISPATCH_OPERATION and _reachability_lost(root, activation):
+        raise WriteHeld(_reachability_posture(activation["epoch"]))
     context = _canonical_context(root, activation, accepted_tree)
     provider_authority = _provider_authority(accepted_tree)
     context["invocation"] = {
@@ -1777,6 +2074,13 @@ def main(argv: list[str] | None = None) -> int:
         if args.command == "_run-candidate":
             return run_candidate(args)
         raise QualificationError("unknown accepted-hook operation")
+    except WriteHeld as exc:
+        # The write-dispatch launcher held the write because the activated commit left the default branch.
+        # Emit the posture sentence as the child's response line; write_dispatch's parent folds it into a
+        # DispatchRefused and the memory server forwards it to the operator byte-for-byte. No child ran.
+        print(json.dumps({"event": "response", "response": {"refused": str(exc)}},
+                         sort_keys=True, separators=(",", ":")))
+        return 0
     except QualificationError as exc:
         if args.command == "run":
             print(f"Engine memory mutation skipped: {exc}. This did not block the host action.", file=sys.stderr)
