@@ -77,6 +77,8 @@ only, never the whole pack, and the session never halts.
      (with a pointer at `recall-window` for the full quoted excerpts) — never the full walk or the multi-line
      excerpts inline. Point-of-use, not push: the detail is reachable when a session actually needs it,
      rather than spent every session whether or not it does.
+   - **A prior Build's binding surfaced here is a resume aid, not live work.** It steers the new-versus-resume
+     call — a submitted one is flagged possibly stale — and needs no cleanup before a new Build binds in a fresh worktree elsewhere; the relay's advisory carries the three cases.
 
 To print the assembled briefing by hand (a debug view of what the hook injects): `python tools/boot.py pack`.
 
