@@ -309,6 +309,31 @@ def _lanes_block(programs: plan_program.ProgramLibrary, record: dict, view: list
     return lines
 
 
+def _next_intended_line(record: dict, view: list) -> list:
+    """The portfolio's ONE-line glance at the recorded intended order — a thin FORMATTER over
+    `plan_program.intended_standing` (never the raw `intended` record key, so this module stays off
+    the intended-record reader allowlist), following the `_lanes_block` precedent exactly: [] when
+    nothing stands, never a section that renders as an empty claim.
+
+    Present exactly when the program has at least one OPEN intent — not withdrawn, not live-claimed.
+    Usually that means naming the ready ones; but an open intent whose precedent names a child that
+    has since died is open and never ready, and the line says so rather than falling silent about a
+    step the record still says is coming. Semicolon-joined when several are ready, the same
+    separator the in-flight line uses for the same reason: a title can carry its own comma.
+    """
+    standing = plan_program.intended_standing(record, view)
+    if not standing or not standing["open_keys"]:
+        return []
+    title_of = {e["key"]: e["title"] for e in standing["entries"]}
+    if standing["ready_keys"]:
+        return ["- **Next intended**: "
+                + "; ".join(f"{key} — {title_of[key]}" for key in standing["ready_keys"])]
+    waiting = {e["key"]: e["waiting_on"] for e in standing["entries"]}
+    return ["- **Next intended**: none ready — "
+            + "; ".join(f"{key} waits on {', '.join(w['ref'] for w in waiting[key])}"
+                        for key in standing["open_keys"])]
+
+
 def _open_block(programs: plan_program.ProgramLibrary, record: dict) -> list:
     view = programs.child_view(record)
     status = programs.derived_status(record)
@@ -334,6 +359,7 @@ def _open_block(programs: plan_program.ProgramLibrary, record: dict) -> list:
     if settled:
         out.append(f"- **Settled on the chain**: {settled}")
     out.append(f"- **Obligations**: {_obligations_line(programs, record)}")
+    out += _next_intended_line(record, view)
     out += _lanes_block(programs, record, view)
     return out
 

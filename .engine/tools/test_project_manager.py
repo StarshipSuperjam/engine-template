@@ -735,6 +735,38 @@ class Dispositions(_Governed):
         self.assertIn("nothing to disposition", err)
 
 
+class PersonaLocationRendering(_Governed):
+    """Persona-shaped findings with object locations render to record string form through review record."""
+
+    def test_object_locations_render_to_string_form_in_the_recorded_plan(self):
+        """End-to-end: object locations with line, without line, and null are rendered as strings."""
+        slug, _ = self._plan()
+        self.run_command("preview", slug)
+        self.assertEqual(self.run_command("approve", slug, "--depth", "standard", "--operator-decided")[0], 0)
+
+        argv = ["review", "record", slug, "--packet-digest", self._packet_digest(slug), "--lens", "architecture"]
+        findings = (
+            {"severity": "serious", "message": "Missing check at line 42.",
+             "location": {"file": "src/validate.py", "line": 42}},
+            {"severity": "nit", "message": "Module needs docstring.",
+             "location": {"file": "src/module.py"}},
+            {"severity": "blocking", "message": "Plan scope is unclear.",
+             "location": None},
+        )
+        argv += ["--findings", self._findings(*findings)]
+        code, out, err = self.run_command(*argv)
+        self.assertEqual(code, 0, f"Failed to record review: {err}")
+
+        findings_list = self.lib.read_record(slug)["plan_review"]["findings"]
+        self.assertEqual(len(findings_list), 3)
+        # Object with line renders as file:line
+        self.assertEqual(findings_list[0]["location"], "src/validate.py:42")
+        # Object without line renders as file path
+        self.assertEqual(findings_list[1]["location"], "src/module.py")
+        # Null location renders as the plan as a whole
+        self.assertEqual(findings_list[2]["location"], "the plan as a whole")
+
+
 class Closing(_Surface):
     def test_retire_abandon_and_complete_all_keep_everything(self):
         for verb, state, plan_id in (("retire", "retired", "pln_aaaaaaaaaaaa"),
