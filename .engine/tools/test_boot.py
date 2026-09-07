@@ -7400,5 +7400,56 @@ class TestHooksHealthLineTrustPaths(unittest.TestCase):
             self.assertIsNone(boot.hooks_health_line())
 
 
+class TestPreviouslySubmittedAdvisoryReachesBothSurfaces(unittest.TestCase):
+    """The property demo_active_build_continuity.py demonstrates, pinned in the shipping suite.
+
+    The demo is an operator-runnable falsification and — like every `demo_*.py` — a first-run asset the
+    engine removes when a project is set up, so a SHIPPING test (this file ships) must not import it; the
+    first-run reference-closure check enforces exactly that. The demo's SUBJECT still belongs in the
+    pinned suite, so it is guarded here directly, against the two shipping surfaces a session grounds
+    through. The distinctive claim — that boot's relay and post-compaction re-grounding carry the SAME
+    advisory block, byte-for-byte, from one definition and so cannot drift — is asserted nowhere else
+    (the boot e2e tests above cover boot alone; the compaction tests in test_build_coordinator cover
+    compaction alone). The demo itself runs green through the demonstration corpus and by hand."""
+
+    SLUG = "fix-a-finished-build--edbeef"
+
+    def _boot_task_binding(self, submission):
+        if submission == "ready":
+            advisory = {"submission": "ready", "pr_ref": "#1259", "plan_selector": self.SLUG}
+            return boot.session_relay._render_task_binding({"state": "none", "advisory": advisory})
+        return boot.session_relay._render_task_binding({
+            "state": "verified",
+            "binding": {"worktree": "/wt", "plan_ref": self.SLUG,
+                        "coordinator_snapshot": {"revision": 15},
+                        "pr_contract": {"state": "draft", "pr_ref": "#1259"}}})
+
+    def _reground(self, submission):
+        import build_coordinator
+        state = {"build": {"repository": "owner/repo", "pr": 1259, "worktree": "/wt"},
+                 "plan": {"plan_id": "pln_demo", "profile": "normal", "bound_head": "a" * 40},
+                 "progress": {"current_item": "DEMO-07", "completed": []},
+                 "submission": submission}
+        return build_coordinator.reground_pointer(state, self.SLUG)
+
+    def test_each_surface_carries_the_advisory_only_for_a_previously_submitted_build(self):
+        sentence = boot.session_relay.ADVISORY_SENTENCE
+        # BOOT: a previously-submitted Build surfaces the advisory; an in-flight one stays live work.
+        self.assertIn(sentence, self._boot_task_binding("ready"))
+        self.assertNotIn(sentence, self._boot_task_binding("draft"))
+        self.assertIn("state=verified", self._boot_task_binding("draft"))
+        # COMPACTION: the same discrimination, with the live-work tail kept for an in-flight Build.
+        self.assertIn(sentence, self._reground("ready"))
+        self.assertNotIn(sentence, self._reground("draft"))
+        self.assertIn("continue the next planned step", self._reground("draft"))
+        self.assertNotIn("continue the next planned step", self._reground("ready"))
+
+    def test_the_two_surfaces_carry_the_one_shared_advisory_block_byte_for_byte(self):
+        shared = "\n".join(boot.session_relay.advisory_lines(
+            {"submission": "ready", "pr_ref": "#1259", "plan_selector": self.SLUG}))
+        self.assertIn(shared, self._boot_task_binding("ready"))
+        self.assertIn(shared, self._reground("ready"))
+
+
 if __name__ == "__main__":
     unittest.main()

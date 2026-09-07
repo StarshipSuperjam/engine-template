@@ -22,6 +22,7 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import selftest_support  # noqa: E402  (the suite's single-homed guard helpers, #940)
 import build_coordinator as bc  # noqa: E402
 import build_state_store  # noqa: E402
+import plan_store  # noqa: E402
 import hooks  # noqa: E402
 import repair_divergence  # noqa: E402
 
@@ -6108,6 +6109,106 @@ class TestPostCompactionRegrounding(CoordinatorCase):
         self.assertNotIn("state supersede --plan not a real slug", text)
         # falls back to the authority framing rather than emitting a broken command
         self.assertIn("continue the next planned step", text)
+
+
+class TestFreshWorktreeBindIsIsolatedFromAPriorSubmittedBuild(unittest.TestCase):
+    """#1255 C2/C4 isolation, against a real plan library. A previously-submitted Build's durable
+    snapshot — bound to an OLD worktree and wearing a misleading implementation-style status — must
+    not be read, resolved, mutated, or cleared when a DIFFERENT sealed plan is bound in a FRESH
+    worktree. The fresh bind gets its own plan-slug-keyed snapshot; the prior one stays byte-for-byte
+    untouched; and neither --state disambiguation nor supersede is needed."""
+
+    SCHEMA = bc.STATE_SCHEMA_V2
+
+    def setUp(self):
+        self._tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(self._tmp.cleanup)
+        self.tmp = Path(self._tmp.name)
+        self.lib = plan_store.PlanLibrary(self.tmp / "plans")
+
+    def _bind_snapshot(self, title, plan_id, worktree, **over):
+        """Land one durable snapshot for a plan in the library, the way `plan bind` would."""
+        from test_build_state_store import _state  # the single source of a schema-valid state shape
+        slug = plan_store.slug_for(title, plan_id)
+        plan_store.ensure_dir(self.lib.plan_dir(slug), within=self.lib.root)
+        (self.lib.plan_dir(slug) / "record.json").write_text(
+            json.dumps({"plan_id": plan_id}), encoding="utf-8")
+        path = build_state_store.snapshot_path(self.lib, slug)
+        build_state_store.DurableBuildStore(path, self.SCHEMA, library_root=self.lib.root).create(
+            _state(worktree=str(worktree), **over))
+        return slug, path
+
+    def test_c4_binds_in_a_fresh_worktree_without_touching_c2(self):
+        wt_c2, wt_c4 = self.tmp / "wt-c2", self.tmp / "wt-c4"
+        # C2: previously submitted, yet its reported status still reads mid-implementation — the very
+        # snapshot that misled a resuming session in #1255.
+        slug_c2, path_c2 = self._bind_snapshot(
+            "the prior C2 plan", "pln_0123456789ab", wt_c2, pr=101, submission="ready",
+            progress={"current_item": "C2-IMPL-07",
+                      "completed": [{"id": "C2-IMPL-06", "commit": "a" * 40}]})
+        before = path_c2.read_bytes()
+        # A fresh bind of a DIFFERENT plan in a DIFFERENT worktree must never reach for supersede.
+        with mock.patch.object(build_state_store, "supersede",
+                               side_effect=AssertionError("a fresh-worktree bind must not supersede")):
+            slug_c4, path_c4 = self._bind_snapshot("the new C4 plan", "pln_ba9876543210", wt_c4, pr=102)
+            resolved = build_state_store.resolve_for_worktree(wt_c4, self.SCHEMA, library=self.lib)
+        # C4 resolves to its OWN snapshot, unambiguously — no --state disambiguation was needed.
+        self.assertEqual(resolved.read()["build"]["pr"], 102)
+        self.assertEqual(build_state_store.bound_snapshots(wt_c4, library=self.lib), [(slug_c4, path_c4)])
+        self.assertNotEqual(slug_c2, slug_c4)
+        # C2 is byte-for-byte unchanged, and still the sole clean binding of its own worktree.
+        self.assertEqual(path_c2.read_bytes(), before)
+        self.assertEqual(build_state_store.bound_snapshots(wt_c2, library=self.lib), [(slug_c2, path_c2)])
+
+    def test_resume_in_the_same_worktree_resolves_preserves_and_reverifies(self):
+        wt = self.tmp / "wt-resume"
+        slug, path = self._bind_snapshot(
+            "the resuming plan", "pln_0123456789ab", wt, pr=55, submission="ready")
+        before = path.read_bytes()
+        store = build_state_store.resolve_for_worktree(wt, self.SCHEMA, library=self.lib)
+        # RESOLVES to the saved binding and PRESERVES it: a pure resolve+read changes nothing on disk.
+        self.assertEqual(store.read()["build"]["pr"], 55)
+        self.assertEqual(path.read_bytes(), before)
+        # RE-VERIFIES it as the live binding: the resumed store still takes a legitimate compare-and-swap,
+        # so the binding is recognized as current work to continue — not a stale one to clear.
+        build_state_store.resolve_for_worktree(wt, self.SCHEMA, library=self.lib).mutate(
+            lambda s: s["progress"].update({"current_item": "resumed"}), from_revision=1)
+        again = build_state_store.resolve_for_worktree(wt, self.SCHEMA, library=self.lib)
+        self.assertEqual(again.read()["progress"]["current_item"], "resumed")
+        # ...and it is still the one and only binding for this worktree — resume never forked it.
+        self.assertEqual(build_state_store.bound_snapshots(wt, library=self.lib), [(slug, path)])
+
+
+class TestInFlightBuildRoutesToResumeNotPreviouslySubmitted(CoordinatorCase):
+    """Routing regression for the #1255 reorder: build-orchestration.md now settles new-versus-resume
+    BEFORE the phase map. A normal in-flight Build — draft PR, mid-implementation, same worktree — must
+    still answer 'resume' and reach its phase runbook unchanged; the reorder strands no active Build."""
+
+    def _in_flight(self) -> dict:
+        self.seed()
+
+        def change(s):
+            s["build"]["worktree"] = str(bc.ROOT)
+            s["progress"] = {"current_item": "CX-03", "completed": [{"id": "CX-02", "commit": HEAD_A}]}
+            s["submission"] = "draft"
+        self.store.mutate(change)
+        return self.store.read()
+
+    def test_the_phase_map_still_routes_an_implementation_build_to_its_runbook(self):
+        state = self._in_flight()
+        self.assertEqual(bc.runbook_for(state, "implementation"), "build-implementation.md")
+        # spine and map still agree after the reorder — no runbook stranded, none double-named.
+        status = bc.phase_runbook_status()
+        self.assertEqual((status["missing"], status["unmapped"], status["unlinked"]), ([], [], []))
+
+    def test_reground_answers_resume_for_an_in_flight_build_not_previously_submitted(self):
+        state = self._in_flight()
+        rendered = bc.reground_pointer(state, "fix-a-thing--edbeef")
+        # answers 'resume/continue' — the live-work framing, not the possibly-stale advisory.
+        self.assertIn("current work item: CX-03", rendered)
+        self.assertIn("continue the next planned step", rendered)
+        self.assertNotIn(bc.session_relay.ADVISORY_SENTENCE, rendered)
+        self.assertNotIn("state supersede --plan", rendered)
 
 
 class TestSupersedeIsTheStaleClearingRemedy(unittest.TestCase):
