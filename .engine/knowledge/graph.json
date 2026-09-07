@@ -9411,7 +9411,7 @@
       },
       "slug": "boot",
       "source": {
-        "fingerprint": "sha256:e7fb7594638b4d176c0203b77650956669068c0050d43ebd99d484d5f79ca5e2",
+        "fingerprint": "sha256:fdca5c44fddcbbad86fc9f2805b298e3ef15871e88b8c9525b6f88345a5186f5",
         "path": ".engine/tools/boot.py"
       },
       "status": "active",
@@ -9543,7 +9543,7 @@
       },
       "slug": "build_coordinator",
       "source": {
-        "fingerprint": "sha256:9e7c9dfb77205aa394e8990af5ec32048b668d7a29a149b2f7cb720a5744df6d",
+        "fingerprint": "sha256:5f088bc09634c44d610ca31e18daa6d5cb65d771c7c6a81bcc5aed9f07efee79",
         "path": ".engine/tools/build_coordinator.py"
       },
       "status": "active",
@@ -15367,7 +15367,7 @@
       },
       "slug": "session_relay",
       "source": {
-        "fingerprint": "sha256:a91867eec0d60e7aaddad82e2b6b642498325bd1b5cefdebbfded19f2da914a3",
+        "fingerprint": "sha256:da21863b44451f45376cb0aece3ca49a61548756c8155cf3e436e15509aa5e5d",
         "path": ".engine/tools/session_relay.py"
       },
       "status": "active",
@@ -16250,7 +16250,7 @@
       },
       "slug": "test_build_coordinator",
       "source": {
-        "fingerprint": "sha256:19769aef47dc49e4a8c0fe34bf6c422e26dc8aa15735770fe33c51170804c47e",
+        "fingerprint": "sha256:ca29b9fa5f1217cb578b8178b2b2b9e2ed5bbe1b1ad690b1f0841f000e663afc",
         "path": ".engine/tools/test_build_coordinator.py"
       },
       "status": "active",
@@ -20640,7 +20640,7 @@
       },
       "slug": "test_session_relay",
       "source": {
-        "fingerprint": "sha256:295d1144d532bf0a82bef0c1c71f7305c8f068f7b20d046db3f087c06df4c4bc",
+        "fingerprint": "sha256:43a50df5766800259244ee5065b5380205825f7da567d73c924f738f332872a2",
         "path": ".engine/tools/test_session_relay.py"
       },
       "status": "active",

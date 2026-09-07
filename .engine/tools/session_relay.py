@@ -156,6 +156,19 @@ ADVISORY_SENTENCE = (
 )
 
 
+def format_pr_ref(pr: "int | str | None") -> "str | None":
+    """The advisory's `pr_ref` value from a snapshot's raw `pr`, or None when there is none.
+
+    ONE definition, so boot's best-effort advisory and the compaction re-grounding path share the
+    int/string normalization instead of hand-maintaining two copies — the same two-site drift risk
+    this module's shared `advisory_lines` exists to remove."""
+    if isinstance(pr, int):
+        return f"#{pr}"
+    if isinstance(pr, str) and pr.strip():
+        return pr if pr.startswith("#") else f"#{pr}"
+    return None
+
+
 def advisory_lines(advisory: dict) -> list[str]:
     """The rendered advisory block for a previously-submitted Build, as inert-safe physical lines.
 
@@ -165,17 +178,23 @@ def advisory_lines(advisory: dict) -> list[str]:
     `state supersede` command is runnable and names the real Build. The three-case steer is fixed
     template text: continue THIS Build (keep and re-verify the binding, never supersede), start a
     DIFFERENT Build (fresh worktree, no cleanup), or deliberately clear a CONFIRMED-STALE binding
-    (supersede)."""
+    (supersede). When no plan selector is carried — a compaction gate that fired on a ready Build whose
+    slug is not grammatical — the supersede line is dropped rather than printed with a broken `--plan`:
+    the honest sentence and the two selector-independent cases still stand, so the carrier still fails
+    toward honest presentation, never back to the live-work tail."""
     submission = _inert(advisory.get("submission", "ready")) or "ready"
     pr_ref = _inert(advisory.get("pr_ref", "")) or "-"
     selector = _inert(advisory.get("plan_selector", "")) or "-"
-    return [
+    lines = [
         f"advisory=previously_submitted submission={submission} pr_ref={pr_ref} plan={selector}",
         f"- {ADVISORY_SENTENCE}",
         "- continue THIS Build: keep this worktree; its binding is preserved and re-verified (do not supersede)",
         "- start a DIFFERENT Build: cut a fresh worktree from main and bind the plan there; no cleanup of this binding is needed",
-        f"- deliberately clear this CONFIRMED-STALE binding: build_coordinator.py state supersede --plan {selector} --reason \"<why>\"",
     ]
+    if selector != "-":
+        lines.append(
+            f"- deliberately clear this CONFIRMED-STALE binding: build_coordinator.py state supersede --plan {selector} --reason \"<why>\"")
+    return lines
 
 
 # ---- fixed section order -------------------------------------------------------------------------

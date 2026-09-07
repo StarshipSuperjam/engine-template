@@ -501,6 +501,16 @@ class PreviouslySubmittedAdvisoryTests(unittest.TestCase):
         self.assertEqual(pattern, plan_store._SLUG_RE.pattern)
         self.assertEqual(pattern, sr.PLAN_SELECTOR_PATTERN)
 
+    def test_advisory_allowed_fields_mirror_the_schema(self):
+        # ADVISORY_ALLOWED_FIELDS documents itself as a mirror of the schema's advisory properties,
+        # "caught by the drift test" — this IS that drift test. Without it the tuple was a claim no
+        # check backed; here a field added to the schema (or the tuple) but not the other fails.
+        schema = json.load(open(sr.SCHEMA_PATH, encoding="utf-8"))
+        none_branch = next(b for b in schema["properties"]["task_binding"]["oneOf"]
+                           if b["properties"]["state"].get("const") == "none")
+        schema_fields = set(none_branch["properties"]["advisory"]["properties"])
+        self.assertEqual(set(sr.ADVISORY_ALLOWED_FIELDS), schema_fields)
+
     def test_top_level_and_section_descriptions_mention_advisory(self):
         schema = json.load(open(sr.SCHEMA_PATH, encoding="utf-8"))
         self.assertIn("advisory", schema["description"].lower())
@@ -521,6 +531,21 @@ class PreviouslySubmittedAdvisoryTests(unittest.TestCase):
         # every line of the shared helper is what the renderer emitted — one source, not a copy.
         for line in sr.advisory_lines(env["task_binding"]["advisory"]):
             self.assertIn(line, out)
+
+    def test_advisory_without_a_selector_drops_only_the_supersede_line(self):
+        # The compaction carrier fires the advisory on a ready Build even when the slug is not
+        # grammatical (boot withholds; compaction must not revert to the live-work tail). With no
+        # selector the honest sentence and the two selector-independent cases stand; only the
+        # supersede command — which needs a real --plan — is dropped, never printed broken.
+        lines = sr.advisory_lines({"submission": "ready"})
+        self.assertIn(f"- {sr.ADVISORY_SENTENCE}", lines)
+        self.assertTrue(any("continue THIS Build" in l for l in lines))
+        self.assertTrue(any("start a DIFFERENT Build" in l for l in lines))
+        self.assertFalse(any("state supersede" in l for l in lines))
+        # a grammatical selector restores the fourth case
+        self.assertTrue(any("state supersede --plan fix-a-thing--edbeef" in l
+                            for l in sr.advisory_lines(
+                                {"submission": "ready", "plan_selector": "fix-a-thing--edbeef"})))
 
     def test_advisory_selector_survives_inert_byte_identical(self):
         selector = "fix-a-finished-build--edbeef"

@@ -6013,6 +6013,8 @@ class TestPostCompactionRegrounding(CoordinatorCase):
         self.assertIn("A progress report is not a handoff", text)
         self.assertIn("continue the next planned step", text)
         self.assertIn("do not schedule a self-wakeup", text)
+        # an in-flight (non-ready) Build keeps the original "was running" opening
+        self.assertIn("while a Build was running", text)
 
     def test_the_injection_carries_no_reviewer_private_text(self):
         """The redaction fixture, seeded on purpose so it can actually fail.
@@ -6074,9 +6076,12 @@ class TestPostCompactionRegrounding(CoordinatorCase):
         self.assertIn("do not supersede", text)
         self.assertIn("start a DIFFERENT Build", text)
         self.assertIn("state supersede --plan fix-a-thing--edbeef", text)
-        # the misdirecting "this is live work" framing is gone for a ready Build
+        # the misdirecting "this is live work" framing is gone for a ready Build — including the
+        # opening line: a finished Build's record is bound here, it was not "running".
         self.assertNotIn("continue the next planned step", text)
         self.assertNotIn("do not schedule a self-wakeup", text)
+        self.assertNotIn("while a Build was running", text)
+        self.assertIn("previously-submitted Build's record is bound to this", text)
 
     def test_the_ready_advisory_is_the_shared_relay_definition(self):
         path = self.ready_snapshot()
@@ -6106,9 +6111,16 @@ class TestPostCompactionRegrounding(CoordinatorCase):
         path = self.ready_snapshot()
         with self.resolve_to([("not a real slug", path)]):
             text = bc.reground_handler({"source": "compact"})["context"]
-        self.assertNotIn("state supersede --plan not a real slug", text)
-        # falls back to the authority framing rather than emitting a broken command
-        self.assertIn("continue the next planned step", text)
+        # no broken command is printed — the supersede line is dropped, not emitted with a bad --plan
+        self.assertNotIn("state supersede", text)
+        # ...but the carrier still fails toward HONEST presentation, never back to the live-work tail:
+        # the honest sentence and the two selector-independent cases still stand (boot withholds the
+        # whole advisory here; compaction, the reliable carrier, must not revert to "continue …").
+        self.assertIn(bc.session_relay.ADVISORY_SENTENCE, text)
+        self.assertIn("continue THIS Build", text)
+        self.assertIn("start a DIFFERENT Build", text)
+        self.assertNotIn("continue the next planned step", text)
+        self.assertNotIn("do not schedule a self-wakeup", text)
 
 
 class TestFreshWorktreeBindIsIsolatedFromAPriorSubmittedBuild(unittest.TestCase):

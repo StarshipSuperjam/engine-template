@@ -4234,11 +4234,9 @@ def _previously_submitted_advisory(worktree) -> "dict | None":
     if not isinstance(slug, str) or not re.match(session_relay.PLAN_SELECTOR_PATTERN, slug):
         return None
     advisory = {"submission": "ready", "plan_selector": slug}
-    pr = build.get("pr")
-    if isinstance(pr, int):
-        advisory["pr_ref"] = f"#{pr}"
-    elif isinstance(pr, str) and pr.strip():
-        advisory["pr_ref"] = pr if pr.startswith("#") else f"#{pr}"
+    pr_ref = session_relay.format_pr_ref(build.get("pr"))
+    if pr_ref:
+        advisory["pr_ref"] = pr_ref
     return advisory
 
 
