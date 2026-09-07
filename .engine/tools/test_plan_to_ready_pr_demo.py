@@ -160,21 +160,34 @@ class TheOperatorFacingSurfacesDescribeDepthByLenses(unittest.TestCase):
         # risk-assessment template's care recommendation the SAME way, and that neither leans on a template
         # section the condense removed. Plan-orchestration section 6 and build-kickoff section 2 each name it
         # with the one shared phrase "one-line care recommendation"; the template still carries all six H2
-        # sections the consent stop turns on, so no runbook can point at a section the template no longer has.
+        # sections (in order), and a scan of both runbooks rejects any "<Title> section" reference naming a
+        # heading the template no longer has.
         orch = open(os.path.join(ROOT, ".engine", "operations", "plan-orchestration.md"), encoding="utf-8").read()
         kickoff = open(os.path.join(ROOT, ".engine", "operations", "build-kickoff.md"), encoding="utf-8").read()
         template = open(os.path.join(ROOT, ".engine", "templates", "risk-assessment.md"), encoding="utf-8").read()
         # (a) both runbooks reference the care recommendation with the single shared phrasing
         self.assertIn("one-line care recommendation", orch)
         self.assertIn("one-line care recommendation", kickoff)
-        # (b) the template still holds every H2 section the runbooks' consent stop turns on — the condense
-        #     removed none, so a runbook that named a section the template no longer has would fail here
+        # (b) the template still holds every H2 section — in order — the runbooks' consent stop turns on
         headings = re.findall(r"^##\s+(.*\S)\s*$", template, re.M)
         self.assertEqual(
             headings,
             ["Headline", "What this touches", "What I'll run",
              "How careful — your choice", "If this weakens a safety guardrail", "Your call"],
         )
+        # (c) and NEITHER runbook names a template section the template no longer has. The runbooks reference
+        #     the template by content — today neither file uses the word "section" at all — so this scan is
+        #     silent now, but it fails the moment an edit points a runbook at a "<Title> section" whose name
+        #     is not one of the template's current headings. The optional quote/backtick brackets catch the
+        #     code-styled form (`Impact` section, "Impact" section) a runbook is most likely to reach for.
+        section_ref = re.compile(
+            r"(?:[Tt]he\s+)?[\x60\x22“’\x27]?"
+            r"([A-Z][\w’\x27—\- ]{1,45}?)"
+            r"[\x60\x22”’\x27]?\s+section\b")
+        for label, runbook in (("plan-orchestration", orch), ("build-kickoff", kickoff)):
+            for named in section_ref.findall(runbook):
+                self.assertIn(named.strip(), headings,
+                              "%s names template section %r, absent from the template" % (label, named.strip()))
 
 
 class TheFrontDoorDemoStillWalks(unittest.TestCase):
