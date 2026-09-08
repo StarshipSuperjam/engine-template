@@ -9,7 +9,7 @@ what the Engine may configure in a repository, what stays the operator's persona
 controls do not provide the isolation they seem to; other Engine pages point here rather than repeating it. A
 project file is never described as authoritative where a higher-precedence live control can replace it.
 
-The audit was performed **2026-08-12** against Codex CLI **0.147.0-alpha.6.5**, the Codex desktop settings surface,
+Settings were audited **2026-08-12** on CLI **0.147.0-alpha.6.5** and Desktop; agent/hooks requalified on CLI **0.153.4** on **2026-09-08** (see `codex-validation.md`),
 and the official Codex documentation — re-audit this page when those platform facts change. The evidence of record:
 [configuration precedence](https://learn.chatgpt.com/docs/config-file/config-basic#configuration-precedence), [permissions](https://learn.chatgpt.com/docs/permissions), [sandboxing and approvals](https://learn.chatgpt.com/docs/agent-approvals-security),
 [custom agents](https://learn.chatgpt.com/docs/multi-agent), [scheduled tasks](https://learn.chatgpt.com/docs/automations), and [desktop settings](https://learn.chatgpt.com/docs/reference/settings).
@@ -21,13 +21,6 @@ documented-platform acceptance only: `codex-validation.md` keeps the live arms a
 mismatch reopens the policy before release.
 
 ## Steps
-
-**L4-9 requalification, 2026-09-08.** Disposable macOS probes on Codex CLI 0.153.4 verified custom
-agent model/effort selection, parent sandbox precedence, spawn observation/denial, and compact context
-delivery. These are CLI observations; they do not qualify the Desktop settings or scheduling arms below.
-Central `model-bindings.json` now owns native Codex model choices and generated persona pins. Reviewer
-effort stays unpinned. Keep the read-only request while disclosing that a Workspace Write parent can override it;
-shell prohibition remains instruction text. See `codex-validation.md` for the dated evidence and rerun procedure.
 
 - **Ordinary Engine work: Workspace Write + Ask for Approval.** Make this the desktop default: the Engine can use
   its workspace and OS temporary directory while home-directory writes, shell network access, and broader machine

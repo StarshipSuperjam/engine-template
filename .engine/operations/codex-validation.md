@@ -1,205 +1,116 @@
 ---
-title: Validate the Codex adapter live — the post-merge pass bar, and the update re-trust ritual
+title: Validate the Codex adapter live — qualification and hook re-trust
 ---
 
 ## Purpose
 
-Prove, in a live Codex session, the adapter behavior no check in this repository can prove from
-inside (the platform's hook firing, discovery, and sandbox behavior only exist under a running Codex
-binary), and keep Codex sessions healthy across engine updates. Enter this runbook right
-after the dual-runtime change merges (the named acceptance step), after any later change to the
-Codex adapter surfaces, or when a Codex session reports its hooks are not running.
+Prove the adapter behavior that requires a running Codex host: hook firing, agent discovery, effective
+permissions and context delivery. Repository checks prove coherence; live observations qualify only the
+host and version actually tested. Enter after adapter changes or when hooks stop running.
 
 ## Steps
 
-1. **Item zero — version.** Run `codex --version` and confirm the installed Codex is a build with
-   hooks support (a 2026 build, around v0.114 or later). On an older build every later step fails
-   for that reason alone — upgrade first, or stop here and say so.
-2. Open the repository in Codex, run `/hooks` (or, in the Desktop app, open the Hooks screen under
-   Settings), and approve the engine's hooks (they are skipped
-   until trusted; after any engine update that changes `.codex/hooks.json` they need re-approval —
-   the engine says so whenever it changes that file).
-3. Start a fresh session and check the floor and grounding: the session reads `AGENTS.md`, and its
-   first reply opens with the **Project status** block (or plainly discloses that the briefing did
-   not arrive and grounds manually via `uv run --directory .engine --frozen -- python tools/engine_status.py`).
-4. **Check the write-gate only in a disposable git worktree.** Open that throwaway worktree as a separate
-   Codex project and, WITHOUT starting a build, ask for a small file edit and then a shell `git commit`.
-   Both must be denied with the plain exploring explanation. Inspect and discard the worktree afterward;
-   never probe a guardrail's negative path by offering it the real project as the mutation target, because a
-   failed hook could perform the action the check meant to deny.
-5. Check Build entry: type `$engine-start` — the stance flips to building (and ONLY this typed verb
-   does; casual phrasing must not).
-6. **Check deferred live-helper discovery — including its failure branches, without disturbing the real
-   project.** The exact Codex procedure is emitted by `.engine/tools/boot.py`
-   `MCP_AVAILABILITY_CHECK_CODEX`; validate that procedure, never an invented substitute.
-   - **Healthy deferred case, in this project:** start a fresh session and record whether the initial tool
-     summary omits `mcp__engine_memory.health` and `mcp__engine_knowledge_graph.health`. When it omits them,
-     confirm one search per helper discovers the exact tool, each fixed health call returns its exact server
-     identity, and the first reply carries no helper-outage warning. If this Codex build surfaces either tool
-     initially, that helper's deferred-discovery branch was **not verified** — do not call it a pass; repeat on
-     a build/session that actually defers it.
-   - **Controlled failure matrix, only in throwaway project copies:** never edit this project's real
-     `.codex/config.toml`, trust state, or servers. Exercise these seven fresh-session cases explicitly:
-     (1) both pass; (2) memory passes and knowledge discovery misses; (3) memory passes and knowledge is
-     discovered but its call fails; (4) knowledge passes and memory discovery misses; (5) knowledge passes and
-     memory is discovered but its call fails; (6) both discovery checks miss; (7) both are discovered but both
-     calls fail. Produce a miss by omitting only that temporary registration. Produce a call failure by pointing
-     only that registration at a temporary MCP fixture which registers the exact `health` operation but returns
-     an MCP error — never damage a real store or server. In every mixed case the passing helper stays silent and
-     only the failed helper warns; a discovery miss gives the trust-and-restart diagnosis, while a discovered
-     call failure says registered-but-not-passing and does not blame trust. Remove temporary copies and fixtures
-     afterward. If Codex cannot isolate them from the real project's trust state, record the negative arms as
-     **not verified** rather than perturbing the real installation.
-7. Check memory capture: after a turn or two, `$engine-status` shows no memory-capture warning (a
-   "conversation wasn't saved" line means the transcript reader needs updating — a defect, not a
-   deferral).
-8. **Check review reach and the parent-override limit.** Confirm the ten personas under
-   `.codex/agents/` are visible. From a live **Read Only** parent task, spawn one and confirm it reports
-   without editing. Then start a separate live **Workspace Write** parent task, spawn the same persona,
-   inspect the child's effective permission, and confirm Codex reapplies the parent's Workspace Write
-   override instead of mechanically confining the child to its TOML `sandbox_mode = "read-only"`. The
-   second arm is a platform-limit witness, not a desired permission result: if Codex later preserves the
-   child's read-only boundary, reopen the provider exception and `codex-settings.md` rather than retaining
-   a stale weakness claim.
-9. Check help: `$engine-help` renders the commands with the `$` prefix.
-   Also run the spawn/compact demonstration below after changes to those adapter owners.
-10. **Check the retired Codex build-Routine path.** Confirm the scheduling UI still exposes no per-Automation
-    permission profile and uses one shared default; if either fact changed, reopen `codex-settings.md` rather
-    than retaining the retirement without its premise. In **Scheduled**, find every recurring task whose prompt
-    contains `$engine-routine`, pause or delete it, and confirm it no longer appears under Active. Invoke the
-    committed `$engine-routine` skill once in a normal Codex task and confirm it refuses to enter Routine and
-    points to the supported interactive Codex or Claude Desktop path. This external disable is a **pre-merge
-    migration gate**, not merely release follow-up: a shell process cannot prove which scheduler launched it,
-    so repository code cannot safely substitute for removing the old task. During an upgrade crossing routine-mode
-    0.2.0, confirm the preview and pull-request body carry the same disable-and-replace notice.
-11. **Check the retired Codex scheduled self-review path.** Confirm
-    `.engine/audits/self-review-setup.md` no longer tells an operator to create a Codex Automation and instead
-    tells existing users to open **Scheduled**, identify the recurring audit by its prompt, pause or delete it,
-    and then names both supported replacements: an ordinary interactive Read
-    Only Codex task, and the durable GitHub/Claude recurring path. During an upgrade that crosses
-    audit-library 0.3.0, confirm the upgrade preview and pull-request body carry that same disable-and-replace
-    notice. Finally confirm the scheduling UI still has no per-Automation permission profile; if one now exists,
-    reopen the audit rather than keeping the retirement on an obsolete platform limit.
+1. Record `codex --version`, OS, host kind and host version (or why unavailable). Hooks require a
+   supported build (around v0.114 or later). CLI evidence never certifies Desktop or Windows.
+2. Approve Engine hooks with `/hooks` in CLI or Settings → Hooks in Desktop. New or changed entries in
+   `.codex/hooks.json` are skipped until re-approved. Preserve saved trust during isolated qualification.
+3. Start fresh: verify `AGENTS.md` and the opening **Project status** block. If the briefing is absent,
+   disclose that automation is off and ground manually with
+   `uv run --directory .engine --frozen -- python tools/engine_status.py` before continuing.
+4. In a disposable git worktree only, request an edit and a shell `git commit` without Build authority.
+   Both must be denied with the exploring explanation. Inspect the actual worktree afterward; a failed
+   hook can perform the offered mutation, so never target the real project. Discard the fixture.
+5. Check explicit Build entry with `$engine-start`; importing or casually discussing a plan grants no
+   Build authority. Payloadless entry and concurrent-session stance acceptance have their own owner.
+6. Check the exact deferred-helper procedure from `boot.py`'s `MCP_AVAILABILITY_CHECK_CODEX`. In a fresh
+   session, record whether each helper was initially omitted; an initially visible helper does not prove
+   deferred discovery. Healthy exact discovery/health produces no warning. In isolated copies, exercise:
+   both pass; either one passes while the other's discovery misses; either one passes while the other's
+   discovered call fails; both miss; both calls fail. Omit only a fixture registration to cause a miss;
+   use a temporary server registering the exact health operation but returning an MCP error to cause a
+   call failure. Passing helpers stay silent. Misses advise trust/restart; registered failures do not
+   blame trust. Never damage real servers or trust; if isolation is unavailable, record not-verified.
+7. After turns, check memory capture with `$engine-status`; a capture warning is a defect. Confirm
+   `$engine-help` uses the `$` prefix. Run incident replays via `codex-incident-replay.md` separately.
+8. Confirm all ten rendered personas are discoverable. From separate Read Only and Workspace Write
+   parents, launch the same configured child. Record requested model/effort/read-only intent separately
+   from actual child runtime metadata, shell observation and disposable-file outcomes. A parent override
+   may replace the child sandbox. If that changes, reopen the exception and `codex-settings.md`.
+9. Test spawn enforcement and compact delivery as below. Keep child identity separate from hook session
+   identity; never substitute a live-session marker or use the hook's parent model as child evidence.
+10. Preserve the scheduled-Routine retirement gate in `codex-settings.md`: inspect the UI's shared default
+    and lack of per-Automation permission profiles; changed platform facts reopen the policy. In Scheduled,
+    pause/delete every `$engine-routine` task and verify none remains Active. Invoke the refusal skill;
+    it must point to supported interactive Codex or Claude Desktop. This is a pre-merge migration gate,
+    including the upgrade notice when crossing routine-mode 0.2.0; code cannot prove scheduler origin.
+11. Likewise verify the audit retirement instructions in `.engine/audits/self-review-setup.md`: identify
+    recurring audits by prompt, remove them from Active, and retain interactive Read Only Codex plus
+    durable GitHub/Claude replacements. Upgrades crossing audit-library 0.3.0 must disclose the migration.
 
-## Done when
+### Vary the real policy owners
 
-### Check the qualification record's completeness
-
-For Codex adapter qualification, retain a `codex-qualification.v1` JSON record in the existing
-Build verification evidence, alongside the bounded, redacted probe output. Run
-`uv run --directory .engine --frozen -- python tools/codex_qualification.py <record.json>`
-against that record, including the final candidate's record before submission. This command checks
-structure only. It does not run probes, verify referenced evidence, certify a host, or update
-`.engine/state/execution.json`. Reviewers must judge the evidence and the capability results separately.
-
-The record contains:
-
-- `schema_version`: `codex-qualification.v1`; `recorded_at`: an ISO timestamp with timezone;
-  `base_commit` and `head_commit`: full Git commit IDs.
-- `host`: `kind`, `os`, `cli_version`, and `host_version`, each an object with a nonempty `value`,
-  or a null `value` and an explicit `unavailable_reason`. Identify CLI and Desktop separately;
-  CLI evidence does not qualify Desktop behavior.
-- `official_sources`: nonempty source references; `reproduction_commands`: nonempty arrays of
-  command arguments. Keep credentials and unrelated session content out of both.
-- `cells`: exactly one cell per parent mode (`read-only`, `workspace-write`) and capability
-  (`custom-agent-model`, `reasoning-effort`, `parent-child-sandbox`, `shell-availability`, `file-writes`,
-  `hook-session-identity`, `compact-context`, `agent-observation`, `spawn-payload`). Each cell names
-  `parent_mode`, `capability`, nonempty `requested` settings, and `status`.
-- A `pass` or `fail` cell includes nonempty `observed` results and `evidence_refs` pointing to the
-  bounded evidence. A `not-verified` cell includes a nonempty `reason`. Requested settings and an
-  agent's self-report alone are not proof of effective model, effort, or sandbox configuration.
-
-A complete record can contain failures and unknowns. `pass` means the evidence supports the stated
-assertion, `fail` means it contradicts it, and `not-verified` means no trustworthy result was obtained.
-The checker rejects missing or duplicate cells, invalid statuses, missing host/version accounting,
-and missing evidence references or unknown reasons. It never promotes an unknown to a pass. Required
-capability failures or unknowns still hold the qualification checkpoint and dependent implementation.
-
-### Vary the spawn gate and compact reminder
-
-This replay exercises the real policy owners and can visibly fail. It is construction evidence, covered
-by permanent regression tests; it does not certify that Codex fired a hook. From the Engine root, run:
+These replays can fail, but do not prove a live hook fired. They are construction demonstrations covered
+by permanent regression tests, not an additional standing command. From the Engine root:
 
 ```sh
 printf '%s\n' '{"tool_name":"collaborationspawn_agent","tool_input":{"agent_type":"explorer","model":"gpt-6-astra"}}' | uv run --directory .engine --frozen -- python tools/session_economy.py hook
-```
-
-Expect a JSON `deny` decision. Change the model to the central mechanical model (`gpt-5.6-luna` in
-this qualification): expect no denial. Remove `model`: expect denial again. Change `agent_type` to
-`default` or an unknown role: expect no denial, because this is a search rule, not a general model gate.
-An unknown role is unclassified, not verified compliant. Changing the hook's top-level parent `model`
-must never satisfy the child requirement. The master and model-specific environment switches still
-disable their respective rules for newly launched sessions.
-
-```sh
 printf '%s\n' '{"source":"compact"}' | uv run --directory .engine --frozen -- python tools/build_coordinator.py reground-hook
 ```
 
-With one Build bound to this worktree, expect only its bounded plan/PR/work pointer. With no binding,
-expect an explicit no-Build message. Add `"cwd":"/a-different-worktree"` to the input: expect a
-mismatch disclosure and no pointer. None of these replays changes a Build or a session marker.
+The first must emit `deny`. Change the model to the central mechanical choice (`gpt-5.6-luna` here):
+expect no denial. Remove the model: denial. A `default` or unknown role is outside the search rule;
+unknown means unclassified, not verified compliant. Changing the top-level parent model cannot satisfy
+this requirement. Master and model-specific escape switches still govern newly launched sessions.
+The second prints a bounded plan/PR/work pointer for one bound Build, or an explicit absence message.
+Adding `"cwd":"/a-different-worktree"` must disclose mismatch and assume no pointer. No replay mutates state.
 
-For the separate **live** witness, use an isolated qualification project with only the reviewed fixture
-hooks enabled and verify the complete hook inventory first; stop if any unrelated hook is present. Do
-not bypass trust for an uninventoried project or modify the saved installation's trust. Run the same
-explicit explorer model choices through Codex with `fork_turns=none`. Record the actual PreToolUse input
-and SubagentStart events: the cheap launch creates a child; strong and missing-model launches are denied
-before child creation. Record both the request and observed child metadata, rather than treating the
-parent hook model as evidence. A per-invocation qualification trust option is not permission to re-trust
-the operator's installation.
+For live witnesses, use an isolated qualification project with only reviewed fixture hooks. Inventory
+all enabled hooks first and abort if anything unrelated is present. Never bypass trust on an uninventoried
+project. Record exact commands and fixture sources in Build evidence; never change saved installation trust.
+Launch explicit cheap, strong and missing-model explorers with `fork_turns=none`. Capture actual spawn
+inputs and SubagentStart: cheap creates a child; strong/missing are denied before creation. Record actual
+child metadata separately. Unknown launch fields stay unknown; task prose never establishes a role.
+For mid-turn compact delivery, run the isolated CLI with `-c model_auto_compact_token_limit=5000`, request
+one output-only command printing numbers 1 through 12000, then ask for the hook's plan/work pointer without
+reading files. Use an isolated plan-library fixture with the real lookup and reminder handler. Capture
+SessionStart `source=compact`, bounded additionalContext and the following model response. Repeat without
+a binding. Keep CLI and Desktop results separate; a replay or self-report alone is not the live event.
 
-To observe mid-turn compaction, start the isolated CLI probe with
-`-c model_auto_compact_token_limit=5000`, request one output-only shell command printing numbers 1 through
-12000, then ask for the plan/work pointer supplied by the hook without reading files. Use a disposable
-plan-library fixture for the positive binding; keep its lookup and the real reminder handler unchanged.
-Record the actual `SessionStart` compact input, bounded `additionalContext`, and following model response.
-Repeat without the fixture binding for the absent case. Preserve fixture sources and exact commands in
-the Build evidence so another operator can reproduce the observation; a replay or an agent claim alone
-cannot stand in for this live event. CLI results remain separate from Desktop qualification.
+## Done when
 
-Every step above passed in a live Codex session — or each failure is recorded as a defect owed an
-immediate fix in this line of work (a failure inside this bar is never re-scoped as a follow-up). The Codex
-routine twin remains as an actionable refusal surface, not a write backend. Codex build and review Automations
-stay retired until Codex and the repository host can preserve the operator-only merge boundary; interactive
-Codex work and the durable GitHub/Claude schedules remain available.
-The live acceptance record must be complete before the Engine release is cut; a documentation-only answer does
-not satisfy the rollout gate.
+Retain a `codex-qualification.v1` JSON record in existing Build verification evidence and run:
+
+```sh
+uv run --directory .engine --frozen -- python tools/codex_qualification.py <record.json>
+```
+
+The read-only checker requires a timestamp with timezone, full base/head commits, official sources,
+reproduction argv arrays, and host kind/OS/CLI/host-version values or explicit unavailable reasons.
+It requires exactly 18 unique cells: both parent modes × custom-agent-model, reasoning-effort,
+parent-child-sandbox, shell-availability, file-writes, hook-session-identity, compact-context,
+agent-observation and spawn-payload. Each has requested settings and pass/fail/not-verified status.
+Pass/fail needs observed results and evidence references; not-verified needs a reason. Omitted fields,
+duplicates, invalid statuses and missing evidence accounting fail completeness. A complete record can
+still contain failures: the checker never executes probes, certifies a host, validates evidence truth,
+promotes unknowns or changes `.engine/state/execution.json`. Reviewers judge evidence separately.
+Required capability failures/unknowns hold dependent implementation. After material repairs, renew live
+witnesses against the final candidate and check its final record before submission. Every applicable
+live arm must pass before release; defects inside the agreed bar require a fix, not silent deferral.
+Routine/audit migration and Desktop acceptance remain separate gates where those changes apply.
 
 ## Notes
 
-### CLI qualification on 2026-09-08
-
-L4-9 exercised Codex CLI 0.153.4 in disposable macOS projects with Read Only and Workspace Write
-parents. The custom child's runtime metadata retained its configured `gpt-5.6-luna` model and low
-effort while taking the parent's effective sandbox. The Read Only child could invoke a shell but
-could not write the fixture file; the Workspace Write child wrote it despite the agent file's
-read-only default. These observations do not establish a per-tool shell prohibition or qualify Desktop.
-
-The live launch hook reported `collaborationspawn_agent`, with `agent_type`, `task_name`, `fork_turns`,
-and `message` in its input. The configured child's model was absent from that input: the common hook
-`model` named the parent. `^Agent$` did not match this launch; `^collaborationspawn_agent$` did, and a
-disposable denial on that exact matcher prevented child creation. Adapter registrations must cover
-the qualified spelling rather than relying on the documented alias alone.
-
-Child start/stop and child tool hooks retained the parent's exact `session_id` and supplied a separate
-`agent_id`. Actual compaction in both parent modes fired SessionStart with `source=compact`; the next
-model response returned a witness supplied only by that hook. The current Build's structured record
-carries the commands, fixture sources, runtime metadata references, and evidence limits. H1 then exercised
-the real candidate gate: explicit cheap explorer passed and completed; strong and omitted-model launches
-were denied before child creation. The real reminder handler resolved an isolated library and injected
-`pln_L49_COMPACT_POINTER` / `H1_DEMO` during actual compaction; the following model response returned both.
-An absent fixture produced the honest no-Build message. Final material repairs require renewed witnesses;
-these results do not certify future code. The supported observation here is CLI on the recorded host; Desktop and Windows remain
-unverified. Saved installation trust was not changed: fixture execution used an invocation-scoped
-trust option only after an inventory refused any hook outside the four reviewed temporary recorders.
-
-The honest split this runbook exists for: everything above rides the platform's own behavior, which
-the repository's checks deliberately do not simulate — they prove the committed files are coherent,
-in sync, and parity-complete, and THIS pass proves the platform actually consumes them. The
-protected main branch and the operator's merge remain the only wall on every runtime; the hooks are
-guardrails (Codex's own documentation says its pre-tool hook is not a complete enforcement
-boundary, recorded in the exception ledger). Windows behavior is untested by this project and stays
-so until someone runs this pass there.
-
-Incident-derived replays — the boot-briefing leak, agent self-ack, and ready-PR-completion scenarios — live
-in a sibling runbook, `codex-incident-replay.md`; this file stays the structural adapter pass.
+**2026-09-08, macOS / CLI 0.153.4:** the same child retained configured `gpt-5.6-luna`/low effort under
+both parent modes, while inheriting the parent's effective sandbox. Read Only permitted shell invocation
+but prevented the fixture write; Workspace Write permitted it despite the child's read-only default.
+No per-tool shell prohibition or mechanical child isolation from Workspace Write was established.
+The live spawn spelling was `collaborationspawn_agent`; `^Agent$` missed it and the exact matcher saw it.
+Inputs included agent_type/task_name/fork_turns/message; the custom child's configured model was absent,
+while the common hook model identified the parent. Start/stop and child hooks retained the parent's exact
+session_id and separate agent_id. Both parent modes delivered a compact-only witness to the next response.
+H1 then exercised the candidate gate: cheap explorer completed; strong/missing model was denied before
+child creation. The real reminder resolved the isolated library and delivered `pln_L49_COMPACT_POINTER`
+and `H1_DEMO` during actual compaction; the next response repeated both. An absent fixture was disclosed.
+The record retains commands, fixture sources and bounded observations. Invocation-scoped fixture trust
+was used only after an exact inventory check; saved trust was unchanged. Desktop and Windows remain
+unverified. The operator's protected-branch merge remains the wall; hooks are fallible guardrails.
