@@ -43,6 +43,18 @@ refused at the door with its remaining lifecycle steps named, as is one whose co
 Add `--operator-decided` only after the operator's go; the bind refuses without it and records gate and moment,
 never words. For unattended work add `--issue <number>` — that Issue AUTHORIZES the work; it is never its plan.
 
+Keep the `ownership.build_id` and `ownership.generation` returned by bind. Every later mutation supplies
+those caller-held values as `--expect-build-id` and `--expect-generation`, together with the snapshot's
+current `--expect-revision`, before the verb. Status can refresh the revision; it never silently opts a
+caller into another Build's identity. An intentional cold continuation uses `state continue` as described
+in [Build continuity](build-continuity.md).
+
+Binding reserves one claim before writing evidence. A matching retry converges on the same identity and
+consent event; a different request refuses. `state where` exposes an interrupted preparation and its recovery
+route. Full evidence lives under the plan's `builds/<build-id>/snapshot.json`. An external `--state` path is
+an owner-only locator to that canonical file, never another full snapshot. Existing external full snapshots
+require explicit `state migrate`; they are preserved and any retained external evidence is reported.
+
 **The seal hands back before the Build starts**, and [Plan orchestration](plan-orchestration.md) carries what
 that pause asks for. It is an offer, not a gate: the bind's `--operator-decided` consent is the operator's
 agreement to begin; nothing mechanical checks the hand-back's steps, and the engine neither reads nor records

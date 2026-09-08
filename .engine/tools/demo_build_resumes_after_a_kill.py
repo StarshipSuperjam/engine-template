@@ -10,27 +10,31 @@ record went with it: the plan binding, the approval, the review receipts, the fi
 meant reconstructing the snapshot by hand. The snapshot now lives in the plan library beside the sealed plan
 that bound it, written owner-only through the same lock and compare-and-swap the library already uses.
 
-FAIL-THEN-PASS on one fixture, and the two arms differ only in WHERE the snapshot was written:
-  * POSITIVE (durable): a Build is bound, work is recorded, the session is killed — modelled honestly, by
-    throwing away every handle to it and standing up a NEW store from nothing but the worktree path. The
-    Build is found and every record is intact.
-  * NEGATIVE CONTROL (the old shape): the same snapshot written into the OS temporary directory, which is
-    then cleared the way a reboot clears it. The cold lookup finds nothing, and the records are gone.
+The current demo exercises real reserve/create/activate and retirement transactions in a disposable
+library, with selectable interruptions and independent competing processes. It verifies one owner,
+cold discovery, exact archive preservation, permanent lock inodes, and an old caller refusing after
+replacement reuses its worktree, locator and snapshot revision. Its old temporary-file loss control
+remains visible. Review/approval records are synthetic fixtures, not claims about a live Build.
 
 Durable is still not authoritative, and this demo does not blur that: the snapshot is a record of execution,
 never of what was agreed. The sealed plan remains the authority, and the cold lookup asserts the recovered
 snapshot still names the plan it was bound to rather than standing in for it.
 
 Run:  uv run --directory .engine --frozen -- python tools/demo_build_resumes_after_a_kill.py
+Vary: --interrupt retire-rename --contenders 4
 Its companion test (`test_build_state_store.TheKillAndResumeDemo`) runs it, so it travels with the engine as
 a permanent guard in every generated repository.
 """
 from __future__ import annotations
 
+import argparse
+import contextlib
+import copy
 import json
+import multiprocessing
+from unittest import mock
 import os
 from pathlib import Path
-import shutil
 import sys
 import tempfile
 
@@ -73,81 +77,166 @@ def _records_intact(state: dict) -> bool:
     return bool(state and state.get("approval") and state["reviews"]["deliverable"]["receipts"])
 
 
-def main() -> int:
-    failures = []
-    print("=" * 78)
-    print("DEMO — a killed Build resumes: its execution state is durable, and a cold session standing in")
-    print("the worktree finds it again from the worktree alone.")
-    print("=" * 78)
+class _Interrupted(Exception):
+    pass
 
-    root = tempfile.mkdtemp(prefix="build-resume-demo-")
+
+def _reserve_contender(root, slug, state, locator, start, result):
+    """Independent processes contend for one real plan record, each naming a separate locator."""
+    library = plan_store.PlanLibrary(root)
+    start.wait(timeout=15)
     try:
-        library = plan_store.PlanLibrary(os.path.join(root, "plans"))
-        worktree = os.path.join(root, "worktree")
-        os.makedirs(worktree)
+        claim = build_state_store.reserve_build(library, slug, state,
+            locator=locator, consent={'gate': 'bind', 'at': '2026-09-08T00:00:00Z'})
+        result.put(('reserved', claim, state))
+    except core.CoordinatorError as exc:
+        result.put(('refused', str(exc), None))
 
-        # The snapshot lives BESIDE the sealed plan that bound it, so the plan folder has to exist —
-        # that adjacency is the whole addressing scheme, not an incidental detail of the fixture.
-        slug = plan_store.slug_for("a sealed plan", "pln_0123456789ab")
-        plan_store.ensure_dir(library.plan_dir(slug), within=library.root)
-        (library.plan_dir(slug) / "record.json").write_text(
-            json.dumps({"plan_id": "pln_0123456789ab"}), encoding="utf-8")
 
-        # ---- POSITIVE: bind, record, kill, resume -------------------------------------------------
-        path = build_state_store.snapshot_path(library, slug)
-        store = build_state_store.DurableBuildStore(path, _SCHEMA, library_root=library.root)
-        store.create(_snapshot(worktree))
-        del store                                       # every handle to the session is gone
-
-        # A COLD session: it has nothing but the worktree it is standing in.
-        found = build_state_store.bound_snapshots(worktree, library=library)
-        resumed = None
-        if found:
-            resumed = build_state_store.DurableBuildStore(found[0][1], _SCHEMA,
-                                                          library_root=library.root).read()
-        print("\n[POSITIVE — the durable snapshot, after the session is thrown away]")
-        print(f"  a cold lookup from the worktree finds it:     {bool(found)}")
-        print(f"  the approval and review receipt survived:     {_records_intact(resumed)}")
-        if resumed:
-            print(f"  it still names the plan it was bound to:      "
-                  f"{resumed['plan']['plan_id']} (sealed {resumed['plan']['sealed_digest'][:19]}…)")
-        if not found:
-            failures.append("POSITIVE: a cold session standing in the worktree could not find the Build")
-        if not _records_intact(resumed):
-            failures.append("POSITIVE: the Build was found but its records did not survive")
-        if resumed and resumed["plan"]["plan_id"] != "pln_0123456789ab":
-            failures.append("POSITIVE: the recovered snapshot does not name the plan that bound it — "
-                            "durable state is a record of execution, never a substitute for the plan")
-
-        # ---- NEGATIVE CONTROL: the same snapshot in OS temp, cleared the way a reboot clears it ----
-        os_temp = tempfile.mkdtemp(prefix="build-resume-demo-ostemp-")
-        legacy = os.path.join(os_temp, "build-state.json")
-        with open(legacy, "w", encoding="utf-8") as fh:
-            json.dump(_snapshot(worktree), fh)
-        shutil.rmtree(os_temp, ignore_errors=True)      # the reboot
-        survived = os.path.exists(legacy)
-        cold_finds_it = bool(build_state_store.bound_snapshots(
-            worktree, library=plan_store.PlanLibrary(os_temp)))
-        print("\n[NEGATIVE CONTROL — the old shape: OS temp, cleared by a reboot]")
-        print(f"  the snapshot survived the reboot:             {survived}")
-        print(f"  a cold lookup from the worktree finds it:     {cold_finds_it}")
-        if survived or cold_finds_it:
-            failures.append("NEGATIVE CONTROL did not reproduce the loss — the demo is not exercising the "
-                            "failure it claims to close")
+def _contend(library, slug, root, state, count):
+    ctx = multiprocessing.get_context('spawn')
+    start, result = ctx.Barrier(count), ctx.Queue()
+    children = []
+    for number in range(count):
+        candidate = copy.deepcopy(state)
+        candidate['build'].update(pr=4242 + number, worktree=str(root / f'worktree-{number}'))
+        child = ctx.Process(target=_reserve_contender, args=(str(library.root), slug, candidate,
+            str(root / f'locator-{number}.json'), start, result))
+        children.append(child)
+    try:
+        for child in children: child.start()
+        for child in children:
+            child.join(20)
+            if child.is_alive() or child.exitcode != 0:
+                raise RuntimeError('a competing attempt did not finish cleanly within the bound')
+        return [result.get(timeout=3) for _ in children]
     finally:
-        shutil.rmtree(root, ignore_errors=True)
-
-    print("\n" + "=" * 78)
-    if failures:
-        print("DEMO FAILED:")
-        for f in failures:
-            print(f"  - {f}")
-        print("=" * 78)
-        return 1
-    print("DEMO PASSED — the Build outlives the session that started it, and the plan stays the authority.")
-    print("=" * 78)
-    return 0
+        for child in children:
+            if child.is_alive(): child.terminate(); child.join(3)
+        result.close(); result.join_thread()
 
 
-if __name__ == "__main__":
-    sys.exit(main())
+@contextlib.contextmanager
+def _interrupt_at(point, library, path):
+    """Interrupt AFTER one real persistence boundary; no alternative storage implementation."""
+    fired = []
+    write, record_write, replace = core.atomic_write, library.write_build_record_locked, Path.replace
+    def hit():
+        fired.append(True)
+        raise _Interrupted(point)
+    def writing(target, *args, **kwargs):
+        answer = write(target, *args, **kwargs)
+        if not fired and ((point == 'snapshot' and Path(target) == path) or
+                (point == 'retire-archive' and Path(target).name.startswith('retired-'))): hit()
+        return answer
+    def recording(slug, record):
+        answer = record_write(slug, record)
+        current = record['build_lease']['current']
+        if not fired and ((point == 'activation' and current and current['state'] == 'active') or
+                          (point == 'release' and current is None)): hit()
+        return answer
+    def replacing(source, destination):
+        answer = replace(source, destination)
+        if not fired and point == 'retire-rename' and source == path: hit()
+        return answer
+    with mock.patch.object(core, 'atomic_write', side_effect=writing), \
+            mock.patch.object(library, 'write_build_record_locked', side_effect=recording), \
+            mock.patch.object(Path, 'replace', replacing):
+        yield fired
+
+
+def main(argv=()) -> int:
+    parser = argparse.ArgumentParser(description='Disposable, real-transaction Build recovery demo. No live library or GitHub writes.')
+    parser.add_argument('--interrupt', choices=['none', 'reservation', 'snapshot', 'activation',
+                        'retire-archive', 'retire-rename', 'release'], default='snapshot')
+    parser.add_argument('--contenders', type=int, choices=range(2, 9), default=2, metavar='2..8')
+    args = parser.parse_args(argv)
+    print(f'DEMO — {args.contenders} competing attempts; interrupt after {args.interrupt}')
+    print('Synthetic plan/PR fixture, real locks and transactions, temporary library only.')
+    failures = []
+    def check(label, passed):
+        print(f"  {'PASS' if passed else 'FAIL'}: {label}")
+        if not passed: failures.append(label)
+    try:
+        with tempfile.TemporaryDirectory(prefix='build-resume-demo-') as directory:
+            root = Path(directory)
+            library = plan_store.PlanLibrary(root / 'plans')
+            # Shared valid fixture shape, also used by the existing program demonstrations.
+            from test_plan_store import _document
+            document = _document()
+            slug = library.create(document)
+            record = library.read_record(slug)
+            seal = {'revision': 1, 'reviewed_digest': record['current']['plan_digest'],
+                    'sealed_digest': record['current']['plan_digest'],
+                    'build_plan_digest': record['current']['build_plan_digest'],
+                    'at': '2026-09-08T00:00:00Z', 'delta_judgment': 'none'}
+            library.update_record(slug, lambda r: r.update(seal=seal,
+                consent=[{'gate': 'seal', 'at': seal['at']}]))
+            state = _snapshot(str(root / 'worktree'))
+            state['plan'].update(sealed_digest=seal['sealed_digest'], digest=seal['build_plan_digest'])
+            state['approval']['plan_digest'] = seal['build_plan_digest']
+            outcomes = _contend(library, slug, root, state, args.contenders)
+            winners = [outcome for outcome in outcomes if outcome[0] == 'reserved']
+            check('exactly one reservation; every competing attempt refused',
+                  len(winners) == 1 and sum(o[0] == 'refused' for o in outcomes) == args.contenders - 1)
+            if len(winners) != 1: return 1
+            _, claim, state = winners[0]
+            identity = build_state_store.claim_identity(claim)
+            path = Path(claim['snapshot'])
+            # A matching retry is explicit and preserves the original reservation and consent.
+            retry = build_state_store.reserve_build(library, slug, state, locator=claim['locator'],
+                consent={'gate': 'bind', 'at': '2026-09-08T00:00:01Z'})
+            check('reservation retry keeps its identity and one consent event', retry == claim and
+                  len([c for c in library.read_record(slug)['consent'] if c['gate'] == 'bind']) == 1)
+            if args.interrupt == 'reservation': print('  interrupted session after reservation; retrying its recorded inputs')
+            def finish(): return build_state_store.finish_binding(library, slug, identity, state, _SCHEMA)
+            if args.interrupt in ('snapshot', 'activation'):
+                with _interrupt_at(args.interrupt, library, path) as fired:
+                    try: finish()
+                    except _Interrupted: pass
+                check('selected bind interruption was reached', bool(fired))
+            finish()
+            found = build_state_store.bound_snapshots(state['build']['worktree'], library=library)
+            cold = build_state_store.resolve_for_worktree(state['build']['worktree'], _SCHEMA,
+                                                         library=library, identity=identity)
+            resumed = cold.read()
+            check('cold discovery finds the canonical Build with approval and review intact',
+                  found == [(slug, path)] and _records_intact(resumed) and resumed['ownership'] == identity)
+            cold.mutate(lambda s: s['progress'].update(current_item='last writer'), from_revision=1)
+            original = path.read_bytes()
+            locks = [build_state_store._legacy_lock(library, slug), path.with_name(path.name + '.lock')]
+            inodes = [lock.stat().st_ino for lock in locks]
+            def retire():
+                return build_state_store.retire_build(library, slug, identity, _SCHEMA,
+                    reason='demo replacement', expected_revision=2)
+            if args.interrupt in ('retire-archive', 'retire-rename', 'release'):
+                with _interrupt_at(args.interrupt, library, path) as fired:
+                    try: retire()
+                    except _Interrupted: pass
+                check('selected retirement interruption was reached', bool(fired))
+            archive = retire()
+            check('archive keeps the last writer exactly; both permanent locks retain their inodes',
+                  archive.read_bytes() == original and not path.exists() and
+                  [lock.stat().st_ino for lock in locks] == inodes)
+            replacement = build_state_store.reserve_build(library, slug, state, locator=claim['locator'],
+                consent={'gate': 'bind', 'at': '2026-09-08T00:00:02Z'})
+            new = build_state_store.finish_binding(library, slug,
+                build_state_store.claim_identity(replacement), state, _SCHEMA)
+            stale = build_state_store.ClaimedBuildStore(library, slug, _SCHEMA, 1, identity=identity)
+            refused = False
+            try: stale.mutate(lambda s: s['progress'].update(current_item='stale overwrite'))
+            except core.CoordinatorError: refused = True
+            check('old caller refuses although worktree, locator and revision are reused', refused and
+                  core.json_file(Path(replacement['snapshot'])) == new and replacement['generation'] == 2)
+            # Keep the original reboot-loss negative control explicit and isolated.
+            legacy = root / 'old-session-temp.json'; legacy.write_bytes(original); legacy.unlink()
+            check('negative control: deleting the old temporary file loses that copy', not legacy.exists())
+    except (OSError, RuntimeError, core.CoordinatorError) as exc:
+        failures.append(str(exc)); print(f'  FAIL: {exc}')
+    print('DEMO FAILED' if failures else 'DEMO PASSED — one owner, preserved evidence, stale writers refused.')
+    print('The temporary library was removed. This models interruptions; it does not certify hardware power-loss behavior.')
+    return 1 if failures else 0
+
+
+if __name__ == '__main__':
+    sys.exit(main(sys.argv[1:]))

@@ -483,6 +483,31 @@ class TheKillAndResumeDemo(unittest.TestCase):
         import demo_build_resumes_after_a_kill as demo
         self.assertEqual(quiet_call.run(demo.main), 0)
 
+    def test_every_selectable_interruption_recovers(self):
+        import demo_build_resumes_after_a_kill as demo
+        for point in ('none', 'reservation', 'activation', 'retire-archive', 'retire-rename', 'release'):
+            with self.subTest(point=point), contextlib.redirect_stdout(io.StringIO()):
+                self.assertEqual(demo.main(['--interrupt', point, '--contenders', '3']), 0)
+
+    def test_demo_fails_when_old_writer_fencing_is_broken(self):
+        import demo_build_resumes_after_a_kill as demo
+        with mock.patch.object(build_state_store.ClaimedBuildStore, '_check_write', return_value=None), \
+                contextlib.redirect_stdout(io.StringIO()) as out:
+            self.assertEqual(demo.main(['--interrupt', 'none']), 1)
+        self.assertIn('FAIL: old caller refuses', out.getvalue())
+
+    def test_demo_fails_when_competing_attempts_are_reported_as_winners(self):
+        import demo_build_resumes_after_a_kill as demo
+        actual = demo._contend
+        def corrupt(*args):
+            results = actual(*args)
+            winner = next(r for r in results if r[0] == 'reserved')
+            return [winner, winner]
+        with mock.patch.object(demo, '_contend', side_effect=corrupt), \
+                contextlib.redirect_stdout(io.StringIO()) as out:
+            self.assertEqual(demo.main([]), 1)
+        self.assertIn('FAIL: exactly one reservation', out.getvalue())
+
 
 # Actual supersede from a54c8119, frozen to challenge the compatibility boundary.
 _LEGACY_SUPERSEDE = 'def supersede(library: plan_store.PlanLibrary, slug: str, *, reason: str) -> Path | None:\n    """Clear a confirmed-stale binding: set the current snapshot aside so a fresh Build of the same\n    plan may start. Never silent.\n\n    This is deliberately NOT the resume path — a genuine continuation keeps its worktree and\n    re-verifies the binding in place, and never comes here. Nor is it needed to start a Build of some\n    OTHER plan: each plan gets its own snapshot, so a different plan just binds fresh. But this plan\n    cannot bind fresh in a different worktree — snapshots are keyed by plan, not worktree, so while this\n    snapshot exists a re-bind of the same plan is refused. Superseding clears that one snapshot so its\n    slot is free again. Once cleared, the plan no longer answers `bound_snapshots` (the live snapshot is\n    gone), so a resuming session sees no live work for it. Superseding neither completes the plan nor\n    touches the PR.\n\n    The displaced snapshot is MOVED, not removed: it becomes `superseded-<revision>.json` beside the\n    new one, byte-for-byte as it stood, with the reason recorded in a sibling `.reason.json`. An\n    operator superseding a Build usually does so because something went wrong, which is precisely\n    when the evidence of what went wrong is worth keeping — and keeping the snapshot itself\n    unaltered is what lets it still be read as the schema-valid document it is.\n    """\n    current = snapshot_path(library, slug)\n    if not current.is_file():\n        return None\n    state = core.json_file(current)\n    revision = state.get("revision", 0)\n    retired = current.with_name(f"superseded-{revision:06d}.json")\n    if retired.exists():\n        raise BuildStateError(\n            f"{retired} already exists, so superseding again would overwrite a snapshot already set "\n            "aside. Move or delete it first — this store does not silently destroy evidence.")\n    core.atomic_write(retired, json.dumps(state, indent=2, sort_keys=True) + "\\n",\n                      durable=True, mode=plan_store.FILE_MODE)\n    core.atomic_write(retired.with_suffix(".reason.json"),\n                      json.dumps({"at": moment.utc_now(), "reason": reason,\n                                  "superseded_revision": revision}, indent=2, sort_keys=True) + "\\n",\n                      durable=True, mode=plan_store.FILE_MODE)\n    current.unlink()\n    lock = current.with_name(current.name + ".lock")\n    if lock.exists():\n        lock.unlink()\n    return retired'
