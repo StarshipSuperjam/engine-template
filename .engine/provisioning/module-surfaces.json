@@ -1386,6 +1386,9 @@
   ".engine/tools/codex_gen.py": [
    "core"
   ],
+  ".engine/tools/codex_qualification.py": [
+   "core"
+  ],
   ".engine/tools/codex_skill_coherence_check.py": [
    "core"
   ],
@@ -2320,6 +2323,9 @@
    "core"
   ],
   ".engine/tools/test_codex_gen.py": [
+   "core"
+  ],
+  ".engine/tools/test_codex_qualification.py": [
    "core"
   ],
   ".engine/tools/test_codex_settings.py": [
