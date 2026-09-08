@@ -5963,7 +5963,7 @@
       },
       "slug": "codex-settings",
       "source": {
-        "fingerprint": "sha256:782b5709ca6446990a14cbc00714df5659dd58e39359110bcda5cf3ca8bd5fa5",
+        "fingerprint": "sha256:b72fe10d8832d3e99c9622a7a282a479f12ffde472157ab280776405d8ecb8a5",
         "path": ".engine/operations/codex-settings.md"
       },
       "status": "active",
@@ -5983,7 +5983,7 @@
       },
       "slug": "codex-validation",
       "source": {
-        "fingerprint": "sha256:7c54654e8e924bf7d2029cf2f649655b3a2f1dfe23c53ea2c74c8f147610e2d4",
+        "fingerprint": "sha256:5d9df0eff5eec01afa215f8b7f6b0b5daa9a4dd76a12cce920f789aaecae5681",
         "path": ".engine/operations/codex-validation.md"
       },
       "status": "active",
@@ -6751,7 +6751,7 @@
       },
       "slug": "provider-exceptions",
       "source": {
-        "fingerprint": "sha256:bf3348f982db896b191030acf9b69c29008019757cb72f9b2c536e711de6fc86",
+        "fingerprint": "sha256:f59422da57be214f20267bc1811af6a7101eaf03f8af5f786d63c62b4122f78c",
         "path": ".engine/policies/provider-exceptions.json"
       },
       "status": "active",
