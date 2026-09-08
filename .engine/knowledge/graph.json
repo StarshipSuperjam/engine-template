@@ -5211,7 +5211,7 @@
       },
       "slug": "ci-assurance",
       "source": {
-        "fingerprint": "sha256:bf04347b05e84eedf33eb6dfdbaa1ac2e8c539aa19bc97dd846823086bea30e1",
+        "fingerprint": "sha256:0767283996a6ca2ac52c518f2d891048633f368e733aef7a0163b0663feff883",
         "path": ".engine/docs/ci-assurance.md"
       },
       "status": "active",
@@ -10402,7 +10402,7 @@
       },
       "slug": "conformance_sweep",
       "source": {
-        "fingerprint": "sha256:bd3be4f6d78a9be634e8825dfada472bb36a21b0a68571bff6ecdf515edaa7cb",
+        "fingerprint": "sha256:5a4e015f7425b7c2de61ab9d1a0bebaf8f84cfae581cb59209e207f72d1bb283",
         "path": ".engine/tools/conformance_sweep.py"
       },
       "status": "active",
@@ -11453,7 +11453,7 @@
       },
       "slug": "demo_overlay_disclosure",
       "source": {
-        "fingerprint": "sha256:089bddaf7ce0080ae73b3983a2ea55085226dde01cade3eb8689555dfb6918c5",
+        "fingerprint": "sha256:3824deb9024e5182cec2bdbb472a426a905fc927fa0a0f385fa31b91083d73b2",
         "path": ".engine/tools/demo_overlay_disclosure.py"
       },
       "status": "active",
@@ -12846,7 +12846,7 @@
       },
       "slug": "issue_conformance_ci",
       "source": {
-        "fingerprint": "sha256:108167155f266cd48335e0930bfcbc05ea4fabf58ea2e870d0e5b579b38faaf6",
+        "fingerprint": "sha256:d8be88ab9cad32620caa5242bbe606c3ad9804bdc5f7d8a564805de04f49d564",
         "path": ".engine/tools/issue_conformance_ci.py"
       },
       "status": "active",
@@ -13994,7 +13994,7 @@
       },
       "slug": "overlay_disclosure",
       "source": {
-        "fingerprint": "sha256:911080a6f55df695afa020bf27165a18f7a4a463f1c8eb2ceedfdeaf7a54ce2c",
+        "fingerprint": "sha256:8ce6f6cbfa2361a9dda131b18a46d7e2183480a759e0af3ecfe43c2d5df7ed5e",
         "path": ".engine/tools/overlay_disclosure.py"
       },
       "status": "active",
@@ -16983,7 +16983,7 @@
       },
       "slug": "test_conformance_sweep",
       "source": {
-        "fingerprint": "sha256:571f1238688fcd294cd6564a2d74a8024e54511d91438e55f09fb678b0921399",
+        "fingerprint": "sha256:9f1ffed68b8bfa56c3efb161f77bb2109a5b7396dab666649bb7d1a5d3ef232d",
         "path": ".engine/tools/test_conformance_sweep.py"
       },
       "status": "active",
@@ -17975,7 +17975,7 @@
       },
       "slug": "test_issue_conformance_ci",
       "source": {
-        "fingerprint": "sha256:bee19edadb763b73ed4a74fd659f0c273c00b1a62282ca82404c82e4f732d676",
+        "fingerprint": "sha256:95f917ea26ecd2a0e2c54ac8a6738309f752c4eaed443551d11e898905151f99",
         "path": ".engine/tools/test_issue_conformance_ci.py"
       },
       "status": "active",
@@ -19049,7 +19049,7 @@
       },
       "slug": "test_overlay_disclosure",
       "source": {
-        "fingerprint": "sha256:b6cc2470cf532dd39f1105f854aabb469d4521e7bde602288c82a8bf0c1ac59d",
+        "fingerprint": "sha256:278552b0c2c538f6d3f270ac63b63f03fec3cee78f594adde4485f72303b363a",
         "path": ".engine/tools/test_overlay_disclosure.py"
       },
       "status": "active",
