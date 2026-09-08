@@ -52,16 +52,20 @@ class _Recorder:
         return [(m, p) for m, p, _ in self.calls]
 
 
-def _ok_rule(label_exists=True, comments=None):
+def _ok_rule(label_exists=True, comments=None, live_issue=None):
     """The all-green rule the reconcile-path tests use: label-existence per `label_exists`, list-comments
     returns `comments`, every write succeeds."""
     comments = comments or []
 
     def rule(method, path, body=None):
+        if "/issues/comments/" in path:
+            return 200, {}
         if "/comments" in path:
             return (200, list(comments)) if method == "GET" else (201, {"id": 1})
         if "/issues/" in path and "/labels" in path:
             return 200, []
+        if "/issues/" in path:
+            return (200, live_issue) if live_issue is not None else (404, None)
         if path.endswith("/labels"):
             return 201, {}
         if "/labels/" in path:
@@ -142,12 +146,14 @@ class TestReconcileFlags(unittest.TestCase):
         self.assertEqual(sum(1 for m, p in posts if "/issues/" in p and p.endswith("/labels")), 1)
 
     def test_re_fire_does_not_double_comment(self):
-        client = self._client(_ok_rule(comments=[{"body": icc.COMMENT_MARKER + "\nprior"}]))
+        client = self._client(_ok_rule(comments=[{"id": 2, "body": icc.COMMENT_MARKER + "\nprior",
+                                                  "user": {"type": "Bot"}}]))
         icc.reconcile({"number": 1, "labels": ENGINE_FLAGGED, "body": FREE_TEXT}, client)
         self.assertFalse(any(m == "POST" and p.endswith("/comments") for m, p in self.rec.methods_paths()))
 
     def test_label_not_re_added_when_already_present(self):
-        client = self._client(_ok_rule(comments=[{"body": icc.COMMENT_MARKER}]))
+        client = self._client(_ok_rule(comments=[{"id": 2, "body": icc.COMMENT_MARKER,
+                                                  "user": {"type": "Bot"}}]))
         icc.reconcile({"number": 1, "labels": ENGINE_FLAGGED, "body": FREE_TEXT}, client)
         self.assertFalse(any(m == "POST" and "/issues/" in p and p.endswith("/labels")
                              for m, p in self.rec.methods_paths()))
@@ -163,11 +169,66 @@ class TestReconcileClears(unittest.TestCase):
     pure no-op (no GitHub call at all)."""
 
     def test_conform_after_edit_removes_label(self):
-        rec = _Recorder(_ok_rule())
+        advisory = {"id": 11, "body": icc.skeleton_comment(), "user": {"type": "Bot"}}
+        rec = _Recorder(_ok_rule(comments=[advisory], live_issue={"labels": ENGINE_FLAGGED, "body": CONFORMING}))
         client = icc.IssueConformanceClient("o/r", "tok", transport=rec)
         action = icc.reconcile({"number": 1, "labels": ENGINE_FLAGGED, "body": CONFORMING}, client)
         self.assertEqual(action, "cleared")
+        comments_get_at = next(i for i, (m, p, _) in enumerate(rec.calls) if m == "GET" and "/comments?" in p)
+        issue_get_at = next(i for i, (m, p, _) in enumerate(rec.calls) if m == "GET" and p.endswith("/issues/1"))
+        patch_at = next(i for i, (m, p, _) in enumerate(rec.calls) if m == "PATCH" and "/issues/comments/" in p)
+        delete_at = next(i for i, (m, p, _) in enumerate(rec.calls) if m == "DELETE" and "/labels/" in p)
+        self.assertLess(comments_get_at, issue_get_at, "the issue reread must follow comment pagination")
+        self.assertLess(issue_get_at, patch_at, "the issue reread is the final network read before writes")
+        self.assertLess(patch_at, delete_at, "a failed comment resolution must leave the label retryable")
         self.assertTrue(any(m == "DELETE" and "/labels/" in p for m, p in rec.methods_paths()))
+
+    def test_human_marker_comment_is_never_edited(self):
+        human = {"id": 12, "body": icc.COMMENT_MARKER + "\nhuman quoted this", "user": {"type": "User"}}
+        rec = _Recorder(_ok_rule(comments=[human], live_issue={"labels": ENGINE_FLAGGED, "body": CONFORMING}))
+        action = icc.reconcile({"number": 1, "labels": ENGINE_FLAGGED, "body": CONFORMING},
+                               icc.IssueConformanceClient("o/r", "tok", transport=rec))
+        self.assertEqual(action, "cleared")
+        self.assertFalse(any(m == "PATCH" and "/issues/comments/" in p for m, p in rec.methods_paths()))
+        self.assertTrue(any(m == "DELETE" and "/labels/" in p for m, p in rec.methods_paths()))
+
+    def test_repeated_clear_keeps_a_resolved_own_comment_and_removes_label(self):
+        resolved = {"id": 13, "body": icc.resolved_comment(), "user": {"type": "Bot"}}
+        rec = _Recorder(_ok_rule(comments=[resolved], live_issue={"labels": ENGINE_FLAGGED, "body": CONFORMING}))
+        action = icc.reconcile({"number": 1, "labels": ENGINE_FLAGGED, "body": CONFORMING},
+                               icc.IssueConformanceClient("o/r", "tok", transport=rec))
+        self.assertEqual(action, "cleared")
+        self.assertFalse(any(m == "PATCH" and "/issues/comments/" in p for m, p in rec.methods_paths()))
+
+    def test_stale_live_nonconforming_issue_leaves_comment_and_label_unchanged(self):
+        rec = _Recorder(_ok_rule(live_issue={"labels": ENGINE_FLAGGED, "body": FREE_TEXT}))
+        action = icc.reconcile({"number": 1, "labels": ENGINE_FLAGGED, "body": CONFORMING},
+                               icc.IssueConformanceClient("o/r", "tok", transport=rec))
+        self.assertEqual(action, "stale")
+        self.assertEqual(rec.methods_paths(), [("GET", "/repos/o/r/issues/1/comments?per_page=100&page=1"),
+                                               ("GET", "/repos/o/r/issues/1")])
+
+    def test_live_read_patch_and_remove_failures_propagate(self):
+        advisory = {"id": 14, "body": icc.skeleton_comment(), "user": {"type": "Bot"}}
+        for failed_method, failed_fragment in (("GET", "/issues/1"), ("PATCH", "/issues/comments/14"),
+                                               ("DELETE", "/labels/")):
+            def rule(method, path, body=None, failed_method=failed_method, failed_fragment=failed_fragment):
+                if method == failed_method and failed_fragment in path:
+                    return 500, None
+                return _ok_rule(comments=[advisory], live_issue={"labels": ENGINE_FLAGGED, "body": CONFORMING})(method, path, body)
+            with self.subTest(failed_method=failed_method):
+                with self.assertRaises(icc.DegradedWriteError):
+                    icc.reconcile({"number": 1, "labels": ENGINE_FLAGGED, "body": CONFORMING},
+                                  icc.IssueConformanceClient("o/r", "tok", transport=_Recorder(rule)))
+
+    def test_reflag_reactivates_resolved_own_bot_comment(self):
+        resolved = {"id": 15, "body": icc.resolved_comment(), "user": {"type": "Bot"}}
+        rec = _Recorder(_ok_rule(comments=[resolved]))
+        action = icc.reconcile({"number": 1, "labels": ENGINE_FLAGGED, "body": FREE_TEXT},
+                               icc.IssueConformanceClient("o/r", "tok", transport=rec))
+        self.assertEqual(action, "flagged")
+        patches = [(p, b) for m, p, b in rec.calls if m == "PATCH" and "/issues/comments/" in p]
+        self.assertEqual(patches, [("/repos/o/r/issues/comments/15", {"body": icc.skeleton_comment()})])
 
     def test_conforming_unflagged_is_pure_noop(self):
         rec = _Recorder(_ok_rule())
@@ -254,6 +315,11 @@ class TestClientRestOps(unittest.TestCase):
         rec = _Recorder(lambda m, p, b=None: (403, None))
         with self.assertRaises(icc.DegradedWriteError):
             icc.IssueConformanceClient("o/r", "tok", transport=rec).post_comment(7, "hi")
+
+    def test_edit_comment_raises_on_error(self):
+        rec = _Recorder(lambda m, p, b=None: (403, None))
+        with self.assertRaises(icc.DegradedWriteError):
+            icc.IssueConformanceClient("o/r", "tok", transport=rec).edit_comment(7, "hi")
 
 
 class TestReconcilePropagatesFailure(unittest.TestCase):
