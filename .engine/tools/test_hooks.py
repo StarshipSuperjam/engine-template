@@ -41,6 +41,7 @@ import json
 import os
 import re
 import shutil
+import shlex
 import subprocess
 import sys
 import tempfile
@@ -1355,6 +1356,86 @@ class _AcceptedDispatchRepo:
     def qualification_health(self):
         path = self.common_dir() / "engine/accepted-hooks/qualification-health.json"
         return json.loads(path.read_text(encoding="utf-8"))
+
+
+class TestCodexLauncherExecution(unittest.TestCase):
+    """Execute the committed shim, shared runner, and rendered registration in isolation."""
+
+    def setUp(self):
+        self.temp = tempfile.TemporaryDirectory(prefix="codex-launcher-")
+        self.addCleanup(self.temp.cleanup)
+        self.root = Path(self.temp.name) / "project with spaces"
+        self.tools = self.root / ".engine/tools"
+        self.tools.mkdir(parents=True)
+        source = Path(__file__).resolve().parent
+        for name in ("hook-runner.sh", "codex-hook-runner.sh"):
+            shutil.copy2(source / name, self.tools / name)
+        self.interpreter = self.root / ".engine/.venv/bin/python"
+        self.interpreter.parent.mkdir(parents=True)
+        self.interpreter.symlink_to(sys.executable)
+        self.marker = self.root / "target-ran"
+        (self.tools / "launcher_probe.py").write_text(
+            "import json,os,sys\nfrom pathlib import Path\n"
+            "Path(os.environ['L49_TARGET_MARKER']).write_text('ran')\n"
+            "print(json.dumps({'provider':os.environ.get('ENGINE_PROVIDER'),"
+            "'argv':sys.argv[1:],'cwd':os.getcwd()}))\n", encoding="utf-8")
+        self.nested = self.root / "nested path/deeper"
+        self.nested.mkdir(parents=True)
+        self.env = {k: v for k, v in os.environ.items() if not k.startswith("GIT_")}
+        self.env.update(ENGINE_PROVIDER="claude", ENGINE_HOOK_WAIT_POLLS="0",
+                        L49_TARGET_MARKER=str(self.marker), GIT_CONFIG_GLOBAL=os.devnull,
+                        GIT_CONFIG_NOSYSTEM="1")
+        subprocess.run(["git", "init", "-q", str(self.root)], env=self.env, check=True,
+                       capture_output=True)
+
+    def launch(self, cwd, args=(), rendered=False):
+        if rendered:
+            command = hooks.hook_command(".engine/tools/launcher_probe.py", provider="codex")
+            command += " " + shlex.join(args)
+            argv = ["sh", "-c", command]
+        else:
+            argv = ["sh", str(self.tools / "codex-hook-runner.sh"),
+                    ".engine/tools/launcher_probe.py", *args]
+        return subprocess.run(argv, cwd=cwd, env=self.env, capture_output=True, text=True, timeout=10)
+
+    def test_root_nested_and_rendered_paths_preserve_provider_and_argv(self):
+        args = ["hook", "two words", "", '"quoted"', "$UNEXPANDED", "semi;colon"]
+        for cwd in (self.root, self.nested):
+            for rendered in (False, True):
+                with self.subTest(cwd=cwd.name, rendered=rendered):
+                    self.marker.unlink(missing_ok=True)
+                    result = self.launch(cwd, args, rendered)
+                    self.assertEqual(result.returncode, 0, result.stderr)
+                    receipt = json.loads(result.stdout)
+                    self.assertEqual(receipt["provider"], "codex")
+                    self.assertEqual(receipt["argv"], args)
+                    self.assertEqual(Path(receipt["cwd"]).resolve(), (self.root if rendered else cwd).resolve())
+                    self.assertTrue(self.marker.exists())
+
+    def test_missing_root_or_runtime_never_runs_target_or_system_python(self):
+        fake_bin = Path(self.temp.name) / "fake-bin"
+        fake_bin.mkdir()
+        system_marker = Path(self.temp.name) / "system-python-ran"
+        for name in ("python", "python3"):
+            fake = fake_bin / name
+            fake.write_text("#!/bin/sh\n: > " + shlex.quote(str(system_marker)) + "\nexit 99\n")
+            fake.chmod(0o755)
+        self.env["PATH"] = str(fake_bin) + os.pathsep + self.env.get("PATH", "")
+        missing_root = Path(self.temp.name) / "not-a-project"
+        missing_root.mkdir()
+        result = self.launch(missing_root)
+        self.assertEqual(result.returncode, 1, result.stderr)
+        self.assertIn("could not find its project folder", result.stderr)
+        self.assertFalse(self.marker.exists())
+        self.assertFalse(system_marker.exists())
+        self.interpreter.unlink()
+        for rendered in (False, True):
+            with self.subTest(rendered=rendered):
+                result = self.launch(self.nested, rendered=rendered)
+                self.assertEqual(result.returncode, 1, result.stderr)
+                self.assertIn("private Python runtime is not ready", result.stderr)
+                self.assertFalse(self.marker.exists())
+                self.assertFalse(system_marker.exists())
 
 
 class TestAcceptedAutomaticHookDispatch(unittest.TestCase):
