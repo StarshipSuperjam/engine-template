@@ -1388,8 +1388,10 @@ class WriteRefusalWordingTests(unittest.TestCase):
         tail = " " + refusals.RESTART_ACTION + " " + refusals.ESCALATION
         self.assertEqual(mutation_authority._stale_refusal(execution_context.ActivationStale("x")),
                          "This project moved to a new commit while this memory server was running, so its write "
-                         "context no longer matches the project on disk. Nothing was changed, and writing is held. "
-                         "Recall keeps working, and every read answer says how it was resolved." + tail)
+                         "context no longer matches the project on disk. Memory writing continues - each canonical "
+                         "write runs on the activation now on disk - and only the derived search indexes could not "
+                         "be updated here, so they may lag until this server reconnects. Recall keeps working, and "
+                         "every read answer says how it was resolved." + tail)
         self.assertEqual(mutation_authority._stale_refusal(execution_context.ArtifactUnreadable("x")),
                          "A memory file on disk could not be read, so writing is held and nothing was changed - a "
                          "problem with the store on disk, not with what is saved in it. Reads from this store are "

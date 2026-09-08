@@ -1418,8 +1418,6 @@ class StrandingLogServerWiringTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(recorded.call_count, 1)
 
 
-class _a_class_this_module_does_not_know(execution_context.ContextError):
-    """The matrix's R9 as a refusal input: `_stale_refusal` keys on type and knows no such class."""
 
 
 class ReadDegradationMatrixTests(unittest.IsolatedAsyncioTestCase):
@@ -1937,57 +1935,116 @@ class ReadDegradationMatrixTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual({"ContextError", "unknown", "none-installed"} - rows, set())
         self.assertEqual(set(self.EXPECTED), set(self.REASON))
 
-    async def test_write_authority_is_unchanged_across_the_rows(self):
-        """The plan's authority bound: after the root refresh a write has a restarted server's authority and
-        no more; under every non-refreshable row a write refuses with the UNCHANGED _stale_refusal sentence."""
-        # The write is dispatched: the server hands it to a child launched under attended-write-dispatch,
-        # never writing in-process. The real cross-process launcher cannot run from a pre-merge worktree
-        # (the accepted tree does not yet contain write_dispatch.py), so drive the child body in-process
-        # through the seam's injectable runner, under the pre-drift dispatch context this fixture sealed.
-        # That is the honest node-0 shape: the write body is unchanged, only its host root moved from the
-        # server's attended-memory-mcp context to the dispatcher's attended-write-dispatch one.
-        def _dispatched(request):
-            ctx = self.dispatch_context
-            prev_current = execution_context._CURRENT_CONTEXT
-            prev_env = os.environ.get(execution_context.CONTEXT_ENV)
-            execution_context._remember_context(ctx)
-            execution_context._CURRENT_CONTEXT = ctx
-            os.environ[execution_context.CONTEXT_ENV] = ctx.to_json()
+    # ---- the dispatched write: a fresh child on the code and activation NOW on disk ----
+    _OLD_TREE = "a" * 40 + "-" + "b" * 40   # the fixture's initial accepted commit-tree
+    _NEW_TREE = "c" * 40 + "-" + "d" * 40   # a merge-forward advance to a new accepted commit-tree
+
+    def _rerooting_runner(self):
+        """A write runner that models the production launcher (accepted_hook_dispatch._canonical_context): it
+        reads the activation CURRENTLY on disk, points the accepted tree at that <commit>-<tree>, resolves a
+        fresh attended-write-dispatch context, and runs the child under it. This is what makes a dispatched
+        write FOLLOW the merge - it re-roots onto the code and activation now on disk, never the server's
+        frozen seal. The real cross-process launcher cannot run from a pre-merge worktree (its accepted tree
+        has no write_dispatch.py yet), so the child body runs in-process through the injectable seam."""
+        def _run(request):
+            disk = json.loads(Path(self.activation).read_text(encoding="utf-8"))
+            bootstrap = execution_context._fixture_bootstrap(
+                self.fixture.root, self.fixture.common,
+                pointer_digest=execution_context._file_digest(self.fixture.pointer))
+            bootstrap["activation"] = {key: disk[key] for key in
+                                       ("repository", "commit", "tree", "engine_release", "epoch")}
+            tree = os.path.join(self.fixture.common, "engine", "accepted-hooks", "trees",
+                                f"{disk['commit']}-{disk['tree']}")
+            context = execution_context.resolve_execution_context(
+                bootstrap=bootstrap, accepted_tree=tree, provider="codex", run_id="run", task_id="task",
+                identity_initializer=execution_context._fixture_identity_initializer,
+                script=".engine/tools/memory/write_dispatch.py", operation_id="attended-write-dispatch")
+            previous = execution_context._CURRENT_CONTEXT
+            previous_env = os.environ.get(execution_context.CONTEXT_ENV)
+            execution_context._remember_context(context)
+            execution_context._CURRENT_CONTEXT = context
+            os.environ[execution_context.CONTEXT_ENV] = context.to_json()
             try:
                 return write_dispatch.run_child(request)
             finally:
-                execution_context._CURRENT_CONTEXT = prev_current
-                if prev_env is None:
+                execution_context._CURRENT_CONTEXT = previous
+                if previous_env is None:
                     os.environ.pop(execution_context.CONTEXT_ENV, None)
                 else:
-                    os.environ[execution_context.CONTEXT_ENV] = prev_env
-        _prev_runner = srv._WRITE_RUNNER
-        srv._WRITE_RUNNER = _dispatched
-        self.addCleanup(lambda: setattr(srv, "_WRITE_RUNNER", _prev_runner))
+                    os.environ[execution_context.CONTEXT_ENV] = previous_env
+        return _run
+
+    def _advance_commit_and_tree(self):
+        """A merge-forward move: the on-disk activation's commit AND tree advance to a new accepted tree that
+        exists and carries a dispatcher. To the still-running server (frozen on the old tree) this is at once
+        ActivationStale and AcceptedTreeStale; to a re-rooting dispatched write it is simply the current disk."""
+        document = json.loads(Path(self.activation).read_text(encoding="utf-8"))
+        document["commit"], document["tree"] = "c" * 40, "d" * 40
+        Path(self.activation).write_text(json.dumps(document, sort_keys=True) + "\n", encoding="utf-8")
+        new_tools = os.path.join(self.fixture.common, "engine", "accepted-hooks", "trees",
+                                 self._NEW_TREE, ".engine", "tools")
+        os.makedirs(new_tools, exist_ok=True)
+        Path(os.path.join(new_tools, "accepted_hook_dispatch.py")).write_text(
+            "# accepted fixture\n", encoding="utf-8")
+
+    async def test_dispatched_writes_follow_the_merge_and_hold_only_on_lost_reachability(self):
+        """C4's write-authority contract (SR1 and SR#4) - the honest inverse of a degrading read. A memory
+        write is DISPATCHED: a fresh child on the code and activation now on disk, so it FOLLOWS a merge
+        rather than degrading with the server's frozen seal.
+
+          * R2 (root refresh):    after the read-side refresh a write lands with a restarted server's authority.
+          * merge-forward:        the activation's commit and tree advanced (ActivationStale AND
+                                  AcceptedTreeStale together) - the write LANDS, and health reports two
+                                  non-null versions that differ: the still-loaded code_version and the
+                                  advanced on-disk write-authority version. (SR1)
+          * store swap / pointer: ADOPTED - the write lands. This is the read/write asymmetry: the read matrix
+                                  above discloses both as `unbound`, but there is NO store-identity write gate
+                                  before C5's store door (StarshipSuperjam/engine-template#1164), so the
+                                  dispatched child writes to the store now on disk.
+          * lost reachability:    the ONE held write - the child refuses with the recovery posture verbatim. (SR#4)
+
+        A genuinely broken accepted tree faults (masked), it does not refuse; the read-only R8/R9 resolution
+        injections have no write analog, because the re-rooted child resolves fresh against disk rather than
+        through the read-side raise sites those rows patch."""
+        import accepted_hook_dispatch
+        previous_runner = srv._WRITE_RUNNER
+        srv._WRITE_RUNNER = self._rerooting_runner()
+        self.addCleanup(lambda: setattr(srv, "_WRITE_RUNNER", previous_runner))
+
+        # R2: after the read-side root refresh, a write lands with a restarted server's authority.
         self._uncached()
         self._inject("R2")
         self.assertEqual((await self._call("list-pins", {}))["outcome"]["binding"], "healthy")
-        pinned = await self._call("pin", {"text": "a pin written after the read-side root refresh"})
-        self.assertIn("id", pinned)
-        self.assertTrue(any("root refresh" in p["text"] for p in (await self._call("list-pins", {}))["pins"]))
-        expected_sentences = {
-            "R3": mutation_authority._stale_refusal(execution_context.ActivationStale("x")),
-            "R4": mutation_authority._stale_refusal(execution_context.AcceptedTreeStale("x")),
-            "R5": mutation_authority._stale_refusal(execution_context.StoreIdentityStale("x")),
-            "R6": mutation_authority._stale_refusal(execution_context.BackupPointerStale("x")),
-            "R7": mutation_authority._stale_refusal(execution_context.ArtifactUnreadable("x")),
-            "R8": mutation_authority._stale_refusal(execution_context.ContextError("x")),
-            "R9": mutation_authority._stale_refusal(_a_class_this_module_does_not_know("x")),
-        }
-        for row, sentence in expected_sentences.items():
-            with self.subTest(row=row):
+        self.assertIn("id", await self._call("pin", {"text": "a pin after the read-side root refresh"}))
+
+        # Merge-forward: the write follows the merge and lands; health shows the loaded code_version and the
+        # advanced write-authority version, both non-null and differing (the still-running server did not restart).
+        self._fresh()
+        self._advance_commit_and_tree()
+        with mock.patch.object(_stranding_log, "_loaded_tree_name", return_value=self._OLD_TREE), \
+             mock.patch.object(execution_context, "_git_common_dir", return_value=self.fixture.common), \
+             mock.patch.dict(os.environ, {"ENGINE_PROJECT_ROOT": self.fixture.root}):
+            self.assertIn("id", await self._call("pin", {"text": "a pin dispatched across the merge"}))
+            diagnostics = (await self._call("health", {}))["diagnostics"]
+        self.assertEqual(diagnostics["code_version"], self._OLD_TREE)
+        self.assertEqual(diagnostics["write_authority_version"], self._NEW_TREE)
+        self.assertNotEqual(diagnostics["code_version"], diagnostics["write_authority_version"])
+
+        # A store swap and a pointer change are ADOPTED - the write lands (the read matrix discloses them unbound).
+        for label, row in (("store swap", "R5"), ("pointer change", "R6")):
+            with self.subTest(adopts=label):
                 self._fresh()
-                self._cached()          # a bound server that the drift lands under: the under-lock refusal
                 self._inject(row)
-                text = await mts.call_tool_expect_error(srv.server, "pin", {"text": "must not be written"})
-                self.assertTrue(text.endswith(sentence), text)   # the protocol prefixes the tool name
-                self.assertNotIn(self.fixture.base, text)
-                self.assertEqual((await self._call("list-pins", {}))["outcome"]["binding"], self.EXPECTED[row])
+                self.assertIn("id", await self._call("pin", {"text": f"a pin the child wrote after a {label}"}))
+
+        # The one held write: a lost-reachability activation. The dispatched child refuses with the posture.
+        self._fresh()
+        disk = json.loads(Path(self.activation).read_text(encoding="utf-8"))
+        with mock.patch.object(accepted_hook_dispatch, "_common_dir", return_value=self.fixture.common):
+            accepted_hook_dispatch._record_reachability(self.fixture.root, disk, "lost")
+            text = await mts.call_tool_expect_error(srv.server, "pin", {"text": "must not be written"})
+        self.assertTrue(text.endswith(accepted_hook_dispatch._reachability_posture(disk["epoch"])), text)
+        self.assertNotIn(self.fixture.base, text)
 
 
 if __name__ == "__main__":
