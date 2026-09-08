@@ -291,6 +291,23 @@ class DoesNotDestroy(_Library):
         with self.assertRaises(core.CoordinatorError):
             build_state_store.supersede(self.lib, self.slug, reason="second")
 
+    def test_supersede_removes_the_binding_from_worktree_discovery_but_keeps_the_evidence(self):
+        """A resuming session finds its Build by the worktree it is standing in (`bound_snapshots`).
+        Clearing a confirmed-stale binding must make that discovery come up empty — the binding is
+        gone — WHILE the displaced snapshot and its reason are retained beside it as evidence, not
+        destroyed. This is the behaviour the advisory promises when it offers supersede."""
+        wt = "/tmp/wt"
+        self._store().create(_state(pr=1, worktree=wt))
+        self.assertEqual([slug for slug, _ in build_state_store.bound_snapshots(wt, library=self.lib)],
+                         [self.slug])
+        retired = build_state_store.supersede(self.lib, self.slug, reason="confirmed stale after submission")
+        # The binding is no longer discoverable for the worktree a resuming session would hold.
+        self.assertEqual(build_state_store.bound_snapshots(wt, library=self.lib), [])
+        # But the evidence is retained, unaltered, beside a .reason.json.
+        self.assertTrue(retired.is_file())
+        self.assertTrue(retired.with_suffix(".reason.json").is_file())
+        self.assertEqual(json.loads(retired.read_text())["build"]["worktree"], wt)
+
 
 class ASnapshotWrittenByTheEngineBeforeThisOne(unittest.TestCase):
     """IT SURVIVES A FIELD BEING REMOVED — the direction a schema-first rule does not cover.

@@ -22,6 +22,7 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import selftest_support  # noqa: E402  (the suite's single-homed guard helpers, #940)
 import build_coordinator as bc  # noqa: E402
 import build_state_store  # noqa: E402
+import plan_store  # noqa: E402
 import hooks  # noqa: E402
 import repair_divergence  # noqa: E402
 
@@ -6012,6 +6013,8 @@ class TestPostCompactionRegrounding(CoordinatorCase):
         self.assertIn("A progress report is not a handoff", text)
         self.assertIn("continue the next planned step", text)
         self.assertIn("do not schedule a self-wakeup", text)
+        # an in-flight (non-ready) Build keeps the original "was running" opening
+        self.assertIn("while a Build was running", text)
 
     def test_the_injection_carries_no_reviewer_private_text(self):
         """The redaction fixture, seeded on purpose so it can actually fail.
@@ -6052,6 +6055,286 @@ class TestPostCompactionRegrounding(CoordinatorCase):
         with mock.patch.object(bc.build_state_store, "bound_snapshots",
                                side_effect=RuntimeError("library is unreadable")):
             self.assertEqual(bc.reground_handler({"source": "compact"}), hooks.proceed())
+
+    # -- previously-submitted (submission=='ready') carrier: the reliable compaction site ---------------
+
+    def ready_snapshot(self) -> Path:
+        """A PREVIOUSLY-SUBMITTED snapshot bound to this worktree, still seeded with the reviewer-private
+        material, so a ready-path leak would be caught by the redaction case below too."""
+        self.seeded_snapshot()
+        self.store.mutate(lambda s: s.update({"submission": "ready"}))
+        return Path(self.state_path)
+
+    def test_a_previously_submitted_build_steers_new_vs_resume_not_continue_here(self):
+        path = self.ready_snapshot()
+        with self.resolve_to([("fix-a-thing--edbeef", path)]):
+            text = bc.reground_handler({"source": "compact", "session_id": "s1"})["context"]
+        # the shared advisory sentence flags a possibly-stale reported status
+        self.assertIn(bc.session_relay.ADVISORY_SENTENCE, text)
+        # a resume keeps and re-verifies the binding; supersede is offered ONLY to clear a confirmed-stale one
+        self.assertIn("continue THIS Build", text)
+        self.assertIn("do not supersede", text)
+        self.assertIn("start a DIFFERENT Build", text)
+        self.assertIn("state supersede --plan fix-a-thing--edbeef", text)
+        # the misdirecting "this is live work" framing is gone for a ready Build — including the
+        # opening line: it was previously submitted, it was not "running".
+        self.assertNotIn("continue the next planned step", text)
+        self.assertNotIn("do not schedule a self-wakeup", text)
+        self.assertNotIn("while a Build was running", text)
+        # #1255 us1, fully: the message LEADS with the resume-versus-different DECISION. The record's
+        # authority and the status-inspection ritual are stated only AFTER the advisory and gated on
+        # actually resuming — never as an unconditional "inspect this record before changing anything".
+        self.assertIn("DECIDE whether to resume THIS Build or", text)
+        self.assertIn("Only if you decide to RESUME this Build", text)
+        self.assertNotIn("before changing anything", text)
+        self.assertLess(text.index("DECIDE whether to resume THIS Build"),
+                        text.index(bc.session_relay.ADVISORY_SENTENCE))
+        self.assertLess(text.index(bc.session_relay.ADVISORY_SENTENCE),
+                        text.index("Only if you decide to RESUME this Build"))
+
+    def test_the_ready_advisory_is_the_shared_relay_definition(self):
+        path = self.ready_snapshot()
+        with self.resolve_to([("fix-a-thing--edbeef", path)]):
+            text = bc.reground_handler({"source": "compact"})["context"]
+        expected = bc.session_relay.advisory_lines(
+            {"submission": "ready", "pr_ref": "#7", "plan_selector": "fix-a-thing--edbeef"})
+        for line in expected:
+            self.assertIn(line, text)
+
+    def test_the_ready_advisory_still_carries_no_reviewer_private_text(self):
+        path = self.ready_snapshot()
+        with self.resolve_to([("fix-a-thing--edbeef", path)]):
+            text = bc.reground_handler({"source": "compact"})["context"]
+        for secret in ("SECRET-FINDING-SUMMARY", "SECRET-FINDING-RATIONALE",
+                       "SECRET-PRIVATE-REFERENCE"):
+            self.assertNotIn(secret, text)
+
+    def test_an_unknown_submission_keeps_the_authority_framing(self):
+        self.seeded_snapshot()
+        self.store.mutate(lambda s: s.update({"submission": "unknown"}))
+        rendered = bc.reground_pointer(self.store.read(), "fix-a-thing--edbeef")
+        self.assertIn("continue the next planned step", rendered)
+        self.assertNotIn(bc.session_relay.ADVISORY_SENTENCE, rendered)
+
+    def test_a_ready_build_with_an_ungrammatical_slug_withholds_the_supersede_remedy(self):
+        path = self.ready_snapshot()
+        with self.resolve_to([("not a real slug", path)]):
+            text = bc.reground_handler({"source": "compact"})["context"]
+        # no broken command is printed — the supersede line is dropped, not emitted with a bad --plan
+        self.assertNotIn("state supersede", text)
+        # ...but the carrier still fails toward HONEST presentation, never back to the live-work tail:
+        # the honest sentence and the two selector-independent cases still stand (boot withholds the
+        # whole advisory here; compaction, the reliable carrier, must not revert to "continue …").
+        self.assertIn(bc.session_relay.ADVISORY_SENTENCE, text)
+        self.assertIn("continue THIS Build", text)
+        self.assertIn("start a DIFFERENT Build", text)
+        self.assertNotIn("continue the next planned step", text)
+        self.assertNotIn("do not schedule a self-wakeup", text)
+
+
+class TestFreshWorktreeBindIsIsolatedFromAPriorSubmittedBuild(unittest.TestCase):
+    """#1255 C2/C4 isolation, driven through the REAL coordinator paths against a real plan library.
+    A previously-submitted Build's durable snapshot — bound to an OLD worktree and wearing a misleading
+    implementation-style status — must not be read, resolved, mutated, or cleared when a DIFFERENT
+    sealed plan is bound in a FRESH worktree. The fresh bind is minted by `cmd_plan_bind` itself with no
+    --state, so the code under test resolves the plan-slug-keyed snapshot address; the prior snapshot
+    stays byte-for-byte untouched; a genuine resume re-verifies through `verify_resume`; and an
+    incorrect resume — or a re-bind of the same plan — is refused with nothing written."""
+
+    SCHEMA = bc.STATE_SCHEMA_V2
+
+    def setUp(self):
+        self._tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(self._tmp.cleanup)
+        self.tmp = Path(self._tmp.name)
+        self.lib = plan_store.PlanLibrary(self.tmp / "plans")
+
+    def _seed_plan_record(self, title, plan_id):
+        """Land just the plan record — the folder + record.json that make the plan resolvable — with
+        NO snapshot, so the coordinator's own bind path is the thing that mints the snapshot."""
+        slug = plan_store.slug_for(title, plan_id)
+        plan_store.ensure_dir(self.lib.plan_dir(slug), within=self.lib.root)
+        (self.lib.plan_dir(slug) / "record.json").write_text(
+            json.dumps({"plan_id": plan_id}), encoding="utf-8")
+        return slug
+
+    def _bind_snapshot(self, title, plan_id, worktree, **over):
+        """Land one durable snapshot for a PRIOR plan directly — the pre-existing C2 fixture, not the
+        code under test — the way a Build that already ran would have left it on disk."""
+        from test_build_state_store import _state  # the single source of a schema-valid state shape
+        slug = self._seed_plan_record(title, plan_id)
+        path = build_state_store.snapshot_path(self.lib, slug)
+        build_state_store.DurableBuildStore(path, self.SCHEMA, library_root=self.lib.root).create(
+            _state(worktree=str(worktree), **over))
+        return slug, path
+
+    def _coordinator_bind(self, title, plan_id, worktree, pr):
+        """Bind a sealed plan through the REAL `cmd_plan_bind` entry point with store=None (no --state),
+        so the durable per-plan snapshot address is resolved by the code under test rather than
+        manufactured here. Only the GitHub/consent side effects are stubbed; the snapshot write, its
+        plan-slug-keyed address, and the recorded worktree are all genuine. A fresh bind must never
+        reach for supersede — that guard rides along on every bind."""
+        self._seed_plan_record(title, plan_id)
+        draft = {"number": pr, "state": "OPEN", "isDraft": True, "headRefOid": HEAD_A, "baseRefOid": BASE}
+        args = argparse.Namespace(plan=plan_id, mode="same-session", repository="owner/repo",
+                                  pr=pr, issue=None, operator_decided=True)
+        with mock.patch.object(bc, "ROOT", worktree), \
+                mock.patch.object(bc, "_library", return_value=self.lib), \
+                mock.patch.object(bc, "_sealed_plan", return_value=(plan_id, SEALED, plan())), \
+                mock.patch.object(bc, "_verify_draft", return_value=draft), \
+                mock.patch.object(bc, "_head", return_value=HEAD_A), \
+                mock.patch.object(bc.github, "tag_coordinator_owned", return_value=True), \
+                mock.patch.object(bc, "_record_build_binding"), \
+                mock.patch.object(bc, "_record_session_binding"), \
+                mock.patch.object(build_state_store, "supersede",
+                                  side_effect=AssertionError("a fresh bind must not supersede")), \
+                contextlib.redirect_stdout(io.StringIO()), contextlib.redirect_stderr(io.StringIO()):
+            bc.cmd_plan_bind(args, None)
+        slug = self.lib.resolve(plan_id)
+        return slug, build_state_store.snapshot_path(self.lib, slug)
+
+    def test_c4_binds_through_the_coordinator_without_touching_c2(self):
+        wt_c2, wt_c4 = self.tmp / "wt-c2", self.tmp / "wt-c4"
+        # C2: previously submitted, yet its reported status still reads mid-implementation — the very
+        # snapshot that misled a resuming session in #1255. The pre-existing fixture, landed directly.
+        slug_c2, path_c2 = self._bind_snapshot(
+            "the prior C2 plan", "pln_0123456789ab", wt_c2, pr=101, submission="ready",
+            progress={"current_item": "C2-IMPL-07",
+                      "completed": [{"id": "C2-IMPL-06", "commit": "a" * 40}]})
+        before = path_c2.read_bytes()
+        # C4 is a DIFFERENT sealed plan, bound through the real coordinator path in a fresh worktree.
+        slug_c4, path_c4 = self._coordinator_bind("the new C4 plan", "pln_ba9876543210", wt_c4, pr=102)
+        # C4 resolves to its OWN plan-slug-keyed snapshot from its fresh worktree — no --state needed —
+        # and that snapshot genuinely records the fresh worktree the coordinator was standing in.
+        resolved = build_state_store.resolve_for_worktree(wt_c4, self.SCHEMA, library=self.lib)
+        self.assertEqual(resolved.read()["build"]["pr"], 102)
+        self.assertEqual(Path(resolved.read()["build"]["worktree"]).resolve(), wt_c4.resolve())
+        self.assertEqual(build_state_store.bound_snapshots(wt_c4, library=self.lib), [(slug_c4, path_c4)])
+        self.assertNotEqual(slug_c2, slug_c4)
+        # C2's evidence is byte-for-byte unchanged and still the sole clean binding of its own worktree.
+        self.assertEqual(path_c2.read_bytes(), before)
+        self.assertEqual(build_state_store.bound_snapshots(wt_c2, library=self.lib), [(slug_c2, path_c2)])
+
+    def test_a_genuine_resume_reverifies_and_an_incorrect_one_is_refused(self):
+        wt = self.tmp / "wt-resume"
+        slug, path = self._coordinator_bind("the resuming plan", "pln_0123456789ab", wt, pr=55)
+        before = path.read_bytes()
+        store = build_state_store.resolve_for_worktree(wt, self.SCHEMA, library=self.lib)
+        args = argparse.Namespace(command="approve")  # a mutating verb, exercised through verify_resume
+        # A genuine resume — the session standing in the Build's own worktree, on its bound head —
+        # passes verify_resume and writes NOTHING (the guarantee is the refusal, not a durable count).
+        with mock.patch.object(bc, "ROOT", wt), mock.patch.object(bc, "_head", return_value=HEAD_A), \
+                mock.patch.object(bc, "_is_ancestor", return_value=True):
+            bc.verify_resume(store, args)
+        self.assertEqual(path.read_bytes(), before)
+        # An INCORRECT resume — a session standing in a different worktree — is refused before any write.
+        other = self.tmp / "wt-elsewhere"
+        with mock.patch.object(bc, "ROOT", other), mock.patch.object(bc, "_head", return_value=HEAD_A), \
+                mock.patch.object(bc, "_is_ancestor", return_value=True), \
+                self.assertRaisesRegex(bc.CoordinatorError, "does not match the Build"):
+            bc.verify_resume(store, args)
+        self.assertEqual(path.read_bytes(), before)
+        # ...and the resume never forked the binding: still the one and only snapshot for this worktree.
+        self.assertEqual(build_state_store.bound_snapshots(wt, library=self.lib), [(slug, path)])
+
+    def test_re_binding_the_same_plan_is_refused_because_snapshots_are_keyed_by_plan(self):
+        # The truth the supersede guidance now states: a snapshot is keyed by plan, not worktree, so the
+        # SAME plan cannot bind fresh in a second worktree while its snapshot exists — it is refused, and
+        # nothing is written. (A DIFFERENT plan, proven above, binds fresh to its own snapshot instead.)
+        wt_first = self.tmp / "wt-first"
+        slug, path = self._coordinator_bind("the only plan", "pln_0123456789ab", wt_first, pr=77)
+        before = path.read_bytes()
+        with self.assertRaisesRegex(bc.CoordinatorError, "already bound"):
+            self._coordinator_bind("the only plan", "pln_0123456789ab", self.tmp / "wt-second", pr=78)
+        # The refusal left the first snapshot byte-for-byte intact and still the plan's one binding.
+        self.assertEqual(path.read_bytes(), before)
+        self.assertEqual(build_state_store.bound_snapshots(wt_first, library=self.lib), [(slug, path)])
+
+
+class TestInFlightBuildRoutesToResumeNotPreviouslySubmitted(CoordinatorCase):
+    """Routing regression for the #1255 reorder: build-orchestration.md now settles new-versus-resume
+    BEFORE the phase map. A normal in-flight Build — draft PR, mid-implementation, same worktree — must
+    still answer 'resume' and reach its phase runbook unchanged; the reorder strands no active Build."""
+
+    def _in_flight(self) -> dict:
+        self.seed()
+
+        def change(s):
+            s["build"]["worktree"] = str(bc.ROOT)
+            s["progress"] = {"current_item": "CX-03", "completed": [{"id": "CX-02", "commit": HEAD_A}]}
+            s["submission"] = "draft"
+        self.store.mutate(change)
+        return self.store.read()
+
+    def test_the_phase_map_still_routes_an_implementation_build_to_its_runbook(self):
+        state = self._in_flight()
+        self.assertEqual(bc.runbook_for(state, "implementation"), "build-implementation.md")
+        # spine and map still agree after the reorder — no runbook stranded, none double-named.
+        status = bc.phase_runbook_status()
+        self.assertEqual((status["missing"], status["unmapped"], status["unlinked"]), ([], [], []))
+
+    def test_reground_answers_resume_for_an_in_flight_build_not_previously_submitted(self):
+        state = self._in_flight()
+        rendered = bc.reground_pointer(state, "fix-a-thing--edbeef")
+        # answers 'resume/continue' — the live-work framing, not the possibly-stale advisory.
+        self.assertIn("current work item: CX-03", rendered)
+        self.assertIn("continue the next planned step", rendered)
+        self.assertNotIn(bc.session_relay.ADVISORY_SENTENCE, rendered)
+        self.assertNotIn("state supersede --plan", rendered)
+
+
+class TestSupersedeIsTheStaleClearingRemedy(unittest.TestCase):
+    """`state supersede` is the named, evidence-preserving remedy for deliberately clearing a
+    CONFIRMED-STALE binding. Its help and its success output say plainly that it is NOT how you
+    resume (a genuine continuation keeps and re-verifies the binding), is NOT needed for a DIFFERENT
+    plan (which binds to its own snapshot), and neither completes the plan nor changes the PR — while
+    the SAME plan, keyed by its snapshot, cannot sidestep it by changing worktrees. And the command
+    the advisory cites is a real, runnable invocation of this very parser."""
+
+    def _supersede_help(self) -> str:
+        buf = io.StringIO()
+        with contextlib.redirect_stdout(buf), self.assertRaises(SystemExit):
+            bc.parser().parse_args(["state", "supersede", "--help"])
+        return buf.getvalue()
+
+    def test_the_guidance_names_stale_clearing_and_disclaims_resume_plan_and_pr(self):
+        guidance = bc._SUPERSEDE_GUIDANCE.lower()
+        self.assertIn("confirmed-stale", guidance)
+        self.assertIn("resume", guidance)  # named, so it can be disclaimed
+        self.assertIn("neither completes the plan nor changes the pr", guidance)
+
+    def test_the_cli_help_renders_that_same_guidance(self):
+        rendered = " ".join(self._supersede_help().split())
+        self.assertIn(" ".join(bc._SUPERSEDE_GUIDANCE.split()), rendered)
+
+    def test_the_success_output_carries_the_guidance_note(self):
+        args = argparse.Namespace(plan="fix-a-thing--edbeef", reason="confirmed stale after submission")
+        with mock.patch.object(bc, "_library") as library, \
+                mock.patch.object(bc.build_state_store, "supersede",
+                                  return_value=Path("/lib/plan/builds/superseded-000003.json")) as sup, \
+                contextlib.redirect_stdout(io.StringIO()) as out:
+            library.return_value.resolve.return_value = "fix-a-thing--edbeef"
+            bc.cmd_state_supersede(args, None)
+        payload = json.loads(out.getvalue())
+        self.assertEqual(payload["superseded"], "/lib/plan/builds/superseded-000003.json")
+        self.assertIn("neither completes the plan nor changes the PR", payload["note"])
+        sup.assert_called_once()
+
+    def test_the_advisorys_cited_command_is_a_real_invocation_of_this_parser(self):
+        import shlex
+        selector = "fix-a-thing--edbeef"
+        lines = bc.session_relay.advisory_lines(
+            {"submission": "ready", "pr_ref": "#7", "plan_selector": selector})
+        cited = next(line for line in lines if "state supersede" in line)
+        # The selector is pattern-pinned and survives the inert filter byte-for-byte.
+        self.assertRegex(selector, bc.session_relay.PLAN_SELECTOR_PATTERN)
+        self.assertEqual(bc.session_relay._inert(selector), selector)
+        # And the printed command tail parses cleanly into a state-supersede invocation.
+        tail = cited.split("build_coordinator.py", 1)[1]
+        parsed = bc.parser().parse_args(shlex.split(tail))
+        self.assertIs(parsed.func, bc.cmd_state_supersede)
+        self.assertEqual(parsed.state_command, "supersede")
+        self.assertEqual(parsed.plan, selector)
 
 
 class ScrubbedGitRepo:

@@ -3706,7 +3706,12 @@ def _envelope_from_signals(s: dict, session_id: str | None, *, use_ledger: bool)
     if binding.get("state") == "verified" and isinstance(binding.get("binding"), dict):
         task_binding = {"state": "verified", "binding": _project_binding_evidence(binding["binding"])}
     else:
+        # A 'none' result may carry a bounded PREVIOUSLY-SUBMITTED advisory; carry it through rather than
+        # flattening to a bare {state:none} (the recovery hint, an internal detail, is not relayed).
         task_binding = {"state": "none"}
+        advisory = binding.get("advisory")
+        if isinstance(advisory, dict):
+            task_binding["advisory"] = advisory
     wwlo = render_wwlo_pointer(s.get("recent_sessions") or [])
     wwlo_pointer = wwlo[1] if len(wwlo) >= 2 else "no prior session is on record for this project yet."
     standing_directives = {
@@ -4122,10 +4127,12 @@ def _validate_binding_locator(locator: dict) -> None:
     session_relay.validate_binding(locator)
 
 
-def _current_build_snapshot(resolved_worktree: str) -> "dict | None":
-    """The parsed CURRENT durable Build snapshot bound to `resolved_worktree`, or None when there is no
-    exactly-one live snapshot for it (absent, superseded/retired, ambiguous, or unparsable) — every one of
-    those is EXPIRY from a binding reader's point of view, never a distinct error to surface."""
+def _bound_snapshot(resolved_worktree: str) -> "tuple[str, dict] | None":
+    """The (plan SLUG, parsed snapshot) of the exactly-one live Build snapshot bound to
+    `resolved_worktree`, or None when there is no such single snapshot (absent, superseded/retired,
+    ambiguous — more than one — or unparsable). The slug is the snapshot's OWN plan-directory identity
+    (from build_state_store), never a value echoed by an expired session-binding locator. Both this and
+    `_current_build_snapshot` share this single >1-match/unparsable handling."""
     try:
         import build_state_store as _bss
         import build_coordinator_core as _core
@@ -4137,11 +4144,19 @@ def _current_build_snapshot(resolved_worktree: str) -> "dict | None":
         return None
     if len(found) != 1:
         return None
-    _slug, path = found[0]
+    slug, path = found[0]
     try:
-        return _core.json_file(path)
+        return slug, _core.json_file(path)
     except Exception:  # noqa: BLE001 — a corrupt snapshot file reads as "no snapshot"
         return None
+
+
+def _current_build_snapshot(resolved_worktree: str) -> "dict | None":
+    """The parsed CURRENT durable Build snapshot bound to `resolved_worktree`, or None when there is no
+    exactly-one live snapshot for it (absent, superseded/retired, ambiguous, or unparsable) — every one of
+    those is EXPIRY from a binding reader's point of view, never a distinct error to surface."""
+    found = _bound_snapshot(resolved_worktree)
+    return found[1] if found is not None else None
 
 
 def resolve_task_binding(worktree) -> dict:
@@ -4154,11 +4169,75 @@ def resolve_task_binding(worktree) -> dict:
     thin outer guard around `_resolve_task_binding_unguarded`: every step in there already fails closed to
     'none' on its own doubt, but this wrapper is the belt-and-suspenders backstop that keeps the WHOLE
     resolver from ever raising into the SessionStart hook, no matter what fails and how.
+
+    The PREVIOUSLY-SUBMITTED advisory is layered on HERE, once, only after the fail-closed ladder below
+    has SETTLED on 'none' (any early return or the final one) — so the ladder's own returns stay pristine.
+    It never touches a 'verified' result, and — like the ladder — fails open to no-advisory on any doubt.
     """
     try:
-        return _resolve_task_binding_unguarded(worktree)
+        result = _resolve_task_binding_unguarded(worktree)
     except Exception:  # noqa: BLE001 — SessionStart must never break on this resolver
         return {"state": "none"}
+    if isinstance(result, dict) and result.get("state") == "none":
+        try:
+            advisory = _previously_submitted_advisory(worktree)
+        except Exception:  # noqa: BLE001 — the advisory is best-effort; never break the resolver for it
+            advisory = None
+        if advisory:
+            result = {**result, "advisory": advisory}
+    return result
+
+
+def _previously_submitted_advisory(worktree) -> "dict | None":
+    """The bounded advisory to carry on a 'none' task_binding when a PREVIOUSLY-SUBMITTED Build
+    (submission=='ready') is the exactly-one live snapshot bound to `worktree` — the case the session
+    relay presents honestly (previously submitted, coordinator status may be stale, new-versus-resume
+    governs) rather than as live work. Returns None whenever that gate does not fire.
+
+    Boot is the BEST-EFFORT carrier: it surfaces the advisory only when a binding LOCATOR artifact is
+    actually present here (an absent/uncomputable locator -> no advisory, leaving the reliable compaction
+    carrier to it). Identity is taken from the SNAPSHOT'S OWN trusted fields — its plan-directory slug and
+    its recorded build worktree/repository — never from the expired locator. The slug is validated against
+    the relay's plan_selector grammar so the cited `state supersede` command stays runnable, and a value
+    outside that grammar is withheld rather than reformatted. Fails open to None on any error."""
+    try:
+        resolved = str(Path(worktree).resolve())
+    except Exception:  # noqa: BLE001 — an unresolvable worktree cannot bear an advisory
+        return None
+    # Boot best-effort: only surface when a binding artifact is actually present for this worktree.
+    locator_path = _binding_locator_path(resolved)
+    if not locator_path or not os.path.lexists(locator_path):
+        return None
+    found = _bound_snapshot(resolved)
+    if found is None:
+        return None
+    slug, snapshot = found
+    if not isinstance(snapshot, dict) or snapshot.get("submission") != "ready":
+        return None
+    build = snapshot.get("build")
+    if not isinstance(build, dict):
+        return None
+    # worktree identity: the snapshot's OWN recorded worktree must be THIS worktree.
+    try:
+        if str(Path(build.get("worktree")).resolve()) != resolved:
+            return None
+    except Exception:  # noqa: BLE001 — an unusable recorded worktree cannot be confirmed as this one
+        return None
+    # repository identity: the snapshot's OWN recorded repository must be THIS repository.
+    try:
+        current_repo = repo_identity.origin_slug(resolved)
+    except Exception:  # noqa: BLE001 — cannot confirm repository -> cannot confirm the advisory
+        return None
+    if not repo_identity.slug_eq(current_repo, build.get("repository")):
+        return None
+    # plan_selector: the snapshot's own plan-directory slug, held to the relay's slug grammar.
+    if not isinstance(slug, str) or not re.match(session_relay.PLAN_SELECTOR_PATTERN, slug):
+        return None
+    advisory = {"submission": "ready", "plan_selector": slug}
+    pr_ref = session_relay.format_pr_ref(build.get("pr"))
+    if pr_ref:
+        advisory["pr_ref"] = pr_ref
+    return advisory
 
 
 def _resolve_task_binding_unguarded(worktree) -> dict:

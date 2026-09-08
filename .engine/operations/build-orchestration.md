@@ -27,12 +27,13 @@ authority, or the agreed capability boundary, guardrail acknowledgements, and me
 
 ### The phase map
 
-A Build moves through the coordinator's phases, and each phase has one runbook. Read this spine, then the runbook
-`status` names for the current phase — printed as `Read now: <runbook>` beside the phase, and carried as `runbook`
-in `status --json` — and nothing else until the phase changes; the verbs that move a Build between phases print
-the same line. The pointer names the current phase's runbook, except that an implementation phase with review
-evidence keeps reading validation and review, never implementation again. The table mirrors `phase_runbooks` in
-`.engine/build-protocol.json`, which the coordinator reads.
+Before reading the phase `status` reports, settle whether this session starts a NEW Build or RESUMES one: a
+reported phase can be a previously submitted Build's leftover — a resume aid the session-start relay's advisory
+steers, not live work this map drives. Once settled, a Build moves through its phases, each with one runbook.
+Read this spine, then the runbook `status` names for the current phase — printed as `Read now: <runbook>` beside
+the phase, and carried as `runbook` in `status --json`; and nothing else until the phase changes. The verbs that
+move a Build between phases print the same line. An implementation phase with review evidence keeps reading
+validation and review, never implementation again. The table mirrors `phase_runbooks` in `.engine/build-protocol.json`.
 
 | Coordinator phase | Read now |
 | --- | --- |
@@ -42,13 +43,12 @@ evidence keeps reading validation and review, never implementation again. The ta
 | `finding-disposition`, `deliverable-review`, `repair-assessment`, `final-validation` | [Build validation and review](build-validation-and-review.md) — the two evidence classes, the deliverable review, adjudication, proportional repair |
 | `submission-preflight`, `ready` | [Build submission](build-submission.md) — the contract, the disclosure lanes, preflight, marking ready |
 
-[Build continuity](build-continuity.md) is read at a moment rather than a phase: when a Build resumes — a new
-session, a compaction, or a cold handoff — before any mutating verb.
+[Build continuity](build-continuity.md) is read when a Build resumes — new session, compaction, or cold
+handoff — before any mutating verb.
 
-Runbooks layer in two tiers. A PHASE runbook is named by the coordinator's pointer and read whole. A SIDE runbook —
-work dispatch, execution, product grounding, owned-product, serialized integration, routine entry, external
-contribution — is named by a phase runbook for the specific situation that needs it and is read only then; this
-spine names no side runbook.
+Runbooks layer in two tiers: a PHASE runbook, named by the coordinator's pointer and read whole; and a SIDE
+runbook, named by a phase runbook for the situation that needs it and read only then; this spine names no side
+runbook.
 
 ### Coordinator status and holds
 
