@@ -37,6 +37,7 @@
     "plan_review": {"oneOf": [{"type": "null"}, {"$ref": "#/$defs/plan_review"}]},
     "seal": {"oneOf": [{"type": "null"}, {"$ref": "#/$defs/seal"}]},
     "findings_presented": {"oneOf": [{"type": "null"}, {"$ref": "#/$defs/findings_presented"}]},
+    "build_lease": {"type": "object", "additionalProperties": false, "required": ["version", "generation", "current", "history"], "properties": {"version": {"const": 1}, "generation": {"type": "integer", "minimum": 1}, "current": {"oneOf": [{"type": "null"}, {"$ref": "#/$defs/build_claim"}]}, "history": {"type": "array", "items": {"$ref": "#/$defs/build_claim"}}}},
     "build_binding": {"oneOf": [{"type": "null"}, {"$ref": "#/$defs/build_binding"}]},
     "closure": {
       "oneOf": [{"type": "null"}, {"$ref": "#/$defs/closure"}],
@@ -192,6 +193,7 @@
       },
       "description": "`complete` — the Build it authorized was merged. `retired` — superseded by a later plan, kept for the record. `abandoned` — deliberately dropped. All three keep the plan and its revisions on the shelf; none of them deletes anything."
     },
+    "build_claim": {"type": "object", "additionalProperties": false, "required": ["build_id", "generation", "state", "snapshot", "repository", "pull_request", "sealed_digest", "build_plan_digest", "worktree", "at", "locator"], "properties": {"build_id": {"type": "string", "pattern": "^bld_[0-9a-f]{32}$"}, "generation": {"type": "integer", "minimum": 1}, "state": {"enum": ["preparing", "active", "retiring", "superseded", "abandoned", "complete", "transferring"]}, "snapshot": {"type": "string", "pattern": "^/"}, "repository": {"type": "string", "minLength": 1}, "pull_request": {"type": "integer", "minimum": 1}, "sealed_digest": {"$ref": "#/$defs/digest"}, "build_plan_digest": {"$ref": "#/$defs/digest"}, "worktree": {"type": "string", "pattern": "^/"}, "at": {"$ref": "#/$defs/timestamp"}, "locator": {"type": ["string", "null"]}, "reason": {"type": "string", "minLength": 1}, "terminal_at": {"$ref": "#/$defs/timestamp"}, "archive": {"type": "string", "pattern": "^/"}, "legacy_source": {"type": "string", "pattern": "^/"}, "legacy_digest": {"$ref": "#/$defs/digest"}, "transfer": {"type": "object"}, "terminal_state": {"enum": ["superseded", "abandoned", "complete"]}}, "allOf": [{"if": {"properties": {"state": {"enum": ["retiring", "superseded", "abandoned", "complete"]}}}, "then": {"required": ["reason", "terminal_at", "archive", "terminal_state"]}}]},
     "build_binding": {
       "type": "object",
       "additionalProperties": false,

@@ -43,7 +43,10 @@ guarantee is a guarantee with two versions, and the second one is always the wea
 """
 from __future__ import annotations
 
+import contextlib
+import copy
 import json
+import uuid
 from pathlib import Path
 
 import build_coordinator_core as core
@@ -55,6 +58,225 @@ BuildStateError = core.CoordinatorError
 BUILDS_DIRNAME = "builds"
 SNAPSHOT_FILENAME = "snapshot.json"
 
+
+def _durable_json(path: Path, value: dict) -> None:
+    core.atomic_write(path, json.dumps(value, indent=2, sort_keys=True) + '\n',
+                      durable=True, mode=plan_store.FILE_MODE, require_directory_flush=True)
+
+
+def _flush_directory(path: Path) -> None:
+    if not core.fsync_dir(path):
+        raise BuildStateError(f'could not flush {path}; retry the recorded Build transaction')
+
+
+def _legacy_slot(library, slug) -> Path:
+    return plan_store.contain(builds_dir(library, slug) / SNAPSHOT_FILENAME,
+                              library.root, 'the legacy Build slot')
+
+
+def _legacy_lock(library, slug) -> Path:
+    return _legacy_slot(library, slug).with_name(SNAPSHOT_FILENAME + '.lock')
+
+
+def claim_identity(claim: dict) -> dict:
+    return {key: claim[key] for key in ('build_id', 'generation')}
+
+
+def _claim_path(library, slug, claim) -> Path:
+    expected = builds_dir(library, slug) / claim['build_id'] / SNAPSHOT_FILENAME
+    path = plan_store.contain(Path(claim['snapshot']), library.root, 'a claimed Build snapshot')
+    if path != expected:
+        raise BuildStateError('the recorded Build address is not its plan-owned address; repair the claim')
+    return path
+
+
+@contextlib.contextmanager
+def ownership_lock(library, slug):
+    """Plan, old permanent lock, then per-Build snapshot: one order, never recursive.
+
+    Program callers enter with their program lock held. Transfers acquire both plan locks in
+    stable plan-id order before entering either snapshot lock. The old lock is retained even
+    after cutover so a writer waiting on its inode cannot bypass the transition.
+    """
+    with plan_store.exclusive_lock_for(library, slug):
+        plan_store.ensure_dir(builds_dir(library, slug), within=library.root)
+        with core.exclusive_lock(_legacy_lock(library, slug)):
+            yield
+
+
+def _assert_claim(record, identity, *, states=('active',)) -> dict:
+    claim = (record.get('build_lease') or {}).get('current')
+    if not identity or not claim or claim_identity(claim) != identity:
+        raise BuildStateError('stale or missing Build identity; use the identity returned by bind or verified continuation')
+    if claim['state'] not in states:
+        raise BuildStateError(f"Build is {claim['state']}; retry its recorded transition before writing")
+    return claim
+
+
+def _binding_projection(claim) -> dict:
+    return {key: claim[key] for key in ('sealed_digest', 'build_plan_digest', 'at',
+                                       'repository', 'pull_request')}
+
+
+def _check_seal(record, state) -> None:
+    seal = record.get('seal') or {}
+    if record.get('closure') or not seal:
+        raise BuildStateError('a closed or unsealed plan cannot reserve a Build')
+    if (record['plan_id'] != state['plan']['plan_id'] or
+            seal.get('sealed_digest') != state['plan']['sealed_digest'] or
+            seal.get('build_plan_digest') != state['plan']['digest'] or
+            record['current']['plan_digest'] != seal.get('sealed_digest')):
+        raise BuildStateError('the Build does not match the current sealed plan')
+
+
+def reserve_build(library, slug, state, *, consent=None, locator=None,
+                  legacy_source=None) -> dict:
+    """Reserve before any snapshot write. A retry receives the same identity and consent.
+
+    No timeout or rollback can steal this reservation. A caller changing any request field
+    must explicitly retire it first. Legacy migration names and fingerprints its source;
+    missing or ambiguous legacy evidence is never interpreted as an unused plan.
+    """
+    locator = str(Path(locator).resolve()) if locator else None
+    with ownership_lock(library, slug):
+        record = library.read_record(slug)
+        _check_seal(record, state)
+        wanted = {'repository': state['build']['repository'], 'pull_request': state['build']['pr'],
+                  'sealed_digest': state['plan']['sealed_digest'],
+                  'build_plan_digest': state['plan']['digest'],
+                  'worktree': str(Path(state['build']['worktree']).resolve()), 'locator': locator}
+        lease = record.get('build_lease')
+        if lease and lease['current']:
+            claim = lease['current']
+            if any(claim[k] != v for k, v in wanted.items()) or claim['state'] not in ('preparing', 'active'):
+                raise BuildStateError('this plan already has a different Build claim; resume it or explicitly supersede it')
+            if legacy_source and claim.get('legacy_source') != str(Path(legacy_source).resolve()):
+                raise BuildStateError('this migration is reserved for a different source')
+            # Reflush the journal after a prior uncertain directory flush, before trusting it.
+            library.write_build_record_locked(slug, record)
+            return copy.deepcopy(claim)
+        old = _legacy_slot(library, slug)
+        legacy = record.get('build_binding')
+        if not lease and (legacy or old.is_file()) and not legacy_source:
+            raise BuildStateError('legacy Build evidence requires explicit state migrate; nothing was reserved')
+        source_digest = None
+        if legacy_source:
+            source = Path(legacy_source).resolve()
+            if not source.is_file() or not legacy:
+                raise BuildStateError('legacy binding or source is missing; preserve the evidence and repair ownership first')
+            if old.is_file() and old.resolve() != source:
+                raise BuildStateError('both canonical and external legacy snapshots exist; reconcile ambiguous evidence first')
+            if any(legacy.get(k) != wanted[k] for k in ('repository', 'pull_request', 'sealed_digest', 'build_plan_digest')):
+                raise BuildStateError('legacy snapshot and plan binding disagree; repair ownership first')
+            on_disk = core.json_file(source)
+            if core.digest(on_disk) != core.digest(state):
+                raise BuildStateError('legacy source changed; reread it before migration')
+            source_digest = core.digest(on_disk)
+        generation = lease['generation'] + 1 if lease else 1
+        claim = dict(wanted, build_id='bld_' + uuid.uuid4().hex, generation=generation,
+                     state='preparing', at=moment.utc_now())
+        claim['snapshot'] = str(builds_dir(library, slug) / claim['build_id'] / SNAPSHOT_FILENAME)
+        if legacy_source:
+            claim.update(legacy_source=str(Path(legacy_source).resolve()), legacy_digest=source_digest)
+        record['build_lease'] = {'version': 1, 'generation': generation, 'current': claim,
+                                 'history': lease['history'] if lease else []}
+        record['build_binding'] = _binding_projection(claim)
+        if consent:
+            import plan_lifecycle
+            prior = plan_lifecycle.missing_prior_consent(record, consent['gate'])
+            if prior:
+                raise BuildStateError(prior)
+            record.setdefault('consent', []).append(consent)
+        library.write_build_record_locked(slug, record)
+        return copy.deepcopy(claim)
+
+
+def _cutover_locked(library, slug, claim) -> None:
+    """Replace the old file slot with a directory that old file operations cannot replace.
+
+    Canonical legacy evidence is renamed, never unlinked, after its copy is durable. Both names
+    are on the same filesystem. A retry distinguishes our rename from someone deleting the
+    old source by the preserved original; it never guesses that an absent source is success.
+    """
+    old = _legacy_slot(library, slug)
+    target = _claim_path(library, slug, claim)
+    preserved = target.parent / 'legacy-original.json'
+    if old.is_symlink():
+        raise BuildStateError('legacy slot is a symlink; repair it before cutover')
+    if old.is_file():
+        if claim.get('legacy_source') != str(old) or core.digest(core.json_file(old)) != claim.get('legacy_digest'):
+            raise BuildStateError('unexpected legacy evidence at cutover; preserve it and reconcile ownership')
+        if preserved.exists():
+            raise BuildStateError('legacy source reappeared after cutover; preserve both copies and reconcile')
+        old.rename(preserved)
+        _flush_directory(target.parent)
+        _flush_directory(old.parent)
+    elif (claim.get('legacy_source') == str(old) and not old.is_dir()
+          and not preserved.is_file()):
+        raise BuildStateError('legacy source disappeared before cutover; recover the original before retrying')
+    old.mkdir(mode=plan_store.DIR_MODE, exist_ok=True)
+    _flush_directory(old.parent)
+
+
+def finish_binding(library, slug, identity, state, schema) -> dict:
+    """Converge preparing -> durable snapshot -> compatibility barrier -> active.
+
+    A snapshot already written by this transaction wins over retry input, preserving all
+    evidence. A different identity or corrupt snapshot refuses without replacing anything.
+    """
+    with ownership_lock(library, slug):
+        record = library.read_record(slug)
+        claim = _assert_claim(record, identity, states=('preparing', 'active'))
+        _check_seal(record, state)
+        path = _claim_path(library, slug, claim)
+        plan_store.ensure_dir(path.parent, within=library.root)
+        with core.exclusive_lock(path.with_name(path.name + '.lock')):
+            if path.exists():
+                saved = core.json_file(path)
+                core.validate(saved, schema(saved) if callable(schema) else schema)
+                if saved.get('ownership') != identity:
+                    raise BuildStateError('reserved snapshot holds another Build; preserve it and repair the claim')
+                _check_seal(record, saved)
+            else:
+                if claim['state'] == 'active':
+                    raise BuildStateError('active snapshot is missing; restore its evidence, never recreate it from bind input')
+                saved = copy.deepcopy(state)
+                saved['ownership'] = identity
+                core.validate(saved, schema(saved) if callable(schema) else schema)
+            _durable_json(path, saved)
+            _cutover_locked(library, slug, claim)
+            claim['state'] = 'active'
+            library.write_build_record_locked(slug, record)
+            return saved
+
+
+class ClaimedBuildStore(core.RevisionedStore):
+    """Production mutations require a caller-held identity under the plan and snapshot locks."""
+
+    durable = True
+    require_directory_flush = True
+    file_mode = plan_store.FILE_MODE
+    what = 'claimed Build snapshot'
+
+    def __init__(self, library, slug, schema, expected_revision=None, *, identity=None):
+        self.library, self.slug, self.identity = library, slug, identity
+        claim = (library.read_record(slug).get('build_lease') or {}).get('current')
+        if not claim:
+            raise BuildStateError('no current Build claim; bind the sealed plan first')
+        super().__init__(str(_claim_path(library, slug, claim)), schema, expected_revision)
+
+    @contextlib.contextmanager
+    def _locked(self):
+        with ownership_lock(self.library, self.slug):
+            with core.exclusive_lock(self.lock):
+                yield
+
+    def _check_write(self, state, *, creating):
+        if creating:
+            raise BuildStateError('production snapshots are created only by the binding transaction')
+        claim = _assert_claim(self.library.read_record(self.slug), self.identity)
+        if claim['snapshot'] != str(self.path) or state.get('ownership') != self.identity:
+            raise BuildStateError('snapshot identity or address moved; this caller cannot write it')
 
 class DurableBuildStore(core.RevisionedStore):
     """A Build snapshot that survives a forced restart. A PEER of `core.StateStore`, not a subclass.

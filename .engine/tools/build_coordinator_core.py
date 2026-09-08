@@ -114,7 +114,8 @@ def assert_revision(actual: int, expected: int | None, what: str, remedy: str) -
         raise CoordinatorError(f"{what} revision is {actual}, not expected {expected}; {remedy}")
 
 
-def atomic_write(path: Path, text: str, *, durable: bool = False, mode: int | None = None) -> None:
+def atomic_write(path: Path, text: str, *, durable: bool = False, mode: int | None = None,
+                 require_directory_flush: bool = False) -> None:
     """Write `text` to `path` so a reader sees either the whole old file or the whole new one.
 
     Write to a temp file in the SAME directory (a cross-filesystem rename is not atomic), flush,
@@ -148,7 +149,11 @@ def atomic_write(path: Path, text: str, *, durable: bool = False, mode: int | No
             # A directory flush that the platform declines is normal on some filesystems, so this one
             # is not fatal — the file itself is already durable, and only the rename's ordering is
             # at risk. Not worth refusing a write over; worth not pretending it happened either.
-            fsync_dir(path.parent)
+            flushed = fsync_dir(path.parent)
+            if require_directory_flush and not flushed:
+                raise CoordinatorError(
+                    f"the replacement at {path} is visible but its directory could not be flushed; "
+                    "durability is uncertain. Retry the recorded transaction; do not start another Build.")
     finally:
         if os.path.exists(temp_name):
             os.unlink(temp_name)
@@ -539,6 +544,7 @@ class RevisionedStore:
 
     durable = False
     file_mode: int | None = None
+    require_directory_flush = False
     what = "snapshot"
     missing_remedy = "there is nothing to read"
     stale_remedy = "re-read it"
@@ -573,6 +579,7 @@ class RevisionedStore:
 
     def create(self, state: dict) -> None:
         with self._locked():
+            self._check_write(state, creating=True)
             if self.path.exists():
                 raise CoordinatorError(f"{self.what} already exists at {self.path}")
             self._write(state)
@@ -583,17 +590,23 @@ class RevisionedStore:
                 raise CoordinatorError(f"no {self.what} at {self.path}; {self.missing_remedy}")
             state = forward_migrate(json_file(self.path))
             validate(state, self._schema_for(state))
+            self._check_write(state, creating=False)
             expected = self.expected_revision if self.expected_revision is not None else from_revision
             assert_revision(state["revision"], expected, "snapshot", self.stale_remedy)
             result = change(state)
+            self._check_write(state, creating=False)
             state["revision"] += 1
             self._write(state)
             return result
 
+    def _check_write(self, state: dict, *, creating: bool) -> None:
+        """Ownership seam for plan-owned stores, called while their locks are held."""
+
     def _write(self, state: dict) -> None:
         validate(state, self._schema_for(state))
         atomic_write(self.path, json.dumps(state, indent=2, sort_keys=True) + "\n",
-                     durable=self.durable, mode=self.file_mode)
+                     durable=self.durable, mode=self.file_mode,
+                     require_directory_flush=self.require_directory_flush)
 
 
 class StateStore(RevisionedStore):

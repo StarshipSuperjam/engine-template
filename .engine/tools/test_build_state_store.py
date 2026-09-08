@@ -22,6 +22,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import multiprocessing
 import os
 from pathlib import Path
 import subprocess
@@ -512,6 +513,226 @@ class TheKillAndResumeDemo(unittest.TestCase):
         import quiet_call
         import demo_build_resumes_after_a_kill as demo
         self.assertEqual(quiet_call.run(demo.main), 0)
+
+
+# Actual supersede from a54c8119, frozen to challenge the compatibility boundary.
+_LEGACY_SUPERSEDE = 'def supersede(library: plan_store.PlanLibrary, slug: str, *, reason: str) -> Path | None:\n    """Clear a confirmed-stale binding: set the current snapshot aside so a fresh Build of the same\n    plan may start. Never silent.\n\n    This is deliberately NOT the resume path — a genuine continuation keeps its worktree and\n    re-verifies the binding in place, and never comes here. Nor is it needed to start a Build of some\n    OTHER plan: each plan gets its own snapshot, so a different plan just binds fresh. But this plan\n    cannot bind fresh in a different worktree — snapshots are keyed by plan, not worktree, so while this\n    snapshot exists a re-bind of the same plan is refused. Superseding clears that one snapshot so its\n    slot is free again. Once cleared, the plan no longer answers `bound_snapshots` (the live snapshot is\n    gone), so a resuming session sees no live work for it. Superseding neither completes the plan nor\n    touches the PR.\n\n    The displaced snapshot is MOVED, not removed: it becomes `superseded-<revision>.json` beside the\n    new one, byte-for-byte as it stood, with the reason recorded in a sibling `.reason.json`. An\n    operator superseding a Build usually does so because something went wrong, which is precisely\n    when the evidence of what went wrong is worth keeping — and keeping the snapshot itself\n    unaltered is what lets it still be read as the schema-valid document it is.\n    """\n    current = snapshot_path(library, slug)\n    if not current.is_file():\n        return None\n    state = core.json_file(current)\n    revision = state.get("revision", 0)\n    retired = current.with_name(f"superseded-{revision:06d}.json")\n    if retired.exists():\n        raise BuildStateError(\n            f"{retired} already exists, so superseding again would overwrite a snapshot already set "\n            "aside. Move or delete it first — this store does not silently destroy evidence.")\n    core.atomic_write(retired, json.dumps(state, indent=2, sort_keys=True) + "\\n",\n                      durable=True, mode=plan_store.FILE_MODE)\n    core.atomic_write(retired.with_suffix(".reason.json"),\n                      json.dumps({"at": moment.utc_now(), "reason": reason,\n                                  "superseded_revision": revision}, indent=2, sort_keys=True) + "\\n",\n                      durable=True, mode=plan_store.FILE_MODE)\n    current.unlink()\n    lock = current.with_name(current.name + ".lock")\n    if lock.exists():\n        lock.unlink()\n    return retired'
+
+def _paused_legacy_supersede(library_root, slug, after_read, paused, resume, outcome):
+    namespace = dict(vars(build_state_store))
+    namespace['snapshot_path'] = build_state_store._legacy_slot
+    exec(_LEGACY_SUPERSEDE, namespace)
+    read = core.json_file
+    def pause_read(path):
+        result = read(path) if after_read else None
+        paused.set()
+        if not resume.wait(10):
+            raise RuntimeError('parent did not release legacy reader')
+        return result if after_read else read(path)
+    try:
+        with mock.patch.object(core, 'json_file', side_effect=pause_read):
+            namespace['supersede'](plan_store.PlanLibrary(Path(library_root)), slug, reason='old process')
+    except (OSError, core.CoordinatorError):
+        outcome.put('refused')
+    else:
+        outcome.put('retired')
+
+
+class TransactionalOwnership(unittest.TestCase):
+    def setUp(self):
+        from test_plan_store import _document
+        import plan_contract
+        self.temp = tempfile.TemporaryDirectory()
+        self.addCleanup(self.temp.cleanup)
+        self.root = Path(self.temp.name)
+        self.lib = plan_store.PlanLibrary(self.root / 'plans')
+        doc = _document()
+        self.slug = self.lib.create(doc)
+        record = self.lib.read_record(self.slug)
+        stamp = '2026-09-08T00:00:00Z'
+        self.seal = {'revision': 1, 'reviewed_digest': record['current']['plan_digest'],
+                     'sealed_digest': record['current']['plan_digest'],
+                     'build_plan_digest': plan_contract.build_plan_digest(doc),
+                     'at': stamp, 'delta_judgment': 'none'}
+        self.lib.update_record(self.slug, lambda r: r.update(
+            seal=self.seal, consent=[{'gate': 'seal', 'at': stamp}]))
+        self.state = _state(worktree=str(self.root / 'worktree'))
+        self.state['plan'].update(sealed_digest=self.seal['sealed_digest'],
+                                  digest=self.seal['build_plan_digest'])
+        self.consent = {'gate': 'bind', 'at': stamp}
+
+    def reserve(self, **kwargs):
+        return build_state_store.reserve_build(self.lib, self.slug, self.state,
+                                                consent=self.consent, **kwargs)
+
+    def finish(self, claim):
+        return build_state_store.finish_binding(self.lib, self.slug,
+            build_state_store.claim_identity(claim), self.state, SCHEMA)
+
+    def test_reservation_retry_preserves_identity_and_consent(self):
+        claim = self.reserve()
+        self.assertEqual(claim, self.reserve())
+        record = self.lib.read_record(self.slug)
+        self.assertEqual(record['consent'], [{'gate': 'seal', 'at': self.consent['at']}, self.consent])
+        self.assertEqual(claim['state'], 'preparing')
+        self.assertFalse(Path(claim['snapshot']).exists())
+        self.state['build']['pr'] = 2
+        with self.assertRaisesRegex(core.CoordinatorError, 'different Build'):
+            self.reserve(locator=str(self.root / 'other'))
+        self.assertEqual(self.lib.read_record(self.slug), record)
+
+    def test_missing_identity_and_wrong_generation_cannot_mutate(self):
+        claim = self.reserve(); self.finish(claim)
+        for identity in [None, {'build_id': claim['build_id'], 'generation': 2}]:
+            store = build_state_store.ClaimedBuildStore(self.lib, self.slug, SCHEMA, identity=identity)
+            with self.assertRaisesRegex(core.CoordinatorError, 'identity'):
+                store.mutate(lambda s: s['progress'].update(current_item='wrong'))
+        store = build_state_store.ClaimedBuildStore(self.lib, self.slug, SCHEMA,
+            identity=build_state_store.claim_identity(claim))
+        store.mutate(lambda s: s['progress'].update(current_item='right'))
+        self.assertEqual(store.read()['progress']['current_item'], 'right')
+
+    def test_directory_flush_failure_is_recoverable_without_new_identity(self):
+        claim = self.reserve()
+        with mock.patch.object(core, 'fsync_dir', return_value=False):
+            with self.assertRaisesRegex(core.CoordinatorError, 'durability is uncertain'):
+                self.finish(claim)
+        self.assertEqual(self.lib.read_record(self.slug)['build_lease']['current']['state'], 'preparing')
+        self.assertEqual(self.reserve()['build_id'], claim['build_id'])
+        saved = self.finish(claim)
+        self.assertEqual(saved['ownership'], build_state_store.claim_identity(claim))
+
+    def test_activation_failure_retries_existing_evidence(self):
+        claim = self.reserve()
+        real = self.lib.write_build_record_locked
+        def fail_activation(slug, record):
+            if record['build_lease']['current']['state'] == 'active':
+                raise OSError('interrupted activation')
+            real(slug, record)
+        with mock.patch.object(self.lib, 'write_build_record_locked', side_effect=fail_activation):
+            with self.assertRaisesRegex(OSError, 'activation'):
+                self.finish(claim)
+        before = Path(claim['snapshot']).read_bytes()
+        self.state['progress']['current_item'] = 'retry must not overwrite'
+        self.finish(claim)
+        self.assertEqual(Path(claim['snapshot']).read_bytes(), before)
+
+    def test_reservation_visible_before_failed_flush_retries_without_duplicate_consent(self):
+        real = core.atomic_write
+        def interrupted(path, text, **kwargs):
+            real(path, text, **kwargs)
+            if path.name == plan_store.RECORD_FILENAME:
+                raise OSError('killed after reservation write')
+        with mock.patch.object(core, 'atomic_write', side_effect=interrupted):
+            with self.assertRaises(OSError):
+                self.reserve()
+        claim = self.lib.read_record(self.slug)['build_lease']['current']
+        self.assertEqual(self.reserve(), claim)
+        self.assertEqual(sum(c['gate'] == 'bind' for c in self.lib.read_record(self.slug)['consent']), 1)
+        self.finish(claim)
+
+    def test_legacy_cutover_after_rename_is_recovered_from_preserved_original(self):
+        old = build_state_store._legacy_slot(self.lib, self.slug)
+        build_state_store.DurableBuildStore(old, SCHEMA, library_root=self.lib.root).create(self.state)
+        original = old.read_bytes()
+        self.lib.update_record(self.slug, lambda r: r.update(build_binding={
+            'sealed_digest': self.seal['sealed_digest'], 'build_plan_digest': self.seal['build_plan_digest'],
+            'repository': 'o/r', 'pull_request': 1, 'at': self.consent['at']}))
+        claim = self.reserve(legacy_source=old)
+        with mock.patch.object(build_state_store, '_flush_directory', side_effect=OSError('cutover interrupted')):
+            with self.assertRaises(OSError):
+                self.finish(claim)
+        self.assertFalse(old.exists())
+        preserved = Path(claim['snapshot']).parent / 'legacy-original.json'
+        self.assertEqual(preserved.read_bytes(), original)
+        self.finish(claim)
+        self.assertTrue(old.is_dir())
+        self.assertEqual(preserved.read_bytes(), original)
+
+    def test_old_supersede_cannot_remove_tombstone_or_evidence_or_lock(self):
+        claim = self.reserve(); self.finish(claim)
+        namespace = dict(vars(build_state_store))
+        namespace['snapshot_path'] = build_state_store._legacy_slot
+        exec(_LEGACY_SUPERSEDE, namespace)
+        lock = build_state_store._legacy_lock(self.lib, self.slug)
+        inode = lock.stat().st_ino
+        evidence = Path(claim['snapshot']).read_bytes()
+        self.assertIsNone(namespace['supersede'](self.lib, self.slug, reason='old client'))
+        self.assertEqual(lock.stat().st_ino, inode)
+        self.assertEqual(Path(claim['snapshot']).read_bytes(), evidence)
+        self.assertTrue(build_state_store._legacy_slot(self.lib, self.slug).is_dir())
+
+    def test_legacy_cutover_preserves_original_and_old_lock_inode(self):
+        old = build_state_store._legacy_slot(self.lib, self.slug)
+        build_state_store.DurableBuildStore(old, SCHEMA, library_root=self.lib.root).create(self.state)
+        old_bytes = old.read_bytes()
+        binding = {'sealed_digest': self.seal['sealed_digest'],
+                   'build_plan_digest': self.seal['build_plan_digest'],
+                   'repository': 'o/r', 'pull_request': 1, 'at': self.consent['at']}
+        self.lib.update_record(self.slug, lambda r: r.update(build_binding=binding))
+        inode = build_state_store._legacy_lock(self.lib, self.slug).stat().st_ino
+        with self.assertRaisesRegex(core.CoordinatorError, 'explicit state migrate'):
+            self.reserve()
+        claim = self.reserve(legacy_source=old)
+        self.finish(claim)
+        self.assertTrue(old.is_dir())
+        self.assertEqual((Path(claim['snapshot']).parent / 'legacy-original.json').read_bytes(), old_bytes)
+        self.assertEqual(build_state_store._legacy_lock(self.lib, self.slug).stat().st_ino, inode)
+        with self.assertRaises((OSError, core.CoordinatorError)):
+            core.StateStore(str(old), SCHEMA).create(self.state)
+
+    def test_corrupt_reserved_snapshot_is_never_replaced(self):
+        claim = self.reserve()
+        path = Path(claim['snapshot']); path.parent.mkdir(parents=True)
+        path.write_text('broken')
+        with self.assertRaises(core.CoordinatorError):
+            self.finish(claim)
+        self.assertEqual(path.read_text(), 'broken')
+
+    def test_invalid_claim_identity_is_schema_rejected(self):
+        self.reserve()
+        for field, value in [('build_id', 'bad'), ('generation', 0), ('state', 'invented')]:
+            record = self.lib.read_record(self.slug)
+            record['build_lease']['current'][field] = value
+            with self.assertRaises(core.CoordinatorError):
+                core.validate(record, plan_store.RECORD_SCHEMA)
+
+    def test_legacy_superseder_paused_before_and_after_read_cannot_destroy_upgraded_build(self):
+        for after_read in (False, True):
+            # Each witness has its own real plan and independent process.
+            fixture = TransactionalOwnership(); fixture.setUp()
+            try:
+                old = build_state_store._legacy_slot(fixture.lib, fixture.slug)
+                build_state_store.DurableBuildStore(old, SCHEMA, library_root=fixture.lib.root).create(fixture.state)
+                fixture.lib.update_record(fixture.slug, lambda r: r.update(build_binding={
+                    'sealed_digest': fixture.seal['sealed_digest'],
+                    'build_plan_digest': fixture.seal['build_plan_digest'], 'repository': 'o/r',
+                    'pull_request': 1, 'at': fixture.consent['at']}))
+                ctx = multiprocessing.get_context('spawn')
+                paused, resume, result = ctx.Event(), ctx.Event(), ctx.Queue()
+                child = ctx.Process(target=_paused_legacy_supersede,
+                    args=(str(fixture.lib.root), fixture.slug, after_read, paused, resume, result))
+                child.start()
+                try:
+                    self.assertTrue(paused.wait(10), 'legacy command did not reach barrier')
+                    lock = build_state_store._legacy_lock(fixture.lib, fixture.slug)
+                    inode = lock.stat().st_ino
+                    claim = fixture.reserve(legacy_source=old); fixture.finish(claim)
+                    evidence = Path(claim['snapshot']).read_bytes()
+                    resume.set(); child.join(10)
+                    self.assertFalse(child.is_alive(), 'legacy command deadlocked')
+                    self.assertEqual(child.exitcode, 0)
+                    self.assertEqual(result.get(timeout=2), 'refused')
+                    self.assertEqual(lock.stat().st_ino, inode)
+                    self.assertEqual(Path(claim['snapshot']).read_bytes(), evidence)
+                    self.assertTrue(old.is_dir())
+                finally:
+                    resume.set()
+                    if child.is_alive():
+                        child.terminate(); child.join(5)
+                    result.close(); result.join_thread()
+            finally:
+                fixture.doCleanups()
 
 
 if __name__ == "__main__":
