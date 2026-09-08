@@ -46,6 +46,8 @@ from __future__ import annotations
 import contextlib
 import copy
 import json
+import os
+import stat
 import uuid
 from pathlib import Path
 
@@ -82,6 +84,33 @@ def claim_identity(claim: dict) -> dict:
     return {key: claim[key] for key in ('build_id', 'generation')}
 
 
+def _locator_value(record, claim):
+    return {'schema_version': 'build-locator.v1', 'plan_id': record['plan_id'],
+            'ownership': claim_identity(claim), 'snapshot': claim['snapshot']}
+
+
+def _private_locator(path):
+    info = path.lstat()
+    if not stat.S_ISREG(info.st_mode) or info.st_uid != os.getuid() or info.st_mode & 0o077:
+        raise BuildStateError(f'{path} must be an owner-only regular locator file')
+    value = core.json_file(path)
+    if set(value) != {'schema_version', 'plan_id', 'ownership', 'snapshot'} or value.get('schema_version') != 'build-locator.v1':
+        raise BuildStateError(f'{path} is not a minimal Build locator; explicitly migrate any full legacy evidence')
+    return value
+
+
+def _check_locator_locked(record, locator, claim=None):
+    if not locator:
+        return
+    path = Path(locator)
+    if path.exists() or path.is_symlink():
+        value = _private_locator(path)
+        allowed = ([claim] if claim else []) + (record.get('build_lease') or {}).get('history', [])
+        if value['plan_id'] != record['plan_id'] or not any(
+                value == _locator_value(record, previous) for previous in allowed):
+            raise BuildStateError('locator belongs to another Build; choose an unused path or recover its owner')
+
+
 def _claim_path(library, slug, claim) -> Path:
     expected = builds_dir(library, slug) / claim['build_id'] / SNAPSHOT_FILENAME
     path = plan_store.contain(Path(claim['snapshot']), library.root, 'a claimed Build snapshot')
@@ -108,9 +137,21 @@ def _assert_claim(record, identity, *, states=('active',)) -> dict:
     claim = (record.get('build_lease') or {}).get('current')
     if not identity or not claim or claim_identity(claim) != identity:
         raise BuildStateError('stale or missing Build identity; use the identity returned by bind or verified continuation')
+    if claim['generation'] != record['build_lease']['generation']:
+        raise BuildStateError('claim generation disagrees with its ledger; repair ownership before writing')
     if claim['state'] not in states:
         raise BuildStateError(f"Build is {claim['state']}; retry its recorded transition before writing")
     return claim
+
+
+def _assert_snapshot_claim(record, claim, state):
+    if (state.get('ownership') != claim_identity(claim)
+            or state['plan']['plan_id'] != record['plan_id']
+            or state['plan']['sealed_digest'] != claim['sealed_digest']
+            or state['build']['repository'] != claim['repository']
+            or state['build']['pr'] != claim['pull_request']
+            or str(Path(state['build'].get('worktree', '')).resolve()) != claim['worktree']):
+        raise BuildStateError('snapshot and plan claim disagree about Build ownership; preserve evidence and recover the transaction')
 
 
 def _binding_projection(claim) -> dict:
@@ -137,7 +178,12 @@ def reserve_build(library, slug, state, *, consent=None, locator=None,
     must explicitly retire it first. Legacy migration names and fingerprints its source;
     missing or ambiguous legacy evidence is never interpreted as an unused plan.
     """
-    locator = str(Path(locator).resolve()) if locator else None
+    if locator:
+        if Path(locator).is_symlink():
+            raise BuildStateError('a Build locator must not be a symlink')
+        locator = str(Path(locator).resolve())
+        if Path(locator).is_relative_to(library.root):
+            raise BuildStateError('omit --state for canonical evidence; an external locator must be outside the library')
     with ownership_lock(library, slug):
         record = library.read_record(slug)
         _check_seal(record, state)
@@ -155,6 +201,7 @@ def reserve_build(library, slug, state, *, consent=None, locator=None,
             # Reflush the journal after a prior uncertain directory flush, before trusting it.
             library.write_build_record_locked(slug, record)
             return copy.deepcopy(claim)
+        _check_locator_locked(record, locator)
         old = _legacy_slot(library, slug)
         legacy = record.get('build_binding')
         if not lease and (legacy or old.is_file()) and not legacy_source:
@@ -243,8 +290,14 @@ def finish_binding(library, slug, identity, state, schema) -> dict:
                 saved = copy.deepcopy(state)
                 saved['ownership'] = identity
                 core.validate(saved, schema(saved) if callable(schema) else schema)
+            _assert_snapshot_claim(record, claim, saved)
             _durable_json(path, saved)
             _cutover_locked(library, slug, claim)
+            if claim['locator']:
+                locator = Path(claim['locator'])
+                with core.exclusive_lock(locator.with_name(locator.name + '.lock')):
+                    _check_locator_locked(record, claim['locator'], claim)
+                    _durable_json(locator, _locator_value(record, claim))
             claim['state'] = 'active'
             library.write_build_record_locked(slug, record)
             return saved
@@ -277,6 +330,7 @@ class ClaimedBuildStore(core.RevisionedStore):
         claim = _assert_claim(self.library.read_record(self.slug), self.identity)
         if claim['snapshot'] != str(self.path) or state.get('ownership') != self.identity:
             raise BuildStateError('snapshot identity or address moved; this caller cannot write it')
+        _assert_snapshot_claim(self.library.read_record(self.slug), claim, state)
 
 class DurableBuildStore(core.RevisionedStore):
     """A Build snapshot that survives a forced restart. A PEER of `core.StateStore`, not a subclass.
@@ -328,8 +382,11 @@ def snapshot_path(library: plan_store.PlanLibrary, slug: str) -> Path:
     not mint — and `Path("/library") / "/etc/passwd"` is `/etc/passwd`, an absolute component
     silently discarding everything to its left.
     """
-    return plan_store.contain(builds_dir(library, slug) / SNAPSHOT_FILENAME, library.root,
-                              "a Build snapshot")
+    # Old fixtures and unupgraded records keep their old address. A retired upgraded plan has
+    # no active snapshot: its old address is a directory barrier, never an available file slot.
+    record = library._read_record_unchecked(slug)
+    claim = (record.get('build_lease') or {}).get('current')
+    return _claim_path(library, slug, claim) if claim else _legacy_slot(library, slug)
 
 
 def store_for_plan(selector: str, schema, expected_revision: int | None = None,
@@ -352,6 +409,13 @@ def bound_snapshots(worktree: Path | str, *, library: plan_store.PlanLibrary | N
     target = Path(worktree).resolve()
     found: list[tuple[str, Path]] = []
     for slug in library.slugs():
+        record = library._read_record_unchecked(slug)
+        lease = record.get('build_lease')
+        if lease:
+            claim = lease['current']
+            if claim and Path(claim['worktree']).resolve() == target:
+                found.append((slug, _claim_path(library, slug, claim)))
+            continue
         path = snapshot_path(library, slug)
         if not path.is_file():
             continue
@@ -371,7 +435,8 @@ def bound_snapshots(worktree: Path | str, *, library: plan_store.PlanLibrary | N
 
 
 def resolve_for_worktree(worktree: Path | str, schema, expected_revision: int | None = None,
-                         *, library: plan_store.PlanLibrary | None = None) -> DurableBuildStore:
+                         *, library: plan_store.PlanLibrary | None = None,
+                         identity=None) -> core.RevisionedStore:
     """The durable store for the Build running in `worktree`, or a refusal naming what was found.
 
     NOTHING auto-selects. Zero matches and two matches are different problems with different fixes,
@@ -381,6 +446,8 @@ def resolve_for_worktree(worktree: Path | str, schema, expected_revision: int | 
     library = library or plan_store.PlanLibrary()
     found = bound_snapshots(worktree, library=library)
     if len(found) == 1:
+        if library._read_record_unchecked(found[0][0]).get('build_lease'):
+            return ClaimedBuildStore(library, found[0][0], schema, expected_revision, identity=identity)
         return DurableBuildStore(found[0][1], schema, expected_revision, library_root=library.root)
     if not found:
         raise BuildStateError(
@@ -392,6 +459,37 @@ def resolve_for_worktree(worktree: Path | str, schema, expected_revision: int | 
         + ", ".join(slug for slug, _ in found)
         + ". Two Builds cannot share a worktree, so one of these is stale. Name the one you mean "
           "with --state, and supersede or retire the other.")
+
+
+def resolve_explicit(path, schema, expected_revision=None, *, library=None, identity=None):
+    """Resolve an external locator or an exact canonical file; full external evidence is legacy."""
+    library = library or plan_store.PlanLibrary()
+    path = Path(path)
+    if path.is_symlink():
+        raise BuildStateError('a Build locator must not be a symlink')
+    path = path.resolve()
+    if not path.is_file():
+        raise BuildStateError(f'no snapshot or locator at {path}; retry bind or recover the recorded claim')
+    value = core.json_file(path)
+    if value.get('schema_version') == 'build-locator.v1':
+        value = _private_locator(path)
+        slug = library.resolve(value['plan_id'])
+        record = library.read_record(slug)
+        claim = _assert_claim(record, value['ownership'], states=('preparing', 'active'))
+        if value != _locator_value(record, claim) or claim['locator'] != str(path):
+            raise BuildStateError('stale locator address; recover the exact Build you intended')
+        return ClaimedBuildStore(library, slug, schema, expected_revision, identity=identity)
+    plan_id = (value.get('plan') or {}).get('plan_id')
+    if not plan_id:
+        raise BuildStateError('explicit state is neither a Build nor a locator')
+    slug = library.resolve(plan_id)
+    record = library.read_record(slug)
+    if record.get('build_lease'):
+        claim = _assert_claim(record, value.get('ownership'), states=('preparing', 'active'))
+        if _claim_path(library, slug, claim) != path:
+            raise BuildStateError('full evidence outside its canonical address must be explicitly migrated')
+        return ClaimedBuildStore(library, slug, schema, expected_revision, identity=identity)
+    return DurableBuildStore(path, schema, expected_revision)
 
 
 # --- migration ----------------------------------------------------------------

@@ -21,6 +21,8 @@ behavioural test notices until it has already lost an update.
 from __future__ import annotations
 
 import argparse
+import contextlib
+import io
 import json
 import multiprocessing
 import os
@@ -469,15 +471,15 @@ class TheSeamAnOperatorActuallyCrosses(unittest.TestCase):
         self.assertEqual(seen["command"], "plan/bind")
         self.assertIsNone(seen["store"], "without --state, bind must choose its own durable address")
 
-    def test_but_an_explicit_state_path_still_wins(self):
-        """The escape hatch has to keep working, or every existing invocation breaks."""
+    def test_an_explicit_state_path_is_carried_as_a_locator_into_the_transaction(self):
         import build_coordinator as bc
         seen = {}
-        with mock.patch.object(bc, "cmd_plan_bind", lambda a, s: seen.update(store=s)), \
-                mock.patch.object(bc, "_resolve_store", return_value="explicit"):
+        with mock.patch.object(bc, "cmd_plan_bind", lambda a, s: seen.update(store=s, locator=a.state)), \
+                mock.patch.object(bc, "_resolve_store", side_effect=AssertionError('bind must reserve first')):
             bc.main(["--state", "/tmp/x.json", "plan", "bind", "--plan", "pln_0123456789ab",
                      "--repository", "o/r", "--pr", "1", "--operator-decided"])
-        self.assertEqual(seen["store"], "explicit")
+        self.assertIsNone(seen['store'])
+        self.assertEqual(seen['locator'], '/tmp/x.json')
 
     def test_and_bind_reaches_the_durable_store_for_the_plan_it_binds(self):
         """The other half of the seam: given no store, bind asks the durable store for THIS plan's
@@ -485,12 +487,12 @@ class TheSeamAnOperatorActuallyCrosses(unittest.TestCase):
         import build_coordinator as bc
         asked = {}
 
-        def store_for_plan(plan_id, schema_for, library=None):
-            asked["plan_id"] = plan_id
+        def reserve(library, slug, state, **kwargs):
+            asked["plan_id"] = state['plan']['plan_id']
             raise bc.CoordinatorError("stop here — the address lookup is what was under test")
 
         head = "a" * 40
-        with mock.patch.object(bc.build_state_store, "store_for_plan", store_for_plan), \
+        with mock.patch.object(bc.build_state_store, "reserve_build", reserve), \
                 mock.patch.object(bc, "_sealed_plan",
                                   return_value=("pln_0123456789ab", "sha256:" + "f" * 64, PLAN)), \
                 mock.patch.object(bc, "_verify_draft",
@@ -538,6 +540,25 @@ def _paused_legacy_supersede(library_root, slug, after_read, paused, resume, out
         outcome.put('retired')
 
 
+def _competing_bind(library_root, slug, worktree, locator, pr, barrier, outcome):
+    import build_coordinator as bc
+    library = plan_store.PlanLibrary(Path(library_root))
+    stdout, stderr = io.StringIO(), io.StringIO()
+    def draft(*args):
+        barrier.wait(timeout=10)
+        return {'headRefOid': 'e' * 40, 'baseRefOid': 'a' * 40}
+    with mock.patch.object(bc, '_library', return_value=library), \
+            mock.patch.object(bc, 'ROOT', Path(worktree)), \
+            mock.patch.object(bc, '_head', return_value='e' * 40), \
+            mock.patch.object(bc, '_verify_draft', side_effect=draft), \
+            mock.patch.object(bc, '_record_session_binding'), \
+            mock.patch.object(bc.github, 'tag_coordinator_owned', return_value=True), \
+            contextlib.redirect_stdout(stdout), contextlib.redirect_stderr(stderr):
+        result = bc.main(['--state', locator, 'plan', 'bind', '--plan', slug,
+                          '--repository', 'o/r', '--pr', str(pr), '--operator-decided'])
+    outcome.put((pr, result, stdout.getvalue(), stderr.getvalue()))
+
+
 class TransactionalOwnership(unittest.TestCase):
     def setUp(self):
         from test_plan_store import _document
@@ -580,6 +601,119 @@ class TransactionalOwnership(unittest.TestCase):
         with self.assertRaisesRegex(core.CoordinatorError, 'different Build'):
             self.reserve(locator=str(self.root / 'other'))
         self.assertEqual(self.lib.read_record(self.slug), record)
+
+    def test_two_process_binds_to_distinct_explicit_paths_reserve_only_one_build(self):
+        ctx = multiprocessing.get_context('spawn')
+        barrier, outcome = ctx.Barrier(2), ctx.Queue()
+        children = [ctx.Process(target=_competing_bind, args=(str(self.lib.root), self.slug,
+            self.state['build']['worktree'], str(self.root / f'locator-{pr}.json'), pr,
+            barrier, outcome)) for pr in (1, 2)]
+        try:
+            for child in children: child.start()
+            for child in children:
+                child.join(15)
+                self.assertFalse(child.is_alive(), 'bind race deadlocked')
+                self.assertEqual(child.exitcode, 0)
+            results = [outcome.get(timeout=2) for _ in children]
+            self.assertEqual(sorted(r[1] for r in results), [0, 2], results)
+            winner = next(r for r in results if r[1] == 0)
+            loser = next(r for r in results if r[1] == 2)
+            record = self.lib.read_record(self.slug)
+            claim = record['build_lease']['current']
+            self.assertEqual(claim['state'], 'active')
+            self.assertEqual(claim['pull_request'], winner[0])
+            self.assertEqual(sum(c['gate'] == 'bind' for c in record['consent']), 1)
+            self.assertFalse((self.root / f'locator-{loser[0]}.json').exists())
+            locator = self.root / f'locator-{winner[0]}.json'
+            value = core.json_file(locator)
+            self.assertEqual(value['ownership'], build_state_store.claim_identity(claim))
+            self.assertNotIn('findings', value)
+            self.assertEqual(locator.stat().st_mode & 0o777, 0o600)
+            saved = core.json_file(Path(claim['snapshot']))
+            self.assertEqual(saved['ownership'], value['ownership'])
+            self.assertEqual(saved['build']['pr'], winner[0])
+            store = build_state_store.resolve_explicit(locator, SCHEMA, library=self.lib,
+                                                       identity=value['ownership'])
+            self.assertEqual(store.read(), saved)
+        finally:
+            for child in children:
+                if child.is_alive(): child.terminate(); child.join(5)
+            outcome.close(); outcome.join_thread()
+
+    def test_preparing_claim_is_discovered_even_without_a_snapshot(self):
+        claim = self.reserve()
+        found = build_state_store.bound_snapshots(self.state['build']['worktree'], library=self.lib)
+        self.assertEqual(found, [(self.slug, Path(claim['snapshot']))])
+        store = build_state_store.resolve_for_worktree(self.state['build']['worktree'], SCHEMA,
+                                                       library=self.lib)
+        self.assertIsInstance(store, build_state_store.ClaimedBuildStore)
+        self.assertFalse(store.path.exists())
+
+    def test_cli_requires_caller_expectations_and_continuation_verifies_exact_pr(self):
+        import build_coordinator as bc
+        claim = self.reserve(); self.finish(claim)
+        before = Path(claim['snapshot']).read_bytes()
+        with mock.patch.object(bc, '_library', return_value=self.lib), \
+                mock.patch.object(bc, 'ROOT', Path(self.state['build']['worktree'])), \
+                mock.patch.object(bc, '_head', return_value='e' * 40), \
+                mock.patch.object(bc, '_is_ancestor', return_value=True):
+            out, err = io.StringIO(), io.StringIO()
+            with contextlib.redirect_stdout(out), contextlib.redirect_stderr(err):
+                code = bc.main(['approve', '--plan', 'not-read.json', '--depth', 'quick'])
+            self.assertEqual(code, 2)
+            self.assertIn('--expect-build-id', err.getvalue())
+            with contextlib.redirect_stdout(io.StringIO()), contextlib.redirect_stderr(io.StringIO()):
+                code = bc.main(['state', 'continue', '--plan', self.slug, '--repository', 'o/r', '--pr', '2'])
+            self.assertEqual(code, 2)
+            out = io.StringIO()
+            with contextlib.redirect_stdout(out):
+                code = bc.main(['state', 'continue', '--plan', self.slug, '--repository', 'o/r', '--pr', '1'])
+            self.assertEqual(code, 0)
+            self.assertEqual(json.loads(out.getvalue())['ownership'], build_state_store.claim_identity(claim))
+        self.assertEqual(Path(claim['snapshot']).read_bytes(), before)
+
+    def test_cli_legacy_migration_preserves_progress_and_retries_same_identity(self):
+        import build_coordinator as bc
+        old = build_state_store._legacy_slot(self.lib, self.slug)
+        self.state['progress']['current_item'] = 'keep-progress'
+        build_state_store.DurableBuildStore(old, SCHEMA, library_root=self.lib.root).create(self.state)
+        self.lib.update_record(self.slug, lambda r: r.update(build_binding={
+            'sealed_digest': self.seal['sealed_digest'], 'build_plan_digest': self.seal['build_plan_digest'],
+            'repository': 'o/r', 'pull_request': 1, 'at': self.consent['at']}))
+        outputs = []
+        with mock.patch.object(bc, '_library', return_value=self.lib), \
+                mock.patch.object(bc, 'ROOT', Path(self.state['build']['worktree'])):
+            for _ in range(2):
+                out = io.StringIO()
+                with contextlib.redirect_stdout(out):
+                    code = bc.main(['state', 'migrate', '--source', str(old), '--plan', self.slug])
+                self.assertEqual(code, 0)
+                outputs.append(json.loads(out.getvalue()))
+        self.assertEqual(outputs[0]['ownership'], outputs[1]['ownership'])
+        saved = core.json_file(Path(outputs[0]['migrated']))
+        self.assertEqual(saved['progress']['current_item'], 'keep-progress')
+        self.assertEqual(saved['revision'], self.state['revision'])
+
+    def test_deleting_the_plan_leaves_no_private_evidence_in_the_external_locator(self):
+        import shutil
+        locator = self.root / 'outside.json'
+        claim = self.reserve(locator=locator); self.finish(claim)
+        value = core.json_file(locator)
+        self.assertEqual(set(value), {'schema_version', 'plan_id', 'ownership', 'snapshot'})
+        shutil.rmtree(self.lib.plan_dir(self.slug))
+        self.assertTrue(locator.exists())
+        self.assertFalse(Path(value['snapshot']).exists())
+        with self.assertRaises(core.CoordinatorError):
+            build_state_store.resolve_explicit(locator, SCHEMA, library=self.lib)
+
+    def test_locator_cannot_overwrite_an_unrelated_file_or_follow_a_symlink(self):
+        path = self.root / 'keep.json'; path.write_text('{"keep":true}')
+        before = path.read_bytes()
+        with self.assertRaises(core.CoordinatorError): self.reserve(locator=path)
+        self.assertEqual(path.read_bytes(), before)
+        link = self.root / 'link'; link.symlink_to(path)
+        with self.assertRaisesRegex(core.CoordinatorError, 'symlink'): self.reserve(locator=link)
+        self.assertIsNone(self.lib.read_record(self.slug)['build_binding'])
 
     def test_missing_identity_and_wrong_generation_cannot_mutate(self):
         claim = self.reserve(); self.finish(claim)

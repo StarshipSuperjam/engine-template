@@ -168,6 +168,32 @@ class CoordinatorCase(unittest.TestCase):
         return mock.patch.object(bc, "_sealed_plan",
                                  return_value=(plan_id, sealed_digest, value or plan()))
 
+    @contextlib.contextmanager
+    def binding(self, value=None, plan_id=PLAN_ID, sealed_digest=SEALED):
+        """Isolate bind's authorization/metadata unit tests from transaction persistence.
+
+        Real library, durable transaction, and competing CLI binds are exercised separately in
+        test_build_state_store and TestFreshWorktreeBindIsIsolatedFromAPriorSubmittedBuild.
+        No production switch admits this low-level fixture store.
+        """
+        library = mock.Mock()
+        library.resolve.return_value = plan_id
+        claim = {'build_id': 'bld_' + '1' * 32, 'generation': 1, 'snapshot': self.state_path}
+        def reserve(*args, **kwargs):
+            if self.store.path.exists():
+                raise bc.CoordinatorError('snapshot already exists in this unit fixture')
+            return claim
+        def finish(library, slug, identity, state, schema):
+            state['ownership'] = identity
+            self.store.create(state)
+            return state
+        with self.sealed(value, plan_id, sealed_digest), \
+                mock.patch.object(bc, '_library', return_value=library), \
+                mock.patch.object(build_state_store, 'reserve_build', side_effect=reserve) as reservation, \
+                mock.patch.object(build_state_store, 'finish_binding', side_effect=finish):
+            self.reservation = reservation
+            yield
+
     def integrate_all(self, value=None):
         """Mark every node of the bound plan integrated, the way `work integrate` would.
 
@@ -212,7 +238,7 @@ class TestPlanAndSnapshot(CoordinatorCase):
         import plan_lifecycle
         pr = {"number": 7, "state": "OPEN", "isDraft": True, "headRefOid": HEAD_A, "baseRefOid": BASE}
         out, err = io.StringIO(), io.StringIO()
-        with self.sealed(), mock.patch.object(bc, "_verify_draft", return_value=pr), \
+        with self.binding(), mock.patch.object(bc, "_verify_draft", return_value=pr), \
                 mock.patch.object(bc, "_head", return_value=HEAD_A), \
                 mock.patch.object(bc.github, "tag_coordinator_owned", return_value=True), \
                 mock.patch.object(bc, "_record_build_binding"), \
@@ -221,10 +247,10 @@ class TestPlanAndSnapshot(CoordinatorCase):
         self.assertIn(plan_lifecycle.CARRIER_RULE, err.getvalue())
         lines = [line for line in out.getvalue().splitlines() if line.strip()]
         self.assertEqual(len(lines), 1)
-        self.assertEqual(set(json.loads(lines[0])), {"plan_digest", "state"})
+        self.assertEqual(set(json.loads(lines[0])), {"plan_digest", "state", "ownership", "revision", "locator"})
 
     def test_bind_refuses_without_the_switch_and_names_the_ask(self):
-        with self.sealed(), self.assertRaises(bc.CoordinatorError) as caught:
+        with self.binding(), self.assertRaises(bc.CoordinatorError) as caught:
             bc.cmd_plan_bind(self.bind_args(operator_decided=False), self.store)
         self.assertIn("starting the Build that executes this sealed plan", str(caught.exception))
         self.assertIn("--operator-decided", str(caught.exception))
@@ -243,7 +269,7 @@ class TestPlanAndSnapshot(CoordinatorCase):
 
     def test_bind_initializes_only_for_the_matching_draft_pr_head(self):
         pr = {"number": 7, "state": "OPEN", "isDraft": True, "headRefOid": HEAD_A, "baseRefOid": BASE}
-        with self.sealed(), mock.patch.object(bc, "_verify_draft", return_value=pr), mock.patch.object(bc, "_head", return_value=HEAD_A), mock.patch.object(bc.github, "tag_coordinator_owned", return_value=True), mock.patch.object(bc, "_record_build_binding"), contextlib.redirect_stdout(io.StringIO()):
+        with self.binding(), mock.patch.object(bc, "_verify_draft", return_value=pr), mock.patch.object(bc, "_head", return_value=HEAD_A), mock.patch.object(bc.github, "tag_coordinator_owned", return_value=True), mock.patch.object(bc, "_record_build_binding"), contextlib.redirect_stdout(io.StringIO()):
             bc.cmd_plan_bind(self.bind_args(), self.store)
         self.assertEqual(self.state()["build"], {"repository": "owner/repo", "pr": 7, "base_at_bind": BASE,
                                                  "mode": "same-session", "worktree": str(bc.ROOT)})
@@ -257,7 +283,7 @@ class TestPlanAndSnapshot(CoordinatorCase):
         # A snapshot already on disk, the way a killed-and-retried Build leaves one.
         self.store.path.parent.mkdir(parents=True, exist_ok=True)
         self.store.path.write_text("{}", encoding="utf-8")
-        with self.sealed(), mock.patch.object(bc, "_verify_draft", return_value=pr), \
+        with self.binding(), mock.patch.object(bc, "_verify_draft", return_value=pr), \
                 mock.patch.object(bc, "_head", return_value=HEAD_A), \
                 mock.patch.object(bc, "_record_build_binding") as binding, \
                 contextlib.redirect_stdout(io.StringIO()):
@@ -267,17 +293,17 @@ class TestPlanAndSnapshot(CoordinatorCase):
 
     def test_bind_names_the_sealed_plan_it_entered_on(self):
         pr = {"number": 7, "state": "OPEN", "isDraft": True, "headRefOid": HEAD_A, "baseRefOid": BASE}
-        with self.sealed(), mock.patch.object(bc, "_verify_draft", return_value=pr), mock.patch.object(bc, "_head", return_value=HEAD_A), mock.patch.object(bc.github, "tag_coordinator_owned", return_value=True), mock.patch.object(bc, "_record_build_binding") as binding, contextlib.redirect_stdout(io.StringIO()):
+        with self.binding(), mock.patch.object(bc, "_verify_draft", return_value=pr), mock.patch.object(bc, "_head", return_value=HEAD_A), mock.patch.object(bc.github, "tag_coordinator_owned", return_value=True), mock.patch.object(bc, "_record_build_binding") as binding, contextlib.redirect_stdout(io.StringIO()):
             bc.cmd_plan_bind(self.bind_args(), self.store)
         recorded = self.state()["plan"]
         self.assertEqual(recorded["plan_id"], PLAN_ID)
         self.assertEqual(recorded["sealed_digest"], SEALED)
         self.assertFalse(recorded["diverged_from_seal"])
         self.assertIsNone(recorded["authorizing_issue"])
-        binding.assert_called_once()
+        self.reservation.assert_called_once()
 
     def test_unattended_bind_requires_an_authorizing_issue(self):
-        with self.sealed(), self.assertRaisesRegex(bc.CoordinatorError, "durable Issue for authorization"):
+        with self.binding(), self.assertRaisesRegex(bc.CoordinatorError, "durable Issue for authorization"):
             bc.cmd_plan_bind(self.bind_args(mode="unattended"), self.store)
 
     @staticmethod
@@ -290,7 +316,7 @@ class TestPlanAndSnapshot(CoordinatorCase):
 
     def _bind_ok(self, value, **over):
         pr = {"number": 7, "state": "OPEN", "isDraft": True, "headRefOid": HEAD_A, "baseRefOid": BASE}
-        with self.sealed(value=value), mock.patch.object(bc, "_verify_draft", return_value=pr), \
+        with self.binding(value=value), mock.patch.object(bc, "_verify_draft", return_value=pr), \
                 mock.patch.object(bc, "_head", return_value=HEAD_A), \
                 mock.patch.object(bc.github, "tag_coordinator_owned", return_value=True), \
                 mock.patch.object(bc, "_record_build_binding"), contextlib.redirect_stdout(io.StringIO()):
@@ -301,14 +327,14 @@ class TestPlanAndSnapshot(CoordinatorCase):
         locally the Issue and the plan are two artifacts, so an unrelated open Issue paired with an
         arbitrary sealed plan must authorize nothing — and the refusal names both numbers, because the
         operator's next move is deciding which of the two was the mistake."""
-        with self.sealed(value=self._from_issue(770, "routine")), \
+        with self.binding(value=self._from_issue(770, "routine")), \
                 self.assertRaisesRegex(bc.CoordinatorError, r"Issue #999 does not authorize this plan"):
             bc.cmd_plan_bind(self.bind_args(mode="unattended", issue=999), self.store)
 
     def test_an_unattended_bind_refuses_a_plan_that_names_no_issue_at_all(self):
         # The other half of the same hole: an Issue supplied against a plan with direct intent has
         # nothing to correspond to, so supplying it proved nothing.
-        with self.sealed(), self.assertRaisesRegex(bc.CoordinatorError, "names no authorizing Issue"):
+        with self.binding(), self.assertRaisesRegex(bc.CoordinatorError, "names no authorizing Issue"):
             bc.cmd_plan_bind(self.bind_args(mode="unattended", issue=770), self.store)
 
     def test_the_matching_issue_authorizes_an_unattended_bind_and_is_recorded(self):
@@ -321,16 +347,16 @@ class TestPlanAndSnapshot(CoordinatorCase):
         not excuse a plan that never named it, and holding a sealed plan does not excuse a missing
         Issue. Each half is refused in its own words, so a session cannot satisfy one by producing the
         other."""
-        with self.sealed(value=self._from_issue(770, "routine")), \
+        with self.binding(value=self._from_issue(770, "routine")), \
                 self.assertRaisesRegex(bc.CoordinatorError, "durable Issue for authorization"):
             bc.cmd_plan_bind(self.bind_args(mode="unattended"), self.store)     # the plan alone
-        with self.sealed(), self.assertRaisesRegex(bc.CoordinatorError, "names no authorizing Issue"):
+        with self.binding(), self.assertRaisesRegex(bc.CoordinatorError, "names no authorizing Issue"):
             bc.cmd_plan_bind(self.bind_args(mode="unattended", issue=770), self.store)   # the Issue alone
 
     def test_a_mismatched_issue_is_refused_in_an_interactive_bind_too(self):
         # --issue stays optional same-session (the operator is present), but one supplied in ANY mode
         # must still correspond: a mismatch is a mistake worth catching wherever it is made.
-        with self.sealed(value=self._from_issue(770)), \
+        with self.binding(value=self._from_issue(770)), \
                 self.assertRaisesRegex(bc.CoordinatorError, r"sealed against Issue #770"):
             bc.cmd_plan_bind(self.bind_args(issue=999), self.store)
 
@@ -342,7 +368,7 @@ class TestPlanAndSnapshot(CoordinatorCase):
         and composed into the pull request as a Closes link, so accepting it unchecked would put an
         unverified claim on the merge surface: a PR asserting it closes work nothing tied it to.
         """
-        with self.sealed(), self.assertRaises(bc.CoordinatorError) as caught:
+        with self.binding(), self.assertRaises(bc.CoordinatorError) as caught:
             bc.cmd_plan_bind(self.bind_args(issue=999), self.store)
         self.assertIn("names no Issue", str(caught.exception))
         self.assertIn("Bind without --issue", str(caught.exception))
@@ -356,15 +382,15 @@ class TestPlanAndSnapshot(CoordinatorCase):
         # — no Issue could have made this bind legal — so reporting the other would send the operator
         # hunting for the right Issue number for a Build that was never going to be unattended.
         value = plan(); value["profile"] = "trivial"
-        with self.sealed(value=value), self.assertRaisesRegex(bc.CoordinatorError, "same-session only"):
+        with self.binding(value=value), self.assertRaisesRegex(bc.CoordinatorError, "same-session only"):
             bc.cmd_plan_bind(self.bind_args(mode="unattended", issue=None), self.store)
 
     def test_bind_refuses_a_v1_payload_and_names_the_way_forward(self):
-        with self.sealed(value=plan_v1()), self.assertRaisesRegex(bc.CoordinatorError, "v1 no longer enters a Build"):
+        with self.binding(value=plan_v1()), self.assertRaisesRegex(bc.CoordinatorError, "v1 no longer enters a Build"):
             bc.cmd_plan_bind(self.bind_args(), self.store)
 
     def test_bind_rejects_a_draft_pr_at_a_different_head(self):
-        with self.sealed(), mock.patch.object(bc, "_verify_draft", return_value={"headRefOid": HEAD_B}), mock.patch.object(bc, "_head", return_value=HEAD_A), self.assertRaisesRegex(bc.CoordinatorError, "does not match"):
+        with self.binding(), mock.patch.object(bc, "_verify_draft", return_value={"headRefOid": HEAD_B}), mock.patch.object(bc, "_head", return_value=HEAD_A), self.assertRaisesRegex(bc.CoordinatorError, "does not match"):
             bc.cmd_plan_bind(self.bind_args(), self.store)
 
     def test_plan_digest_is_canonical_and_exact_content_is_not_stored(self):
@@ -488,7 +514,7 @@ class TestPlanAndSnapshot(CoordinatorCase):
 
     def test_trivial_cannot_bind_unattended(self):
         value = plan(); value["profile"] = "trivial"; self.write_plan(value)
-        with self.sealed(value=value), self.assertRaisesRegex(bc.CoordinatorError, "same-session only"):
+        with self.binding(value=value), self.assertRaisesRegex(bc.CoordinatorError, "same-session only"):
             bc.cmd_plan_bind(self.bind_args(mode="unattended", issue=11), self.store)
 
     def test_same_session_status_survives_github_loss(self):
@@ -4437,7 +4463,7 @@ class TestPlanV2Ingest(CoordinatorCase):
         self.write_plan(value)
         pr = {"number": 7, "state": "OPEN", "isDraft": True, "headRefOid": HEAD_A, "baseRefOid": BASE,
               "body": ""}
-        with self.sealed(value=value), \
+        with self.binding(value=value), \
                 mock.patch.object(bc, "_verify_draft", return_value=pr), \
                 mock.patch.object(bc, "_head", return_value=HEAD_A), \
                 mock.patch.object(bc.github, "tag_coordinator_owned", return_value=True), \
@@ -4492,7 +4518,7 @@ class TestPlanV2Ingest(CoordinatorCase):
         # The home-repo carve-out and the in-flight Issue exemption are both gone: v1 is unreachable at
         # entry, full stop. What replaces the carve-out is a refusal that names the way forward.
         self.write_plan(plan_v1())
-        with self.sealed(value=plan_v1()), self.assertRaisesRegex(bc.CoordinatorError, "v1 no longer enters a Build"):
+        with self.binding(value=plan_v1()), self.assertRaisesRegex(bc.CoordinatorError, "v1 no longer enters a Build"):
             bc.cmd_plan_bind(self.bind_args(), self.store)
 
 
@@ -4952,7 +4978,7 @@ class TestCoordinatorOwnedTag(CoordinatorCase):
 
     def _bind(self):
         pr = {"number": 7, "state": "OPEN", "isDraft": True, "headRefOid": HEAD_A, "baseRefOid": BASE}
-        with self.sealed(), mock.patch.object(bc, "_verify_draft", return_value=pr), \
+        with self.binding(), mock.patch.object(bc, "_verify_draft", return_value=pr), \
                 mock.patch.object(bc, "_head", return_value=HEAD_A), \
                 mock.patch.object(bc, "_record_build_binding"), \
                 contextlib.redirect_stdout(io.StringIO()), contextlib.redirect_stderr(io.StringIO()) as err:
@@ -5017,7 +5043,7 @@ class TestSessionBindingLocator(CoordinatorCase):
 
     def _bind(self, pr_number=7):
         pr = {"number": pr_number, "state": "OPEN", "isDraft": True, "headRefOid": HEAD_A, "baseRefOid": BASE}
-        with self.sealed(), mock.patch.object(bc, "_verify_draft", return_value=pr), \
+        with self.binding(), mock.patch.object(bc, "_verify_draft", return_value=pr), \
                 mock.patch.object(bc, "_head", return_value=HEAD_A), \
                 mock.patch.object(bc, "_record_build_binding"), \
                 mock.patch.object(bc.github, "tag_coordinator_owned", return_value=True), \
@@ -5835,7 +5861,8 @@ class TestUnconditionalResumeVerification(CoordinatorCase):
         # Every `state` subcommand that exists is in it, and each is a subparser that really exists.
         state_parser = bc.parser()._subparsers._group_actions[0].choices["state"]
         declared = set(state_parser._subparsers._group_actions[0].choices)
-        self.assertEqual(declared, set(bc._SNAPSHOTLESS_STATE_SUBCOMMANDS))
+        self.assertEqual(declared, set(bc._SNAPSHOTLESS_STATE_SUBCOMMANDS) | {"continue"})
+        self.assertNotIn("continue", bc._SNAPSHOTLESS_STATE_SUBCOMMANDS)
         # And the polarity holds for one that does not exist yet.
         self.assertNotIn("rebuild", bc._SNAPSHOTLESS_STATE_SUBCOMMANDS)
         self.assertTrue(bc._mutates(argparse.Namespace(command="state", state_command="rebuild")))
@@ -6209,10 +6236,20 @@ class TestFreshWorktreeBindIsIsolatedFromAPriorSubmittedBuild(unittest.TestCase)
     def _seed_plan_record(self, title, plan_id):
         """Land just the plan record — the folder + record.json that make the plan resolvable — with
         NO snapshot, so the coordinator's own bind path is the thing that mints the snapshot."""
+        from test_plan_store import _document
+        import plan_contract
         slug = plan_store.slug_for(title, plan_id)
-        plan_store.ensure_dir(self.lib.plan_dir(slug), within=self.lib.root)
-        (self.lib.plan_dir(slug) / "record.json").write_text(
-            json.dumps({"plan_id": plan_id}), encoding="utf-8")
+        if slug in self.lib.slugs():
+            return slug
+        document = _document(title=title, plan_id=plan_id, build_plan=plan())
+        slug = self.lib.create(document)
+        record = self.lib.read_record(slug)
+        seal = {'revision': 1, 'reviewed_digest': record['current']['plan_digest'],
+                'sealed_digest': record['current']['plan_digest'],
+                'build_plan_digest': plan_contract.build_plan_digest(document),
+                'at': '2026-09-08T00:00:00Z', 'delta_judgment': 'none'}
+        self.lib.update_record(slug, lambda r: r.update(seal=seal,
+            consent=[{'gate': 'seal', 'at': seal['at']}]))
         return slug
 
     def _bind_snapshot(self, title, plan_id, worktree, **over):
@@ -6237,7 +6274,6 @@ class TestFreshWorktreeBindIsIsolatedFromAPriorSubmittedBuild(unittest.TestCase)
                                   pr=pr, issue=None, operator_decided=True)
         with mock.patch.object(bc, "ROOT", worktree), \
                 mock.patch.object(bc, "_library", return_value=self.lib), \
-                mock.patch.object(bc, "_sealed_plan", return_value=(plan_id, SEALED, plan())), \
                 mock.patch.object(bc, "_verify_draft", return_value=draft), \
                 mock.patch.object(bc, "_head", return_value=HEAD_A), \
                 mock.patch.object(bc.github, "tag_coordinator_owned", return_value=True), \
@@ -6301,7 +6337,7 @@ class TestFreshWorktreeBindIsIsolatedFromAPriorSubmittedBuild(unittest.TestCase)
         wt_first = self.tmp / "wt-first"
         slug, path = self._coordinator_bind("the only plan", "pln_0123456789ab", wt_first, pr=77)
         before = path.read_bytes()
-        with self.assertRaisesRegex(bc.CoordinatorError, "already bound"):
+        with self.assertRaisesRegex(bc.CoordinatorError, "different Build claim"):
             self._coordinator_bind("the only plan", "pln_0123456789ab", self.tmp / "wt-second", pr=78)
         # The refusal left the first snapshot byte-for-byte intact and still the plan's one binding.
         self.assertEqual(path.read_bytes(), before)

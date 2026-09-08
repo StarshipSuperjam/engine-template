@@ -233,18 +233,26 @@ Snapshot = core.RevisionedStore
 def _resolve_store(args) -> Snapshot:
     """Which snapshot this command acts on: the one named, or the one bound to this worktree.
 
-    `--state` still means exactly what it always meant — this file, no lookup — and it wins, because
-    a caller who named a path is answering the question this function otherwise has to infer. What
-    changed is the default. Before, omitting `--state` was an error, because there was nowhere else a
-    snapshot could be; now the durable snapshot lives with the plan that bound it, and the worktree
-    the session is standing in is what names it. That is the whole restart story: a session that
-    comes back to the same worktree finds the same evidence, with nothing to have remembered.
+    An explicit path names a minimal external locator or the exact canonical snapshot. The
+    worktree supplies discovery when no path is named; neither route supplies a caller's expected
+    identity. That expectation comes from bind or explicit verified continuation and survives
+    subsequent commands, including when a replacement reuses a path or revision.
     """
-    if args.state:
-        return StateStore(args.state, args.expect_revision)
     library = _library()
+    identity = _expected_identity(args)
+    if args.state:
+        return build_state_store.resolve_explicit(args.state, _state_schema_for,
+            args.expect_revision, library=library, identity=identity)
     return build_state_store.resolve_for_worktree(
-        ROOT, _state_schema_for, args.expect_revision, library=library)
+        ROOT, _state_schema_for, args.expect_revision, library=library, identity=identity)
+
+
+def _expected_identity(args):
+    build_id = getattr(args, 'expect_build_id', None)
+    generation = getattr(args, 'expect_generation', None)
+    if bool(build_id) != (generation is not None):
+        raise CoordinatorError('supply both --expect-build-id and --expect-generation')
+    return {'build_id': build_id, 'generation': generation} if build_id else None
 
 
 # --- unconditional resume verification ----------------------------------------
@@ -271,7 +279,7 @@ def _resolve_store(args) -> Snapshot:
 # the very diagnosis the operator opened `status` to get.
 _READ_ONLY_VERBS = frozenset({
     ("status", None), ("depths", None),
-    ("state", "where"),
+    ("state", "where"), ("state", "continue"),
     ("review", "packet"),
     ("work", "frontier"), ("work", "packet"),
     ("contract", "template"), ("contract", "preview"),
@@ -1273,22 +1281,12 @@ def cmd_plan_bind(args, store: Snapshot) -> None:
     # Where this Build's evidence lands. With no --state it goes to the durable store beside its own
     # sealed plan, which is the default because the alternative is what actually happened: a killed
     # Build whose approval, receipts, findings and progress were reconstructed by hand.
-    if store is None:
-        store = build_state_store.store_for_plan(plan_id, _state_schema_for, library=_library())
-    # The refusal `store.create` would raise is asserted HERE, before the binding write. Two cold
-    # reviewers independently proved the alternative: with the write first, a plain operator retry —
-    # bind again over an existing Build — rewrote `build_binding` to a PR that carries no Build and
-    # appended a consent attestation for a bind that was then refused. A refused command must leave
-    # nothing behind. (A crash BETWEEN the binding write and `create` still converges: the snapshot
-    # does not exist yet, so this check passes on the re-run and the same binding is rewritten.)
-    if store.path.exists():
-        raise CoordinatorError(
-            f"a durable Build snapshot already exists at {store.path} — this plan's Build is "
-            "already bound. Resume it (`status`, or `handoff export`) rather than re-binding; "
-            "nothing was written.")
-    _record_build_binding(plan_id, args.repository, args.pr, sealed_digest, state["plan"]["digest"],
-                          consent)
-    store.create(state)
+    library = _library()
+    slug = library.resolve(plan_id)
+    locator = getattr(args, 'state', None)
+    claim = build_state_store.reserve_build(library, slug, state, consent=consent, locator=locator)
+    state = build_state_store.finish_binding(library, slug,
+        build_state_store.claim_identity(claim), state, _state_schema_for)
     # Tag the PR the coordinator just adopted, so it carries a durable "coordinator owns this workflow"
     # marker (StarshipSuperjam/engine-template#1014). Best-effort and non-fatal: a labeling failure is
     # disclosed on stderr and the Build proceeds — the stdout below stays a clean machine-readable line.
@@ -1300,7 +1298,9 @@ def cmd_plan_bind(args, store: Snapshot) -> None:
     # The carrier rule, said at the kickoff itself (StarshipSuperjam/engine-template#1091): on
     # stderr with the other human-facing notes, so stdout stays the one machine-readable line.
     print(plan_lifecycle.CARRIER_RULE, file=sys.stderr)
-    print(json.dumps({"plan_digest": state["plan"]["digest"], "state": str(store.path)}))
+    print(json.dumps({"plan_digest": state["plan"]["digest"], "state": claim['snapshot'],
+                      "ownership": state['ownership'], "revision": state['revision'],
+                      "locator": locator}))
 
 
 def cmd_state_where(args, store: "Snapshot | None") -> None:
@@ -1318,17 +1318,63 @@ def cmd_state_where(args, store: "Snapshot | None") -> None:
         print(f"no durable Build snapshot is bound to {ROOT}")
         return
     for slug, path in found:
+        record = library.read_record(slug)
+        claim = (record.get('build_lease') or {}).get('current')
+        if claim and claim['state'] != 'active':
+            print(f"{slug}: {claim['state']} Build {claim['build_id']} generation {claim['generation']}; "
+                  "retry its original bind or explicitly recover/retire it")
+            continue
         state = core.json_file(path)
         print(f"{slug}: {path} (revision {state.get('revision')}, "
               f"PR {state['build']['pr']}, {state['build']['repository']})")
 
 
+def cmd_state_continue(args, store: Snapshot) -> None:
+    """Explicit cold continuation verifies the named Build before returning caller expectations."""
+    if not isinstance(store, build_state_store.ClaimedBuildStore):
+        raise CoordinatorError('legacy Build: explicitly migrate its evidence before continuation')
+    plan_id, sealed, payload = _sealed_plan(args.plan)
+    verify_resume(store, args)
+    with store._locked():
+        record = store.library.read_record(store.slug)
+        state = core.json_file(store.path)
+        core.validate(state, _state_schema_for(state))
+        build_state_store._assert_claim(record, state.get('ownership'))
+        if (state['plan']['plan_id'] != plan_id or state['plan']['sealed_digest'] != sealed
+                or state['plan']['digest'] != _digest(payload)
+                or state['build']['repository'] != args.repository or state['build']['pr'] != args.pr):
+            raise CoordinatorError('the requested continuation does not match the exact sealed Build')
+        print(json.dumps({'state': str(store.path), 'ownership': state['ownership'],
+                          'revision': state['revision'], 'plan_id': plan_id}))
+
+
 def cmd_state_migrate(args, store: "Snapshot | None") -> None:
     """Move one OS-temp snapshot into the durable library, or refuse and leave it untouched."""
-    destination = build_state_store.migrate(args.source, args.plan, _state_schema_for,
-                                            library=_library(), worktree=ROOT)
-    print(json.dumps({"migrated": str(destination), "source": str(Path(args.source).resolve()),
-                      "source_kept": True}))
+    library = _library()
+    slug = library.resolve(args.plan)
+    record = library.read_record(slug)
+    current = (record.get('build_lease') or {}).get('current')
+    source = Path(args.source).resolve()
+    if current and current.get('legacy_source') == str(source):
+        canonical = Path(current['snapshot'])
+        if canonical.is_file():
+            state = core.json_file(canonical)
+        elif source.is_file():
+            state = core.json_file(source)
+        else:
+            raise CoordinatorError('migration source and prepared snapshot are missing; recover evidence first')
+        claim = current
+    else:
+        state = core.json_file(source)
+        core.validate(state, _state_schema_for(state))
+        if Path(state['build'].get('worktree', '')).resolve() != ROOT.resolve():
+            raise CoordinatorError('migration does not change the Build worktree; use verified handoff for continuation')
+        claim = build_state_store.reserve_build(library, slug, state, legacy_source=source)
+    saved = build_state_store.finish_binding(library, slug,
+        build_state_store.claim_identity(claim), state, _state_schema_for)
+    print(json.dumps({'migrated': claim['snapshot'], 'source': str(source),
+                      'source_kept': True, 'external_evidence_retained': source.is_file(),
+                      'ownership': saved['ownership'], 'revision': saved['revision']}))
 
 
 # The one place the supersede semantics are worded, shared by the CLI help (parser `description`)
@@ -5577,6 +5623,8 @@ def parser() -> argparse.ArgumentParser:
     p = argparse.ArgumentParser(description=__doc__)
     p.add_argument("--state", help="path to the harness-owned local Build snapshot; omitted only for standalone pre-PR packets")
     p.add_argument("--expect-revision", type=int, help="optional compare-and-swap guard")
+    p.add_argument('--expect-build-id', help='Build identity received from bind or verified continuation')
+    p.add_argument('--expect-generation', type=int, help='lease generation received with that identity')
     sub = p.add_subparsers(dest="command", required=True)
     plan = sub.add_parser("plan").add_subparsers(dest="plan_command", required=True)
     bind = plan.add_parser("bind"); bind.add_argument("--plan", required=True, help="a SEALED plan in the local library, by id or by name"); bind.add_argument("--mode", choices=["same-session", "unattended"], default="same-session"); bind.add_argument("--repository", required=True); bind.add_argument("--pr", type=int, required=True); bind.add_argument("--issue", type=int, help="the Issue that AUTHORIZES this work; never its plan"); bind.add_argument("--operator-decided", action="store_true", help="Record that the operator, asked, gave the go for this Build to begin. The record is the gate and the moment, never their words; the bind refuses without it."); bind.set_defaults(func=cmd_plan_bind)
@@ -5595,6 +5643,11 @@ def parser() -> argparse.ArgumentParser:
     checkpoint = sub.add_parser("checkpoint"); checkpoint.add_argument("--plan", required=True); checkpoint.add_argument("--input", required=True); checkpoint.add_argument("--json", action="store_true"); checkpoint.set_defaults(func=cmd_checkpoint)
     state_p = sub.add_parser("state").add_subparsers(dest="state_command", required=True)
     swhere = state_p.add_parser("where"); swhere.set_defaults(func=cmd_state_where)
+    continuation = state_p.add_parser('continue', help='verify an explicitly named Build and return caller expectations')
+    continuation.add_argument('--plan', required=True)
+    continuation.add_argument('--repository', required=True)
+    continuation.add_argument('--pr', type=int, required=True)
+    continuation.set_defaults(func=cmd_state_continue)
     smigrate = state_p.add_parser("migrate"); smigrate.add_argument("--source", required=True, help="an existing OS-temp Build snapshot"); smigrate.add_argument("--plan", required=True, help="the sealed plan whose library folder receives it"); smigrate.set_defaults(func=cmd_state_migrate)
     ssupersede = state_p.add_parser("supersede", help="clear a confirmed-stale binding so a fresh Build of the plan may start", description=_SUPERSEDE_GUIDANCE); ssupersede.add_argument("--plan", required=True, help="the sealed plan whose confirmed-stale snapshot is set aside"); ssupersede.add_argument("--reason", required=True, help="why it is confirmed stale; recorded beside the retained snapshot"); ssupersede.set_defaults(func=cmd_state_supersede)
     validate = sub.add_parser("validate"); validate.add_argument("mode", nargs="?", choices=["candidate", "final"], help="bare `validate` and `validate candidate` are the same run; `validate final import` verifies and imports the live engine-ci proof for the submitted head"); validate.add_argument("action", nargs="?", choices=["import"], help="for `final`: import is the only action — the proof is never run locally"); validate.add_argument("--force", action="store_true", help="re-run even when the cached candidate identity matches"); validate.add_argument("--plan", help="the approved plan; REQUIRED for a build-plan.v2 Build, whose node roster lives only there"); validate.set_defaults(func=cmd_validate)
@@ -5801,12 +5854,17 @@ def main(argv: list[str] | None = None) -> int:
         binding = args.command == "plan" and getattr(args, "plan_command", None) == "bind"
         if standalone and (not args.repository or not args.depth):
             raise CoordinatorError("standalone review packets require --repository and --depth")
-        deferred = binding and not args.state
+        deferred = binding
         store = None if (standalone or stateless or deferred) else _resolve_store(args)
         # Before the verb, never inside it: one chokepoint the whole gate rides on, so a verb cannot
         # be added that quietly skips it. `plan bind` is exempt because it CREATES the snapshot the
         # check reads — there is nothing yet to disagree with.
         if store is not None and not binding and _mutates(args):
+            if not isinstance(store, build_state_store.ClaimedBuildStore):
+                raise CoordinatorError('legacy snapshot mutations require explicit state migrate first')
+            if not _expected_identity(args) or args.expect_revision is None:
+                raise CoordinatorError('mutations require --expect-build-id, --expect-generation and --expect-revision; '
+                                       'carry the identity received from bind or verified continuation')
             verify_resume(store, args)
         args.func(args, store)
         return 0
