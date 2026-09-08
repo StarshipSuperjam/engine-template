@@ -100,6 +100,10 @@ _HISTORY_PAGE = 30
 # `<!-- engine-signal -->` marker); parsed then STRIPPED before the digest is sealed.
 _BLOCK_MARKER = "<!-- conformance-verdicts.v1"
 
+# `None` is a meaningful no-access value for promote() callers.  Keep the omitted-argument
+# case distinct so only it is allowed to read ambient Actions credentials.
+_AMBIENT_CREDENTIAL = object()
+
 # The feed's own fence (the persona reads this between the workflow's BEGIN/END markers). Three notices:
 # SILENT — no spec settled, a first-class choice, skip and stay quiet; UNAVAILABLE — the check could not run
 # (disclose it, never a false "no spec"); plus the degraded/active feeds build() assembles.
@@ -556,13 +560,14 @@ def degraded_record(root: str) -> dict:
     }
 
 
-def promote(body_file: str, *, repo: str | None = None, token: str | None = None,
+def promote(body_file: str, *, repo=_AMBIENT_CREDENTIAL, token=_AMBIENT_CREDENTIAL,
             transport=None, root: str | None = None) -> tuple:
     """mode: promote — strip the machine block from the digest body (ALWAYS, first, so a failure never leaves
     the JSON committed), then open-or-update one deduped engine issue per divergence verdict, plus the
     degradation gap when a spec is locked but its matrix is missing. Returns (tracked, degraded_github). The
     body file is rewritten in place with the block removed, ready for the seal step. Fail-open at the CLI.
-    `repo`/`token` default to the environment (GITHUB_REPOSITORY / GITHUB_TOKEN); tests inject them."""
+    Omitted `repo`/`token` read GITHUB_REPOSITORY / GITHUB_TOKEN; explicit `None` means no access.
+    Tests inject explicit credentials or a transport."""
     root = _root() if root is None else root
 
     # 1) Read + STRIP the block first — the clean-digest / no-feedback guarantee comes before any network.
@@ -588,8 +593,8 @@ def promote(body_file: str, *, repo: str | None = None, token: str | None = None
         return 0, False
 
     # 3) Promote (open-or-update, never close), deduped by source_id. Requires repo/token.
-    repo = repo if repo is not None else os.environ.get("GITHUB_REPOSITORY")
-    token = token if token is not None else os.environ.get("GITHUB_TOKEN")
+    repo = os.environ.get("GITHUB_REPOSITORY") if repo is _AMBIENT_CREDENTIAL else repo
+    token = os.environ.get("GITHUB_TOKEN") if token is _AMBIENT_CREDENTIAL else token
     if not repo or not token:
         return 0, True
     github = telemetry.GitHubIssues(repo, token, transport=transport)
