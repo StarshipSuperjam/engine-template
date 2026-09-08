@@ -28,7 +28,7 @@ it in the session that holds it, or re-plan.
 
 ### Compaction
 
-Compaction mid-Build is survivable by design and needs no ceremony: every mutating verb re-verifies this session
+Compaction mid-Build is survivable by design and needs no ceremony: every mutating verb re-verifies this worktree
 against the durable snapshot and refuses on a mismatch whether or not a compaction was observed, and a
 `compact`-matcher hook re-grounds the fresh context (Claude only — see the provider-exception ledger).
 
