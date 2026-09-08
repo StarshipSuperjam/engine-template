@@ -127,7 +127,8 @@ class TestCensus(unittest.TestCase):
         with mock.patch.object(legacy_coverage, "_fingerprint", side_effect=[fp_a, fp_b]):
             result = legacy_coverage.census(path=self.path)
         self.assertTrue(result.indeterminate)
-        self.assertTrue(any("changed during the pass" in r for r in result.indeterminate_reasons))
+        self.assertTrue(any("the ledger changed while this census was reading it" in r
+                            for r in result.indeterminate_reasons))
 
     def test_artifact_rows_carry_no_record_text(self):
         self._write([_turn("S", text="SECRET CONVERSATION TEXT"),

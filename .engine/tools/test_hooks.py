@@ -2429,13 +2429,18 @@ class TestReachability(unittest.TestCase):
         os.symlink(os.path.join(self.root, "elsewhere"), path)
         self.assertIsNone(self.d.reachability_state(self.root, self.act))
 
-    def test_posture_names_the_verb_and_epoch_and_never_claims_self_heal(self):
+    def test_posture_carries_the_restart_recovery_and_escalation_and_never_claims_self_heal(self):
+        from memory import refusals
         text = self.d._reachability_posture(7)
-        self.assertIn("activate", text)
+        # The hold names the concrete recovery and escalation, verbatim from the shared constants, so the
+        # posture and the operator refusals can never drift apart.
+        self.assertIn(refusals.RESTART_ACTION, text)
+        self.assertIn(refusals.ESCALATION, text)
         self.assertIn("epoch 7", text)
-        self.assertNotIn("converges by itself", text)
-        self.assertNotIn(self.act["commit"], text)  # no commit hash in an operator refusal
-        self.assertNotIn("/", text)                  # no path in an operator refusal
+        self.assertNotIn("converges by itself", text)          # never claims self-heal
+        self.assertNotIn(self.act["commit"], text)             # no commit hash in an operator refusal
+        # The only path is the sanctioned /engine-status in the escalation; no filesystem path leaks.
+        self.assertNotIn("/", text.replace(refusals.ESCALATION, ""))
 
     # --- measurement: compare status -> state (GitHub mocked) -----------------------------------------
     def _measure(self, status, **override):
@@ -2588,6 +2593,46 @@ class TestExactTreeBindingRejectsForgedCache(unittest.TestCase):
         ondisk = self.d._ondisk_manifest(tree, self.d._object_format(self.root))
         self.assertEqual(expected, ondisk)  # a pristine tree agrees with git, entry-for-entry
         self.assertIn(self.activation["commit"], self.d._COMMIT_MANIFEST_MEMO)  # only the immutable git side is memoized
+
+
+class TestSafeInventoryAndSymlinkScan(unittest.TestCase):
+    """TI-4: the tree readers fail closed on a non-regular filesystem entry rather than following or ignoring
+    it, and the folded scan binds a tracked symlink to git's own blob-oid of the link target (mode 120000) —
+    the target string, never the file it points at."""
+
+    def setUp(self):
+        import accepted_hook_dispatch
+        self.d = accepted_hook_dispatch
+        self.tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(self.tmp.cleanup)
+        self.root = self.tmp.name
+
+    def test_safe_inventory_refuses_a_symlink_rather_than_following_it(self):
+        with open(os.path.join(self.root, "real.txt"), "w") as fh:
+            fh.write("ordinary content\n")
+        os.symlink("real.txt", os.path.join(self.root, "link"))
+        with self.assertRaises(self.d.QualificationError) as caught:
+            self.d._safe_inventory(self.root, details=False)
+        self.assertIn("refused a symlink", str(caught.exception))
+
+    @unittest.skipUnless(hasattr(os, "mkfifo"), "requires POSIX mkfifo")
+    def test_safe_inventory_refuses_a_special_filesystem_entry(self):
+        os.mkfifo(os.path.join(self.root, "pipe"))
+        with self.assertRaises(self.d.QualificationError) as caught:
+            self.d._safe_inventory(self.root, details=False)
+        self.assertIn("special filesystem entry", str(caught.exception))
+
+    def test_scan_materialized_tree_binds_a_symlink_to_gits_own_blob_oid(self):
+        target = "does/not/exist/on/disk"  # a dangling link: git hashes the target string, not any real file
+        os.symlink(target, os.path.join(self.root, "link"))
+        with open(os.path.join(self.root, "plain"), "w") as fh:
+            fh.write("x\n")
+        _, manifest = self.d._scan_materialized_tree(self.root, "sha1")
+        by_rel = {rel: (mode, oid) for rel, mode, oid in manifest}
+        self.assertEqual(by_rel["link"][0], "120000")  # git's symlink mode
+        expected = subprocess.run(["git", "hash-object", "--stdin"], input=target,
+                                  capture_output=True, text=True, check=True).stdout.strip()
+        self.assertEqual(by_rel["link"][1], expected)  # git's own blob-oid of the link target
 
 
 if __name__ == "__main__":
