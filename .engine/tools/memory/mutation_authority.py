@@ -688,18 +688,21 @@ def _stale_refusal(exc: "execution_context.ContextError") -> str:
 
     Keyed on the exception TYPE, never its text: the raw `ContextError` message names paths, fingerprints
     and commits, none of which belong in an operator- or client-facing refusal (obligation: no path,
-    fingerprint or commit reaches the caller for any refusal). Every branch says what held the write, that
-    nothing changed, what reads do under the SAME class - and that clause is true for its branch: under the
-    two MOVED classes reads answer from disk and say so; under the UNBOUND classes reads are held too and say
-    so (StarshipSuperjam/engine-template#1211's over-promise was one sentence for both) - then the one restart
-    action and the one escalation
+    fingerprint or commit reaches the caller for any refusal). Each branch says what became of the write and
+    what reads do under the SAME class - and that clause is true for its branch: under the two MOVED classes
+    memory writing continues on the activation now on disk (canonical writes dispatch to a fresh child) while
+    only the derived search indexes lag, and reads answer from disk and say so; under the UNBOUND classes
+    writing is held and reads are held too and say so (StarshipSuperjam/engine-template#1211's over-promise
+    was one sentence for both) - then the one restart action and the one escalation
     pointer reads and writes share (memory/refusals.py)."""
     tail = " " + refusals.RESTART_ACTION + " " + refusals.ESCALATION
     if isinstance(exc, (execution_context.ActivationStale, execution_context.AcceptedTreeStale)):
         return (
             "This project moved to a new commit while this memory server was running, so its write context no "
-            "longer matches the project on disk. Nothing was changed, and writing is held. Recall keeps working, "
-            "and every read answer says how it was resolved." + tail
+            "longer matches the project on disk. Memory writing continues - each canonical write runs on the "
+            "activation now on disk - and only the derived search indexes could not be updated here, so they "
+            "may lag until this server reconnects. Recall keeps working, and every read answer says how it was "
+            "resolved." + tail
         )
     if isinstance(exc, execution_context.ArtifactUnreadable):
         return (

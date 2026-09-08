@@ -254,7 +254,8 @@ def census(path=None) -> CensusResult:
     if read.torn_trailing:
         reasons.append("a torn trailing ledger line (a crash mid-append)")
     if fp_start != fp_end:
-        reasons.append("the ledger changed during the pass (start fingerprint != end fingerprint)")
+        reasons.append("the ledger changed while this census was reading it, so these counts are not one "
+                       "consistent snapshot")
 
     rows.sort(key=lambda x: (x["subject_kind"], x.get("referenced_by") or "", x["subject_id"], x["state"]))
     return CensusResult(
@@ -275,6 +276,9 @@ def render(result: CensusResult) -> str:
     lines.append("read-health: malformed={malformed} torn_trailing={torn_trailing}".format(**result.read_health))
     lines.append("scanned: {episodics} episodic summaries, {gists} gists "
                  "({gist_cross_session_clusters} cross-session cluster gists)".format(**result.scanned))
+    lines.append("what the counts mean: present = the referenced record is still in memory and recallable; "
+                 "excluded-but-present = its text is still on the ledger but withheld from recall; "
+                 "absent = the reference points at a record no longer on the ledger.")
     for kind, label in ((EPISODIC_SESSION, "episodic referenced-session"),
                         (GIST_SESSION, "gist referenced-session   "),
                         (GIST_SOURCE, "gist source-record        ")):

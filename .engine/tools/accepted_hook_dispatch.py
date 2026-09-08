@@ -452,6 +452,58 @@ def _ondisk_manifest(tree_path: str, object_format: str) -> frozenset:
     return frozenset(entries)
 
 
+def _scan_materialized_tree(tree_path: str, object_format: str) -> tuple[str, frozenset]:
+    """One traversal of the materialized tree that returns both integrity views ``_valid_materialization``
+    needs — the inventory self-hash (accidental cache-drift digest, byte-identical to ``_tree_inventory``) and
+    the ``(path, git-mode, blob-oid)`` manifest (exact git-tree binding, equal to ``_ondisk_manifest``).
+
+    Folding matters because both are computed on every dispatched write: computed separately they read and
+    hash the whole tree's bytes twice (StarshipSuperjam/engine-template TI-3). Here each regular file and
+    symlink is read exactly once and its bytes fed to BOTH the inventory digest and its own blob-oid hasher,
+    so the per-write cost is a single content pass. ``_tree_inventory`` and ``_ondisk_manifest`` stay as the
+    canonical single-view implementations for their other callers; test_hooks.py asserts this fold agrees with
+    both, so the two walk descriptions cannot drift apart.
+    """
+    digest = hashlib.sha256()
+    base = os.path.realpath(tree_path)
+    entries = []
+    for current, dirs, files in os.walk(base, topdown=True, followlinks=False):
+        dirs.sort()
+        files.sort()
+        # Iterate exactly ``sorted(dirs) + sorted(files)`` so the inventory digest matches _tree_inventory's
+        # ordering byte-for-byte; real directories are collected to steer descent after the entries are hashed.
+        real_dirs = []
+        for name in list(dirs) + list(files):
+            path = os.path.join(current, name)
+            rel = os.path.relpath(path, base).replace(os.sep, "/")
+            info = os.lstat(path)
+            mode = stat.S_IFMT(info.st_mode) | stat.S_IMODE(info.st_mode)
+            digest.update(f"{mode:o} {rel}\0".encode())
+            if stat.S_ISLNK(info.st_mode):
+                target = os.readlink(path).encode("utf-8", "surrogateescape")
+                digest.update(target)
+                blob = hashlib.sha256() if object_format == "sha256" else hashlib.sha1()
+                blob.update(b"blob %d\x00" % len(target))
+                blob.update(target)
+                entries.append((rel, "120000", blob.hexdigest()))
+            elif stat.S_ISDIR(info.st_mode):
+                real_dirs.append(name)  # a real directory: inventory-only, and git trees do not enumerate it
+            elif stat.S_ISREG(info.st_mode):
+                blob = hashlib.sha256() if object_format == "sha256" else hashlib.sha1()
+                blob.update(b"blob %d\x00" % info.st_size)
+                with open(path, "rb") as handle:
+                    for chunk in iter(lambda: handle.read(1024 * 1024), b""):
+                        digest.update(chunk)
+                        blob.update(chunk)
+                git_mode = "100755" if (info.st_mode & stat.S_IXUSR) else "100644"
+                entries.append((rel, git_mode, blob.hexdigest()))
+            else:
+                entries.append((rel, "000000", "unsupported-object"))
+            digest.update(b"\0")
+        dirs[:] = real_dirs
+    return "sha256:" + digest.hexdigest(), frozenset(entries)
+
+
 def _valid_materialization(root: str, activation: dict) -> str | None:
     tree_path, marker_path = _materialized_paths(root, activation)
     if not os.path.isdir(tree_path):
@@ -467,15 +519,20 @@ def _valid_materialization(root: str, activation: dict) -> str | None:
     }
     if any(marker.get(key) != value for key, value in expected.items()):
         return None
-    if marker.get("inventory") != _tree_inventory(tree_path):
+    # One folded walk (TI-3): the inventory self-hash and the on-disk (path, mode, blob-oid) manifest, reading
+    # each file's bytes once instead of twice. _object_format fails open to sha1 and never raises; the only
+    # QualificationError source here is _git_manifest reading the commit's authoritative manifest.
+    try:
+        inventory, ondisk = _scan_materialized_tree(tree_path, _object_format(root))
+        git_manifest = _git_manifest(root, activation["commit"])
+    except QualificationError:
+        return None
+    if marker.get("inventory") != inventory:
         return None
     # Exact tree binding, additive to the inventory self-hash above: the on-disk set of (path, mode, blob-oid)
     # must equal the manifest git records for the activation commit. The expectation comes from git, never the
     # cache, and any mismatch fails closed to None so the caller rebuilds the tree under the materialize lock.
-    try:
-        if _ondisk_manifest(tree_path, _object_format(root)) != _git_manifest(root, activation["commit"]):
-            return None
-    except QualificationError:
+    if ondisk != git_manifest:
         return None
     dispatch = os.path.join(tree_path, ".engine", "tools", "accepted_hook_dispatch.py")
     return tree_path if os.path.isfile(dispatch) else None
@@ -1101,15 +1158,30 @@ def _degraded_notice(detail: str) -> str:
 def _reachability_posture(epoch: int) -> str:
     """The operator-facing sentence for a write held because the activated commit left the default branch.
 
-    It names the recovery verb (``activate``) and the activation epoch, and nothing else: no commit, no path,
-    no writer identity — the refusal-text mandate in ``memory/refusals.py``. It never claims the state
-    'converges by itself', because it does not: it clears only when the operator re-activates on a commit that
-    is on the default branch. The same sentence is shown as a session-start notice and relayed as the write
-    refusal, so an operator reads one consistent explanation wherever it surfaces.
+    Recovery is a session RESTART, not a command the operator runs by hand: a fresh session re-resolves
+    activation against the project's current default-branch commit (``ensure_activation_ambient``), and once
+    that commit is reachable the hold clears on its own — the 'lost' mark is keyed to the old commit and epoch,
+    so it stops matching the instant activation advances. The earlier text pointed at the ``activate`` verb,
+    which is a seven-argument compare-and-set an operator cannot run unaided (StarshipSuperjam/engine-template
+    US-1); the runnable recovery is the same restart every other refusal names. It never claims the state
+    'converges by itself' inside THIS session — the running server stays pinned to the commit that left the
+    branch until it is restarted.
+
+    The restart action and escalation pointer are written verbatim here rather than imported: the bootstrap
+    side must import no ``memory`` module (see the module docstring), so the single-source guarantee is held
+    by a test (test_hooks.py) that asserts this sentence carries ``refusals.RESTART_ACTION`` and
+    ``refusals.ESCALATION`` byte-for-byte, closing the drift StarshipSuperjam/engine-template#1211 warns of.
+    The same sentence is shown as a session-start notice and relayed as the write refusal, so an operator
+    reads one consistent explanation wherever it surfaces; it names no commit, path, or writer identity —
+    only the activation epoch.
     """
     return ("The commit this project's memory activated on is no longer on the project's default branch, so "
-            "saving to memory is held until you re-activate on the current commit. Run the activate command "
-            "to clear this. Recall keeps working and nothing was changed. "
+            "saving to memory is held. Nothing was changed, and recall keeps working. First make sure your "
+            "checkout is back on the project's default branch. "
+            "To fully reconnect, quit Claude Desktop completely and reopen it so the memory server restarts "
+            "(in a Codex session, end the session and start a new one). A fresh start re-activates on the "
+            "current commit and clears this hold. "
+            "If this keeps happening after a restart, run /engine-status and open an engine issue. "
             f"(activation epoch {epoch})")
 
 

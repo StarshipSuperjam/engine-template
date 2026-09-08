@@ -353,6 +353,19 @@ def _authority_refused(exc: Exception) -> "ControlNotRecorded":
     )
 
 
+def _emit_confirmation(emit, event: str, payload: dict) -> None:
+    """Emit a post-commit forensic line as BEST EFFORT (parity with pins._emit_confirmation): the marker is
+    already durable, so a failure here is swallowed rather than allowed to masquerade as a lost change. The
+    dispatch parent's read-back of the pre-minted marker id is the backstop that still resolves the outcome
+    to `committed` when this line never arrives."""
+    if emit is None:
+        return
+    try:
+        emit(event, payload)
+    except Exception:
+        pass
+
+
 def _write_control(kind: str, *, record_id=None, session_id=None,
                    path: "str | None" = None, now: "int | None" = None,
                    accepted_id=None, emit=None) -> dict:
@@ -421,6 +434,7 @@ def _write_control(kind: str, *, record_id=None, session_id=None,
             "memory could not be written to (the memory folder is not writable), so nothing was changed. This will "
             "not clear on its own — check the folder's permissions and that its disk is mounted and has room."
         )
+    committed_bytes = None
     try:
         marker = {
             "v": capture.RECORD_VERSION,
@@ -434,10 +448,8 @@ def _write_control(kind: str, *, record_id=None, session_id=None,
         else:
             marker[records.TARGET_SESSION_KEY] = sid
         ledger.bump_index_epoch(for_path=target)
-        ledger.append(marker, path=path)
-        if emit is not None:
-            emit("committed", {"record": marker})
-        return marker
+        appended = ledger.append(marker, path=path)
+        committed_bytes = appended.length
     except ControlNotRecorded:
         raise
     except _mutation_authority.MutationAuthorityError as exc:
@@ -447,6 +459,11 @@ def _write_control(kind: str, *, record_id=None, session_id=None,
                                  "so nothing was changed. " + refusals.ESCALATION, raw_detail=str(exc)) from exc
     finally:
         capture._release_lock(lock_fd)
+    # The marker has LANDED and the lock is released. The forensic confirmation line is best-effort telemetry
+    # for the dispatch parent — its failure must NEVER be reported as a lost change, so it is emitted OUTSIDE
+    # the catch-all above (whose sentence says "nothing was changed"). Parity with pins.add.
+    _emit_confirmation(emit, "committed", {"record": marker, "bytes": committed_bytes})
+    return marker
 
 
 def withhold(*, record_id=None, session_id=None, path: "str | None" = None,

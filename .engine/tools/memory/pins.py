@@ -99,6 +99,19 @@ def _find_duplicate_pin(cleaned: str, session_identity: str, *, path: str):
     return None
 
 
+def _emit_confirmation(emit, event: str, payload: dict) -> None:
+    """Emit a post-commit forensic line as BEST EFFORT: the write is already durable, so a failure here
+    (a broken pipe to a parent that closed, or any callback error) is swallowed rather than allowed to
+    masquerade as a lost write. The parent's read-back of the pre-minted id is the backstop that still
+    resolves the outcome to `committed` when this line never arrives."""
+    if emit is None:
+        return
+    try:
+        emit(event, payload)
+    except Exception:
+        pass
+
+
 def add(text: str, *, session_id: "str | None" = None, via: str = records.PIN_VIA_ASSISTANT,
         path: "str | None" = None, now: "int | None" = None, accepted_id: "str | None" = None,
         emit=None, dedup: bool = False) -> dict:
@@ -148,29 +161,30 @@ def add(text: str, *, session_id: "str | None" = None, via: str = records.PIN_VI
             "memory could not be written to (the memory folder is not writable), so nothing was saved. This will "
             "not clear on its own — check the folder's permissions and that its disk is mounted and has room."
         )
+    duplicate_record = None
+    committed_record = None
+    committed_bytes = None
     try:
         if dedup:
             duplicate = _find_duplicate_pin(cleaned, session_identity, path=target)
             if duplicate is not None:
-                if emit is not None:
-                    emit("already_pinned", {"record": duplicate})
-                return duplicate
-        record = {
-            "v": capture.RECORD_VERSION,
-            "kind": records.PIN_KIND,
-            records.RECORD_ID_KEY: record_id,
-            "text": cleaned,
-            "ts": int(time.time()) if now is None else now,
-            "tags": [records.PIN_TAG],
-            records.PIN_VIA_KEY: via,
-        }
-        if isinstance(session_id, str) and session_id:
-            record[records.PIN_SOURCE_SESSION_KEY] = session_id
-        ledger.bump_index_epoch(for_path=target)
-        ledger.append(record, path=path)
-        if emit is not None:
-            emit("committed", {"record": record})
-        return record
+                duplicate_record = duplicate
+        if duplicate_record is None:
+            record = {
+                "v": capture.RECORD_VERSION,
+                "kind": records.PIN_KIND,
+                records.RECORD_ID_KEY: record_id,
+                "text": cleaned,
+                "ts": int(time.time()) if now is None else now,
+                "tags": [records.PIN_TAG],
+                records.PIN_VIA_KEY: via,
+            }
+            if isinstance(session_id, str) and session_id:
+                record[records.PIN_SOURCE_SESSION_KEY] = session_id
+            ledger.bump_index_epoch(for_path=target)
+            appended = ledger.append(record, path=path)
+            committed_record = record
+            committed_bytes = appended.length
     except PinRefused:
         raise
     except Exception as exc:
@@ -178,6 +192,15 @@ def add(text: str, *, session_id: "str | None" = None, via: str = records.PIN_VI
                          "was saved. " + refusals.ESCALATION, raw_detail=str(exc)) from exc
     finally:
         capture._release_lock(lock_fd)
+    # The append (if any) has LANDED and the lock is released. The forensic confirmation line is best-effort
+    # telemetry for the dispatch parent — its failure (e.g. a BrokenPipeError writing to a parent that already
+    # closed the pipe) must NEVER be reported as a lost write, so it is emitted OUTSIDE the catch-all above,
+    # whose sentence says "nothing was saved". The record is durable and is returned regardless.
+    if duplicate_record is not None:
+        _emit_confirmation(emit, "already_pinned", {"record": duplicate_record})
+        return duplicate_record
+    _emit_confirmation(emit, "committed", {"record": committed_record, "bytes": committed_bytes})
+    return committed_record
 
 
 def list_pins(*, path: "str | None" = None, limit: "int | None" = None) -> list:
