@@ -275,41 +275,8 @@ class DoesNotDestroy(_Library):
         with self.assertRaises(core.CoordinatorError):
             self._store().create(_state(pr=2))
 
-    def test_supersede_keeps_the_displaced_snapshot_and_says_why(self):
-        self._store().create(_state(pr=1))
-        retired = build_state_store.supersede(self.lib, self.slug, reason="the first Build wedged")
-        self.assertTrue(retired.is_file())
-        self.assertEqual(json.loads(retired.read_text())["build"]["pr"], 1)
-        reason = json.loads(retired.with_suffix(".reason.json").read_text())
-        self.assertEqual(reason["reason"], "the first Build wedged")
-        self.assertFalse(build_state_store.snapshot_path(self.lib, self.slug).exists())
-        # And the second Build may now start, in the place the first one held.
-        self._store().create(_state(pr=2))
-        self.assertEqual(self._store().read()["build"]["pr"], 2)
 
-    def test_superseding_twice_at_one_revision_refuses_rather_than_overwrite(self):
-        self._store().create(_state(pr=1))
-        build_state_store.supersede(self.lib, self.slug, reason="first")
-        self._store().create(_state(pr=2))
-        with self.assertRaises(core.CoordinatorError):
-            build_state_store.supersede(self.lib, self.slug, reason="second")
 
-    def test_supersede_removes_the_binding_from_worktree_discovery_but_keeps_the_evidence(self):
-        """A resuming session finds its Build by the worktree it is standing in (`bound_snapshots`).
-        Clearing a confirmed-stale binding must make that discovery come up empty — the binding is
-        gone — WHILE the displaced snapshot and its reason are retained beside it as evidence, not
-        destroyed. This is the behaviour the advisory promises when it offers supersede."""
-        wt = "/tmp/wt"
-        self._store().create(_state(pr=1, worktree=wt))
-        self.assertEqual([slug for slug, _ in build_state_store.bound_snapshots(wt, library=self.lib)],
-                         [self.slug])
-        retired = build_state_store.supersede(self.lib, self.slug, reason="confirmed stale after submission")
-        # The binding is no longer discoverable for the worktree a resuming session would hold.
-        self.assertEqual(build_state_store.bound_snapshots(wt, library=self.lib), [])
-        # But the evidence is retained, unaltered, beside a .reason.json.
-        self.assertTrue(retired.is_file())
-        self.assertTrue(retired.with_suffix(".reason.json").is_file())
-        self.assertEqual(json.loads(retired.read_text())["build"]["worktree"], wt)
 
 
 class ASnapshotWrittenByTheEngineBeforeThisOne(unittest.TestCase):
@@ -559,6 +526,57 @@ def _competing_bind(library_root, slug, worktree, locator, pr, barrier, outcome)
     outcome.put((pr, result, stdout.getvalue(), stderr.getvalue()))
 
 
+def _race_mutator(root, slug, identity, locator, payload, worktree, held, release, replaced, outcome):
+    import build_coordinator as bc
+    library = plan_store.PlanLibrary(Path(root))
+    store = build_state_store.ClaimedBuildStore(library, slug, SCHEMA, 1, identity=identity)
+    def change(state):
+        state['progress']['current_item'] = 'preserve-the-last-writer'
+        held.set()
+        if not release.wait(10): raise RuntimeError('mutator not released')
+    store.mutate(change)
+    if not replaced.wait(15): raise RuntimeError('replacement never became active')
+    stdout, stderr = io.StringIO(), io.StringIO()
+    with mock.patch.object(bc, '_library', return_value=library), \
+            mock.patch.object(bc, 'ROOT', Path(worktree)), \
+            mock.patch.object(bc, '_head', return_value='e' * 40), \
+            mock.patch.object(bc, '_is_ancestor', return_value=True), \
+            contextlib.redirect_stdout(stdout), contextlib.redirect_stderr(stderr):
+        # A NEW CLI invocation with the OLD caller identity: locator, worktree and revision
+        # all repeat, so only the retained Build/generation expectation can fence this writer.
+        code = bc.main(['--state', locator, '--expect-build-id', identity['build_id'],
+                        '--expect-generation', str(identity['generation']), '--expect-revision', '1',
+                        'approve', '--plan', payload, '--depth', 'quick'])
+    outcome.put(('mutator', code, stderr.getvalue()))
+
+
+def _race_superseder(root, slug, identity, held, attempted, retiring, release, outcome):
+    library = plan_store.PlanLibrary(Path(root))
+    if not held.wait(10): raise RuntimeError('mutator never acquired the lock')
+    real = library.write_build_record_locked
+    def journal(slug, record):
+        real(slug, record)
+        claim = record['build_lease']['current']
+        if claim and claim['state'] == 'retiring':
+            retiring.set()
+            if not release.wait(10): raise RuntimeError('retirement not released')
+    attempted.set()
+    with mock.patch.object(library, 'write_build_record_locked', side_effect=journal):
+        archive = build_state_store.supersede(library, slug, identity=identity, expected_revision=2,
+                                             schema=SCHEMA, reason='race retirement')
+    outcome.put(('superseder', str(archive)))
+
+
+def _race_creator(root, slug, state, locator, consent, retiring, attempted, replaced, outcome):
+    library = plan_store.PlanLibrary(Path(root))
+    if not retiring.wait(15): raise RuntimeError('retirement never entered its critical section')
+    attempted.set()
+    claim = build_state_store.reserve_build(library, slug, state, locator=locator, consent=consent)
+    build_state_store.finish_binding(library, slug, build_state_store.claim_identity(claim), state, SCHEMA)
+    replaced.set()
+    outcome.put(('creator', claim))
+
+
 class TransactionalOwnership(unittest.TestCase):
     def setUp(self):
         from test_plan_store import _document
@@ -601,6 +619,156 @@ class TransactionalOwnership(unittest.TestCase):
         with self.assertRaisesRegex(core.CoordinatorError, 'different Build'):
             self.reserve(locator=str(self.root / 'other'))
         self.assertEqual(self.lib.read_record(self.slug), record)
+
+    def retire(self, claim, *, reason='confirmed stale', revision=1):
+        return build_state_store.supersede(self.lib, self.slug, reason=reason,
+            identity=build_state_store.claim_identity(claim), expected_revision=revision, schema=SCHEMA)
+
+    def test_retirement_keeps_evidence_reason_and_both_permanent_lock_inodes(self):
+        claim = self.reserve(); self.finish(claim)
+        path = Path(claim['snapshot']); original = path.read_bytes()
+        locks = [build_state_store._legacy_lock(self.lib, self.slug), path.with_name(path.name + '.lock')]
+        inodes = [p.stat().st_ino for p in locks]
+        archive = self.retire(claim)
+        self.assertEqual(archive.read_bytes(), original)
+        self.assertEqual(archive.stat().st_mode & 0o777, 0o600)
+        self.assertFalse(path.exists())
+        self.assertEqual([p.stat().st_ino for p in locks], inodes)
+        self.assertEqual(build_state_store.bound_snapshots(self.state['build']['worktree'], library=self.lib), [])
+        record = self.lib.read_record(self.slug)
+        self.assertIsNone(record['build_binding'])
+        self.assertIsNone(record['build_lease']['current'])
+        self.assertEqual(record['build_lease']['history'][0]['reason'], 'confirmed stale')
+        self.assertEqual(self.retire(claim), archive)
+
+    def test_equal_revisions_in_successive_generations_keep_both_archives(self):
+        first = self.reserve(); self.finish(first); a = self.retire(first)
+        before = a.read_bytes()
+        self.state['build']['pr'] = 2
+        second = self.reserve(); self.finish(second); b = self.retire(second)
+        self.assertEqual(second['generation'], first['generation'] + 1)
+        self.assertNotEqual(second['build_id'], first['build_id'])
+        self.assertNotEqual(a, b)
+        self.assertEqual(a.read_bytes(), before)
+        self.assertEqual(core.json_file(b)['build']['pr'], 2)
+        self.assertEqual(len(self.lib.read_record(self.slug)['build_lease']['history']), 2)
+
+    def test_unwritten_reservation_can_be_explicitly_retired_and_rebound(self):
+        claim = self.reserve()
+        archive = self.retire(claim, revision=0)
+        self.assertTrue(core.json_file(archive)['unwritten_preparation'])
+        replacement = self.reserve(); self.finish(replacement)
+        self.assertEqual(replacement['generation'], 2)
+        with self.assertRaisesRegex(core.CoordinatorError, 'identity'):
+            self.retire(claim, revision=0)
+
+    def test_retirement_faults_are_retryable_without_losing_evidence(self):
+        stages = ['journal-before', 'journal-after', 'archive-before', 'archive-after',
+                  'rename-before', 'rename-after', 'rename-flush', 'release-before', 'release-after']
+        for stage in stages:
+            with self.subTest(stage=stage):
+                f = TransactionalOwnership(); f.setUp()
+                try:
+                    claim = f.reserve(); f.finish(claim)
+                    path = Path(claim['snapshot']); before = path.read_bytes()
+                    real_record = f.lib.write_build_record_locked
+                    real_write, real_replace, real_flush = core.atomic_write, Path.replace, core.fsync_dir
+                    fired = []
+                    def record_write(slug, record):
+                        current = record['build_lease']['current']
+                        kind = 'journal' if current else 'release'
+                        if stage == kind + '-before' and not fired:
+                            fired.append(True); raise OSError(stage)
+                        real_record(slug, record)
+                        if stage == kind + '-after' and not fired:
+                            fired.append(True); raise OSError(stage)
+                    def write(target, text, **kwargs):
+                        is_archive = target.name.startswith('retired-')
+                        if is_archive and stage == 'archive-before' and not fired:
+                            fired.append(True); raise OSError(stage)
+                        real_write(target, text, **kwargs)
+                        if is_archive and stage == 'archive-after' and not fired:
+                            fired.append(True); raise OSError(stage)
+                    def replace(source, target):
+                        if source == path and stage == 'rename-before' and not fired:
+                            fired.append(True); raise OSError(18, 'cross-device link')
+                        result = real_replace(source, target)
+                        if source == path and stage == 'rename-after' and not fired:
+                            fired.append(True); raise OSError(stage)
+                        return result
+                    def flush(directory):
+                        if stage == 'rename-flush' and directory == path.parent and not path.exists() and not fired:
+                            fired.append(True); return False
+                        return real_flush(directory)
+                    with mock.patch.object(f.lib, 'write_build_record_locked', side_effect=record_write), \
+                            mock.patch.object(core, 'atomic_write', side_effect=write), \
+                            mock.patch.object(Path, 'replace', replace), \
+                            mock.patch.object(core, 'fsync_dir', side_effect=flush):
+                        with self.assertRaises((OSError, core.CoordinatorError)):
+                            f.retire(claim)
+                    self.assertTrue(fired, 'fault boundary was not reached')
+                    if stage == 'rename-before': self.assertEqual(path.read_bytes(), before)
+                    archive = f.retire(claim)
+                    self.assertEqual(archive.read_bytes(), before)
+                    self.assertFalse(path.exists())
+                    self.assertIsNone(f.lib.read_record(f.slug)['build_lease']['current'])
+                finally:
+                    f.doCleanups()
+
+    def test_three_process_retirement_serializes_last_writer_and_fences_its_next_cli(self):
+        locator = str(self.root / 'same-locator.json')
+        claim = self.reserve(locator=locator); self.finish(claim)
+        identity = build_state_store.claim_identity(claim)
+        old_path = Path(claim['snapshot'])
+        locks = [build_state_store._legacy_lock(self.lib, self.slug), old_path.with_name(old_path.name + '.lock')]
+        inodes = [p.stat().st_ino for p in locks]
+        payload = self.root / 'payload.json'
+        payload.write_text(json.dumps(self.lib.head(self.slug)['build_plan']))
+        ctx = multiprocessing.get_context('spawn')
+        held, release_mutator, attempted_retire = ctx.Event(), ctx.Event(), ctx.Event()
+        retiring, attempted_create, release_retire, replaced = ctx.Event(), ctx.Event(), ctx.Event(), ctx.Event()
+        outcome = ctx.Queue()
+        children = [
+            ctx.Process(target=_race_mutator, args=(str(self.lib.root), self.slug, identity, locator,
+                str(payload), self.state['build']['worktree'], held, release_mutator, replaced, outcome)),
+            ctx.Process(target=_race_superseder, args=(str(self.lib.root), self.slug, identity, held,
+                attempted_retire, retiring, release_retire, outcome)),
+            ctx.Process(target=_race_creator, args=(str(self.lib.root), self.slug, self.state, locator,
+                self.consent, retiring, attempted_create, replaced, outcome))]
+        try:
+            for child in children: child.start()
+            self.assertTrue(held.wait(10))
+            self.assertTrue(attempted_retire.wait(10))
+            release_mutator.set()
+            self.assertTrue(retiring.wait(10))
+            self.assertTrue(attempted_create.wait(10))
+            release_retire.set()
+            for child in children:
+                child.join(20)
+                self.assertFalse(child.is_alive(), 'retirement race deadlocked')
+                self.assertEqual(child.exitcode, 0)
+            results = {r[0]: r[1:] for r in [outcome.get(timeout=2) for _ in children]}
+            self.assertEqual(results['mutator'][0], 2)
+            self.assertIn('stale or missing Build identity', results['mutator'][1])
+            archive = Path(results['superseder'][0]); prior = core.json_file(archive)
+            self.assertEqual(prior['revision'], 2)
+            self.assertEqual(prior['progress']['current_item'], 'preserve-the-last-writer')
+            new_claim = results['creator'][0]
+            self.assertEqual(new_claim['generation'], 2)
+            current = core.json_file(Path(new_claim['snapshot']))
+            self.assertEqual(current['revision'], 1)
+            self.assertIsNone(current['progress']['current_item'])
+            self.assertEqual(current['ownership'], build_state_store.claim_identity(new_claim))
+            self.assertEqual([p.stat().st_ino for p in locks], inodes)
+            self.assertFalse(old_path.exists())
+            record = self.lib.read_record(self.slug)
+            self.assertEqual(record['build_lease']['current']['build_id'], new_claim['build_id'])
+            self.assertEqual(len(record['build_lease']['history']), 1)
+        finally:
+            release_mutator.set(); release_retire.set(); replaced.set()
+            for child in children:
+                if child.is_alive(): child.terminate(); child.join(5)
+            outcome.close(); outcome.join_thread()
 
     def test_two_process_binds_to_distinct_explicit_paths_reserve_only_one_build(self):
         ctx = multiprocessing.get_context('spawn')

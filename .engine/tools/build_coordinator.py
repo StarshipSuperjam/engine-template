@@ -1404,7 +1404,9 @@ def cmd_state_supersede(args, store: "Snapshot | None") -> None:
     as evidence. Never implicit — see `_SUPERSEDE_GUIDANCE`."""
     library = _library()
     slug = library.resolve(args.plan)
-    retired = build_state_store.supersede(library, slug, reason=args.reason)
+    retired = build_state_store.supersede(library, slug, reason=args.reason,
+        identity=_expected_identity(args), expected_revision=getattr(args, 'expect_revision', None),
+        schema=_state_schema_for)
     if retired is None:
         raise CoordinatorError(
             f"{slug} holds no durable Build snapshot, so there is nothing to supersede.")

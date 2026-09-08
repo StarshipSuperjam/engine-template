@@ -492,6 +492,93 @@ def resolve_explicit(path, schema, expected_revision=None, *, library=None, iden
     return DurableBuildStore(path, schema, expected_revision)
 
 
+def retire_build(library, slug, identity, schema, *, reason, expected_revision,
+                 terminal_state='superseded', completion=None):
+    """Journal, archive, retire, then release this exact generation. Every cut is retryable."""
+    if not reason or not reason.strip() or terminal_state not in ('superseded', 'abandoned', 'complete'):
+        raise BuildStateError('retirement requires a reason and a supported terminal state')
+    with ownership_lock(library, slug):
+        record = library.read_record(slug)
+        lease = record.get('build_lease')
+        if not lease:
+            raise BuildStateError('legacy retirement requires explicit state migrate first')
+        if not lease['current']:
+            matches = [c for c in lease['history'] if claim_identity(c) == identity]
+            if not matches or matches[-1]['state'] != terminal_state or matches[-1]['reason'] != reason:
+                raise BuildStateError('no matching retirement to retry; this identity cannot release another generation')
+            archive = Path(matches[-1]['archive'])
+            if not archive.is_file():
+                raise BuildStateError('retired evidence is missing; recover the archive before relying on this retirement')
+            library.write_build_record_locked(slug, record)
+            return archive
+        claim = _assert_claim(record, identity, states=('preparing', 'active', 'retiring'))
+        path = _claim_path(library, slug, claim)
+        if terminal_state == 'complete':
+            expected = {'build_id': claim['build_id'], 'generation': claim['generation'],
+                        'snapshot': claim['snapshot'], 'repository': claim['repository'],
+                        'pull_request': claim['pull_request'], 'sealed_digest': claim['sealed_digest']}
+            if not completion or completion.get('merged') is not True or any(
+                    completion.get(k) != v for k, v in expected.items()):
+                raise BuildStateError('completion requires merged evidence matching the exact Build, address, generation, seal, repository and PR')
+        if claim['state'] == 'retiring':
+            if claim['reason'] != reason or claim['terminal_state'] != terminal_state:
+                raise BuildStateError('retirement is already preparing a different decision; retry its recorded reason and state')
+            archive = Path(claim['archive'])
+        else:
+            # The revision supplied by the caller fixes the archive name before any irreversible
+            # step. The store compares it under its lock before preparing the journal.
+            if expected_revision is None:
+                raise BuildStateError('retirement requires the expected snapshot revision (0 for an unwritten preparation)')
+            archive = path.with_name(f'retired-g{claim["generation"]:06d}-r{expected_revision:06d}.json')
+        plan_store.ensure_dir(path.parent, within=library.root)
+        archive = plan_store.contain(archive, library.root, 'a retirement archive')
+        _flush_directory(path.parent.parent)
+        if archive.parent != path.parent:
+            raise BuildStateError('retirement archive moved outside its Build folder; recover the recorded address')
+        if claim['state'] == 'preparing' and claim.get('legacy_source') and not path.exists():
+            source = Path(claim['legacy_source'])
+            if not source.is_file():
+                raise BuildStateError('the reserved legacy source is missing; recover its evidence before retirement')
+            saved = core.json_file(source)
+            if core.digest(saved) != claim['legacy_digest']:
+                raise BuildStateError('legacy evidence changed after reservation; preserve it and reconcile ownership')
+            saved['ownership'] = identity
+            core.validate(saved, schema(saved) if callable(schema) else schema)
+            _assert_snapshot_claim(record, claim, saved)
+            _durable_json(path, saved)
+            _cutover_locked(library, slug, claim)
+        was_unwritten = claim['state'] == 'preparing' and not path.exists()
+
+        def prepare(state):
+            claim.update(state='retiring', terminal_state=terminal_state, reason=reason,
+                         archive=str(archive), terminal_at=claim.get('terminal_at') or moment.utc_now())
+            library.write_build_record_locked(slug, record)
+
+        if was_unwritten or (claim['state'] == 'retiring' and expected_revision == 0):
+            if expected_revision != 0 or terminal_state == 'complete':
+                raise BuildStateError('an unwritten preparation retires at expected revision 0 and cannot be completed')
+            # No evidence is invented: this archive explicitly records that creation never landed.
+            with core.exclusive_lock(path.with_name(path.name + '.lock')):
+                if path.exists():
+                    raise BuildStateError('snapshot appeared during preparation recovery; reread it before retirement')
+                prepare(None)
+                journal = {'ownership': identity, 'unwritten_preparation': True,
+                           'reason': reason, 'terminal_state': terminal_state}
+                if archive.exists() and core.json_file(archive) != journal:
+                    raise BuildStateError('preparation archive conflicts; preserve it and recover the transaction')
+                _durable_json(archive, journal)
+        else:
+            store = DurableBuildStore(path, schema, expected_revision, library_root=library.root)
+            store.retire(archive, validate_owner=lambda state: _assert_snapshot_claim(record, claim, state),
+                         prepare=prepare)
+        claim['state'] = terminal_state
+        lease['history'].append(copy.deepcopy(claim))
+        lease['current'] = None
+        record['build_binding'] = None
+        library.write_build_record_locked(slug, record)
+        return archive
+
+
 # --- migration ----------------------------------------------------------------
 
 # The one snapshot version a durable store accepts. Migration lands snapshots HERE and nowhere else,
@@ -554,43 +641,9 @@ def migrate(source: Path | str, selector: str, schema, *,
 
 
 
-def supersede(library: plan_store.PlanLibrary, slug: str, *, reason: str) -> Path | None:
-    """Clear a confirmed-stale binding: set the current snapshot aside so a fresh Build of the same
-    plan may start. Never silent.
-
-    This is deliberately NOT the resume path — a genuine continuation keeps its worktree and
-    re-verifies the binding in place, and never comes here. Nor is it needed to start a Build of some
-    OTHER plan: each plan gets its own snapshot, so a different plan just binds fresh. But this plan
-    cannot bind fresh in a different worktree — snapshots are keyed by plan, not worktree, so while this
-    snapshot exists a re-bind of the same plan is refused. Superseding clears that one snapshot so its
-    slot is free again. Once cleared, the plan no longer answers `bound_snapshots` (the live snapshot is
-    gone), so a resuming session sees no live work for it. Superseding neither completes the plan nor
-    touches the PR.
-
-    The displaced snapshot is MOVED, not removed: it becomes `superseded-<revision>.json` beside the
-    new one, byte-for-byte as it stood, with the reason recorded in a sibling `.reason.json`. An
-    operator superseding a Build usually does so because something went wrong, which is precisely
-    when the evidence of what went wrong is worth keeping — and keeping the snapshot itself
-    unaltered is what lets it still be read as the schema-valid document it is.
-    """
-    current = snapshot_path(library, slug)
-    if not current.is_file():
-        return None
-    state = core.json_file(current)
-    revision = state.get("revision", 0)
-    retired = current.with_name(f"superseded-{revision:06d}.json")
-    if retired.exists():
-        raise BuildStateError(
-            f"{retired} already exists, so superseding again would overwrite a snapshot already set "
-            "aside. Move or delete it first — this store does not silently destroy evidence.")
-    core.atomic_write(retired, json.dumps(state, indent=2, sort_keys=True) + "\n",
-                      durable=True, mode=plan_store.FILE_MODE)
-    core.atomic_write(retired.with_suffix(".reason.json"),
-                      json.dumps({"at": moment.utc_now(), "reason": reason,
-                                  "superseded_revision": revision}, indent=2, sort_keys=True) + "\n",
-                      durable=True, mode=plan_store.FILE_MODE)
-    current.unlink()
-    lock = current.with_name(current.name + ".lock")
-    if lock.exists():
-        lock.unlink()
-    return retired
+def supersede(library, slug, *, reason, identity=None, expected_revision=None, schema=None):
+    """Explicitly retire exactly the caller's claim, preserving its evidence and every lock."""
+    if schema is None:
+        schema = Path(__file__).resolve().parent.parent / 'schemas' / 'build-state.v2.json'
+    return retire_build(library, slug, identity, schema, reason=reason,
+                        expected_revision=expected_revision, terminal_state='superseded')
