@@ -350,6 +350,60 @@ class TestPromote(unittest.TestCase):
         with open(bf, encoding="utf-8") as fh:
             self.assertNotIn("<!--", fh.read())
 
+    def test_explicit_no_credentials_ignore_ambient_values_and_history(self):
+        # `None` means no access even in an Actions-like shell with ambient credentials.  promote() never
+        # reads history (that ambient reader is intentionally limited to emit_feed), and must not construct
+        # a GitHubIssues client or call the injected transport on any explicit-no-access combination.
+        root = _seed({"docs/spec/a.md": _cap("locked")})
+        self.addCleanup(__import__("shutil").rmtree, root, True)
+        matrix_path = self._matrix_path(root)
+        old_repo = os.environ.get("GITHUB_REPOSITORY")
+        old_token = os.environ.get("GITHUB_TOKEN")
+        old_matrix_path = os.environ.get("ENGINE_OBLIGATION_MATRIX_PATH")
+        os.environ["GITHUB_REPOSITORY"] = "ambient/repo"
+        os.environ["GITHUB_TOKEN"] = "ambient-token"
+        os.environ["ENGINE_OBLIGATION_MATRIX_PATH"] = matrix_path
+        self.addCleanup(self._restore_env, "GITHUB_REPOSITORY", old_repo)
+        self.addCleanup(self._restore_env, "GITHUB_TOKEN", old_token)
+        self.addCleanup(self._restore_env, "ENGINE_OBLIGATION_MATRIX_PATH", old_matrix_path)
+
+        original_client = telemetry.GitHubIssues
+        original_history = cs._read_history
+        telemetry.GitHubIssues = lambda *args, **kwargs: self.fail("explicit None constructed GitHubIssues")
+        cs._read_history = lambda *args, **kwargs: self.fail("promote reached emit_feed history reader")
+        self.addCleanup(lambda: setattr(telemetry, "GitHubIssues", original_client))
+        self.addCleanup(lambda: setattr(cs, "_read_history", original_history))
+
+        calls = []
+        def transport(*args):
+            calls.append(args)
+            self.fail("explicit None used a transport")
+
+        for repo, token in ((None, None), (None, "injected-token"), ("injected/repo", None)):
+            bf = self._body_file(_block([_item()]))
+            self.assertEqual(cs.promote(bf, repo=repo, token=token, transport=transport, root=root), (0, True))
+        self.assertEqual(calls, [])
+
+    def test_omitted_credentials_still_use_ambient_values_with_fake_transport(self):
+        # The sentinel preserves the CLI's intended ambient-credential path; the fake transport keeps this
+        # regression fully local.
+        root = _seed({"docs/spec/a.md": _cap("locked")})
+        self.addCleanup(__import__("shutil").rmtree, root, True)
+        matrix_path = self._matrix_path(root)
+        old_repo = os.environ.get("GITHUB_REPOSITORY")
+        old_token = os.environ.get("GITHUB_TOKEN")
+        old_matrix_path = os.environ.get("ENGINE_OBLIGATION_MATRIX_PATH")
+        os.environ["GITHUB_REPOSITORY"] = "ambient/repo"
+        os.environ["GITHUB_TOKEN"] = "ambient-token"
+        os.environ["ENGINE_OBLIGATION_MATRIX_PATH"] = matrix_path
+        self.addCleanup(self._restore_env, "GITHUB_REPOSITORY", old_repo)
+        self.addCleanup(self._restore_env, "GITHUB_TOKEN", old_token)
+        self.addCleanup(self._restore_env, "ENGINE_OBLIGATION_MATRIX_PATH", old_matrix_path)
+        fake = telemetry._FakeGitHub()
+        bf = self._body_file(_block([_item()]))
+        self.assertEqual(cs.promote(bf, transport=fake.transport, root=root), (1, False))
+        self.assertEqual(len(fake.issues), 1)
+
     def test_silent_state_promotes_no_divergence_even_with_a_block(self):
         # spec-conformance nit #2: a divergence block in a repo with no settled spec (silent) promotes nothing
         # — the silence guarantee is re-asserted mechanically, not left to the persona obeying the feed.
@@ -415,6 +469,13 @@ class TestPromote(unittest.TestCase):
         with open(path, "w", encoding="utf-8") as fh:
             fh.write(json.dumps(_matrix([_row()])))
         return path
+
+    @staticmethod
+    def _restore_env(name, value):
+        if value is None:
+            os.environ.pop(name, None)
+        else:
+            os.environ[name] = value
 
 
 class TestMatrixHistorySeam(unittest.TestCase):
