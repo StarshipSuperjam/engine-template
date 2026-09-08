@@ -181,24 +181,34 @@ def reconcile(issue: dict, client: IssueConformanceClient) -> str:
     labels = issue_event.labels_of(issue)
     body = issue.get("body") or ""
     if _is_conforming(body):
-        if NEEDS_REAUTHORING_LABEL in labels:   # a conform-after-edit: reconcile our notice, then tidy the flag
-            # Finish pagination first. The event snapshot is frozen, so re-read the Issue immediately before
-            # either write; a later non-conforming edit cannot have its advisory resolved and label removed
-            # by this stale clearing event.
-            mine = _own_comments(client, number)
-            live = client.get_issue(number)
-            live_labels = issue_event.labels_of(live)
-            if (issue_gate.ENGINE_LABEL not in live_labels or
-                    NEEDS_REAUTHORING_LABEL not in live_labels or
-                    not _is_conforming(live.get("body") or "")):
-                return "stale"
-            for comment in mine:
-                if (comment.get("body") or "") != resolved_comment():
-                    # Resolve first: if this PATCH fails, the label remains and the next event can retry.
-                    client.edit_comment(comment["id"], resolved_comment())
-            client.remove_label(number, NEEDS_REAUTHORING_LABEL)
-            return "cleared"
-        return "conforming"
+        if NEEDS_REAUTHORING_LABEL not in labels:
+            # An opened event can be captured before this net adds its label, then an edited event can carry
+            # that same unflagged snapshot after the body has been fixed. Consult the live Issue solely to
+            # discover that just-created flag; an unflagged live Issue remains a no-write path (no backfill).
+            preliminary = client.get_issue(number)
+            preliminary_labels = issue_event.labels_of(preliminary)
+            if (issue_gate.ENGINE_LABEL not in preliminary_labels or
+                    NEEDS_REAUTHORING_LABEL not in preliminary_labels or
+                    not _is_conforming(preliminary.get("body") or "")):
+                return "conforming"
+        # A conform-after-edit: reconcile our notice, then tidy the flag. This also handles a conforming
+        # event whose frozen labels predate the opening run's label write.
+        # Finish pagination first. The event snapshot is frozen, so re-read the Issue immediately before
+        # either write; a later non-conforming edit cannot have its advisory resolved and label removed
+        # by this stale clearing event.
+        mine = _own_comments(client, number)
+        live = client.get_issue(number)
+        live_labels = issue_event.labels_of(live)
+        if (issue_gate.ENGINE_LABEL not in live_labels or
+                NEEDS_REAUTHORING_LABEL not in live_labels or
+                not _is_conforming(live.get("body") or "")):
+            return "stale"
+        for comment in mine:
+            if (comment.get("body") or "") != resolved_comment():
+                # Resolve first: if this PATCH fails, the label remains and the next event can retry.
+                client.edit_comment(comment["id"], resolved_comment())
+        client.remove_label(number, NEEDS_REAUTHORING_LABEL)
+        return "cleared"
     client.ensure_label(NEEDS_REAUTHORING_LABEL, _LABEL_COLOR, _LABEL_DESCRIPTION)
     if NEEDS_REAUTHORING_LABEL not in labels:
         client.add_label(number, NEEDS_REAUTHORING_LABEL)
@@ -309,10 +319,11 @@ def _demo() -> int:
           action3 == "cleared" and len(cleared_writes) == 1 and len(gh3.issue_label_writes("DELETE")) == 1 and
           gh3.calls.index(cleared_writes[0]) < gh3.calls.index(gh3.issue_label_writes("DELETE")[0]))
 
-    # 4. conforming, never flagged -> a pure no-op (no GitHub calls at all)
-    gh4 = _FakeGitHub()
+    # 4. conforming, never flagged -> one live check confirms it is still a no-write path
+    gh4 = _FakeGitHub(live_issue={"labels": engine, "body": conforming})
     action4 = reconcile({"number": 1, "labels": engine, "body": conforming}, IssueConformanceClient("o/r", "t", transport=gh4))
-    check("conforming, unflagged: pure no-op", action4 == "conforming" and gh4.calls == [])
+    check("conforming, live-unflagged: no write", action4 == "conforming" and
+          [c[0] for c in gh4.calls] == ["GET"])
 
     # 5. out-of-scope events are filtered before any client is built
     check("non-engine issue: out of scope",

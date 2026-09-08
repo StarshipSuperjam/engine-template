@@ -165,8 +165,8 @@ class TestReconcileFlags(unittest.TestCase):
 
 
 class TestReconcileClears(unittest.TestCase):
-    """A conform-after-edit removes the label (never a lingering chore); a conforming, unflagged Issue is a
-    pure no-op (no GitHub call at all)."""
+    """A conform-after-edit removes the label (never a lingering chore). A conforming snapshot without the
+    flag checks live state first, so an opened→edited event sequence cannot strand the opening warning."""
 
     def test_conform_after_edit_removes_label(self):
         advisory = {"id": 11, "body": icc.skeleton_comment(), "user": {"type": "Bot"}}
@@ -230,12 +230,58 @@ class TestReconcileClears(unittest.TestCase):
         patches = [(p, b) for m, p, b in rec.calls if m == "PATCH" and "/issues/comments/" in p]
         self.assertEqual(patches, [("/repos/o/r/issues/comments/15", {"body": icc.skeleton_comment()})])
 
-    def test_conforming_unflagged_is_pure_noop(self):
-        rec = _Recorder(_ok_rule())
+    def test_conforming_unflagged_live_issue_is_a_no_write(self):
+        rec = _Recorder(_ok_rule(live_issue={"labels": ENGINE, "body": CONFORMING}))
         client = icc.IssueConformanceClient("o/r", "tok", transport=rec)
         action = icc.reconcile({"number": 1, "labels": ENGINE, "body": CONFORMING}, client)
         self.assertEqual(action, "conforming")
-        self.assertEqual(rec.calls, [])
+        self.assertEqual(rec.methods_paths(), [("GET", "/repos/o/r/issues/1")])
+
+    def test_unflagged_snapshot_clears_the_live_flag_from_a_prior_opened_event(self):
+        state = {"issue": {"labels": list(ENGINE), "body": FREE_TEXT}, "comments": []}
+
+        def rule(method, path, body=None):
+            if method == "GET" and path.endswith("/labels/needs-reauthoring"):
+                return 200, None
+            if method == "POST" and path.endswith("/issues/1/labels"):
+                state["issue"]["labels"] = list(ENGINE_FLAGGED)
+                return 200, []
+            if method == "GET" and "/comments?" in path:
+                return 200, list(state["comments"])
+            if method == "POST" and path.endswith("/comments"):
+                state["comments"] = [{"id": 31, "body": body["body"], "user": {"type": "Bot"}}]
+                return 201, {"id": 31}
+            if method == "GET" and path.endswith("/issues/1"):
+                return 200, dict(state["issue"])
+            if method == "PATCH" and path.endswith("/issues/comments/31"):
+                state["comments"][0]["body"] = body["body"]
+                return 200, {}
+            if method == "DELETE" and "/labels/needs-reauthoring" in path:
+                state["issue"]["labels"] = list(ENGINE)
+                return 200, None
+            return 200, None
+
+        rec = _Recorder(rule)
+        client = icc.IssueConformanceClient("o/r", "tok", transport=rec)
+        self.assertEqual(icc.reconcile({"number": 1, "labels": ENGINE, "body": FREE_TEXT}, client), "flagged")
+        state["issue"]["body"] = CONFORMING
+        self.assertEqual(icc.reconcile({"number": 1, "labels": ENGINE, "body": CONFORMING}, client), "cleared")
+        self.assertEqual(state["issue"]["labels"], ENGINE)
+        self.assertEqual(state["comments"][0]["body"], icc.resolved_comment())
+
+    def test_unflagged_snapshot_does_not_backfill_when_live_scope_or_flag_is_absent(self):
+        for live_labels in (ENGINE, [{"name": icc.NEEDS_REAUTHORING_LABEL}]):
+            rec = _Recorder(_ok_rule(live_issue={"labels": live_labels, "body": CONFORMING}))
+            with self.subTest(live_labels=live_labels):
+                self.assertEqual(icc.reconcile({"number": 1, "labels": ENGINE, "body": CONFORMING},
+                                               icc.IssueConformanceClient("o/r", "tok", transport=rec)), "conforming")
+                self.assertEqual(rec.methods_paths(), [("GET", "/repos/o/r/issues/1")])
+
+    def test_unflagged_snapshot_live_read_failure_propagates(self):
+        rec = _Recorder(lambda method, path, body=None: (500, None))
+        with self.assertRaises(icc.DegradedWriteError):
+            icc.reconcile({"number": 1, "labels": ENGINE, "body": CONFORMING},
+                          icc.IssueConformanceClient("o/r", "tok", transport=rec))
 
 
 class TestEngineIssueScope(unittest.TestCase):
@@ -378,12 +424,14 @@ class TestRunFailContract(unittest.TestCase):
         self._env(GITHUB_EVENT_PATH=path)  # engine-labelled but no token/repo → visible failure
         self.assertEqual(quiet_call.run(icc.main, []), 1)
 
-    def test_conforming_engine_issue_exits_zero_without_network(self):
-        # a conforming, unflagged engine Issue makes reconcile a pure no-op → no transport call → no network,
-        # so _run returns 0 even with a dummy token.
+    def test_conforming_engine_issue_exits_zero_when_live_issue_is_unflagged(self):
+        # An unflagged conforming snapshot now reads the live Issue to catch a preceding opened-event label
+        # write. An actually unflagged live Issue remains a no-write exit.
         path = self._event_file({"issue": {"number": 1, "labels": ENGINE, "body": CONFORMING}})
         self._env(GITHUB_EVENT_PATH=path, GITHUB_TOKEN="dummy", GITHUB_REPOSITORY="o/r")
-        self.assertEqual(quiet_call.run(icc.main, []), 0)
+        with mock.patch.object(icc.IssueConformanceClient, "get_issue",
+                               return_value={"labels": ENGINE, "body": CONFORMING}):
+            self.assertEqual(quiet_call.run(icc.main, []), 0)
 
     def test_engine_issue_api_failure_exits_one(self):
         # the fail-LOUD contract: a token-present engine Issue whose GitHub write fails mid-reconcile must
