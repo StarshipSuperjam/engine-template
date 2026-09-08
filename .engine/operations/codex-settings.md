@@ -22,6 +22,13 @@ mismatch reopens the policy before release.
 
 ## Steps
 
+**L4-9 requalification, 2026-09-08.** Disposable macOS probes on Codex CLI 0.153.4 verified custom
+agent model/effort selection, parent sandbox precedence, spawn observation/denial, and compact context
+delivery. These are CLI observations; they do not qualify the Desktop settings or scheduling arms below.
+Central `model-bindings.json` now owns native Codex model choices and generated persona pins. Reviewer
+effort stays unpinned. Keep the read-only request while disclosing that a Workspace Write parent can override it;
+shell prohibition remains instruction text. See `codex-validation.md` for the dated evidence and rerun procedure.
+
 - **Ordinary Engine work: Workspace Write + Ask for Approval.** Make this the desktop default: the Engine can use
   its workspace and OS temporary directory while home-directory writes, shell network access, and broader machine
   access stay behind review. **Before changing the shared default, inventory every existing scheduled task; disable any
@@ -94,7 +101,7 @@ mismatch reopens the policy before release.
 | Family | Engine recommendation and authority |
 |---|---|
 | `sandbox_mode`, `approval_policy`, permission profiles, shell network | Use the operating baseline above and do not mix legacy sandbox settings with permission profiles; the Engine documents and diagnoses, never forcing a project default that a live task can replace. Shell network is off for ordinary interactive work; enable it only for the current task and constrain sandboxed command traffic with a named permission profile or `[features.network_proxy]` domain rules. Codex Automations are not an Engine write path and receive no standing GitHub network/credential posture. |
-| Models and reasoning effort; telemetry, notifications, output, personality | Keep model selection current at the platform/account layer — Engine personas specify a reasoning tier, never a model id that will rot. The rest are personal/organizational choices that may improve observability or comfort but do not change Engine evidence or authority. |
+| Models and reasoning effort; telemetry, notifications, output, personality | Engine persona models resolve from `.engine/policies/model-bindings.json`: native Codex tiers and overrides live under `providers.codex`, while worker classes retain their existing bindings. Generated reviewer models are pinned from that owner and reviewer effort is absent; depth selects coverage only. General task defaults and the remaining controls are personal/organizational choices. |
 | MCP servers, skills and agents | Engine servers are registered in Engine-owned fenced TOML blocks; other servers are operator-owned, and adding one is an explicit trust decision. Engine skills and Codex agent renders are committed, generated adapter surfaces held in sync by checks; their behavioral instructions travel, but a parent task's live permissions still govern effective capability. |
 | Rules / command allowlists; Hooks | No blanket Engine allowlist: a rule that bypasses an approval is a host decision and must be narrower than the concrete command/use case, and rules never replace the protected merge. Hooks are repository-owned registration plus operator trust; a changed hook is deliberately off until re-trusted, and the Engine must say so rather than pretending its gates ran. |
 | Automations | Use for personal read-only reminders or monitoring only when the shared default is appropriately narrow. Disable old `$engine-routine` and scheduled self-review Automations. Engine unattended writes use a Claude Desktop scheduled task; Codex self-review runs interactively in Read Only. |

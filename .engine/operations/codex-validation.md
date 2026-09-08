@@ -62,6 +62,7 @@ Codex adapter surfaces, or when a Codex session reports its hooks are not runnin
    child's read-only boundary, reopen the provider exception and `codex-settings.md` rather than retaining
    a stale weakness claim.
 9. Check help: `$engine-help` renders the commands with the `$` prefix.
+   Also run the spawn/compact demonstration below after changes to those adapter owners.
 10. **Check the retired Codex build-Routine path.** Confirm the scheduling UI still exposes no per-Automation
     permission profile and uses one shared default; if either fact changed, reopen `codex-settings.md` rather
     than retaining the retirement without its premise. In **Scheduled**, find every recurring task whose prompt
@@ -114,6 +115,48 @@ The checker rejects missing or duplicate cells, invalid statuses, missing host/v
 and missing evidence references or unknown reasons. It never promotes an unknown to a pass. Required
 capability failures or unknowns still hold the qualification checkpoint and dependent implementation.
 
+### Vary the spawn gate and compact reminder
+
+This replay exercises the real policy owners and can visibly fail. It is construction evidence, covered
+by permanent regression tests; it does not certify that Codex fired a hook. From the Engine root, run:
+
+```sh
+printf '%s\n' '{"tool_name":"collaborationspawn_agent","tool_input":{"agent_type":"explorer","model":"gpt-6-astra"}}' | uv run --directory .engine --frozen -- python tools/session_economy.py hook
+```
+
+Expect a JSON `deny` decision. Change the model to the central mechanical model (`gpt-5.6-luna` in
+this qualification): expect no denial. Remove `model`: expect denial again. Change `agent_type` to
+`default` or an unknown role: expect no denial, because this is a search rule, not a general model gate.
+An unknown role is unclassified, not verified compliant. Changing the hook's top-level parent `model`
+must never satisfy the child requirement. The master and model-specific environment switches still
+disable their respective rules for newly launched sessions.
+
+```sh
+printf '%s\n' '{"source":"compact"}' | uv run --directory .engine --frozen -- python tools/build_coordinator.py reground-hook
+```
+
+With one Build bound to this worktree, expect only its bounded plan/PR/work pointer. With no binding,
+expect an explicit no-Build message. Add `"cwd":"/a-different-worktree"` to the input: expect a
+mismatch disclosure and no pointer. None of these replays changes a Build or a session marker.
+
+For the separate **live** witness, use an isolated qualification project with only the reviewed fixture
+hooks enabled and verify the complete hook inventory first; stop if any unrelated hook is present. Do
+not bypass trust for an uninventoried project or modify the saved installation's trust. Run the same
+explicit explorer model choices through Codex with `fork_turns=none`. Record the actual PreToolUse input
+and SubagentStart events: the cheap launch creates a child; strong and missing-model launches are denied
+before child creation. Record both the request and observed child metadata, rather than treating the
+parent hook model as evidence. A per-invocation qualification trust option is not permission to re-trust
+the operator's installation.
+
+To observe mid-turn compaction, start the isolated CLI probe with
+`-c model_auto_compact_token_limit=5000`, request one output-only shell command printing numbers 1 through
+12000, then ask for the plan/work pointer supplied by the hook without reading files. Use a disposable
+plan-library fixture for the positive binding; keep its lookup and the real reminder handler unchanged.
+Record the actual `SessionStart` compact input, bounded `additionalContext`, and following model response.
+Repeat without the fixture binding for the absent case. Preserve fixture sources and exact commands in
+the Build evidence so another operator can reproduce the observation; a replay or an agent claim alone
+cannot stand in for this live event. CLI results remain separate from Desktop qualification.
+
 Every step above passed in a live Codex session — or each failure is recorded as a defect owed an
 immediate fix in this line of work (a failure inside this bar is never re-scoped as a follow-up). The Codex
 routine twin remains as an actionable refusal surface, not a write backend. Codex build and review Automations
@@ -141,9 +184,12 @@ the qualified spelling rather than relying on the documented alias alone.
 Child start/stop and child tool hooks retained the parent's exact `session_id` and supplied a separate
 `agent_id`. Actual compaction in both parent modes fired SessionStart with `source=compact`; the next
 model response returned a witness supplied only by that hook. The current Build's structured record
-carries the commands, fixture sources, runtime metadata references, and evidence limits. Candidate
-implementation still needs final live witnesses: these fixture results do not certify code that was
-not yet built. The supported observation here is CLI on the recorded host; Desktop and Windows remain
+carries the commands, fixture sources, runtime metadata references, and evidence limits. H1 then exercised
+the real candidate gate: explicit cheap explorer passed and completed; strong and omitted-model launches
+were denied before child creation. The real reminder handler resolved an isolated library and injected
+`pln_L49_COMPACT_POINTER` / `H1_DEMO` during actual compaction; the following model response returned both.
+An absent fixture produced the honest no-Build message. Final material repairs require renewed witnesses;
+these results do not certify future code. The supported observation here is CLI on the recorded host; Desktop and Windows remain
 unverified. Saved installation trust was not changed: fixture execution used an invocation-scoped
 trust option only after an inventory refused any hook outside the four reviewed temporary recorders.
 
