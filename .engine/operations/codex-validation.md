@@ -82,6 +82,38 @@ Codex adapter surfaces, or when a Codex session reports its hooks are not runnin
 
 ## Done when
 
+### Check the qualification record's completeness
+
+For Codex adapter qualification, retain a `codex-qualification.v1` JSON record in the existing
+Build verification evidence, alongside the bounded, redacted probe output. Run
+`uv run --directory .engine --frozen -- python tools/codex_qualification.py <record.json>`
+against that record, including the final candidate's record before submission. This command checks
+structure only. It does not run probes, verify referenced evidence, certify a host, or update
+`.engine/state/execution.json`. Reviewers must judge the evidence and the capability results separately.
+
+The record contains:
+
+- `schema_version`: `codex-qualification.v1`; `recorded_at`: an ISO timestamp with timezone;
+  `base_commit` and `head_commit`: full Git commit IDs.
+- `host`: `kind`, `os`, `cli_version`, and `host_version`, each an object with a nonempty `value`,
+  or a null `value` and an explicit `unavailable_reason`. Identify CLI and Desktop separately;
+  CLI evidence does not qualify Desktop behavior.
+- `official_sources`: nonempty source references; `reproduction_commands`: nonempty arrays of
+  command arguments. Keep credentials and unrelated session content out of both.
+- `cells`: exactly one cell per parent mode (`read-only`, `workspace-write`) and capability
+  (`custom-agent-model`, `reasoning-effort`, `parent-child-sandbox`, `shell-availability`, `file-writes`,
+  `hook-session-identity`, `compact-context`, `agent-observation`, `spawn-payload`). Each cell names
+  `parent_mode`, `capability`, nonempty `requested` settings, and `status`.
+- A `pass` or `fail` cell includes nonempty `observed` results and `evidence_refs` pointing to the
+  bounded evidence. A `not-verified` cell includes a nonempty `reason`. Requested settings and an
+  agent's self-report alone are not proof of effective model, effort, or sandbox configuration.
+
+A complete record can contain failures and unknowns. `pass` means the evidence supports the stated
+assertion, `fail` means it contradicts it, and `not-verified` means no trustworthy result was obtained.
+The checker rejects missing or duplicate cells, invalid statuses, missing host/version accounting,
+and missing evidence references or unknown reasons. It never promotes an unknown to a pass. Required
+capability failures or unknowns still hold the qualification checkpoint and dependent implementation.
+
 Every step above passed in a live Codex session — or each failure is recorded as a defect owed an
 immediate fix in this line of work (a failure inside this bar is never re-scoped as a follow-up). The Codex
 routine twin remains as an actionable refusal surface, not a write backend. Codex build and review Automations
@@ -91,6 +123,29 @@ The live acceptance record must be complete before the Engine release is cut; a 
 not satisfy the rollout gate.
 
 ## Notes
+
+### CLI qualification on 2026-09-08
+
+L4-9 exercised Codex CLI 0.153.4 in disposable macOS projects with Read Only and Workspace Write
+parents. The custom child's runtime metadata retained its configured `gpt-5.6-luna` model and low
+effort while taking the parent's effective sandbox. The Read Only child could invoke a shell but
+could not write the fixture file; the Workspace Write child wrote it despite the agent file's
+read-only default. These observations do not establish a per-tool shell prohibition or qualify Desktop.
+
+The live launch hook reported `collaborationspawn_agent`, with `agent_type`, `task_name`, `fork_turns`,
+and `message` in its input. The configured child's model was absent from that input: the common hook
+`model` named the parent. `^Agent$` did not match this launch; `^collaborationspawn_agent$` did, and a
+disposable denial on that exact matcher prevented child creation. Adapter registrations must cover
+the qualified spelling rather than relying on the documented alias alone.
+
+Child start/stop and child tool hooks retained the parent's exact `session_id` and supplied a separate
+`agent_id`. Actual compaction in both parent modes fired SessionStart with `source=compact`; the next
+model response returned a witness supplied only by that hook. The current Build's structured record
+carries the commands, fixture sources, runtime metadata references, and evidence limits. Candidate
+implementation still needs final live witnesses: these fixture results do not certify code that was
+not yet built. The supported observation here is CLI on the recorded host; Desktop and Windows remain
+unverified. Saved installation trust was not changed: fixture execution used an invocation-scoped
+trust option only after an inventory refused any hook outside the four reviewed temporary recorders.
 
 The honest split this runbook exists for: everything above rides the platform's own behavior, which
 the repository's checks deliberately do not simulate — they prove the committed files are coherent,
