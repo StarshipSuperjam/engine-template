@@ -507,6 +507,21 @@ def _paused_legacy_supersede(library_root, slug, after_read, paused, resume, out
         outcome.put('retired')
 
 
+def _competing_adopt(root, source, target, identity, barrier, outcome):
+    lib = plan_store.PlanLibrary(Path(root))
+    record = lib.read_record(target)
+    def change(state):
+        state['plan'].update(plan_id=record['plan_id'], sealed_digest=record['seal']['sealed_digest'],
+                             digest=record['seal']['build_plan_digest'])
+    barrier.wait(timeout=10)
+    try:
+        build_state_store.adopt_build(lib, source, target, identity, 1, SCHEMA, change=change,
+            consent={'gate': 'adopt', 'at': '2026-09-08T00:00:00Z'})
+        outcome.put(('active', target))
+    except core.CoordinatorError as exc:
+        outcome.put(('refused', str(exc)))
+
+
 def _competing_bind(library_root, slug, worktree, locator, pr, barrier, outcome):
     import build_coordinator as bc
     library = plan_store.PlanLibrary(Path(library_root))
@@ -607,6 +622,187 @@ class TransactionalOwnership(unittest.TestCase):
     def finish(self, claim):
         return build_state_store.finish_binding(self.lib, self.slug,
             build_state_store.claim_identity(claim), self.state, SCHEMA)
+
+    def successor(self, plan_id='pln_fedcba987654'):
+        from test_plan_store import _document
+        import plan_contract
+        doc = _document(plan_id=plan_id, title='Successor ' + plan_id)
+        slug = self.lib.create(doc)
+        record = self.lib.read_record(slug)
+        seal = dict(self.seal, sealed_digest=record['current']['plan_digest'],
+                    reviewed_digest=record['current']['plan_digest'],
+                    build_plan_digest=plan_contract.build_plan_digest(doc))
+        self.lib.update_record(slug, lambda r: r.update(seal=seal,
+            intake={'provenance': 'test successor', 'predecessors': [self.state['plan']['plan_id']]},
+            consent=[{'gate': 'seal', 'at': self.consent['at']}]))
+        def change(state):
+            state['plan'].update(plan_id=plan_id, sealed_digest=seal['sealed_digest'],
+                                 digest=seal['build_plan_digest'])
+        return slug, change
+
+    def adopt(self, claim, slug, change):
+        return build_state_store.adopt_build(self.lib, self.slug, slug,
+            build_state_store.claim_identity(claim), 1, SCHEMA, change=change,
+            consent={'gate': 'adopt', 'at': self.consent['at']})
+
+    def test_adoption_moves_one_identity_preserves_evidence_and_refuses_old_writer(self):
+        self.state['progress']['current_item'] = 'preserved'
+        locator = self.root / 'locator.json'
+        claim = self.reserve(locator=locator); self.finish(claim)
+        original = Path(claim['snapshot']).read_bytes()
+        slug, change = self.successor()
+        saved = self.adopt(claim, slug, change)
+        target = self.lib.read_record(slug)['build_lease']['current']
+        predecessor = self.lib.read_record(self.slug)
+        self.assertIsNone(predecessor['build_lease']['current'])
+        self.assertEqual(Path(predecessor['build_lease']['history'][0]['archive']).read_bytes(), original)
+        self.assertEqual(saved['ownership'], {'build_id': claim['build_id'], 'generation': 2})
+        self.assertEqual(saved['progress']['current_item'], 'preserved')
+        self.assertEqual(target['state'], 'active')
+        self.assertEqual(core.json_file(locator)['snapshot'], target['snapshot'])
+        self.assertEqual(self.adopt(claim, slug, change), saved)
+        source_slug, archived = build_state_store.adoption_source(self.lib, saved['ownership'] | {'generation': 1}, SCHEMA)
+        self.assertEqual(source_slug, self.slug)
+        self.assertEqual(archived.read()['progress']['current_item'], 'preserved')
+        stale = build_state_store.ClaimedBuildStore(self.lib, slug, SCHEMA, 2,
+            identity=build_state_store.claim_identity(claim))
+        with self.assertRaises(core.CoordinatorError):
+            stale.mutate(lambda s: s['progress'].update(current_item='stale'))
+
+    def test_adoption_recovers_every_durable_write_boundary_with_original_consent(self):
+        # All strict writes (records, snapshot, archive, locator) are faulted before and after
+        # persistence. Rename and directory-flush recovery is independently covered by retirement.
+        for after in (False, True):
+            for cut in range(1, 8):
+                with self.subTest(after=after, cut=cut):
+                    case = TransactionalOwnership(); case.setUp()
+                    try:
+                        claim = case.reserve(locator=case.root / 'locator.json'); case.finish(claim)
+                        slug, change = case.successor()
+                        actual = core.atomic_write
+                        calls = [0]
+                        def fail(path, *args, **kwargs):
+                            calls[0] += 1
+                            hit = calls[0] == cut
+                            if hit and not after: raise OSError('injected adoption cut')
+                            result = actual(path, *args, **kwargs)
+                            if hit: raise OSError('injected adoption cut')
+                            return result
+                        with mock.patch.object(core, 'atomic_write', side_effect=fail):
+                            with self.assertRaisesRegex(OSError, 'injected adoption cut'):
+                                case.adopt(claim, slug, change)
+                        saved = case.adopt(claim, slug, change)
+                        self.assertEqual(saved['ownership']['generation'], 2)
+                        record = case.lib.read_record(slug)
+                        self.assertEqual(record['build_lease']['current']['state'], 'active')
+                        self.assertEqual(len([c for c in record['consent'] if c['gate'] == 'adopt']), 1)
+                        self.assertIsNone(case.lib.read_record(case.slug)['build_lease']['current'])
+                    finally:
+                        case.doCleanups()
+
+    def test_two_processes_cannot_activate_two_successors(self):
+        claim = self.reserve(); self.finish(claim)
+        targets = [self.successor(plan_id)[0] for plan_id in ('pln_fedcba987654', 'pln_999999999999')]
+        ctx = multiprocessing.get_context('spawn')
+        barrier, outcome = ctx.Barrier(2), ctx.Queue()
+        processes = [ctx.Process(target=_competing_adopt, args=(str(self.lib.root), self.slug,
+            target, build_state_store.claim_identity(claim), barrier, outcome)) for target in targets]
+        try:
+            for process in processes: process.start()
+            for process in processes:
+                process.join(15)
+                self.assertFalse(process.is_alive(), 'adoption deadlocked')
+                self.assertEqual(process.exitcode, 0)
+            results = [outcome.get(timeout=3)[0] for _ in processes]
+            self.assertEqual(sorted(results), ['active', 'refused'])
+            active = [self.lib.read_record(t).get('build_lease', {}).get('current') for t in targets]
+            self.assertEqual(sum(bool(c and c['state'] == 'active') for c in active), 1)
+            self.assertIsNone(self.lib.read_record(self.slug)['build_lease']['current'])
+        finally:
+            for process in processes:
+                if process.is_alive(): process.terminate(); process.join(3)
+            outcome.close(); outcome.join_thread()
+
+    def test_transfer_preparation_cannot_be_finished_or_retired_as_an_ordinary_bind(self):
+        claim = self.reserve(); self.finish(claim)
+        slug, change = self.successor()
+        actual = build_state_store._durable_json
+        def stop_snapshot(path, value):
+            if Path(path).name == 'snapshot.json': raise OSError('snapshot cut')
+            return actual(path, value)
+        with mock.patch.object(build_state_store, '_durable_json', side_effect=stop_snapshot):
+            with self.assertRaisesRegex(OSError, 'snapshot cut'): self.adopt(claim, slug, change)
+        target = self.lib.read_record(slug)['build_lease']['current']
+        identity = build_state_store.claim_identity(target)
+        state = json.loads(json.dumps(self.state)); change(state)
+        with self.assertRaisesRegex(core.CoordinatorError, 'adoption'):
+            build_state_store.finish_binding(self.lib, slug, identity, state, SCHEMA)
+        with self.assertRaisesRegex(core.CoordinatorError, 'adoption'):
+            build_state_store.retire_build(self.lib, slug, identity, SCHEMA, reason='cancel', expected_revision=0)
+        self.assertEqual(self.adopt(claim, slug, change)['ownership'], identity)
+
+    def test_completion_matches_every_identity_field_and_is_idempotent(self):
+        import project_manager as pm
+        claim = self.reserve(); self.finish(claim)
+        identity = build_state_store.claim_identity(claim)
+        proof = {k: claim[k] for k in ('build_id', 'generation', 'snapshot', 'repository',
+                                      'pull_request', 'sealed_digest')}
+        proof['merged'] = True
+        original = Path(claim['snapshot']).read_bytes()
+        for field in proof:
+            wrong = dict(proof); wrong[field] = False if field == 'merged' else 'wrong'
+            with self.subTest(field=field), self.assertRaisesRegex(core.CoordinatorError, 'completion requires'):
+                pm.close_plan_record(self.lib, self.slug, 'complete', 'merged', identity=identity,
+                                     expected_revision=1, completion=wrong)
+            self.assertEqual(Path(claim['snapshot']).read_bytes(), original)
+        for _ in range(2):
+            pm.close_plan_record(self.lib, self.slug, 'complete', 'merged', identity=identity,
+                                 expected_revision=1, completion=proof)
+        record = self.lib.read_record(self.slug)
+        self.assertEqual(record['closure']['state'], 'complete')
+        self.assertEqual(len(record['build_lease']['history']), 1)
+        self.assertEqual(Path(record['build_lease']['history'][0]['archive']).read_bytes(), original)
+        with self.assertRaises(core.CoordinatorError): self.reserve()
+
+    def test_handoff_restores_only_the_live_generation_at_its_canonical_address(self):
+        import build_coordinator as bc
+        from test_build_coordinator import TestPreflightHandoffAndSubmission
+        self.state['findings'] = [TestPreflightHandoffAndSubmission()._blocking_finding_with_private('private retained note')]
+        claim = self.reserve(); saved = self.finish(claim)
+        value = bc._handoff(saved); value['snapshot'] = claim['snapshot']
+        restored = bc._restore_base_state(value, 'build-state.v2'); restored['work'] = {}
+        def restore(export):
+            return build_state_store.restore_handoff(self.lib, self.slug, export, restored, SCHEMA,
+                worktree=self.state['build']['worktree'], projection=bc._handoff)
+        wrong = dict(value, snapshot=str(self.root / 'former.json'))
+        with self.assertRaisesRegex(core.CoordinatorError, 'former or different'): restore(wrong)
+        updated = restore(value)
+        self.assertNotIn('private retained note', json.dumps(value))
+        self.assertEqual(updated['findings'][0]['private_reference'], 'private retained note')
+        self.assertEqual(updated['revision'], 2)
+        self.assertEqual(updated['ownership'], saved['ownership'])
+        with self.assertRaises(core.CoordinatorError): restore(value)
+        self.retire(claim, revision=2)
+        with self.assertRaises(core.CoordinatorError): restore(value)
+        self.assertFalse(Path(claim['snapshot']).exists())
+
+    def test_single_plan_operations_take_snapshot_locks_in_the_declared_path_order(self):
+        claim = self.reserve()
+        actual = core.exclusive_lock
+        seen = []
+        @contextlib.contextmanager
+        def observe(path):
+            seen.append(Path(path))
+            with actual(path): yield
+        with mock.patch.object(core, 'exclusive_lock', side_effect=observe):
+            self.finish(claim)
+        expected = [self.lib.plan_dir(self.slug) / 'record.json.lock'] + sorted([
+            build_state_store._legacy_lock(self.lib, self.slug), Path(claim['snapshot'] + '.lock')])
+        self.assertEqual(seen, expected)
+        seen.clear()
+        with mock.patch.object(core, 'exclusive_lock', side_effect=observe):
+            self.retire(claim)
+        self.assertEqual(seen, expected)
 
     def test_reservation_retry_preserves_identity_and_consent(self):
         claim = self.reserve()
@@ -861,6 +1057,72 @@ class TransactionalOwnership(unittest.TestCase):
         saved = core.json_file(Path(outputs[0]['migrated']))
         self.assertEqual(saved['progress']['current_item'], 'keep-progress')
         self.assertEqual(saved['revision'], self.state['revision'])
+
+    def test_ambiguous_missing_and_terminal_legacy_records_preserve_their_evidence(self):
+        for scenario in ('missing', 'conflicting-pr', 'two-sources', 'terminal'):
+            with self.subTest(scenario=scenario):
+                case = TransactionalOwnership(); case.setUp()
+                try:
+                    source = case.root / 'legacy.json'
+                    if scenario != 'missing':
+                        build_state_store.DurableBuildStore(source, SCHEMA).create(case.state)
+                    binding = {'sealed_digest': case.seal['sealed_digest'],
+                        'build_plan_digest': case.seal['build_plan_digest'], 'repository': 'o/r',
+                        'pull_request': 2 if scenario == 'conflicting-pr' else 1, 'at': case.consent['at']}
+                    case.lib.update_record(case.slug, lambda r: r.update(build_binding=binding))
+                    if scenario == 'two-sources':
+                        old = build_state_store._legacy_slot(case.lib, case.slug)
+                        build_state_store.DurableBuildStore(old, SCHEMA, library_root=case.lib.root).create(case.state)
+                    if scenario == 'terminal':
+                        case.lib.update_record(case.slug, lambda r: r.update(closure={
+                            'state': 'complete', 'reason': 'legacy closure', 'at': case.consent['at']}))
+                    before = case.lib.read_record(case.slug)
+                    original = source.read_bytes() if source.exists() else None
+                    with self.assertRaises(core.CoordinatorError): case.reserve(legacy_source=source)
+                    self.assertEqual(case.lib.read_record(case.slug), before)
+                    self.assertEqual(source.read_bytes() if source.exists() else None, original)
+                finally:
+                    case.doCleanups()
+
+    def test_completion_rejects_the_pre_migration_address(self):
+        import build_coordinator as bc
+        source = self.root / 'external-legacy.json'
+        build_state_store.DurableBuildStore(source, SCHEMA).create(self.state)
+        self.lib.update_record(self.slug, lambda r: r.update(build_binding={
+            'sealed_digest': self.seal['sealed_digest'], 'build_plan_digest': self.seal['build_plan_digest'],
+            'repository': 'o/r', 'pull_request': 1, 'at': self.consent['at']}))
+        with mock.patch.object(bc, '_library', return_value=self.lib), \
+                mock.patch.object(bc, 'ROOT', Path(self.state['build']['worktree'])), \
+                contextlib.redirect_stdout(io.StringIO()):
+            self.assertEqual(bc.main(['state', 'migrate', '--source', str(source), '--plan', self.slug]), 0)
+        claim = self.lib.read_record(self.slug)['build_lease']['current']
+        proof = {k: claim[k] for k in ('build_id', 'generation', 'snapshot', 'repository', 'pull_request', 'sealed_digest')}
+        proof.update(merged=True, snapshot=str(source))
+        with self.assertRaisesRegex(core.CoordinatorError, 'completion requires'):
+            build_state_store.retire_build(self.lib, self.slug, build_state_store.claim_identity(claim),
+                SCHEMA, reason='merged', expected_revision=1, terminal_state='complete', completion=proof)
+        self.assertTrue(source.is_file())
+        self.assertTrue(Path(claim['snapshot']).is_file())
+
+    def test_completion_cli_verifies_github_before_local_terminalization(self):
+        import project_manager as pm
+        import build_coordinator_github as github
+        claim = self.reserve(); self.finish(claim)
+        proof = {k: claim[k] for k in ('build_id', 'generation', 'snapshot', 'repository', 'pull_request', 'sealed_digest')}
+        proof['merged'] = True
+        evidence = self.root / 'merge-observation.json'; evidence.write_text(json.dumps(proof))
+        args = ['--library', str(self.lib.root), 'complete', self.slug, '--reason', 'merged',
+                '--expect-build-id', claim['build_id'], '--expect-generation', '1', '--expect-revision', '1',
+                '--completion-evidence', str(evidence)]
+        with mock.patch.object(github, 'pr_state', return_value={'number': 1, 'state': 'OPEN'}), \
+                contextlib.redirect_stdout(io.StringIO()), contextlib.redirect_stderr(io.StringIO()):
+            self.assertEqual(pm.main(args), 2)
+        self.assertTrue(Path(claim['snapshot']).is_file())
+        with mock.patch.object(github, 'pr_state', return_value={'number': 1, 'state': 'MERGED'}), \
+                contextlib.redirect_stdout(io.StringIO()):
+            self.assertEqual(pm.main(args), 0)
+            self.assertEqual(pm.main(args), 0)
+        self.assertEqual(self.lib.read_record(self.slug)['closure']['state'], 'complete')
 
     def test_deleting_the_plan_leaves_no_private_evidence_in_the_external_locator(self):
         import shutil

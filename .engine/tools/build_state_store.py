@@ -120,16 +120,27 @@ def _claim_path(library, slug, claim) -> Path:
 
 
 @contextlib.contextmanager
-def ownership_lock(library, slug):
-    """Plan, old permanent lock, then per-Build snapshot: one order, never recursive.
+def ownership_lock(library, slug, *, snapshots=()):
+    """Program callers enter first; then plan locks, then snapshot locks in path order.
 
-    Program callers enter with their program lock held. Transfers acquire both plan locks in
-    stable plan-id order before entering either snapshot lock. The old lock is retained even
-    after cutover so a writer waiting on its inode cannot bypass the transition.
+    Include the permanent legacy lock and every current/caller-held snapshot address. A stale
+    caller can lock its former address but still fails identity comparison before any write.
+    Transfers use the same order across both plans without recursively acquiring these locks.
     """
     with plan_store.exclusive_lock_for(library, slug):
         plan_store.ensure_dir(builds_dir(library, slug), within=library.root)
-        with core.exclusive_lock(_legacy_lock(library, slug)):
+        record = library.read_record(slug)
+        claim = (record.get('build_lease') or {}).get('current')
+        paths = set(Path(p) for p in snapshots)
+        if claim:
+            paths.add(_claim_path(library, slug, claim))
+        locks = {_legacy_lock(library, slug)}
+        for path in paths:
+            plan_store.ensure_dir(path.parent, within=library.root)
+            locks.add(path.with_name(path.name + '.lock'))
+        with contextlib.ExitStack() as held:
+            for path in sorted(locks):
+                held.enter_context(core.exclusive_lock(path))
             yield
 
 
@@ -162,7 +173,8 @@ def _binding_projection(claim) -> dict:
 def _check_seal(record, state) -> None:
     seal = record.get('seal') or {}
     if record.get('closure') or not seal:
-        raise BuildStateError('a closed or unsealed plan cannot reserve a Build')
+        raise BuildStateError('a closed or unsealed plan cannot reserve a Build; preserve legacy evidence '
+                              'and finish it on its original Engine, or select an open sealed successor')
     if (record['plan_id'] != state['plan']['plan_id'] or
             seal.get('sealed_digest') != state['plan']['sealed_digest'] or
             seal.get('build_plan_digest') != state['plan']['digest'] or
@@ -216,7 +228,7 @@ def reserve_build(library, slug, state, *, consent=None, locator=None,
             if any(legacy.get(k) != wanted[k] for k in ('repository', 'pull_request', 'sealed_digest', 'build_plan_digest')):
                 raise BuildStateError('legacy snapshot and plan binding disagree; repair ownership first')
             on_disk = core.json_file(source)
-            if core.digest(on_disk) != core.digest(state):
+            if core.digest(core.forward_migrate(on_disk)) != core.digest(core.forward_migrate(state)):
                 raise BuildStateError('legacy source changed; reread it before migration')
             source_digest = core.digest(on_disk)
         generation = lease['generation'] + 1 if lease else 1
@@ -274,33 +286,34 @@ def finish_binding(library, slug, identity, state, schema) -> dict:
     with ownership_lock(library, slug):
         record = library.read_record(slug)
         claim = _assert_claim(record, identity, states=('preparing', 'active'))
+        if claim['state'] == 'preparing' and claim.get('transfer'):
+            raise BuildStateError('this preparation belongs to successor adoption; retry the recorded adoption')
         _check_seal(record, state)
         path = _claim_path(library, slug, claim)
         plan_store.ensure_dir(path.parent, within=library.root)
-        with core.exclusive_lock(path.with_name(path.name + '.lock')):
-            if path.exists():
-                saved = core.json_file(path)
-                core.validate(saved, schema(saved) if callable(schema) else schema)
-                if saved.get('ownership') != identity:
-                    raise BuildStateError('reserved snapshot holds another Build; preserve it and repair the claim')
-                _check_seal(record, saved)
-            else:
-                if claim['state'] == 'active':
-                    raise BuildStateError('active snapshot is missing; restore its evidence, never recreate it from bind input')
-                saved = copy.deepcopy(state)
-                saved['ownership'] = identity
-                core.validate(saved, schema(saved) if callable(schema) else schema)
-            _assert_snapshot_claim(record, claim, saved)
-            _durable_json(path, saved)
-            _cutover_locked(library, slug, claim)
-            if claim['locator']:
-                locator = Path(claim['locator'])
-                with core.exclusive_lock(locator.with_name(locator.name + '.lock')):
-                    _check_locator_locked(record, claim['locator'], claim)
-                    _durable_json(locator, _locator_value(record, claim))
-            claim['state'] = 'active'
-            library.write_build_record_locked(slug, record)
-            return saved
+        if path.exists():
+            saved = core.json_file(path)
+            core.validate(saved, schema(saved) if callable(schema) else schema)
+            if saved.get('ownership') != identity:
+                raise BuildStateError('reserved snapshot holds another Build; preserve it and repair the claim')
+            _check_seal(record, saved)
+        else:
+            if claim['state'] == 'active':
+                raise BuildStateError('active snapshot is missing; restore its evidence, never recreate it from bind input')
+            saved = core.forward_migrate(state)
+            saved['ownership'] = identity
+            core.validate(saved, schema(saved) if callable(schema) else schema)
+        _assert_snapshot_claim(record, claim, saved)
+        _durable_json(path, saved)
+        _cutover_locked(library, slug, claim)
+        if claim['locator']:
+            locator = Path(claim['locator'])
+            with core.exclusive_lock(locator.with_name(locator.name + '.lock')):
+                _check_locator_locked(record, claim['locator'], claim)
+                _durable_json(locator, _locator_value(record, claim))
+        claim['state'] = 'active'
+        library.write_build_record_locked(slug, record)
+        return saved
 
 
 class ClaimedBuildStore(core.RevisionedStore):
@@ -320,9 +333,8 @@ class ClaimedBuildStore(core.RevisionedStore):
 
     @contextlib.contextmanager
     def _locked(self):
-        with ownership_lock(self.library, self.slug):
-            with core.exclusive_lock(self.lock):
-                yield
+        with ownership_lock(self.library, self.slug, snapshots=(self.path,)):
+            yield
 
     def _check_write(self, state, *, creating):
         if creating:
@@ -390,10 +402,12 @@ def snapshot_path(library: plan_store.PlanLibrary, slug: str) -> Path:
 
 
 def store_for_plan(selector: str, schema, expected_revision: int | None = None,
-                   *, library: plan_store.PlanLibrary | None = None) -> DurableBuildStore:
+                   *, library: plan_store.PlanLibrary | None = None, identity=None):
     """The durable store for one plan, selected the same way every other plan verb selects a plan."""
     library = library or plan_store.PlanLibrary()
     slug = library.resolve(selector)
+    if library.read_record(slug).get('build_lease'):
+        return ClaimedBuildStore(library, slug, schema, expected_revision, identity=identity)
     return DurableBuildStore(snapshot_path(library, slug), schema, expected_revision,
                              library_root=library.root)
 
@@ -492,11 +506,22 @@ def resolve_explicit(path, schema, expected_revision=None, *, library=None, iden
     return DurableBuildStore(path, schema, expected_revision)
 
 
+def _match_completion(claim, completion):
+    expected = {'build_id': claim['build_id'], 'generation': claim['generation'],
+                'snapshot': claim['snapshot'], 'repository': claim['repository'],
+                'pull_request': claim['pull_request'], 'sealed_digest': claim['sealed_digest']}
+    if not isinstance(completion, dict) or completion.get('merged') is not True or any(
+            completion.get(k) != v for k, v in expected.items()):
+        raise BuildStateError('completion requires merged evidence matching the exact Build, address, generation, seal, repository and PR')
+
+
 def retire_build(library, slug, identity, schema, *, reason, expected_revision,
-                 terminal_state='superseded', completion=None):
+                 terminal_state='superseded', completion=None, close_state=None):
     """Journal, archive, retire, then release this exact generation. Every cut is retryable."""
     if not reason or not reason.strip() or terminal_state not in ('superseded', 'abandoned', 'complete'):
         raise BuildStateError('retirement requires a reason and a supported terminal state')
+    if close_state and close_state not in ('abandoned', 'retired', 'complete'):
+        raise BuildStateError('unsupported plan closure')
     with ownership_lock(library, slug):
         record = library.read_record(slug)
         lease = record.get('build_lease')
@@ -506,20 +531,31 @@ def retire_build(library, slug, identity, schema, *, reason, expected_revision,
             matches = [c for c in lease['history'] if claim_identity(c) == identity]
             if not matches or matches[-1]['state'] != terminal_state or matches[-1]['reason'] != reason:
                 raise BuildStateError('no matching retirement to retry; this identity cannot release another generation')
+            if terminal_state == 'complete':
+                _match_completion(matches[-1], completion)
             archive = Path(matches[-1]['archive'])
             if not archive.is_file():
                 raise BuildStateError('retired evidence is missing; recover the archive before relying on this retirement')
+            archived = core.json_file(archive)
+            revision = 0 if archived.get('unwritten_preparation') else archived.get('revision')
+            if expected_revision is None or expected_revision != revision:
+                raise BuildStateError('retirement retry must name the original snapshot revision')
+            if revision:
+                core.validate(archived, schema(archived) if callable(schema) else schema)
+                _assert_snapshot_claim(record, matches[-1], archived)
+            elif archived != {'ownership': identity, 'unwritten_preparation': True,
+                              'reason': reason, 'terminal_state': terminal_state}:
+                raise BuildStateError('preparation archive differs from its retirement record')
             library.write_build_record_locked(slug, record)
             return archive
         claim = _assert_claim(record, identity, states=('preparing', 'active', 'retiring'))
+        if claim['state'] == 'preparing' and claim.get('transfer'):
+            raise BuildStateError('successor adoption is preparing; retry the recorded adoption before retirement')
         path = _claim_path(library, slug, claim)
         if terminal_state == 'complete':
-            expected = {'build_id': claim['build_id'], 'generation': claim['generation'],
-                        'snapshot': claim['snapshot'], 'repository': claim['repository'],
-                        'pull_request': claim['pull_request'], 'sealed_digest': claim['sealed_digest']}
-            if not completion or completion.get('merged') is not True or any(
-                    completion.get(k) != v for k, v in expected.items()):
-                raise BuildStateError('completion requires merged evidence matching the exact Build, address, generation, seal, repository and PR')
+            if claim['state'] == 'preparing':
+                raise BuildStateError('a preparing Build must finish binding before completion can be recorded')
+            _match_completion(claim, completion)
         if claim['state'] == 'retiring':
             if claim['reason'] != reason or claim['terminal_state'] != terminal_state:
                 raise BuildStateError('retirement is already preparing a different decision; retry its recorded reason and state')
@@ -542,6 +578,7 @@ def retire_build(library, slug, identity, schema, *, reason, expected_revision,
             saved = core.json_file(source)
             if core.digest(saved) != claim['legacy_digest']:
                 raise BuildStateError('legacy evidence changed after reservation; preserve it and reconcile ownership')
+            saved = core.forward_migrate(saved)
             saved['ownership'] = identity
             core.validate(saved, schema(saved) if callable(schema) else schema)
             _assert_snapshot_claim(record, claim, saved)
@@ -558,23 +595,24 @@ def retire_build(library, slug, identity, schema, *, reason, expected_revision,
             if expected_revision != 0 or terminal_state == 'complete':
                 raise BuildStateError('an unwritten preparation retires at expected revision 0 and cannot be completed')
             # No evidence is invented: this archive explicitly records that creation never landed.
-            with core.exclusive_lock(path.with_name(path.name + '.lock')):
-                if path.exists():
-                    raise BuildStateError('snapshot appeared during preparation recovery; reread it before retirement')
-                prepare(None)
-                journal = {'ownership': identity, 'unwritten_preparation': True,
-                           'reason': reason, 'terminal_state': terminal_state}
-                if archive.exists() and core.json_file(archive) != journal:
-                    raise BuildStateError('preparation archive conflicts; preserve it and recover the transaction')
-                _durable_json(archive, journal)
+            if path.exists():
+                raise BuildStateError('snapshot appeared during preparation recovery; reread it before retirement')
+            prepare(None)
+            journal = {'ownership': identity, 'unwritten_preparation': True,
+                       'reason': reason, 'terminal_state': terminal_state}
+            if archive.exists() and core.json_file(archive) != journal:
+                raise BuildStateError('preparation archive conflicts; preserve it and recover the transaction')
+            _durable_json(archive, journal)
         else:
             store = DurableBuildStore(path, schema, expected_revision, library_root=library.root)
-            store.retire(archive, validate_owner=lambda state: _assert_snapshot_claim(record, claim, state),
+            store.retire_locked(archive, validate_owner=lambda state: _assert_snapshot_claim(record, claim, state),
                          prepare=prepare)
         claim['state'] = terminal_state
         lease['history'].append(copy.deepcopy(claim))
         lease['current'] = None
         record['build_binding'] = None
+        if close_state:
+            record['closure'] = {'state': close_state, 'at': claim['terminal_at'], 'reason': reason}
         library.write_build_record_locked(slug, record)
         return archive
 
@@ -618,6 +656,8 @@ def migrate(source: Path | str, selector: str, schema, *,
             "started on, or abandon it and re-bind its sealed plan for a fresh Build. The file is "
             "untouched.")
     slug = library.resolve(selector)
+    if core.json_file(library.plan_dir(slug) / 'record.json').get('build_lease'):
+        raise BuildStateError('claimed storage requires the transactional state migrate command')
     destination = snapshot_path(library, slug)
     if destination.exists():
         raise BuildStateError(
@@ -647,3 +687,208 @@ def supersede(library, slug, *, reason, identity=None, expected_revision=None, s
         schema = Path(__file__).resolve().parent.parent / 'schemas' / 'build-state.v2.json'
     return retire_build(library, slug, identity, schema, reason=reason,
                         expected_revision=expected_revision, terminal_state='superseded')
+
+
+def restore_handoff(library, slug, value, restored, schema, *, worktree, projection, locator=None):
+    """Verify a cold export against the surviving canonical evidence; never create ownership.
+
+    A bounded export cannot prove it is the newest copy after the canonical evidence is lost.
+    That case requires recovery of the private snapshot, or explicit retirement, rather than
+    silently recreating possibly stale evidence from a portable handoff.
+    """
+    identity = value.get('ownership')
+    if not identity or not value.get('snapshot') or not value.get('snapshot_revision'):
+        raise BuildStateError('legacy handoff lacks ownership and revision evidence; migrate and re-export from its owning Build')
+    store = ClaimedBuildStore(library, slug, schema, value['snapshot_revision'], identity=identity)
+    def restore(current):
+        record = library.read_record(slug)
+        claim = _assert_claim(record, identity)
+        if value['snapshot'] != claim['snapshot']:
+            raise BuildStateError('handoff names a former or different canonical address')
+        if str(Path(worktree).resolve()) != claim['worktree']:
+            raise BuildStateError('continue this Build in its recorded worktree; a handoff cannot silently move ownership')
+        if locator and str(Path(locator).resolve()) not in (claim['snapshot'], claim['locator']):
+            raise BuildStateError('handoff restore uses the existing canonical snapshot or its registered locator')
+        bounded = {k: v for k, v in value.items() if k != 'snapshot'}
+        if core.digest(projection(current)) != core.digest(bounded):
+            raise BuildStateError('handoff evidence is stale or altered; re-export the current canonical Build')
+        # Preserve private notes from the canonical snapshot. Only continuation evidence changes.
+        for node_id, node in restored['work'].items():
+            original = current['work'].get(node_id, {})
+            if node.get('claim'):
+                original['claim'] = dict(original['claim'], restored=node['claim'].get('restored', False))
+            if node.get('integration'):
+                original['integration'] = node['integration']
+        current['validation'] = restored['validation']
+        current['checkout_snapshot'] = None
+        return current
+    return store.mutate(restore)
+
+
+def adoption_source(library, identity, schema):
+    """Locate the caller's retained generation, including a half-finished adoption's archive."""
+    if not identity:
+        raise BuildStateError('adoption requires the caller-held Build ID and generation')
+    matches = []
+    for slug in library.slugs():
+        record = library.read_record(slug)
+        lease = record.get('build_lease') or {}
+        claims = ([lease['current']] if lease.get('current') else []) + lease.get('history', [])
+        for claim in claims:
+            if claim_identity(claim) == identity:
+                path = _claim_path(library, slug, claim)
+                if not path.is_file() and claim.get('transfer') and claim.get('archive'):
+                    path = plan_store.contain(Path(claim['archive']), library.root, 'an adoption archive')
+                matches.append((slug, path))
+    if len(matches) != 1:
+        raise BuildStateError('the requested adoption generation is missing or ambiguous; recover its ownership record')
+    slug, path = matches[0]
+    return slug, DurableBuildStore(path, schema, library_root=library.root)
+
+
+def adopt_build(library, predecessor_slug, successor_slug, identity, expected_revision,
+                schema, *, change, consent):
+    """Recoverable transfer across two plan records and one canonical successor snapshot.
+
+    The predecessor journals the exact successor claim first, so every retry knows the same
+    destination and generation. Both plan locks are held in plan-id order, then all permanent
+    snapshot locks in path order. No network or recursively locked store call occurs here.
+    """
+    if predecessor_slug == successor_slug or expected_revision is None:
+        raise BuildStateError('adoption requires a different successor and an expected source revision')
+    slugs = sorted((predecessor_slug, successor_slug), key=lambda s: library.read_record(s)['plan_id'])
+    with contextlib.ExitStack() as locks:
+        for slug in slugs:
+            locks.enter_context(plan_store.exclusive_lock_for(library, slug))
+            plan_store.ensure_dir(builds_dir(library, slug), within=library.root)
+        old_record, new_record = library.read_record(predecessor_slug), library.read_record(successor_slug)
+        if old_record['plan_id'] not in ' '.join((new_record.get('intake') or {}).get('predecessors', [])):
+            raise BuildStateError('the successor does not name this predecessor')
+        old_lease = old_record.get('build_lease') or {}
+        old_claim = old_lease.get('current')
+        completed_source = not old_claim
+        if completed_source:
+            old_claim = next((c for c in old_lease.get('history', []) if claim_identity(c) == identity), None)
+        if not old_claim or claim_identity(old_claim) != identity:
+            raise BuildStateError('stale adoption identity; another generation owns the predecessor')
+        if old_claim['state'] not in (('superseded',) if completed_source else ('active', 'transferring')):
+            raise BuildStateError('the predecessor is not available for this adoption')
+        if not completed_source:
+            _assert_claim(old_record, identity, states=('active', 'transferring'))
+        transfer = old_claim.get('transfer')
+        if transfer and 'successor_plan_id' not in transfer:
+            transfer = None  # receipt of an earlier incoming transfer, not an outgoing journal
+        if completed_source and not transfer:
+            raise BuildStateError('this generation retired without an adoption to resume')
+        old_path = _claim_path(library, predecessor_slug, old_claim)
+        target_lease = new_record.get('build_lease')
+        if transfer:
+            if transfer['successor_plan_id'] != new_record['plan_id'] or transfer['source_revision'] != expected_revision:
+                raise BuildStateError('retry the exact successor and source revision recorded by the adoption')
+            new_claim = copy.deepcopy(transfer['successor_claim'])
+        else:
+            if (target_lease and target_lease['current']) or new_record.get('build_binding'):
+                raise BuildStateError('the successor already owns another Build; no transfer began')
+            if _legacy_slot(library, successor_slug).is_file():
+                raise BuildStateError('successor has legacy evidence; migrate or retire it before adoption')
+            generation = max(old_claim['generation'], (target_lease or {}).get('generation', 0)) + 1
+            seal = new_record.get('seal') or {}
+            if new_record.get('closure') or not seal or seal['sealed_digest'] != new_record['current']['plan_digest']:
+                raise BuildStateError('the successor is closed, unsealed or changed')
+            new_claim = {k: old_claim[k] for k in ('build_id', 'repository', 'pull_request', 'worktree', 'locator')}
+            new_claim.update(generation=generation, state='preparing', at=moment.utc_now(),
+                sealed_digest=seal['sealed_digest'], build_plan_digest=seal['build_plan_digest'],
+                snapshot=str(builds_dir(library, successor_slug) / old_claim['build_id'] / SNAPSHOT_FILENAME))
+            new_claim['transfer'] = {'predecessor_plan_id': old_record['plan_id'],
+                                     'predecessor_identity': identity, 'source_revision': expected_revision}
+        new_path = _claim_path(library, successor_slug, new_claim)
+        for path in (old_path, new_path):
+            plan_store.ensure_dir(path.parent, within=library.root)
+        lock_paths = {_legacy_lock(library, s) for s in slugs}
+        lock_paths.update(p.with_name(p.name + '.lock') for p in (old_path, new_path))
+        for path in sorted(lock_paths): locks.enter_context(core.exclusive_lock(path))
+        existing_target = (new_record.get('build_lease') or {}).get('current')
+        unavailable = (new_record.get('closure') or
+            (existing_target and claim_identity(existing_target) != claim_identity(new_claim)) or
+            (not existing_target and (target_lease or {}).get('generation', 0) >= new_claim['generation']))
+        if unavailable:
+            # A crash after the predecessor journal but before successor reservation can allow
+            # another legitimate bind to win the successor. Restore the still-present source,
+            # while preserving its exact evidence; never erase the competing claim.
+            if transfer and not completed_source and old_path.is_file() and not new_path.exists():
+                for key in ('transfer', 'reason', 'archive', 'terminal_at', 'terminal_state'):
+                    old_claim.pop(key, None)
+                old_claim['state'] = 'active'
+                library.write_build_record_locked(predecessor_slug, old_record)
+            raise BuildStateError('successor is no longer available; recover the recorded transfer or choose an available successor')
+        if existing_target and any(existing_target.get(k) != v for k, v in new_claim.items() if k != 'state'):
+            raise BuildStateError('successor reservation differs from the predecessor transfer journal')
+        if completed_source and existing_target and existing_target['state'] == 'active':
+            if not Path(old_claim['archive']).is_file():
+                raise BuildStateError('predecessor archive is missing; recover its evidence before continuing')
+            saved = core.json_file(new_path)
+            core.validate(saved, schema(saved) if callable(schema) else schema)
+            _assert_snapshot_claim(new_record, existing_target, saved)
+            _check_seal(new_record, saved)
+            library.write_build_record_locked(successor_slug, new_record)
+            return saved
+        source = old_path if old_path.is_file() else Path(old_claim.get('archive', ''))
+        saved_old = core.json_file(source)
+        core.validate(saved_old, schema(saved_old) if callable(schema) else schema)
+        _assert_snapshot_claim(old_record, old_claim, saved_old)
+        if saved_old['revision'] != expected_revision:
+            raise BuildStateError('adoption source revision moved; reread the current Build before adopting')
+        desired = copy.deepcopy(saved_old)
+        change(desired)
+        desired['ownership'] = claim_identity(new_claim)
+        desired['revision'] += 1
+        _check_seal(new_record, desired)
+        _assert_snapshot_claim(new_record, new_claim, desired)
+        core.validate(desired, schema(desired) if callable(schema) else schema)
+        import plan_lifecycle
+        prior = plan_lifecycle.missing_prior_consent(new_record, 'adopt')
+        if prior: raise BuildStateError(prior)
+        if not transfer:
+            old_claim.update(state='transferring', terminal_state='superseded',
+                reason=f"adopted sealed successor {new_record['plan_id']}", terminal_at=moment.utc_now(),
+                archive=str(old_path.with_name(f'adopted-g{old_claim["generation"]:06d}-r{expected_revision:06d}.json')),
+                transfer={'successor_plan_id': new_record['plan_id'], 'source_revision': expected_revision,
+                          'successor_claim': copy.deepcopy(new_claim), 'consent': consent})
+            transfer = old_claim['transfer']
+        # Re-flush visible journal writes on retry before relying on their durability.
+        library.write_build_record_locked(predecessor_slug, old_record)
+        if not existing_target:
+            new_record['build_lease'] = {'version': 1, 'generation': new_claim['generation'],
+                'current': new_claim, 'history': (target_lease or {}).get('history', [])}
+            new_record['build_binding'] = _binding_projection(new_claim)
+            new_record.setdefault('consent', []).append(transfer['consent'])
+            library.write_build_record_locked(successor_slug, new_record)
+        else:
+            new_claim = new_record['build_lease']['current']
+        if new_path.exists():
+            desired = core.json_file(new_path)
+            core.validate(desired, schema(desired) if callable(schema) else schema)
+            _assert_snapshot_claim(new_record, new_claim, desired)
+            _check_seal(new_record, desired)
+        _durable_json(new_path, desired)
+        _cutover_locked(library, successor_slug, new_claim)
+        if not completed_source:
+            DurableBuildStore(old_path, schema, expected_revision, library_root=library.root).retire_locked(
+                Path(old_claim['archive']), validate_owner=lambda s: _assert_snapshot_claim(old_record, old_claim, s),
+                prepare=lambda s: None)
+            old_claim['state'] = 'superseded'
+            old_lease['history'].append(copy.deepcopy(old_claim)); old_lease['current'] = None
+            old_record['build_binding'] = None
+            old_record['closure'] = {'state': 'retired', 'at': old_claim['terminal_at'], 'reason': old_claim['reason']}
+            library.write_build_record_locked(predecessor_slug, old_record)
+        if new_claim['locator']:
+            locator = Path(new_claim['locator'])
+            with core.exclusive_lock(locator.with_name(locator.name + '.lock')):
+                current_locator = _private_locator(locator)
+                allowed = (_locator_value(old_record, old_claim), _locator_value(new_record, new_claim))
+                if current_locator not in allowed:
+                    raise BuildStateError('adoption locator was replaced by another owner; recover its registered address')
+                _durable_json(locator, _locator_value(new_record, new_claim))
+        new_claim['state'] = 'active'
+        library.write_build_record_locked(successor_slug, new_record)
+        return desired

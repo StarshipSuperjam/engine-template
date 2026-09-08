@@ -610,33 +610,37 @@ class RevisionedStore:
         unfinished journal is retryable from the archive; an unrelated archive is never replaced.
         The sibling lock is never removed, including when the active file is gone.
         """
+        with self._locked():
+            return self.retire_locked(archive, validate_owner=validate_owner, prepare=prepare)
+
+    def retire_locked(self, archive: Path, *, validate_owner, prepare) -> dict:
+        """The same retirement while a multi-store transaction already holds this store's lock."""
         archive = Path(archive).resolve()
         if archive in (self.path, self.lock) or archive.parent != self.path.parent:
             raise CoordinatorError('retirement archives must stay beside their snapshot on the same filesystem')
-        with self._locked():
-            source_exists = self.path.is_file()
-            if self.path.exists() and not source_exists:
-                raise CoordinatorError('the snapshot slot is not a regular file; recover its evidence before retirement')
-            if not source_exists and not archive.is_file():
-                raise CoordinatorError('snapshot and retirement archive are missing; recover the evidence before retrying')
-            state = forward_migrate(json_file(self.path if source_exists else archive))
-            validate(state, self._schema_for(state))
-            assert_revision(state['revision'], self.expected_revision, 'snapshot', self.stale_remedy)
-            validate_owner(state)
-            if source_exists and archive.exists():
-                previous = forward_migrate(json_file(archive))
-                if digest(previous) != digest(state):
-                    raise CoordinatorError('retirement archive contains different evidence; neither copy was changed')
-            if self.path.parent.stat().st_dev != archive.parent.stat().st_dev:
-                raise CoordinatorError('cross-filesystem retirement is unsupported; source evidence is unchanged')
-            prepare(state)
-            atomic_write(archive, json.dumps(state, indent=2, sort_keys=True) + '\n',
-                         durable=True, mode=0o600, require_directory_flush=True)
-            if source_exists:
-                self.path.replace(archive)
-            if not fsync_dir(archive.parent):
-                raise CoordinatorError('retirement rename is visible but not durably confirmed; retry its recorded transaction')
-            return state
+        source_exists = self.path.is_file()
+        if self.path.exists() and not source_exists:
+            raise CoordinatorError('the snapshot slot is not a regular file; recover its evidence before retirement')
+        if not source_exists and not archive.is_file():
+            raise CoordinatorError('snapshot and retirement archive are missing; recover the evidence before retrying')
+        state = forward_migrate(json_file(self.path if source_exists else archive))
+        validate(state, self._schema_for(state))
+        assert_revision(state['revision'], self.expected_revision, 'snapshot', self.stale_remedy)
+        validate_owner(state)
+        if source_exists and archive.exists():
+            previous = forward_migrate(json_file(archive))
+            if digest(previous) != digest(state):
+                raise CoordinatorError('retirement archive contains different evidence; neither copy was changed')
+        if self.path.parent.stat().st_dev != archive.parent.stat().st_dev:
+            raise CoordinatorError('cross-filesystem retirement is unsupported; source evidence is unchanged')
+        prepare(state)
+        atomic_write(archive, json.dumps(state, indent=2, sort_keys=True) + '\n',
+                     durable=True, mode=0o600, require_directory_flush=True)
+        if source_exists:
+            self.path.replace(archive)
+        if not fsync_dir(archive.parent):
+            raise CoordinatorError('retirement rename is visible but not durably confirmed; retry its recorded transaction')
+        return state
 
     def _write(self, state: dict) -> None:
         validate(state, self._schema_for(state))

@@ -1019,129 +1019,6 @@ def _sealed_plan(selector: str, *, entering: bool = True) -> tuple[str, str, dic
     return record["plan_id"], seal["sealed_digest"], payload
 
 
-def _record_build_binding(plan_id: str, repository: str, pr: int, sealed_digest: str,
-                          build_plan_digest: str, consent: dict | None = None) -> None:
-    """Mark the sealed plan as the one now driving a Build. The bind half of an interlock — fatal.
-
-    This write used to be best-effort, and that hollowed out the guard on the other side:
-    `program supersede` re-asserts "no build_binding" inside the plan record's own lock before it
-    retires a plan, which only means something if every Build actually writes its binding — and
-    writes it BEFORE the Build exists. So three things changed together and stand together:
-
-    - The closure precondition is re-asserted HERE, inside the mutator, under the same lock the
-      supersede-side check runs under. `_sealed_plan` checked it earlier, but that read was
-      unlocked, and a supersession landing in the gap left a Build starting on a plan the record
-      had just put away. Whichever of the two writes lands first now wins; the other refuses.
-    - A failure REFUSES the bind instead of disclosing and proceeding: an unbound running Build is
-      exactly the state the interlock exists to prevent, so "the Build proceeds without a binding"
-      was the failure wearing a shrug.
-    - Callers run this before creating or mutating Build state. A crash after this write leaves a
-      plan marked bound with no Build behind it — supersede then refuses (the safe direction), and
-      re-running the bind overwrites the marker and converges.
-
-    The bind ATTESTATION rides along here because the plan record is where the other three gates'
-    attestations already live, and a consent trail split across two stores has a seam to lose
-    things in.
-    """
-    import moment
-    import plan_lifecycle
-    library = _library()
-    suppressed = {}
-    try:
-        slug = library.resolve(plan_id)
-        record = library.read_record(slug)
-        binding = {"sealed_digest": sealed_digest, "build_plan_digest": build_plan_digest,
-                   "at": moment.utc_now(), "pull_request": pr, "repository": repository}
-
-        def mark(current):
-            closure = current.get("closure")
-            # The dedup exists for ONE case: a crash-retry of THIS SAME bind, which re-writes the
-            # marker and must not record the operator deciding twice. Keyed on the binding identity
-            # (same repository, PR and both digests — `at` excluded, since a retry mints a fresh
-            # clock) plus the gate: a bind of the same plan onto a NEW pull request after a
-            # `state supersede` is a new binding and records its own event. What this cannot tell
-            # apart is a re-bind onto the SAME pull request after a supersede, which presents the
-            # identical binding; that records one event, and the bind says so on stderr.
-            def same_binding(existing):
-                return existing and all(
-                    existing.get(key) == binding.get(key)
-                    for key in ("repository", "pull_request", "sealed_digest", "build_plan_digest"))
-            entries = current.get("consent") or []
-            if consent and consent.get("gate") in plan_lifecycle.PRIOR_GATE:
-                # Bind and adopt both look back to the seal: a sealed plan whose record carries no
-                # seal decision is a record the seal did not write, whatever `seal` says.
-                prior = plan_lifecycle.missing_prior_consent(current, consent["gate"])
-                if prior:
-                    raise CoordinatorError(prior)
-            already_attested = consent and same_binding(current.get("build_binding")) and any(
-                entry.get("gate") == consent.get("gate") for entry in entries)
-            suppressed["duplicate"] = bool(already_attested)
-            if closure:
-                raise CoordinatorError(
-                    f"{plan_id} was closed ({closure['state']}: {closure['reason']}) while this "
-                    "bind was being prepared, and a closed plan does not start a Build. Nothing "
-                    "was bound. If the closure is a mistake and the plan is unsealed, `reopen` "
-                    "undoes it; a sealed plan's closure is permanent — clone it into a new plan, "
-                    "or build its replacement if one exists.")
-            current["build_binding"] = binding
-            # Idempotent per (binding, gate): a crash-retry of the same bind re-writes the marker
-            # but must not record the operator deciding the same thing twice.
-            if consent and not already_attested:
-                current.setdefault("consent", []).append(consent)
-
-        library.update_record(slug, mark, expected_revision=record["current"]["revision"])
-        if suppressed.get("duplicate"):
-            print("build-coordinator: this binding already carries a bind decision, so none was recorded "
-                  "again — a retry of the same bind and a re-bind onto the same pull request look the "
-                  "same from here.", file=sys.stderr)
-    except CoordinatorError:
-        raise
-    except Exception as exc:  # noqa: BLE001 — refused, never shrugged past
-        raise CoordinatorError(
-            f"could not record the Build binding on {plan_id} ({exc}), and an unbound Build is the "
-            "state the supersede interlock exists to prevent — so the bind refuses rather than "
-            "proceeding without it. Repair the plan library and run the bind again.") from exc
-
-
-def _restore_binding(slug: str, previous_binding: dict | None, previous_consent: list,
-                     written_binding: dict, appended_consent: dict | None) -> None:
-    """Undo exactly the binding write a now-refused command made — and nothing anyone else wrote.
-
-    The first cut restored a pre-image captured before the binding write, through a mutator with no
-    precondition — the one write on this path that did not re-assert its own precondition under the
-    lock, and a reviewer drove the consequence: a concurrent session's bind landed in the window,
-    and the rollback erased its binding AND its consent attestation, silently. So this asserts,
-    INSIDE the mutator, that the record's binding is still the one this command wrote (identity
-    fields, not `at` — the clock is fresh on every write); if anything else moved it, the rollback
-    refuses and the caller discloses instead of overwriting. And it removes only the single consent
-    entry this command appended, by POSITION, never the whole array and never by value — entries are
-    events (a gate and a whole-second moment), so two genuine same-gate decisions in one second are
-    equal, and a filter by equality would erase the earlier one along with the retracted one. The
-    trail is append-only for every act that HAPPENED; the one sanctioned retraction is a command
-    taking back the entry it itself just wrote for an act it then refused to perform.
-    """
-    library = _library()
-
-    def unmark(current):
-        existing = current.get("build_binding") or {}
-        if any(existing.get(key) != written_binding.get(key)
-               for key in ("repository", "pull_request", "sealed_digest", "build_plan_digest")):
-            raise CoordinatorError(
-                "another session moved this plan's binding while the rollback was being prepared; "
-                "leaving the record as that session wrote it")
-        current["build_binding"] = previous_binding
-        entries = list(current.get("consent") or [])
-        if appended_consent and len(entries) == len(previous_consent) + 1 \
-                and entries[-1] == appended_consent:
-            entries.pop()
-        if entries:
-            current["consent"] = entries
-        else:
-            current.pop("consent", None)
-
-    library.update_record(slug, unmark)
-
-
 def _check_authorization(plan: dict, issue: int | None, mode: str) -> None:
     """Two artifacts, two authorities, and a check that they are about the same work.
 
@@ -1321,8 +1198,16 @@ def cmd_state_where(args, store: "Snapshot | None") -> None:
         record = library.read_record(slug)
         claim = (record.get('build_lease') or {}).get('current')
         if claim and claim['state'] != 'active':
+            transfer = claim.get('transfer')
+            if transfer:
+                successor = transfer.get('successor_plan_id', record['plan_id'])
+                owner = transfer.get('predecessor_identity', build_state_store.claim_identity(claim))
+                print(f"{slug}: interrupted adoption; retry plan adopt --successor {successor} "
+                      f"with --expect-build-id {owner['build_id']} --expect-generation {owner['generation']} "
+                      f"--expect-revision {transfer['source_revision']} and the original predecessor payload")
+                continue
             print(f"{slug}: {claim['state']} Build {claim['build_id']} generation {claim['generation']}; "
-                  "retry its original bind or explicitly recover/retire it")
+                  "retry its recorded transaction with the same identity, revision and inputs")
             continue
         state = core.json_file(path)
         print(f"{slug}: {path} (revision {state.get('revision')}, "
@@ -1365,7 +1250,7 @@ def cmd_state_migrate(args, store: "Snapshot | None") -> None:
             raise CoordinatorError('migration source and prepared snapshot are missing; recover evidence first')
         claim = current
     else:
-        state = core.json_file(source)
+        state = core.forward_migrate(core.json_file(source))
         core.validate(state, _state_schema_for(state))
         if Path(state['build'].get('worktree', '')).resolve() != ROOT.resolve():
             raise CoordinatorError('migration does not change the Build worktree; use verified handoff for continuation')
@@ -1487,8 +1372,8 @@ def cmd_plan_adopt(args, store: Snapshot) -> None:
     therefore the cost of rebuilding everything it got right, which is a strong incentive to keep
     building against a plan you already believe is flawed.
 
-    What is preserved, and why each is safe. The BINDING — same pull request, same snapshot, same
-    branch — because the work is the same work. The APPROVAL and its depth, taken from the successor's
+    What is preserved, and why each is safe. The BINDING — same Build, pull request and branch;
+    its evidence moves to the successor's private folder with a new generation. The APPROVAL and its depth, taken from the successor's
     OWN plan-side approval: the successor was approved and its panel ran on the plan side, so the
     Build inherits consent that was actually granted for THIS document rather than carrying over the
     predecessor's. And the integration evidence of nodes the successor carries unchanged with
@@ -1508,14 +1393,21 @@ def cmd_plan_adopt(args, store: Snapshot) -> None:
     import plan_lifecycle
     if not getattr(args, "operator_decided", False):
         raise CoordinatorError(plan_lifecycle.missing_consent({}, "adopt"))
-    state = store.read()
+    library = _library()
+    identity = _expected_identity(args)
+    if not identity or getattr(args, 'expect_revision', None) is None:
+        raise CoordinatorError('adoption requires caller-held Build identity, generation and source revision')
+    source_slug, source_store = build_state_store.adoption_source(library, identity, _state_schema_for)
+    state = source_store.read()
+    reasons = resume_reasons(state)
+    if reasons:
+        raise CoordinatorError('adoption must continue the owning worktree and ancestry: ' + '; '.join(reasons))
     bound_id = state["plan"]["plan_id"]
     successor_id, sealed_digest, successor = _sealed_plan(args.successor)
     if successor_id == bound_id:
         raise CoordinatorError(
             f"{successor_id} is the plan this Build is already bound to. A sealed plan cannot be "
             "revised, so adopting it again would change nothing.")
-    library = _library()
     record = library.read_record(library.resolve(successor_id))
     lineage = " ".join((record.get("intake") or {}).get("predecessors", []))
     if bound_id not in lineage:
@@ -1574,32 +1466,12 @@ def cmd_plan_adopt(args, store: Snapshot) -> None:
              "operator_change": f"adopted sealed successor {successor_id}, whose own approval, review "
                                 "and seal are the authority for continuing on it"})
 
-    # The successor's binding lands first so the Build never runs on an unbound plan — but adoption
-    # involves TWO records, and a `mutate` that then refuses (a revision race, a validation failure)
-    # must not leave the successor marked bound to a Build that never switched onto it. So the prior
-    # binding state is captured, and a failed mutate restores it before the refusal propagates. If
-    # the restore itself fails, that is said out loud with the exact repair, never swallowed.
-    successor_slug = _library().resolve(successor_id)
-    previous_record = _library().read_record(successor_slug)
-    previous_binding = previous_record.get("build_binding")
-    previous_consent = list(previous_record.get("consent") or [])
-    written_binding = {"repository": state["build"]["repository"],
-                       "pull_request": state["build"]["pr"],
-                       "sealed_digest": sealed_digest, "build_plan_digest": _digest(successor)}
-    _record_build_binding(successor_id, state["build"]["repository"], state["build"]["pr"],
-                          sealed_digest, _digest(successor), consent)
-    try:
-        store.mutate(change, from_revision=state["revision"])
-    except BaseException:
-        try:
-            _restore_binding(successor_slug, previous_binding, previous_consent,
-                             written_binding, consent)
-        except BaseException as rollback_exc:  # noqa: BLE001 — disclosed with the exact repair
-            print(f"build-coordinator: the adoption failed AND the successor's binding could not be "
-                  f"restored ({rollback_exc}) — {successor_id} may be marked bound to a Build that "
-                  "is still on its predecessor. Repair by re-running this adopt, or clear the "
-                  "marker by completing/abandoning through the ordinary verbs.", file=sys.stderr)
-        raise
+    saved = build_state_store.adopt_build(library, source_slug, library.resolve(successor_id),
+        identity, args.expect_revision, _state_schema_for, change=change, consent=consent)
+    store = build_state_store.ClaimedBuildStore(library, library.resolve(successor_id),
+        _state_schema_for, identity=saved['ownership'])
+    print(json.dumps({'ownership': saved['ownership'], 'revision': saved['revision'],
+                      'state': str(store.path)}))
     preserved = sorted(keep)
     print(f"adopted sealed successor {successor_id}; the Build continues on PR "
           f"{state['build']['pr']} with its binding intact")
@@ -3912,6 +3784,9 @@ def _handoff(state: dict) -> dict:
              "plan_change_escalations": state.get("plan_change_escalations", []),
              "reconciles": state.get("reconciles", [])}
     value["work"] = _bounded_work(state.get("work", {}))
+    if state.get('ownership'):
+        value['ownership'] = state['ownership']
+        value['snapshot_revision'] = state['revision']
     _validate(value, HANDOFF_SCHEMA_V2)
     return value
 
@@ -3937,6 +3812,16 @@ def cmd_handoff_export(args, store: Snapshot) -> None:
     _assert_plan(state, sealed)
     _assert_spec_boundary(state, sealed)
     value = _handoff(state)
+    if isinstance(store, build_state_store.ClaimedBuildStore):
+        with store._locked():
+            state = core.json_file(store.path)
+            core.validate(state, _state_schema_for(state))
+            record = store.library.read_record(store.slug)
+            claim = build_state_store._assert_claim(record, state.get('ownership'))
+            build_state_store._assert_snapshot_claim(record, claim, state)
+            _assert_plan(state, sealed)
+            value = _handoff(state)
+            value['snapshot'] = str(store.path)
     rendered = json.dumps(value, indent=2, sort_keys=True) + "\n"
     if args.output == "-":
         print(rendered, end="")
@@ -4128,9 +4013,13 @@ def cmd_handoff_restore(args, store: Snapshot) -> None:
     # trusted as carried. This runs after the work map is rebuilt so sibling receipts are in place for
     # the attribution re-derivation, and before the snapshot is written so a bad receipt writes nothing.
     _rederive_restored_receipts(plan, state)
-    store.create(state)
+    library = _library()
+    state = build_state_store.restore_handoff(library, library.resolve(plan_id), value, state,
+        _state_schema_for, worktree=ROOT, projection=_handoff, locator=getattr(args, 'state', None))
     _record_session_binding(state, pr_number=value["build"]["pr"])
     print(f"restored Build snapshot against sealed plan {plan_id}")
+    print(json.dumps({'ownership': state['ownership'], 'revision': state['revision'],
+                      'state': value['snapshot']}))
 
 
 def _submit_preview(store: Snapshot, plan_path: str) -> dict:
@@ -5856,8 +5745,11 @@ def main(argv: list[str] | None = None) -> int:
         binding = args.command == "plan" and getattr(args, "plan_command", None) == "bind"
         if standalone and (not args.repository or not args.depth):
             raise CoordinatorError("standalone review packets require --repository and --depth")
-        deferred = binding
+        restoring = _verb(args) == ('handoff', 'restore')
+        deferred = binding or restoring or _verb(args) == ('plan', 'adopt')
         store = None if (standalone or stateless or deferred) else _resolve_store(args)
+        if _verb(args) == ('handoff', 'export') and not isinstance(store, build_state_store.ClaimedBuildStore):
+            raise CoordinatorError('legacy Build: migrate its snapshot before exporting a handoff')
         # Before the verb, never inside it: one chokepoint the whole gate rides on, so a verb cannot
         # be added that quietly skips it. `plan bind` is exempt because it CREATES the snapshot the
         # check reads — there is nothing yet to disagree with.
@@ -5872,6 +5764,10 @@ def main(argv: list[str] | None = None) -> int:
         return 0
     except CoordinatorError as exc:
         print(f"build-coordinator: {exc}", file=sys.stderr)
+        return 2
+    except OSError as exc:
+        print(f"build-coordinator: durable operation did not finish ({exc}). Preserve the evidence; "
+              "inspect state where and retry the same recorded operation and identity to recover.", file=sys.stderr)
         return 2
 
 

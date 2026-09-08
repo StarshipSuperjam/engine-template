@@ -213,8 +213,9 @@ def render_plan(document: dict, record: dict) -> str:
         add(f"- **Build ownership**: `{claim['build_id']}` · generation {claim['generation']} "
             f"· {claim['state']} · {claim['repository']}#{claim['pull_request']}")
         if claim['state'] != 'active':
-            add('- **Recovery**: retry the original transaction with the same inputs, or explicitly '
-                'retire this exact claim. A fresh bind cannot replace it.')
+            verb = 'successor adoption' if claim.get('transfer') else 'transaction'
+            add(f'- **Recovery**: retry the original {verb} with the same identity, revision and inputs. '
+                'Use `state where` for its recovery address. A fresh bind cannot replace it.')
     if imported:
         add("- **Build payload**: none yet — imported verbatim and not decomposed")
     else:

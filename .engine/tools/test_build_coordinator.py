@@ -194,6 +194,20 @@ class CoordinatorCase(unittest.TestCase):
             self.reservation = reservation
             yield
 
+    @contextlib.contextmanager
+    def handoff_storage(self, destination):
+        """Projection/session-locator unit seam; real ownership restore lives in store tests."""
+        library = mock.Mock()
+        library.resolve.return_value = PLAN_ID
+        def restore(library, slug, value, state, schema, **kwargs):
+            state['ownership'] = {'build_id': 'bld_' + '1' * 32, 'generation': 1}
+            value['snapshot'] = str(destination.path)
+            destination.create(state)
+            return destination.read()
+        with mock.patch.object(bc, '_library', return_value=library), \
+                mock.patch.object(build_state_store, 'restore_handoff', side_effect=restore):
+            yield
+
     def integrate_all(self, value=None):
         """Mark every node of the bound plan integrated, the way `work integrate` would.
 
@@ -241,7 +255,6 @@ class TestPlanAndSnapshot(CoordinatorCase):
         with self.binding(), mock.patch.object(bc, "_verify_draft", return_value=pr), \
                 mock.patch.object(bc, "_head", return_value=HEAD_A), \
                 mock.patch.object(bc.github, "tag_coordinator_owned", return_value=True), \
-                mock.patch.object(bc, "_record_build_binding"), \
                 contextlib.redirect_stdout(out), contextlib.redirect_stderr(err):
             bc.cmd_plan_bind(self.bind_args(), self.store)
         self.assertIn(plan_lifecycle.CARRIER_RULE, err.getvalue())
@@ -269,7 +282,7 @@ class TestPlanAndSnapshot(CoordinatorCase):
 
     def test_bind_initializes_only_for_the_matching_draft_pr_head(self):
         pr = {"number": 7, "state": "OPEN", "isDraft": True, "headRefOid": HEAD_A, "baseRefOid": BASE}
-        with self.binding(), mock.patch.object(bc, "_verify_draft", return_value=pr), mock.patch.object(bc, "_head", return_value=HEAD_A), mock.patch.object(bc.github, "tag_coordinator_owned", return_value=True), mock.patch.object(bc, "_record_build_binding"), contextlib.redirect_stdout(io.StringIO()):
+        with self.binding(), mock.patch.object(bc, "_verify_draft", return_value=pr), mock.patch.object(bc, "_head", return_value=HEAD_A), mock.patch.object(bc.github, "tag_coordinator_owned", return_value=True), contextlib.redirect_stdout(io.StringIO()):
             bc.cmd_plan_bind(self.bind_args(), self.store)
         self.assertEqual(self.state()["build"], {"repository": "owner/repo", "pr": 7, "base_at_bind": BASE,
                                                  "mode": "same-session", "worktree": str(bc.ROOT)})
@@ -285,15 +298,14 @@ class TestPlanAndSnapshot(CoordinatorCase):
         self.store.path.write_text("{}", encoding="utf-8")
         with self.binding(), mock.patch.object(bc, "_verify_draft", return_value=pr), \
                 mock.patch.object(bc, "_head", return_value=HEAD_A), \
-                mock.patch.object(bc, "_record_build_binding") as binding, \
                 contextlib.redirect_stdout(io.StringIO()):
             with self.assertRaisesRegex(bc.CoordinatorError, "already exists"):
                 bc.cmd_plan_bind(self.bind_args(pr=9), self.store)
-        binding.assert_not_called()
+        self.assertEqual(self.store.path.read_text(), '{}')
 
     def test_bind_names_the_sealed_plan_it_entered_on(self):
         pr = {"number": 7, "state": "OPEN", "isDraft": True, "headRefOid": HEAD_A, "baseRefOid": BASE}
-        with self.binding(), mock.patch.object(bc, "_verify_draft", return_value=pr), mock.patch.object(bc, "_head", return_value=HEAD_A), mock.patch.object(bc.github, "tag_coordinator_owned", return_value=True), mock.patch.object(bc, "_record_build_binding") as binding, contextlib.redirect_stdout(io.StringIO()):
+        with self.binding(), mock.patch.object(bc, "_verify_draft", return_value=pr), mock.patch.object(bc, "_head", return_value=HEAD_A), mock.patch.object(bc.github, "tag_coordinator_owned", return_value=True), contextlib.redirect_stdout(io.StringIO()):
             bc.cmd_plan_bind(self.bind_args(), self.store)
         recorded = self.state()["plan"]
         self.assertEqual(recorded["plan_id"], PLAN_ID)
@@ -319,7 +331,7 @@ class TestPlanAndSnapshot(CoordinatorCase):
         with self.binding(value=value), mock.patch.object(bc, "_verify_draft", return_value=pr), \
                 mock.patch.object(bc, "_head", return_value=HEAD_A), \
                 mock.patch.object(bc.github, "tag_coordinator_owned", return_value=True), \
-                mock.patch.object(bc, "_record_build_binding"), contextlib.redirect_stdout(io.StringIO()):
+                contextlib.redirect_stdout(io.StringIO()):
             bc.cmd_plan_bind(self.bind_args(**over), self.store)
 
     def test_an_unattended_bind_refuses_an_issue_the_sealed_plan_does_not_name(self):
@@ -691,158 +703,8 @@ class TestSealedPlanEntry(CoordinatorCase):
         with self.assertRaisesRegex(bc.CoordinatorError, "is not sealed"):
             bc._sealed_plan(self.document["plan_id"])
 
-    def test_binding_records_the_binding_on_the_plan_itself(self):
-        seal = self.seal_it()
-        bc._record_build_binding(self.document["plan_id"], "owner/repo", 7, seal["sealed_digest"],
-                                 seal["build_plan_digest"])
-        binding = self.library.read_record(self.slug)["build_binding"]
-        self.assertEqual(binding["pull_request"], 7)
-        self.assertEqual(binding["repository"], "owner/repo")
-        self.assertEqual(binding["sealed_digest"], seal["sealed_digest"])
-
-    def test_a_library_that_cannot_be_written_refuses_the_bind(self):
-        """The write is the interlock now, so failing to land it fails the bind — never a shrug.
-
-        This test used to assert the OPPOSITE: that the failure was disclosed on stderr and the
-        Build proceeded unbound. An unbound Build is invisible to `refuse_if_active` on the
-        supersede side, which re-asserts "no build_binding" under the plan lock — so best-effort
-        here hollowed out that guard entirely.
-        """
-        seal = self.seal_it()
-        with mock.patch.object(self.library, "update_record", side_effect=OSError("read-only")):
-            with self.assertRaises(bc.CoordinatorError) as caught:
-                bc._record_build_binding(self.document["plan_id"], "owner/repo", 7,
-                                         seal["sealed_digest"], seal["build_plan_digest"])
-        self.assertIn("could not record the Build binding", str(caught.exception))
-        self.assertIn("refuses rather than proceeding", str(caught.exception))
-
-    def test_a_crash_retry_of_the_same_bind_does_not_double_record_consent(self):
-        """A retry re-writes the marker but must not record the operator deciding twice — and it
-        says on stderr that it did not, because the record cannot tell a retry from a re-bind onto
-        the same pull request."""
-        seal = self.seal_it()
-        consent = {"gate": "bind", "at": "2026-08-29T10:00:00Z"}
-        bc._record_build_binding(self.document["plan_id"], "owner/repo", 7,
-                                 seal["sealed_digest"], seal["build_plan_digest"], dict(consent))
-        with contextlib.redirect_stderr(io.StringIO()) as err:
-            bc._record_build_binding(self.document["plan_id"], "owner/repo", 7,
-                                     seal["sealed_digest"], seal["build_plan_digest"],
-                                     {"gate": "bind", "at": "2026-08-29T10:00:07Z"})
-        record = self.library.read_record(self.slug)
-        self.assertEqual([entry["gate"] for entry in record["consent"]], ["seal", "bind"])
-        self.assertIn("already carries a bind decision", err.getvalue())
-
-    def test_a_second_bind_onto_a_new_pr_records_the_operators_decision_again(self):
-        """`state supersede` makes a second Build of the same plan a first-class act, and the
-        operator deciding again for a NEW binding is a new event. Suppression is for the identical
-        binding and nothing else."""
-        seal = self.seal_it()
-        bc._record_build_binding(self.document["plan_id"], "owner/repo", 7,
-                                 seal["sealed_digest"], seal["build_plan_digest"],
-                                 {"gate": "bind", "at": "2026-08-29T09:00:00Z"})
-        with contextlib.redirect_stderr(io.StringIO()) as err:
-            bc._record_build_binding(self.document["plan_id"], "owner/repo", 99,
-                                     seal["sealed_digest"], seal["build_plan_digest"],
-                                     {"gate": "bind", "at": "2026-08-29T17:30:00Z"})
-        entries = self.library.read_record(self.slug).get("consent") or []
-        self.assertEqual([entry["at"] for entry in entries if entry["gate"] == "bind"],
-                         ["2026-08-29T09:00:00Z", "2026-08-29T17:30:00Z"])
-        for entry in entries:
-            self.assertEqual(set(entry), {"gate", "at"})
-        self.assertEqual(err.getvalue(), "")
-
-    def test_a_bind_refuses_a_sealed_record_that_carries_no_seal_decision(self):
-        """The chain checks itself: a `seal` block with no seal decision event beside it is a record
-        the seal verb did not write, and the bind refuses before writing anything."""
-        seal = self.seal_it()
-        self.library.update_record(self.slug, lambda current: current.pop("consent", None))
-        with self.assertRaisesRegex(bc.CoordinatorError, "needs the seal gate's recorded decision"):
-            bc._record_build_binding(self.document["plan_id"], "owner/repo", 7,
-                                     seal["sealed_digest"], seal["build_plan_digest"],
-                                     {"gate": "bind", "at": "2026-08-29T10:00:00Z"})
-        record = self.library.read_record(self.slug)
-        self.assertIsNone(record.get("build_binding"))
-        self.assertNotIn("consent", record)
-
-    def test_an_adoption_records_its_own_gate_and_looks_back_to_the_seal(self):
-        """A Build continuing onto a corrected successor is recorded as `adopt`, so a reader of the
-        successor's record can tell it from a Build that started there; and like the bind it refuses
-        a sealed record that carries no seal decision."""
-        seal = self.seal_it()
-        bc._record_build_binding(self.document["plan_id"], "owner/repo", 7,
-                                 seal["sealed_digest"], seal["build_plan_digest"],
-                                 {"gate": "adopt", "at": "2026-08-29T10:00:00Z"})
-        entries = self.library.read_record(self.slug)["consent"]
-        self.assertEqual([entry["gate"] for entry in entries], ["seal", "adopt"])
-        self.library.update_record(self.slug, lambda current: current.pop("consent", None))
-        with self.assertRaisesRegex(bc.CoordinatorError, "adopt gate needs the seal gate"):
-            bc._record_build_binding(self.document["plan_id"], "owner/repo", 8,
-                                     seal["sealed_digest"], seal["build_plan_digest"],
-                                     {"gate": "adopt", "at": "2026-08-29T11:00:00Z"})
-
-    def test_the_rollback_restores_only_what_this_command_wrote(self):
-        """The rollback is the one write on its path that used to carry no precondition, and a
-        reviewer drove the consequence: a concurrent bind landing in the window was erased —
-        binding AND consent — silently. It now asserts, inside the mutator, that the record's
-        binding is still the one this command wrote, and refuses to touch anything else's."""
-        seal = self.seal_it()
-        before = list(self.library.read_record(self.slug).get("consent") or [])
-        mine = {"gate": "bind", "at": "2026-08-29T12:00:00Z"}
-        written = {"repository": "owner/repo", "pull_request": 7,
-                   "sealed_digest": seal["sealed_digest"],
-                   "build_plan_digest": seal["build_plan_digest"]}
-        bc._record_build_binding(self.document["plan_id"], "owner/repo", 7,
-                                 seal["sealed_digest"], seal["build_plan_digest"], dict(mine))
-        # The clean case: nothing moved, so the restore lands and removes only this entry.
-        bc._restore_binding(self.slug, None, before, written, dict(mine))
-        record = self.library.read_record(self.slug)
-        self.assertIsNone(record.get("build_binding"))
-        self.assertEqual(record.get("consent"), before)
-        # The raced case: another session's bind moved the record; the rollback refuses whole.
-        theirs = {"gate": "bind", "at": "2026-08-29T13:00:00Z"}
-        bc._record_build_binding(self.document["plan_id"], "owner/repo", 4242,
-                                 seal["sealed_digest"], seal["build_plan_digest"], dict(theirs))
-        with self.assertRaisesRegex(bc.CoordinatorError, "another session moved"):
-            bc._restore_binding(self.slug, None, before, written, dict(mine))
-        record = self.library.read_record(self.slug)
-        self.assertEqual(record["build_binding"]["pull_request"], 4242)
-        self.assertEqual([entry["at"] for entry in record["consent"] if entry["gate"] == "bind"],
-                         ["2026-08-29T13:00:00Z"])
-
-    def test_the_rollback_removes_one_entry_by_position_under_a_frozen_clock(self):
-        """Entries are events with whole-second moments, so a genuine decision and a retracted one
-        in the same second are EQUAL. A rollback keyed on value would erase both; keyed on position
-        it removes the one it appended and leaves the earlier, genuine one standing."""
-        seal = self.seal_it()
-        frozen = {"gate": "bind", "at": "2026-08-29T12:00:00Z"}
-        bc._record_build_binding(self.document["plan_id"], "owner/repo", 7,
-                                 seal["sealed_digest"], seal["build_plan_digest"], dict(frozen))
-        genuine = list(self.library.read_record(self.slug)["consent"])
-        # A second, distinct binding in the same second, then refused: its entry equals the first.
-        written = {"repository": "owner/repo", "pull_request": 8,
-                   "sealed_digest": seal["sealed_digest"],
-                   "build_plan_digest": seal["build_plan_digest"]}
-        bc._record_build_binding(self.document["plan_id"], "owner/repo", 8,
-                                 seal["sealed_digest"], seal["build_plan_digest"], dict(frozen))
-        self.assertEqual(len(self.library.read_record(self.slug)["consent"]), len(genuine) + 1)
-        bc._restore_binding(self.slug, None, genuine, written, dict(frozen))
-        self.assertEqual(self.library.read_record(self.slug)["consent"], genuine)
-
-    def test_a_closure_landing_in_the_bind_window_refuses_under_the_lock(self):
-        """The bind half of the supersede interlock, driven at exactly the racing write.
-
-        `_sealed_plan` checks closure on an unlocked read; a supersession landing after that check
-        used to leave a Build starting on a plan the record had just put away. The re-assertion
-        lives inside the mutator, under the same lock `refuse_if_active` runs under — this closes
-        the plan after the pre-check would have passed and drives the write directly.
-        """
-        seal = self.seal_it()
-        self._close("retired")     # the closure lands after any earlier check, before the write
-        with self.assertRaises(bc.CoordinatorError) as caught:
-            bc._record_build_binding(self.document["plan_id"], "owner/repo", 7,
-                                     seal["sealed_digest"], seal["build_plan_digest"])
-        self.assertIn("closed plan does not start a Build", str(caught.exception))
-        self.assertIsNone(self.library.read_record(self.slug).get("build_binding"))
+    # Binding/consent/rollback ownership cases now exercise reserve/finish/adopt transactions
+    # against real records in test_build_state_store.TransactionalOwnership.
 
     def test_cold_restore_is_blocked_when_the_sealed_plan_is_gone(self):
         self.seal_it()
@@ -3697,7 +3559,8 @@ class TestPreflightHandoffAndSubmission(CoordinatorCase):
                 mock.patch.object(bc.github, "pr_state", return_value=pr), \
                 mock.patch.object(bc, "_head", return_value=HEAD_A), \
                 mock.patch.object(bc, "_sealed_plan", return_value=(PLAN_ID, SEALED, plan())):
-            bc.cmd_handoff_restore(argparse.Namespace(input=str(path), repository="owner/repo", pr=7), restored)
+            with self.handoff_storage(restored):
+                bc.cmd_handoff_restore(argparse.Namespace(input=str(path), repository="owner/repo", pr=7), restored)
         self.assertEqual(restored.read()["findings"][0]["severity"], "blocking")
         self.assertEqual(restored.read()["validation"]["results"][0]["log_digest"], digest)
 
@@ -3742,7 +3605,8 @@ class TestPreflightHandoffAndSubmission(CoordinatorCase):
                 mock.patch.object(bc.github, "pr_state", return_value=pr), \
                 mock.patch.object(bc, "_head", return_value=HEAD_A), \
                 mock.patch.object(bc, "_sealed_plan", return_value=(PLAN_ID, SEALED, plan())):
-            bc.cmd_handoff_restore(argparse.Namespace(input=str(path), repository="owner/repo", pr=7), restored)
+            with self.handoff_storage(restored):
+                bc.cmd_handoff_restore(argparse.Namespace(input=str(path), repository="owner/repo", pr=7), restored)
         # A successful restore means the state passed build-state validation; the field is dropped to None.
         self.assertIsNone(restored.read()["findings"][0]["private_reference"])
 
@@ -3762,7 +3626,8 @@ class TestPreflightHandoffAndSubmission(CoordinatorCase):
                 mock.patch.object(bc.github, "pr_state", return_value=pr), \
                 mock.patch.object(bc, "_head", return_value=HEAD_A), \
                 mock.patch.object(bc, "_sealed_plan", return_value=(PLAN_ID, SEALED, plan())):
-            bc.cmd_handoff_restore(argparse.Namespace(input=str(path), repository="owner/repo", pr=7), restored)
+            with self.handoff_storage(restored):
+                bc.cmd_handoff_restore(argparse.Namespace(input=str(path), repository="owner/repo", pr=7), restored)
         self.assertIsNone(restored.read()["findings"][0]["private_reference"])
 
     def test_handoff_schema_forbids_private_reference(self):
@@ -4467,7 +4332,6 @@ class TestPlanV2Ingest(CoordinatorCase):
                 mock.patch.object(bc, "_verify_draft", return_value=pr), \
                 mock.patch.object(bc, "_head", return_value=HEAD_A), \
                 mock.patch.object(bc.github, "tag_coordinator_owned", return_value=True), \
-                mock.patch.object(bc, "_record_build_binding"), \
                 contextlib.redirect_stdout(io.StringIO()):
             bc.cmd_plan_bind(self.bind_args(issue=issue), self.store)
 
@@ -4980,7 +4844,6 @@ class TestCoordinatorOwnedTag(CoordinatorCase):
         pr = {"number": 7, "state": "OPEN", "isDraft": True, "headRefOid": HEAD_A, "baseRefOid": BASE}
         with self.binding(), mock.patch.object(bc, "_verify_draft", return_value=pr), \
                 mock.patch.object(bc, "_head", return_value=HEAD_A), \
-                mock.patch.object(bc, "_record_build_binding"), \
                 contextlib.redirect_stdout(io.StringIO()), contextlib.redirect_stderr(io.StringIO()) as err:
             bc.cmd_plan_bind(self.bind_args(), self.store)
         return err.getvalue()
@@ -5045,7 +4908,6 @@ class TestSessionBindingLocator(CoordinatorCase):
         pr = {"number": pr_number, "state": "OPEN", "isDraft": True, "headRefOid": HEAD_A, "baseRefOid": BASE}
         with self.binding(), mock.patch.object(bc, "_verify_draft", return_value=pr), \
                 mock.patch.object(bc, "_head", return_value=HEAD_A), \
-                mock.patch.object(bc, "_record_build_binding"), \
                 mock.patch.object(bc.github, "tag_coordinator_owned", return_value=True), \
                 contextlib.redirect_stdout(io.StringIO()):
             bc.cmd_plan_bind(self.bind_args(pr=pr_number), self.store)
@@ -5151,7 +5013,8 @@ class TestSessionBindingLocator(CoordinatorCase):
                 mock.patch.object(bc.github, "pr_state", return_value=pr), \
                 mock.patch.object(bc, "_head", return_value=HEAD_A), \
                 mock.patch.object(bc, "_sealed_plan", return_value=(PLAN_ID, SEALED, plan())):
-            bc.cmd_handoff_restore(argparse.Namespace(input=str(path), repository="owner/repo", pr=7), restored)
+            with self.handoff_storage(restored):
+                bc.cmd_handoff_restore(argparse.Namespace(input=str(path), repository="owner/repo", pr=7), restored)
         binding = json.loads(self._locator_path().read_text())
         bc.core.validate(binding, bc.SESSION_BINDING_SCHEMA_V1)
         self.assertEqual(binding["plan_ref"], PLAN_ID)
@@ -5172,7 +5035,8 @@ class TestSessionBindingLocator(CoordinatorCase):
                 mock.patch.object(bc.core, "write_session_binding_locator",
                                   side_effect=OSError("disk full")), \
                 contextlib.redirect_stderr(io.StringIO()) as err:
-            bc.cmd_handoff_restore(argparse.Namespace(input=str(path), repository="owner/repo", pr=7), restored)
+            with self.handoff_storage(restored):
+                bc.cmd_handoff_restore(argparse.Namespace(input=str(path), repository="owner/repo", pr=7), restored)
         # Restore still succeeded despite the locator write failing.
         self.assertEqual(restored.read()["plan"]["plan_id"], PLAN_ID)
         self.assertIn("session-binding locator", err.getvalue())
@@ -6277,7 +6141,6 @@ class TestFreshWorktreeBindIsIsolatedFromAPriorSubmittedBuild(unittest.TestCase)
                 mock.patch.object(bc, "_verify_draft", return_value=draft), \
                 mock.patch.object(bc, "_head", return_value=HEAD_A), \
                 mock.patch.object(bc.github, "tag_coordinator_owned", return_value=True), \
-                mock.patch.object(bc, "_record_build_binding"), \
                 mock.patch.object(bc, "_record_session_binding"), \
                 mock.patch.object(build_state_store, "supersede",
                                   side_effect=AssertionError("a fresh bind must not supersede")), \

@@ -1072,6 +1072,25 @@ class MidBuildRevision(WorkCase):
     against a plan you already believe is flawed.
     """
 
+    def setUp(self):
+        super().setUp()
+        # These cases isolate the coordinator's node-preservation/specification transition.
+        # Real two-plan persistence, consent, crash recovery, and the two-process successor
+        # race are exercised by test_build_state_store.TransactionalOwnership.
+        import build_state_store as bs
+        def move(library, source, target, identity, revision, schema, *, change, consent):
+            def apply(state):
+                change(state)
+                state['ownership'] = dict(identity, generation=identity['generation'] + 1)
+            self.store.mutate(apply, from_revision=revision)
+            return self.store.read()
+        patches = [mock.patch.object(bs, 'adoption_source', return_value=('predecessor-slug', self.store)),
+                   mock.patch.object(bs, 'adopt_build', side_effect=move),
+                   mock.patch.object(bs, 'ClaimedBuildStore', return_value=self.store),
+                   mock.patch.object(bc, 'resume_reasons', return_value=[])]
+        for patch in patches:
+            patch.start(); self.addCleanup(patch.stop)
+
     SUCCESSOR = "pln_fedcba987654"
 
     def _successor(self, *, change_adapter=True):
@@ -1092,12 +1111,13 @@ class MidBuildRevision(WorkCase):
 
     def _adopt(self, successor, **over):
         args = argparse.Namespace(successor=self.SUCCESSOR, input=str(self.plan_path),
-                                  operator_decided=True)
+                                  operator_decided=True, expect_build_id='bld_' + '1' * 32,
+                                  expect_generation=1, expect_revision=self.state()['revision'])
         for key, value in over.items():
             setattr(args, key, value)
         with mock.patch.object(bc, "_sealed_plan",
                                return_value=(self.SUCCESSOR, "sha256:" + "f" * 64, successor)), \
-                self._library(), mock.patch.object(bc, "_record_build_binding"), \
+                self._library(), \
                 contextlib.redirect_stdout(io.StringIO()) as out:
             bc.cmd_plan_adopt(args, self.store)
         return out.getvalue()
@@ -1116,76 +1136,20 @@ class MidBuildRevision(WorkCase):
                 contextlib.redirect_stdout(io.StringIO()):
             bc.cmd_work_integrate(args, self.store)
 
-    def test_a_refused_mutate_restores_the_successors_binding_and_consent(self):
-        """Adoption touches TWO records, and a `mutate` that refuses after the binding write must
-        not leave the successor marked bound — or carrying a consent attestation — for an adoption
-        that never happened. This drives the REAL `_record_build_binding` (every other case here
-        mocks it, which is how the call site shipped with zero coverage)."""
-        successor = self._successor()
-        record = {"intake": {"predecessors": [f"{PLAN_ID} — a plan"]},
-                  "approval": {"revision": 1, "plan_digest": "sha256:" + "a" * 64,
-                               "depth": "thorough", "at": "2026-08-25T00:00:00Z"},
-                  "consent": [{"gate": "seal", "at": "2026-08-25T00:00:00Z"}],
-                  "current": {"revision": 1}}
-        library = mock.MagicMock()
-        library.resolve.return_value = "successor-slug"
-        library.read_record.side_effect = lambda slug: record
+    def test_a_refused_transaction_preserves_the_executing_plan(self):
+        import build_state_store as bs
+        before = self.state()
+        with mock.patch.object(bs, 'adopt_build', side_effect=bc.CoordinatorError('revision race')):
+            with self.assertRaisesRegex(bc.CoordinatorError, 'revision race'):
+                self._adopt(self._successor())
+        self.assertEqual(self.state(), before)
 
-        def apply_mutator(slug, change, expected_revision=None):
-            change(record)
-            return record
-        library.update_record.side_effect = apply_mutator
-
-        args = argparse.Namespace(successor=self.SUCCESSOR, input=str(self.plan_path),
-                                  operator_decided=True)
-        with mock.patch.object(bc, "_sealed_plan",
-                               return_value=(self.SUCCESSOR, "sha256:" + "f" * 64, successor)), \
-                mock.patch.object(bc, "_library", return_value=library), \
-                mock.patch.object(self.store, "mutate",
-                                  side_effect=bc.CoordinatorError("revision race")), \
-                contextlib.redirect_stdout(io.StringIO()):
-            with self.assertRaisesRegex(bc.CoordinatorError, "revision race"):
-                bc.cmd_plan_adopt(args, self.store)
-        self.assertIsNone(record.get("build_binding"),
-                          "the successor must not stay marked bound to a Build that never switched")
-        self.assertEqual(record.get("consent"), [{"gate": "seal", "at": "2026-08-25T00:00:00Z"}],
-                         "the trail must not attest an adoption that was refused")
-
-    def test_an_interrupt_during_the_rollback_still_discloses_and_reraises(self):
-        """The claim shipped one round on reading alone: the inner handler's breadth (BaseException)
-        is what lets a mid-rollback interrupt still print the repair instructions and let the
-        original refusal propagate, instead of escaping past both."""
-        successor = self._successor()
-        record = {"intake": {"predecessors": [f"{PLAN_ID} — a plan"]},
-                  "approval": {"revision": 1, "plan_digest": "sha256:" + "a" * 64,
-                               "depth": "thorough", "at": "2026-08-25T00:00:00Z"},
-                  "consent": [{"gate": "seal", "at": "2026-08-25T00:00:00Z"}],
-                  "current": {"revision": 1}}
-        library = mock.MagicMock()
-        library.resolve.return_value = "successor-slug"
-        library.read_record.side_effect = lambda slug: record
-        calls = {"n": 0}
-
-        def update(slug, change, expected_revision=None):
-            calls["n"] += 1
-            if calls["n"] == 1:      # the binding write lands
-                change(record)
-                return record
-            raise KeyboardInterrupt   # the operator's second Ctrl-C hits the rollback write
-
-        library.update_record.side_effect = update
-        args = argparse.Namespace(successor=self.SUCCESSOR, input=str(self.plan_path),
-                                  operator_decided=True)
-        err = io.StringIO()
-        with mock.patch.object(bc, "_sealed_plan",
-                               return_value=(self.SUCCESSOR, "sha256:" + "f" * 64, successor)), \
-                mock.patch.object(bc, "_library", return_value=library), \
-                mock.patch.object(self.store, "mutate",
-                                  side_effect=bc.CoordinatorError("revision race")), \
-                contextlib.redirect_stdout(io.StringIO()), contextlib.redirect_stderr(err):
-            with self.assertRaisesRegex(bc.CoordinatorError, "revision race"):
-                bc.cmd_plan_adopt(args, self.store)
-        self.assertIn("could not be restored", err.getvalue())
+    def test_adoption_requires_the_callers_identity_and_revision(self):
+        args = argparse.Namespace(successor=self.SUCCESSOR, input=str(self.plan_path), operator_decided=True)
+        before = self.state()
+        with self.assertRaisesRegex(bc.CoordinatorError, 'caller-held Build identity'):
+            bc.cmd_plan_adopt(args, self.store)
+        self.assertEqual(self.state(), before)
 
     def test_adoption_carries_the_settled_specification_forward_with_the_approval(self):
         """A project WITH a settled specification is the case nothing covered, and the case that broke.
@@ -1276,7 +1240,8 @@ class MidBuildRevision(WorkCase):
 
     def test_a_successor_that_does_not_name_the_bound_plan_is_refused(self):
         args = argparse.Namespace(successor=self.SUCCESSOR, input=str(self.plan_path),
-                                  operator_decided=True)
+                                  operator_decided=True, expect_build_id='bld_' + '1' * 32,
+                                  expect_generation=1, expect_revision=self.state()['revision'])
         with mock.patch.object(bc, "_sealed_plan",
                                return_value=(self.SUCCESSOR, "sha256:" + "f" * 64, self._successor())), \
                 self._library(predecessors=("pln_999999999999",)), \
@@ -1296,7 +1261,8 @@ class MidBuildRevision(WorkCase):
 
     def test_adopting_the_plan_already_bound_is_refused(self):
         args = argparse.Namespace(successor=PLAN_ID, input=str(self.plan_path),
-                                  operator_decided=True)
+                                  operator_decided=True, expect_build_id='bld_' + '1' * 32,
+                                  expect_generation=1, expect_revision=self.state()['revision'])
         with mock.patch.object(bc, "_sealed_plan",
                                return_value=(PLAN_ID, SEALED, self.plan_value)), \
                 self.assertRaises(bc.CoordinatorError) as caught:
@@ -1307,7 +1273,8 @@ class MidBuildRevision(WorkCase):
         other = Path(self.temp.name) / "other.json"
         other.write_text(json.dumps(plan_v2(objective="Something else")), encoding="utf-8")
         args = argparse.Namespace(successor=self.SUCCESSOR, input=str(other),
-                                  operator_decided=True)
+                                  operator_decided=True, expect_build_id='bld_' + '1' * 32,
+                                  expect_generation=1, expect_revision=self.state()['revision'])
         with mock.patch.object(bc, "_sealed_plan",
                                return_value=(self.SUCCESSOR, "sha256:" + "f" * 64, self._successor())), \
                 self._library(), self.assertRaises(bc.CoordinatorError) as caught:
