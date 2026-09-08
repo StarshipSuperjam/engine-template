@@ -481,6 +481,24 @@
     {
       "type": "codex-hook",
       "event": "SessionStart",
+      "matcher": "compact",
+      "hook": {
+        "type": "command",
+        "command": "cd \"$(git rev-parse --show-toplevel 2>/dev/null || echo .)\" && sh \".engine/tools/codex-hook-runner.sh\" \".engine/tools/build_coordinator.py\" reground-hook"
+      }
+    },
+    {
+      "type": "codex-hook",
+      "event": "PreToolUse",
+      "matcher": "^(Agent|spawn_agent|collaborationspawn_agent)$",
+      "hook": {
+        "type": "command",
+        "command": "cd \"$(git rev-parse --show-toplevel 2>/dev/null || echo .)\" && sh \".engine/tools/codex-hook-runner.sh\" \".engine/tools/session_economy.py\" hook"
+      }
+    },
+    {
+      "type": "codex-hook",
+      "event": "SessionStart",
       "matcher": "resume",
       "hook": {
         "type": "command",

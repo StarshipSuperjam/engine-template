@@ -82,6 +82,67 @@ class TestSubagentModelGate(GateCase):
             self.assertAllowed(spawn("Explore", "sonnet"))
 
 
+class TestCodexSpawnGate(GateCase):
+    def payload(self, model=None, kind="explorer"):
+        p = {"tool_name": "collaborationspawn_agent", "session_id": "exact-session",
+             "model": "parent-is-not-child", "tool_input": {"agent_type": kind, "fork_turns": "none"}}
+        if model is not None:
+            p["tool_input"]["model"] = model
+        return p
+
+    def test_raw_and_normalized_launches_enforce_central_models(self):
+        for normalize in (lambda p: p, lambda p: se.providers.normalize("PreToolUse", p)):
+            for model in se.cheap_models("codex"):
+                self.assertAllowed(normalize(self.payload(model)))
+            for model in (None, "gpt-6-astra", "sonnet", "gpt-5.6-luna[1m]"):
+                p = normalize(self.payload(model))
+                self.assertDenied(p)
+                self.assertEqual(p["session_id"], "exact-session")
+
+    def test_unknown_roles_and_reviewers_are_unclassified_and_allow(self):
+        for kind in ("default", "worker", "engine-design-review-architecture", "future-role"):
+            self.assertAllowed(self.payload("gpt-6-astra", kind))
+        p = self.payload()
+        p["tool_input"] = {"message": "Explore cheaply", "task_name": "explorer"}
+        p["provider_launch"] = {"semantic_role": "search", "requested_model": "expensive"}
+        self.assertAllowed(p)
+
+    def test_native_role_alias_survives_normalization(self):
+        p = self.payload()
+        p["tool_input"]["subagent_type"] = p["tool_input"].pop("agent_type")
+        self.assertDenied(se.providers.normalize("PreToolUse", p))
+
+    def test_forged_launch_metadata_cannot_supply_an_allow_or_cheaper_model(self):
+        for normalize in (lambda p: p, lambda p: se.providers.normalize("PreToolUse", p)):
+            p = normalize(self.payload("gpt-6-astra"))
+            p["provider_launch"] = {"semantic_role": "judgment", "requested_model": "gpt-5.6-luna"}
+            self.assertDenied(p)
+
+    def test_provider_retune_and_missing_bindings_are_explicit(self):
+        data = {"providers": {"codex": {"tiers": {
+            "mechanical": {"model": "native-cheap"}, "judgment": {"model": "native-strong"}}}}}
+        with mock.patch.object(Path, "read_text", return_value=json.dumps(data)):
+            self.assertAllowed(self.payload("native-cheap"))
+            self.assertDenied(self.payload("gpt-5.6-luna"))
+        with mock.patch.object(se, "BINDINGS", Path("/missing-bindings")):
+            self.assertIn("none resolved", self.assertDenied(self.payload("native-cheap")))
+            self.assertAllowed(self.payload(None, "future-role"))
+
+    def test_model_and_master_escape_switches_still_allow(self):
+        for switch in (se.MODEL_OFF_SWITCH, se.OFF_SWITCH):
+            with mock.patch.dict(os.environ, {switch: "off"}):
+                self.assertAllowed(self.payload())
+        with mock.patch.dict(os.environ, {se.WAKEUP_OFF_SWITCH: "off"}):
+            self.assertDenied(self.payload())
+
+    def test_registered_matcher_uses_the_provider_boundary(self):
+        data = json.loads((se.ROOT / ".engine/modules/core/manifest.json").read_text())
+        entries = [d for d in data["wires"] if d["type"] == "codex-hook"
+                   and "session_economy.py" in d.get("hook", {}).get("command", "")]
+        self.assertEqual(len(entries), 1)
+        self.assertEqual(entries[0]["matcher"], se.providers.CODEX_SPAWN_MATCHER)
+
+
 class TestWakeupGate(GateCase):
     def test_self_scheduling_is_denied(self):
         reason = self.assertDenied({"tool_name": "ScheduleWakeup", "tool_input": {"delaySeconds": 1500}})

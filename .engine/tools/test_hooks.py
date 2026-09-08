@@ -2441,15 +2441,13 @@ class TestInventoryDriftCheckers(unittest.TestCase):
         self.assertTrue(any("names validation on PostToolUse" in f for f in failures), failures)
 
     def test_provider_only_bindings_satisfy_their_owners_only_across_the_union(self):
-        # Provider-only owners are an established, ledgered shape: build-coordinator's compact-matcher
-        # re-grounding and session-economy's spend gate are Claude-only; modes' native-plan importer on
-        # UserPromptSubmit is Codex-only. Read alone, EACH runtime's file reds the other's owners — which
-        # is exactly why the reverse leg reads the union (green above), never one file.
+        # The compact reminder and spawn gate now bind on both providers. The native-plan importer
+        # on UserPromptSubmit remains Codex-only, so the reverse leg still reads the union.
         live = self._live()
         installed = hooks.installed_modules()
         codex_only = hooks.inventory_reverse_failures({"codex": live["codex"]}, installed)
-        self.assertTrue(any("build-coordinator on SessionStart" in f for f in codex_only), codex_only)
-        self.assertTrue(any("session-economy on PreToolUse" in f for f in codex_only), codex_only)
+        self.assertFalse(any("build-coordinator on SessionStart" in f for f in codex_only), codex_only)
+        self.assertFalse(any("session-economy on PreToolUse" in f for f in codex_only), codex_only)
         claude_only = hooks.inventory_reverse_failures({"claude": live["claude"]}, installed)
         self.assertEqual([f for f in claude_only if "over-reports" in f],
                          ["the inventory names modes on UserPromptSubmit, but no engine command mapped to modes "

@@ -31,6 +31,7 @@ import sys
 from pathlib import Path
 
 import hooks
+import providers
 
 ROOT = Path(__file__).resolve().parents[2]
 BINDINGS = ROOT / ".engine" / "policies" / "model-bindings.json"
@@ -69,41 +70,46 @@ def disabled(switch: str | None = None) -> bool:
     return _off(OFF_SWITCH) or (switch is not None and _off(switch))
 
 
-def cheap_models() -> set:
+def cheap_models(provider="claude") -> set:
     """The models a search/plan subagent may use, derived from the bindings file rather than restated here,
     so a fleet retune moves this gate with it instead of leaving it enforcing a stale set. `sonnet` is
     included per the operator's rule; a read failure yields the built-in floor rather than an empty set,
     which would deny every spawn."""
-    accepted = {"haiku", "sonnet"}
+    accepted = {"haiku", "sonnet"} if provider == "claude" else set()
     try:
         data = json.loads(BINDINGS.read_text(encoding="utf-8"))
     except (OSError, ValueError):
         return accepted
-    tiers = data.get("tiers") or {}
+    tiers = (data if provider == "claude" else
+             (data.get("providers") or {}).get(provider, {})).get("tiers") or {}
     # Deriving can only ever WIDEN what this gate accepts, so it is clamped: a model the bindings assign to
     # the judgment tier is by definition not the cheap end of the fleet, and a retune that pointed the
     # mechanical tier at it must not silently make this gate accept it.
     judgment = (tiers.get("judgment") or {}).get("model")
     candidates = [(tiers.get("mechanical") or {}).get("model"),
-                  ((data.get("implementation_classes") or {}).get("bounded") or {}).get("claude", {}).get("model")]
+                  ((data.get("implementation_classes") or {}).get("bounded") or {}).get(provider, {}).get("model")]
+    if provider == "codex":
+        candidates.append(((data.get("implementation_classes") or {}).get("builder") or {})
+                          .get(provider, {}).get("model"))
     for model in candidates:
         if isinstance(model, str) and model and model != judgment:
             accepted.add(model)
     return accepted
 
 
-def subagent_denial(tool_name, tool_input):
+def subagent_denial(tool_name, tool_input, provider="claude"):
     """The deny reason for an over-powered search/plan spawn, or None to allow."""
     if disabled(MODEL_OFF_SWITCH) or tool_name not in SUBAGENT_TOOLS or not isinstance(tool_input, dict):
         return None
     kind = tool_input.get("subagent_type")
     if kind not in GATED_SUBAGENT_TYPES:
         return None
-    accepted = cheap_models()
+    accepted = cheap_models(provider)
     model = tool_input.get("model")
-    if isinstance(model, str) and model.split("[")[0].strip() in accepted:
+    identity = model.split("[")[0].strip() if isinstance(model, str) and provider == "claude" else model
+    if isinstance(identity, str) and identity in accepted:
         return None
-    named = " or ".join(sorted(accepted))
+    named = " or ".join(sorted(accepted)) or "none resolved from the central provider bindings"
     said = f"named {model!r}" if isinstance(model, str) and model else "named no model, so it would inherit yours"
     return (f"A {kind} subagent must name a cheap model ({named}); this spawn {said}. "
             "A search or planning agent on an expensive model is spin-up cost for work the "
@@ -127,7 +133,30 @@ def handler(payload: dict) -> dict:
     tool_name = payload.get("tool_name")
     if not isinstance(tool_name, str):
         return hooks.proceed()
-    reason = wakeup_denial(tool_name) or subagent_denial(tool_name, payload.get("tool_input"))
+    # Recompute classification from the launch fields, never trust a supplied provider_launch record.
+    # Normalization preserves the raw tool name, while the shim supplies the provider for literal Agent.
+    raw = payload.get("provider_raw")
+    raw_name = raw.get("tool_name") if isinstance(raw, dict) else None
+    provider = "codex" if (tool_name in providers.CODEX_SPAWN_TOOLS or
+                            (isinstance(raw_name, str) and raw_name in providers.CODEX_SPAWN_TOOLS)) else providers.detect(payload)
+    launch = providers.launch_record(payload, provider=provider)
+    agent_reason = None
+    # A normalized native role alias carries the canonical Explore field. It is an additional
+    # search restriction, never an exemption from a native explorer restriction. Read the model
+    # from the actual tool input; provider_launch cannot supply a cheaper substitute or an allow.
+    raw_input = payload.get("tool_input")
+    canonical_search = (provider == "codex" and tool_name == "Agent" and
+                        isinstance(raw_name, str) and raw_name in providers.CODEX_SPAWN_TOOLS and
+                        isinstance(raw_input, dict) and not raw_input.get("agent_type") and
+                        raw_input.get("subagent_type") == "Explore")
+    if canonical_search:
+        agent_reason = subagent_denial("Agent", raw_input, provider)
+    if launch and launch["semantic_role"] in {"search", "plan"}:
+        agent_reason = subagent_denial("Agent", {
+            "subagent_type": "Explore" if launch["semantic_role"] == "search" else "Plan",
+            "model": launch["requested_model"],
+        }, provider)
+    reason = wakeup_denial(tool_name) or agent_reason
     if reason:
         return hooks.decide("deny", reason)
     return hooks.proceed()

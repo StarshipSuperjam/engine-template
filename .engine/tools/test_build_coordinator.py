@@ -5994,6 +5994,22 @@ class TestPostCompactionRegrounding(CoordinatorCase):
         text = decision["context"]
         self.assertIn("No Build is bound to this worktree", text)
 
+    def test_mismatched_hook_worktree_never_resolves_a_build(self):
+        with mock.patch.object(bc, "_library") as library:
+            decision = bc.reground_handler({"source": "compact", "cwd": "/another-worktree",
+                                            "session_id": "exact-hook-session"})
+        library.assert_not_called()
+        self.assertIn("No Build pointer is assumed", decision["context"])
+
+    def test_mismatched_snapshot_is_disclosed_without_mutation(self):
+        path = self.seeded_snapshot()
+        self.store.mutate(lambda s: s["build"].update(worktree="/another-worktree"))
+        before = path.read_bytes()
+        with self.resolve_to([("a-slug", path)]):
+            decision = bc.reground_handler({"source": "compact", "cwd": str(bc.ROOT)})
+        self.assertIn("different worktree", decision["context"])
+        self.assertEqual(path.read_bytes(), before)
+
     def test_several_bound_builds_disclose_the_ambiguity_and_assume_nothing(self):
         with self.resolve_to([("slug-one", Path("/a")), ("slug-two", Path("/b"))]):
             decision = bc.reground_handler({"source": "compact"})
