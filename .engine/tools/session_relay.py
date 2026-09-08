@@ -127,6 +127,76 @@ def _inert(value) -> str:
     return text
 
 
+# ---- previously-submitted Build advisory: ONE shared source both sites consume ------------------
+# A Build that reached submission (submission=="ready") still records its worktree, so a session
+# that returns to that worktree finds it — and, before this, was told it was the session's live work.
+# The honest presentation is: this Build was PREVIOUSLY SUBMITTED (never proof of finished/merged —
+# submission survives a plan revision that clears completed work), its coordinator status MAY BE
+# STALE, and the new-versus-resume decision, not the stale status, governs what to do next. This is
+# the SINGLE definition of that advisory — its sentence, its three-case steer, and the allowlist of
+# fields it may carry. Both the relay renderer (_render_task_binding, below) and the compaction
+# re-grounding path (build_coordinator.reground_pointer) consume `advisory_lines`, so the two sites
+# cannot drift the way a hand-written second copy did (that drift is exactly how the stale
+# "continue the next planned step" line survived).
+
+# The allowlist of fields the advisory sub-object may carry. Mirrors the schema's advisory
+# properties; a field added in one place but not the other is caught by the schema (additionalProperties
+# is false) and by the drift test.
+ADVISORY_ALLOWED_FIELDS = ("submission", "pr_ref", "plan_selector")
+
+# The plan selector the advisory cites is a plan SLUG, pinned to plan_store's slug grammar. Its
+# charset [a-z0-9-] is a strict subset of what _inert() never rewrites, so the supersede command the
+# advisory prints stays byte-for-byte runnable. The schema pins the SAME pattern; the drift test
+# (test_schema_selector_pattern_matches_plan_store_slug_grammar) keeps the three definitions locked.
+PLAN_SELECTOR_PATTERN = r"^[a-z0-9][a-z0-9-]*--[0-9a-f]{6}$"
+
+ADVISORY_SENTENCE = (
+    "This Build was previously submitted; its coordinator status may be stale, so decide "
+    "new-versus-resume before treating it as current work."
+)
+
+
+def format_pr_ref(pr: "int | str | None") -> "str | None":
+    """The advisory's `pr_ref` value from a snapshot's raw `pr`, or None when there is none.
+
+    ONE definition, so boot's best-effort advisory and the compaction re-grounding path share the
+    int/string normalization instead of hand-maintaining two copies — the same two-site drift risk
+    this module's shared `advisory_lines` exists to remove."""
+    if isinstance(pr, int):
+        return f"#{pr}"
+    if isinstance(pr, str) and pr.strip():
+        return pr if pr.startswith("#") else f"#{pr}"
+    return None
+
+
+def advisory_lines(advisory: dict) -> list[str]:
+    """The rendered advisory block for a previously-submitted Build, as inert-safe physical lines.
+
+    ONE definition, consumed by both the relay renderer here and the compaction re-grounding path in
+    build_coordinator. Every interpolated value passes through `_inert`; the plan selector is
+    additionally schema-pinned to the slug grammar (PLAN_SELECTOR_PATTERN), so the printed
+    `state supersede` command is runnable and names the real Build. The three-case steer is fixed
+    template text: continue THIS Build (keep and re-verify the binding, never supersede), start a
+    DIFFERENT Build (fresh worktree, no cleanup), or deliberately clear a CONFIRMED-STALE binding
+    (supersede). When no plan selector is carried — a compaction gate that fired on a ready Build whose
+    slug is not grammatical — the supersede line is dropped rather than printed with a broken `--plan`:
+    the honest sentence and the two selector-independent cases still stand, so the carrier still fails
+    toward honest presentation, never back to the live-work tail."""
+    submission = _inert(advisory.get("submission", "ready")) or "ready"
+    pr_ref = _inert(advisory.get("pr_ref", "")) or "-"
+    selector = _inert(advisory.get("plan_selector", "")) or "-"
+    lines = [
+        f"advisory=previously_submitted submission={submission} pr_ref={pr_ref} plan={selector}",
+        f"- {ADVISORY_SENTENCE}",
+        "- continue THIS Build: keep this worktree; its binding is preserved and re-verified (do not supersede)",
+        "- start a DIFFERENT Build: cut a fresh worktree from main and bind the plan there; no cleanup of this binding is needed",
+    ]
+    if selector != "-":
+        lines.append(
+            f"- deliberately clear this CONFIRMED-STALE binding: build_coordinator.py state supersede --plan {selector} --reason \"<why>\"")
+    return lines
+
+
 # ---- fixed section order -------------------------------------------------------------------------
 # grounding_receipt FIRST, action_forcing_alarms SECOND — together they must fit the first 2,000
 # characters of the render. Everything else follows in this same fixed order every time.
@@ -191,7 +261,13 @@ def _render_authority_contract(section: dict) -> str:
 
 def _render_task_binding(section: dict) -> str:
     if section["state"] == "none":
-        return "## TASK_BINDING\nstate=none"
+        # A bare none renders exactly as before. A none that carries the previously-submitted
+        # advisory appends the ONE shared advisory block (advisory_lines) — same source the
+        # compaction re-grounding path consumes — so the two sites cannot drift.
+        advisory = section.get("advisory")
+        if not advisory:
+            return "## TASK_BINDING\nstate=none"
+        return "\n".join(["## TASK_BINDING", "state=none", *advisory_lines(advisory)])
     binding = section["binding"]
     snapshot_rev = _inert(binding["coordinator_snapshot"]["revision"])
     pr_state = binding["pr_contract"]["state"]

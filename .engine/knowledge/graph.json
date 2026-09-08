@@ -5211,7 +5211,7 @@
       },
       "slug": "ci-assurance",
       "source": {
-        "fingerprint": "sha256:762bb84a1afc160d14cd143b222c0d3843bf6440a03e9b7fb9f9078dd79cf428",
+        "fingerprint": "sha256:bf04347b05e84eedf33eb6dfdbaa1ac2e8c539aa19bc97dd846823086bea30e1",
         "path": ".engine/docs/ci-assurance.md"
       },
       "status": "active",
@@ -5407,7 +5407,7 @@
       },
       "slug": "search",
       "source": {
-        "fingerprint": "sha256:e7de53ae11a1193a8bf0cf50bc3178c47540ed4c301eea1a8940330732ee3a99",
+        "fingerprint": "sha256:899e38511755cbc6fe05460d651a76fb20fcbc6fe8046b29517e4cff623d6099",
         "path": ".engine/interfaces/search.json"
       },
       "status": "active",
@@ -5683,7 +5683,7 @@
       },
       "slug": "boot-session-start",
       "source": {
-        "fingerprint": "sha256:c0e8a11f63b2a83637f0ca32bff5c455f6255239a3c664bd5427f1e03612fc26",
+        "fingerprint": "sha256:6103f69bab24ff9e465894b53cef66d1174f06615bac7262344994af8c7e890a",
         "path": ".engine/operations/boot-session-start.md"
       },
       "status": "active",
@@ -5763,7 +5763,7 @@
       },
       "slug": "build-kickoff",
       "source": {
-        "fingerprint": "sha256:b2d0657951b712e5d9bdc26bee61a62261f6d685b6a30baa2a8baad1db972045",
+        "fingerprint": "sha256:456a5b1a914394a8be4489a77d48fade0a57c2be7857cf80073ea9312b3c2d6d",
         "path": ".engine/operations/build-kickoff.md"
       },
       "status": "active",
@@ -5783,7 +5783,7 @@
       },
       "slug": "build-orchestration",
       "source": {
-        "fingerprint": "sha256:db8a38163865df95ab0ce9eab2bea59c1a325b8cfdd504b918e323cb8b757ed1",
+        "fingerprint": "sha256:d2206cb29b1b33af682f39bb65b1fa8ca95e92d1739575c5ccb468a1ee18e337",
         "path": ".engine/operations/build-orchestration.md"
       },
       "status": "active",
@@ -7736,7 +7736,7 @@
       },
       "slug": "session-relay.v1",
       "source": {
-        "fingerprint": "sha256:ca2d09b7e110e82463772fb6c9b2a58451d5e7c7fb887266cfe262de7710dc5e",
+        "fingerprint": "sha256:fd78f819979ff94ac0a210ca9ca1f32f4c30648d73dcac410531727575c2301f",
         "path": ".engine/schemas/session-relay.v1.json"
       },
       "status": "active",
@@ -9034,7 +9034,7 @@
     },
     {
       "entrypoint": "mcp-server",
-      "guarded": true,
+      "guarded": false,
       "id": "tool:accepted_hook_dispatch",
       "name": ".engine/tools/accepted_hook_dispatch.py",
       "owner": "core",
@@ -9050,7 +9050,7 @@
       },
       "slug": "accepted_hook_dispatch",
       "source": {
-        "fingerprint": "sha256:536eae557218e9d028e330916ade28cc53013977a63c703bb38a47b4c5982b9b",
+        "fingerprint": "sha256:090b32e897c524e0b47ddf94f5afe4821a7ae1c0fadd5728fe5598474fb80268",
         "path": ".engine/tools/accepted_hook_dispatch.py"
       },
       "status": "active",
@@ -9411,7 +9411,7 @@
       },
       "slug": "boot",
       "source": {
-        "fingerprint": "sha256:1eff5b645bfe951d653ebf505a22bfbd7e968b4aa000f0bce5b5f5d29291b203",
+        "fingerprint": "sha256:fdca5c44fddcbbad86fc9f2805b298e3ef15871e88b8c9525b6f88345a5186f5",
         "path": ".engine/tools/boot.py"
       },
       "status": "active",
@@ -9532,6 +9532,7 @@
           "tool:repair_divergence",
           "tool:repo_identity",
           "tool:review_integrity",
+          "tool:session_relay",
           "tool:spec_referent",
           "tool:validate",
           "tool:weakening_guard"
@@ -9542,7 +9543,7 @@
       },
       "slug": "build_coordinator",
       "source": {
-        "fingerprint": "sha256:baeaf708209de6796dad2bb1d24ee630934813634970965204d0894a23c28dc0",
+        "fingerprint": "sha256:9143c91efa748cf336d48fd6e75e7050465d77bb30218944331d07c52ba19546",
         "path": ".engine/tools/build_coordinator.py"
       },
       "status": "active",
@@ -9848,7 +9849,7 @@
       },
       "slug": "build_state_store",
       "source": {
-        "fingerprint": "sha256:2feee097f051cec0b72d5eb58ed4032b9e451b7ea3811852a202130aaab57d83",
+        "fingerprint": "sha256:7594e33469bd368e2b385711f97db9cb4595e881a8b9f3d7bf0d32e5b80627aa",
         "path": ".engine/tools/build_state_store.py"
       },
       "status": "active",
@@ -10779,8 +10780,10 @@
       "owner": "core",
       "predicates": {
         "imports": [
+          "tool:boot",
           "tool:build_coordinator",
-          "tool:session_economy"
+          "tool:session_economy",
+          "tool:session_relay"
         ],
         "provided_by": [
           "module:core"
@@ -10788,7 +10791,7 @@
       },
       "slug": "demo_active_build_continuity",
       "source": {
-        "fingerprint": "sha256:889a28598a6b86fa973f32a1dbe4c6198c6d2e4a56de87182b198c0261dfac00",
+        "fingerprint": "sha256:efbfda7e738e1822ddfff951b55480ff8d929c9d990b1c0f048466bd1aa5632d",
         "path": ".engine/tools/demo_active_build_continuity.py"
       },
       "status": "active",
@@ -12304,7 +12307,7 @@
       },
       "slug": "execution_context",
       "source": {
-        "fingerprint": "sha256:0c638b8096e7f9c0dfa705c9690c00b1082689d4afe308f2fb009f515a39c6f8",
+        "fingerprint": "sha256:f929b8a74c47e2b69785bf3816f85f9e1b02c789649f0a3c50fa30c08c29ea62",
         "path": ".engine/tools/memory/execution_context.py"
       },
       "status": "active",
@@ -12492,7 +12495,7 @@
       },
       "slug": "forget",
       "source": {
-        "fingerprint": "sha256:0eb9fcdd3147147087fa185a8926dfe83eb2d77caf3c5e9efd27f93c7cd126de",
+        "fingerprint": "sha256:244b79a88d63984f51303f792bf98dd1a9bc3b55984258b56849c882ff3fff4d",
         "path": ".engine/tools/memory/forget.py"
       },
       "status": "active",
@@ -12613,7 +12616,7 @@
     },
     {
       "entrypoint": "cli",
-      "guarded": true,
+      "guarded": false,
       "id": "tool:hooks_path_health",
       "name": ".engine/tools/hooks_path_health.py",
       "owner": "core",
@@ -12627,7 +12630,7 @@
       },
       "slug": "hooks_path_health",
       "source": {
-        "fingerprint": "sha256:429f2184e8cfd6a74e322536d2a30947593b4d7517a8e39910b797ed32c28e09",
+        "fingerprint": "sha256:79fc83f354d99f02cf52dd6f35d46fd1a7b3b1dbff67cf6f594d7322cb4708d4",
         "path": ".engine/tools/hooks_path_health.py"
       },
       "status": "active",
@@ -13200,30 +13203,6 @@
       "type": "tool"
     },
     {
-      "entrypoint": "cli",
-      "guarded": false,
-      "id": "tool:legacy_coverage",
-      "name": ".engine/tools/memory/legacy_coverage.py",
-      "owner": "memory-substrate-sqlite-fts5",
-      "predicates": {
-        "imports": [
-          "tool:ledger",
-          "tool:records"
-        ],
-        "provided_by": [
-          "module:memory-substrate-sqlite-fts5"
-        ]
-      },
-      "slug": "legacy_coverage",
-      "source": {
-        "fingerprint": "sha256:9afc55123b59725bff4962058d4d82190f96169517895b5271ee53e25a0df6ab",
-        "path": ".engine/tools/memory/legacy_coverage.py"
-      },
-      "status": "active",
-      "summary": "Legacy summary/gist coverage census — a READ-ONLY audit (StarshipSuperjam/engine-template#1053).",
-      "type": "tool"
-    },
-    {
       "entrypoint": "library",
       "guarded": false,
       "id": "tool:legacy_shapes",
@@ -13409,8 +13388,7 @@
           "tool:records",
           "tool:refusals",
           "tool:store",
-          "tool:stranding_log",
-          "tool:write_dispatch"
+          "tool:stranding_log"
         ],
         "provided_by": [
           "module:memory-substrate-sqlite-fts5"
@@ -13418,7 +13396,7 @@
       },
       "slug": "mcp_server",
       "source": {
-        "fingerprint": "sha256:d7c6382bbb626ef0d4f61bbff8de6b2024eeec9faf97cf67c98e91b39e1d1940",
+        "fingerprint": "sha256:cb05be321fd1468fa2c02d9883b332b823d93af8b2419f632b0db13433a602e4",
         "path": ".engine/tools/memory/mcp_server.py"
       },
       "status": "active",
@@ -13814,7 +13792,6 @@
       "owner": "memory-substrate-sqlite-fts5",
       "predicates": {
         "imports": [
-          "tool:accepted_hook_dispatch",
           "tool:execution_context",
           "tool:mutation_contract",
           "tool:refusals"
@@ -13825,7 +13802,7 @@
       },
       "slug": "mutation_authority",
       "source": {
-        "fingerprint": "sha256:6fde25d90335071404f56b71601f50c03faf8f37ddb74a98cabd96869ab40960",
+        "fingerprint": "sha256:38ad94b97742722a02fe823caca8a00882fcd7cd00da0cb8f859b5b9cc5ca17d",
         "path": ".engine/tools/memory/mutation_authority.py"
       },
       "status": "active",
@@ -13845,7 +13822,7 @@
       },
       "slug": "mutation_contract",
       "source": {
-        "fingerprint": "sha256:e0461c74d9ea820562bd4577e18f06c640201a4ec306a17213547ce46ce60b9d",
+        "fingerprint": "sha256:40dc3a2d3c3a85163a1fadf899b3b3bfd6a613bc1006bd668b4121e16931ab92",
         "path": ".engine/tools/memory/mutation_contract.py"
       },
       "status": "active",
@@ -14069,7 +14046,7 @@
       },
       "slug": "pins",
       "source": {
-        "fingerprint": "sha256:6af4bd3152ed0d23ba13db43c66a56c5972a060ccb58376d7290f34611325e40",
+        "fingerprint": "sha256:2dfeb3abcf338e921f4fd67cc88a716e5236a9341ea6ca5a6538a2614f7f7ef2",
         "path": ".engine/tools/memory/pins.py"
       },
       "status": "active",
@@ -15391,7 +15368,7 @@
       },
       "slug": "session_relay",
       "source": {
-        "fingerprint": "sha256:29065905c9dbc26d6b7c1a912c77c4eb20e96faad7ae285804c64fcf70757e5a",
+        "fingerprint": "sha256:da21863b44451f45376cb0aece3ca49a61548756c8155cf3e436e15509aa5e5d",
         "path": ".engine/tools/session_relay.py"
       },
       "status": "active",
@@ -16133,6 +16110,9 @@
           "tool:audit_digest",
           "tool:boot",
           "tool:boot_alarm_ledger",
+          "tool:build_coordinator",
+          "tool:build_coordinator_core",
+          "tool:build_state_store",
           "tool:engine_status",
           "tool:hooks",
           "tool:knowledge_index",
@@ -16145,7 +16125,7 @@
       },
       "slug": "test_boot",
       "source": {
-        "fingerprint": "sha256:77482325e5051927993a9b9cdaa2a906205dab722319529e225cd593103bef11",
+        "fingerprint": "sha256:6f64407ddb8249d70b1ea37320f9feabf5f52c7d9850848a7752256a5de9fbd5",
         "path": ".engine/tools/test_boot.py"
       },
       "status": "active",
@@ -16265,12 +16245,13 @@
           "tool:selftest_support",
           "tool:spec_referent",
           "tool:test_build_coordinator_contract",
+          "tool:test_build_state_store",
           "tool:test_plan_store"
         ]
       },
       "slug": "test_build_coordinator",
       "source": {
-        "fingerprint": "sha256:2bee55c29d3fbc5e3f98776fb865e95b7ef77e73633c2d0ac01654322e56598c",
+        "fingerprint": "sha256:bd7c45027d7ca8b6bef23e4890eef526251b0346a6a8a7004af8f71eb59a760f",
         "path": ".engine/tools/test_build_coordinator.py"
       },
       "status": "active",
@@ -16532,7 +16513,7 @@
       },
       "slug": "test_build_state_store",
       "source": {
-        "fingerprint": "sha256:279e32c419201589edf5ccd13f2b4635308d8aed219c16e6dfce6187a1da93f5",
+        "fingerprint": "sha256:200a221a45cc9a6971e605b21757e39bb6b8d8a9f152d05c26252440fcd70dfc",
         "path": ".engine/tools/test_build_state_store.py"
       },
       "status": "active",
@@ -17738,7 +17719,7 @@
       },
       "slug": "test_hooks",
       "source": {
-        "fingerprint": "sha256:f3241095635ddf506a109bc19024f0bb738412fb3d90a66b2f5f38fc4a27a1b9",
+        "fingerprint": "sha256:d573332c21baacb1e769641356ae464630e2942e0e5fbc06fa72a9e487e592a3",
         "path": ".engine/tools/test_hooks.py"
       },
       "status": "active",
@@ -18334,32 +18315,6 @@
     {
       "entrypoint": "test",
       "guarded": false,
-      "id": "tool:test_legacy_coverage",
-      "name": ".engine/tools/memory/test_legacy_coverage.py",
-      "owner": "memory-substrate-sqlite-fts5",
-      "predicates": {
-        "provided_by": [
-          "module:memory-substrate-sqlite-fts5"
-        ],
-        "tests": [
-          "tool:ledger",
-          "tool:legacy_coverage",
-          "tool:legacy_shapes",
-          "tool:records"
-        ]
-      },
-      "slug": "test_legacy_coverage",
-      "source": {
-        "fingerprint": "sha256:4d5c99d6a2455cf027be9358d6479d3726ddcdcf9832647f33299587af930875",
-        "path": ".engine/tools/memory/test_legacy_coverage.py"
-      },
-      "status": "active",
-      "summary": "Unit tests for legacy_coverage.py — the read-only legacy summary/gist coverage census (StarshipSuperjam/engine-template#1053).",
-      "type": "tool"
-    },
-    {
-      "entrypoint": "test",
-      "guarded": false,
       "id": "tool:test_lens_consumption",
       "name": ".engine/tools/test_lens_consumption.py",
       "owner": "core",
@@ -18530,13 +18485,12 @@
           "tool:store",
           "tool:stranding_log",
           "tool:test_mutation_authority",
-          "tool:validate",
-          "tool:write_dispatch"
+          "tool:validate"
         ]
       },
       "slug": "test_mcp_server",
       "source": {
-        "fingerprint": "sha256:1ffcdb673f1f4eaae5db9990121aa0259bb9c139c6d910390b0e7ece96b1bf6f",
+        "fingerprint": "sha256:936c45b28cc655ee747c841c700ed73718837003930c02af639a6423b78aca4f",
         "path": ".engine/tools/memory/test_mcp_server.py"
       },
       "status": "active",
@@ -18826,7 +18780,6 @@
           "module:memory-substrate-sqlite-fts5"
         ],
         "tests": [
-          "tool:accepted_hook_dispatch",
           "tool:backup_vault",
           "tool:candidate_invocation",
           "tool:capture",
@@ -18849,7 +18802,7 @@
       },
       "slug": "test_mutation_authority",
       "source": {
-        "fingerprint": "sha256:2732266833ec7d2ef0fa04c52d73ec607a485d6b175a65615152b42e87b19a39",
+        "fingerprint": "sha256:35788ba51d14079345f4a46728f2c1826052519b769ede8776833c08ffb8454e",
         "path": ".engine/tools/memory/test_mutation_authority.py"
       },
       "status": "active",
@@ -20456,7 +20409,7 @@
       },
       "slug": "test_seed",
       "source": {
-        "fingerprint": "sha256:1f714a0189b2fefd875f60f3027865354339e709544429256b0ec15f29818b1c",
+        "fingerprint": "sha256:d9ed5740043bfecaece9900ade8cff2c6fafeef2b59e3bfc84d08843220d8745",
         "path": ".engine/tools/test_seed.py"
       },
       "status": "active",
@@ -20682,12 +20635,13 @@
           "module:core"
         ],
         "tests": [
+          "tool:plan_store",
           "tool:session_relay"
         ]
       },
       "slug": "test_session_relay",
       "source": {
-        "fingerprint": "sha256:b03b0d0c1e07b2bde10b5c3769c9ee34d877bfe5c8e373e7e1a0d4089b05871b",
+        "fingerprint": "sha256:43a50df5766800259244ee5065b5380205825f7da567d73c924f738f332872a2",
         "path": ".engine/tools/test_session_relay.py"
       },
       "status": "active",
@@ -21414,33 +21368,6 @@
       "type": "tool"
     },
     {
-      "entrypoint": "test",
-      "guarded": false,
-      "id": "tool:test_write_dispatch",
-      "name": ".engine/tools/memory/test_write_dispatch.py",
-      "owner": "memory-substrate-sqlite-fts5",
-      "predicates": {
-        "provided_by": [
-          "module:memory-substrate-sqlite-fts5"
-        ],
-        "tests": [
-          "tool:ledger",
-          "tool:pins",
-          "tool:records",
-          "tool:refusals",
-          "tool:write_dispatch"
-        ]
-      },
-      "slug": "test_write_dispatch",
-      "source": {
-        "fingerprint": "sha256:ca60f80e5883520ea3251c91062f3123e829160b5a5b18be0dd884b2994b44e2",
-        "path": ".engine/tools/memory/test_write_dispatch.py"
-      },
-      "status": "active",
-      "summary": "Unit tests for write_dispatch.py — the one seam every memory write crosses.",
-      "type": "tool"
-    },
-    {
       "entrypoint": "cli",
       "guarded": false,
       "id": "tool:transaction",
@@ -21820,7 +21747,7 @@
       },
       "slug": "weakening_guard",
       "source": {
-        "fingerprint": "sha256:8d33b9648ef9b5322580361876bf74cfac645618da7e11df381c17cbb0b9373b",
+        "fingerprint": "sha256:a54d82523374ec07783b08cf761d19bbd8dc9cf77fe4d05dff859a2d2dd4ed28",
         "path": ".engine/tools/weakening_guard.py"
       },
       "status": "active",
@@ -21893,34 +21820,6 @@
       },
       "status": "active",
       "summary": "Read the in-flight git/GitHub work record — the \"work in hand\" attention ranks at orientation",
-      "type": "tool"
-    },
-    {
-      "entrypoint": "cli",
-      "guarded": false,
-      "id": "tool:write_dispatch",
-      "name": ".engine/tools/memory/write_dispatch.py",
-      "owner": "memory-substrate-sqlite-fts5",
-      "predicates": {
-        "imports": [
-          "tool:execution_context",
-          "tool:forget",
-          "tool:mutation_authority",
-          "tool:pins",
-          "tool:records",
-          "tool:refusals"
-        ],
-        "provided_by": [
-          "module:memory-substrate-sqlite-fts5"
-        ]
-      },
-      "slug": "write_dispatch",
-      "source": {
-        "fingerprint": "sha256:736da10f7f3e23830bdb4554108faf3226dcc07b50b2397f3f77499c5b0c8a14",
-        "path": ".engine/tools/memory/write_dispatch.py"
-      },
-      "status": "active",
-      "summary": "write_dispatch.py — the one seam every memory write crosses: the server hands a write to a freshly",
       "type": "tool"
     }
   ],

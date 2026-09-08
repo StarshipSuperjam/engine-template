@@ -38,6 +38,7 @@ import hooks
 import moment
 import repo_identity
 import review_integrity
+import session_relay
 
 ROOT = Path(__file__).resolve().parents[2]
 PROTOCOL_PATH = ROOT / ".engine" / "build-protocol.json"
@@ -1330,15 +1331,38 @@ def cmd_state_migrate(args, store: "Snapshot | None") -> None:
                       "source_kept": True}))
 
 
+# The one place the supersede semantics are worded, shared by the CLI help (parser `description`)
+# and the success output (`note`) so the two can never drift. It names the ONE thing supersede is
+# for and, just as loudly, the three things it is not — because the misread this whole change exists
+# to prevent is treating a previously-submitted binding as either live work to resume or an obstacle
+# to a fresh Build. The advisory's three-case steer (session_relay.advisory_lines) is the other half:
+# it points a confirmed-stale binding here, and points a genuine continuation AWAY from here.
+_SUPERSEDE_GUIDANCE = (
+    "Clears a CONFIRMED-STALE binding by setting this plan's durable Build snapshot aside so a fresh "
+    "Build of the same plan may start. This is NOT how you resume — a genuine continuation keeps this "
+    "worktree and re-verifies its binding, and never supersedes. A DIFFERENT plan needs no supersede "
+    "either: each plan gets its own snapshot, so another plan just binds fresh. But the SAME plan cannot "
+    "sidestep an existing snapshot by cutting a new worktree — snapshots are keyed by plan, not worktree, "
+    "so re-binding the same plan is refused until this snapshot is resumed or, once confirmed stale, "
+    "superseded. It neither completes the plan nor changes the PR; the displaced snapshot is retained as "
+    "evidence, never destroyed."
+)
+
+
 def cmd_state_supersede(args, store: "Snapshot | None") -> None:
-    """Set this plan's durable snapshot aside so a second Build of it may start. Never implicit."""
+    """Clear a CONFIRMED-STALE binding: set this plan's durable snapshot aside so a fresh Build of it
+    may start. NOT the resume path (a genuine continuation keeps and re-verifies the binding). A
+    different plan needs no supersede (it binds to its own snapshot); the SAME plan cannot sidestep an
+    existing snapshot by changing worktrees, since snapshots are keyed by plan — resume it, or supersede
+    it once confirmed stale. Neither a plan completion nor a PR change; the displaced snapshot is retained
+    as evidence. Never implicit — see `_SUPERSEDE_GUIDANCE`."""
     library = _library()
     slug = library.resolve(args.plan)
     retired = build_state_store.supersede(library, slug, reason=args.reason)
     if retired is None:
         raise CoordinatorError(
             f"{slug} holds no durable Build snapshot, so there is nothing to supersede.")
-    print(json.dumps({"superseded": str(retired)}))
+    print(json.dumps({"superseded": str(retired), "note": _SUPERSEDE_GUIDANCE}))
 
 
 def plan_store_module():
@@ -5572,7 +5596,7 @@ def parser() -> argparse.ArgumentParser:
     state_p = sub.add_parser("state").add_subparsers(dest="state_command", required=True)
     swhere = state_p.add_parser("where"); swhere.set_defaults(func=cmd_state_where)
     smigrate = state_p.add_parser("migrate"); smigrate.add_argument("--source", required=True, help="an existing OS-temp Build snapshot"); smigrate.add_argument("--plan", required=True, help="the sealed plan whose library folder receives it"); smigrate.set_defaults(func=cmd_state_migrate)
-    ssupersede = state_p.add_parser("supersede"); ssupersede.add_argument("--plan", required=True); ssupersede.add_argument("--reason", required=True); ssupersede.set_defaults(func=cmd_state_supersede)
+    ssupersede = state_p.add_parser("supersede", help="clear a confirmed-stale binding so a fresh Build of the plan may start", description=_SUPERSEDE_GUIDANCE); ssupersede.add_argument("--plan", required=True, help="the sealed plan whose confirmed-stale snapshot is set aside"); ssupersede.add_argument("--reason", required=True, help="why it is confirmed stale; recorded beside the retained snapshot"); ssupersede.set_defaults(func=cmd_state_supersede)
     validate = sub.add_parser("validate"); validate.add_argument("mode", nargs="?", choices=["candidate", "final"], help="bare `validate` and `validate candidate` are the same run; `validate final import` verifies and imports the live engine-ci proof for the submitted head"); validate.add_argument("action", nargs="?", choices=["import"], help="for `final`: import is the only action — the proof is never run locally"); validate.add_argument("--force", action="store_true", help="re-run even when the cached candidate identity matches"); validate.add_argument("--plan", help="the approved plan; REQUIRED for a build-plan.v2 Build, whose node roster lives only there"); validate.set_defaults(func=cmd_validate)
     sync_artifacts = sub.add_parser("sync-artifacts"); sync_artifacts.set_defaults(func=cmd_sync_artifacts)
     repair = sub.add_parser("repair").add_subparsers(dest="repair_command", required=True)
@@ -5633,10 +5657,33 @@ _REGROUND_ALLOWLIST: tuple[tuple[str, "Any"], ...] = (
 )
 
 
-def reground_pointer(state: dict) -> str:
-    """The injected pointer for one resolved Build, built only from the allowlist above."""
-    lines = ["Engine: this session was compacted while a Build was running. The Build's durable record —",
-             "not this session's summary — is the authority for what follows.", ""]
+def reground_pointer(state: dict, slug: "str | None" = None) -> str:
+    """The injected pointer for one resolved Build, built only from the allowlist above.
+
+    A PREVIOUSLY-SUBMITTED Build (submission=='ready') is NOT this session's live work, so its pointer
+    is ordered decision-FIRST: the opening states the Build was previously submitted and its coordinator
+    record may be stale, and steers the session to decide resume-versus-different BEFORE treating that
+    record as current work. Only AFTER the shared new-versus-resume advisory (session_relay.advisory_lines
+    — the same wording and three-case steer boot's relay carries, from ONE definition) does the pointer
+    mention the record's authority and the mutating-verb re-verification, and it states them as
+    CONDITIONAL on actually resuming — never as an unconditional 'inspect this record's status before
+    changing anything', which is exactly the live-work framing this fix exists to kill. The advisory cites
+    `slug` as its plan selector when it is grammatical; a missing or ungrammatical slug drops ONLY the
+    supersede command (advisory_lines omits that one line), still presenting the honest advisory. Every
+    other submission state keeps the in-flight framing: the record is the authority for what follows, read
+    its status before changing anything, and continue the next planned step. The compaction carrier fails
+    toward honest presentation, never back to the live-work tail."""
+    is_ready = state.get("submission") == "ready"
+    if is_ready:
+        lines = [
+            "Engine: this session was compacted. A Build previously submitted from this worktree is still",
+            "bound here, and its coordinator record may be stale. DECIDE whether to resume THIS Build or",
+            "start a different one BEFORE you treat that record as current work.",
+            "",
+        ]
+    else:
+        lines = ["Engine: this session was compacted while a Build was running. The Build's durable record —",
+                 "not this session's summary — is the authority for what follows.", ""]
     for label, extract in _REGROUND_ALLOWLIST:
         try:
             value = extract(state)
@@ -5644,15 +5691,35 @@ def reground_pointer(state: dict) -> str:
             value = None
         if value is not None and value != "":
             lines.append(f"  {label}: {value}")
-    lines += [
-        "",
-        "Read the Build's state with `build_coordinator.py status` before changing anything. Every",
-        "mutating coordinator verb re-verifies this session against that record and refuses on a",
-        "mismatch, so a wrong assumption here fails closed rather than corrupting the Build.",
-        "A progress report is not a handoff. If the record shows actionable work,",
-        "continue the next planned step unless a real authority boundary requires a decision;",
-        "do not schedule a self-wakeup.",
-    ]
+    if is_ready:
+        advisory = {"submission": "ready"}
+        if isinstance(slug, str) and re.match(session_relay.PLAN_SELECTOR_PATTERN, slug):
+            advisory["plan_selector"] = slug
+        pr_ref = session_relay.format_pr_ref((state.get("build") or {}).get("pr"))
+        if pr_ref:
+            advisory["pr_ref"] = pr_ref
+        lines += ["", *session_relay.advisory_lines(advisory)]
+        # The record's authority and the mutating-verb re-verification are real, but they govern a
+        # RESUME, not the decision above. Stated as conditional on that choice, they cannot be misread as
+        # 'this submission is your live work; go inspect its status before changing anything'.
+        lines += [
+            "",
+            "Only if you decide to RESUME this Build: read its state with `build_coordinator.py status`",
+            "first — then that durable record, not this session's summary, is the authority, and every",
+            "mutating coordinator verb re-verifies this session against it and refuses on a mismatch, so a",
+            "wrong assumption fails closed rather than corrupting the Build.",
+        ]
+    else:
+        lines += [
+            "",
+            "Read the Build's state with `build_coordinator.py status` before changing anything. Every",
+            "mutating coordinator verb re-verifies this session against that record and refuses on a",
+            "mismatch, so a wrong assumption here fails closed rather than corrupting the Build.",
+            "",
+            "A progress report is not a handoff. If the record shows actionable work,",
+            "continue the next planned step unless a real authority boundary requires a decision;",
+            "do not schedule a self-wakeup.",
+        ]
     return "\n".join(lines)
 
 
@@ -5686,7 +5753,9 @@ def reground_handler(payload: dict) -> dict:
         return hooks.proceed()
     # The compaction itself is not written down anywhere. This hook REACTS to one; nothing reads a
     # history of them, and keeping a record no reader consumes would be bookkeeping for its own sake.
-    return hooks.inject(reground_pointer(state))
+    # `slug` is the snapshot's own plan-directory identity (from bound_snapshots), which the advisory
+    # cites as its plan selector for a previously-submitted Build.
+    return hooks.inject(reground_pointer(state, slug))
 
 
 def main(argv: list[str] | None = None) -> int:

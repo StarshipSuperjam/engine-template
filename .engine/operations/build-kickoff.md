@@ -14,9 +14,9 @@ The surrounding flow is [Build orchestration](build-orchestration.md).
 
 Open one draft pull request for the Build and keep it draft throughout construction. Title it `Kind: what
 changed`, using the kinds in `.github/pull_request_template.md`. A Build is one PR-shaped change; it need not
-be one session. An Issue is never created merely because a Build exists — not even to track the work; an
-Issue is intake, and a Build's work is carried by its draft PR — the seal hand-back and the bind kickoff both
-say so. A Build that must continue cold recovers its plan from the local plan library (see [Build continuity](build-continuity.md)).
+be one session. An Issue is never created merely because a Build exists — not even to track the work; an Issue is
+intake, and a Build's work is carried by its draft PR. This kickoff opens a NEW Build in a fresh worktree cut
+from main, consulting no prior binding and cleaning up none; a Build that must RESUME instead keeps its worktree and recovers and re-verifies its plan from the local plan library (see [Build continuity](build-continuity.md)).
 
 The plan is not authored here. It is authored, reviewed and SEALED through the Project Manager first, and
 [Plan orchestration](plan-orchestration.md) is that half: the deliberation, the operator's stops, and

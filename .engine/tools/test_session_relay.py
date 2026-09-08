@@ -442,5 +442,135 @@ class InjectionSafetyTests(unittest.TestCase):
         self.assertIn("e f", out)
 
 
+class PreviouslySubmittedAdvisoryTests(unittest.TestCase):
+    """Node relay-advisory: a 'none' task_binding may carry a bounded advisory for a previously-
+    submitted Build (submission=='ready'), authored from ONE shared definition in session_relay and
+    rendered inert-safe. A bare 'none' (no advisory) is byte-for-byte unchanged from before."""
+
+    def _advisory_env(self, **over) -> dict:
+        env = _base_envelope()
+        adv = {"submission": "ready", "pr_ref": "#1259", "plan_selector": "fix-a-thing--edbeef"}
+        adv.update(over)
+        env["task_binding"] = {"state": "none", "advisory": adv}
+        return env
+
+    # ---- schema ----
+    def test_none_with_valid_advisory_validates(self):
+        sr.validate(self._advisory_env())  # no raise
+
+    def test_bare_none_still_validates(self):
+        env = _base_envelope()
+        env["task_binding"] = {"state": "none"}
+        sr.validate(env)  # no raise
+
+    def test_advisory_rejects_unknown_field(self):
+        env = self._advisory_env()
+        env["task_binding"]["advisory"]["snapshot_dump"] = "leaked snapshot content"
+        with self.assertRaises(sr.RelayValidationError):
+            sr.validate(env)
+
+    def test_advisory_requires_submission_and_selector(self):
+        env = self._advisory_env()
+        del env["task_binding"]["advisory"]["plan_selector"]
+        with self.assertRaises(sr.RelayValidationError):
+            sr.validate(env)
+
+    def test_advisory_rejects_selector_violating_slug_pattern(self):
+        # A mismatched / hostile selector is REJECTED at validation, never reformatted into the
+        # universally-read relay. Each of these violates plan_store's slug grammar.
+        for bad in ["Fix-Thing--edbeef",      # uppercase (outside [a-z0-9-])
+                    "fix thing--edbeef",        # whitespace
+                    "no-hex-suffix",            # no --<6hex> tail
+                    "fix--zzzzzz",              # non-hex suffix
+                    "fix--12345",               # 5-char suffix, not 6
+                    "-> forged",                # a forged pointer handle
+                    "```"]:                     # a fence marker
+            env = self._advisory_env(plan_selector=bad)
+            with self.assertRaises(sr.RelayValidationError,
+                                   msg=f"schema accepted a hostile selector {bad!r}"):
+                sr.validate(env)
+
+    def test_schema_selector_pattern_matches_plan_store_slug_grammar(self):
+        # The schema pattern IS the plan-slug grammar; a drift test keeps the two definitions locked
+        # together so the cited supersede command always names a real, resolvable plan.
+        import plan_store
+        schema = json.load(open(sr.SCHEMA_PATH, encoding="utf-8"))
+        none_branch = next(b for b in schema["properties"]["task_binding"]["oneOf"]
+                           if b["properties"]["state"].get("const") == "none")
+        pattern = none_branch["properties"]["advisory"]["properties"]["plan_selector"]["pattern"]
+        self.assertEqual(pattern, plan_store._SLUG_RE.pattern)
+        self.assertEqual(pattern, sr.PLAN_SELECTOR_PATTERN)
+
+    def test_advisory_allowed_fields_mirror_the_schema(self):
+        # ADVISORY_ALLOWED_FIELDS documents itself as a mirror of the schema's advisory properties,
+        # "caught by the drift test" — this IS that drift test. Without it the tuple was a claim no
+        # check backed; here a field added to the schema (or the tuple) but not the other fails.
+        schema = json.load(open(sr.SCHEMA_PATH, encoding="utf-8"))
+        none_branch = next(b for b in schema["properties"]["task_binding"]["oneOf"]
+                           if b["properties"]["state"].get("const") == "none")
+        schema_fields = set(none_branch["properties"]["advisory"]["properties"])
+        self.assertEqual(set(sr.ADVISORY_ALLOWED_FIELDS), schema_fields)
+
+    def test_top_level_and_section_descriptions_mention_advisory(self):
+        schema = json.load(open(sr.SCHEMA_PATH, encoding="utf-8"))
+        self.assertIn("advisory", schema["description"].lower())
+        self.assertIn("advisory", schema["properties"]["task_binding"]["description"].lower())
+
+    # ---- render ----
+    def test_bare_none_renders_unchanged(self):
+        out = sr.render(_base_envelope())  # base is state=none with no advisory
+        self.assertIn("## TASK_BINDING\nstate=none", out)
+        section = out.split("## TASK_BINDING\n", 1)[1].split("\n## ", 1)[0]
+        self.assertEqual(section.strip(), "state=none")
+
+    def test_advisory_renders_from_shared_definition(self):
+        env = self._advisory_env()
+        out = sr.render(env)
+        self.assertIn(sr.ADVISORY_SENTENCE, out)
+        self.assertIn("state supersede --plan fix-a-thing--edbeef", out)
+        # every line of the shared helper is what the renderer emitted — one source, not a copy.
+        for line in sr.advisory_lines(env["task_binding"]["advisory"]):
+            self.assertIn(line, out)
+
+    def test_advisory_without_a_selector_drops_only_the_supersede_line(self):
+        # The compaction carrier fires the advisory on a ready Build even when the slug is not
+        # grammatical (boot withholds; compaction must not revert to the live-work tail). With no
+        # selector the honest sentence and the two selector-independent cases stand; only the
+        # supersede command — which needs a real --plan — is dropped, never printed broken.
+        lines = sr.advisory_lines({"submission": "ready"})
+        self.assertIn(f"- {sr.ADVISORY_SENTENCE}", lines)
+        self.assertTrue(any("continue THIS Build" in l for l in lines))
+        self.assertTrue(any("start a DIFFERENT Build" in l for l in lines))
+        self.assertFalse(any("state supersede" in l for l in lines))
+        # a grammatical selector restores the fourth case
+        self.assertTrue(any("state supersede --plan fix-a-thing--edbeef" in l
+                            for l in sr.advisory_lines(
+                                {"submission": "ready", "plan_selector": "fix-a-thing--edbeef"})))
+
+    def test_advisory_selector_survives_inert_byte_identical(self):
+        selector = "fix-a-finished-build--edbeef"
+        self.assertEqual(sr._inert(selector), selector)  # slug charset is a subset of _inert-safe
+        out = sr.render(self._advisory_env(plan_selector=selector))
+        self.assertIn(f"state supersede --plan {selector} ", out)
+
+    def test_advisory_renders_as_none_not_verified(self):
+        out = sr.render(self._advisory_env())
+        self.assertIn("state=none", out)
+        self.assertNotIn("state=verified", out)
+
+    def test_the_advisory_survives_the_worst_case_alarm_load(self):
+        # task_binding is the FIFTH section, outside the 2,000-char preview budget that governs only
+        # grounding_receipt + action_forcing_alarms; render() itself never truncates. So even the
+        # heaviest simultaneous-alarm envelope the size-spike node measured cannot cost the advisory
+        # its lines — this is the "governing budget" resolution the surfacing node calls for.
+        env = _worst_case_envelope()  # all six alarm codes firing, every optional field populated
+        adv = {"submission": "ready", "pr_ref": "#1259", "plan_selector": "fix-a-thing--edbeef"}
+        env["task_binding"] = {"state": "none", "advisory": adv}
+        sr.validate(env)  # a none+advisory alongside a full alarm load is still a valid envelope
+        out = sr.render(env)
+        for line in sr.advisory_lines(adv):
+            self.assertIn(line, out)
+
+
 if __name__ == "__main__":
     unittest.main()
