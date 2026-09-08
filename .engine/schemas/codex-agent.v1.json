@@ -1,13 +1,17 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "title": "codex-agent.v1 — one Codex reviewer persona (a .codex/agents/<name>.toml, whole file)",
-  "description": "The whole-file contract for a Codex custom agent. Codex requires three fields — `name` (the identifier it spawns the agent by), `description` (when to use it), and `developer_instructions` (the persona's behavioral instructions) — and this schema requires the same three. An engine persona here is a COMMITTED RENDER of its canonical Claude twin (.claude/agents/<name>.md): the render tool folds the twin's prose body and its engine routing fields (role, lens, output contract, requested read-only posture) into `developer_instructions`, because TOML carries no frontmatter axis — the Claude .md stays the single authored original and the roster/lens derivation still reads the Claude side. What this schema deliberately does NOT encode, mirroring the Claude agent grammar: that an engine render carries `sandbox_mode: read-only` (the standalone requested default, not mechanical child isolation because a parent live override can displace it), that it never pins a `model` (model choice must not rot in per-persona files), and that the render matches its source byte-for-byte — all three are coherence findings produced by the codex-agent coherence check, not schema constraints, so the closed rules live in one leg rather than an enum that could drift. The schema is OPEN (additionalProperties: true) beyond the typed fields: operators may drop their own product agents in the same directory, and Codex's agent vocabulary (skills config, nickname candidates, MCP grants, …) is the platform's to grow. Enforced live by the codex-agent-schema check (a validators-core schema rule) routed through the surface catalog (the 'codex-agent' surface); the file is TOML, read by the validator's structured-target loader, whose parsed form maps onto the same JSON data model every other schema check uses.",
+  "title": "codex-agent.v1 \u2014 one Codex reviewer persona (a .codex/agents/<name>.toml, whole file)",
+  "description": "The whole-file contract for a Codex custom agent. Codex requires three fields \u2014 `name` (the identifier it spawns the agent by), `description` (when to use it), and `developer_instructions` (the persona's behavioral instructions) \u2014 and this schema requires the same three. An engine persona here is a COMMITTED RENDER of its canonical Claude twin (.claude/agents/<name>.md): the render tool folds the twin's prose body and its engine routing fields (role, lens, output contract, requested read-only posture) into `developer_instructions`, because TOML carries no frontmatter axis \u2014 the Claude .md stays the single authored original and the roster/lens derivation still reads the Claude side. What this schema deliberately does NOT encode, mirroring the Claude agent grammar: that an engine render carries `sandbox_mode: read-only` (the standalone requested default, not mechanical child isolation because a parent live override can displace it), that its `model` matches the central Codex provider binding, and that the render matches its source byte-for-byte \u2014 all three are coherence findings produced by the codex-agent coherence check, not schema constraints, so the closed rules live in one leg rather than an enum that could drift. The schema is OPEN (additionalProperties: true) beyond the typed fields: operators may drop their own product agents in the same directory, and Codex's agent vocabulary (skills config, nickname candidates, MCP grants, \u2026) is the platform's to grow. Enforced live by the codex-agent-schema check (a validators-core schema rule) routed through the surface catalog (the 'codex-agent' surface); the file is TOML, read by the validator's structured-target loader, whose parsed form maps onto the same JSON data model every other schema check uses.",
   "type": "object",
   "additionalProperties": true,
-  "required": ["name", "description", "developer_instructions"],
+  "required": [
+    "name",
+    "description",
+    "developer_instructions"
+  ],
   "properties": {
     "name": {
-      "description": "The identifier Codex spawns this agent by — for an engine persona, the same slug as its Claude twin, so review orchestration names one persona per lens regardless of runtime.",
+      "description": "The identifier Codex spawns this agent by \u2014 for an engine persona, the same slug as its Claude twin, so review orchestration names one persona per lens regardless of runtime.",
       "type": "string",
       "minLength": 1
     },
@@ -17,7 +21,7 @@
       "minLength": 1
     },
     "developer_instructions": {
-      "description": "The persona's behavioral instructions — for an engine render, the Claude twin's full prose body prefixed with rendered lines carrying the engine routing facts the TOML cannot hold structurally (its output contract and its read-only floor). Authored in the Claude twin, never here.",
+      "description": "The persona's behavioral instructions \u2014 for an engine render, the Claude twin's full prose body prefixed with rendered lines carrying the engine routing facts the TOML cannot hold structurally (its output contract and its read-only floor). Authored in the Claude twin, never here.",
       "type": "string",
       "minLength": 1
     },
@@ -27,12 +31,12 @@
       "minLength": 1
     },
     "model": {
-      "description": "Platform passthrough: which model runs the agent. Engine renders deliberately OMIT this (a pinned model id in a persona file rots); the omission is enforced by the coherence leg, not here, so product agents may pin one.",
+      "description": "Platform model selection. Engine renders obtain this value from the central provider bindings; coherence rejects missing or drifting model stamps.",
       "type": "string",
       "minLength": 1
     },
     "model_reasoning_effort": {
-      "description": "Platform passthrough: the reasoning depth Codex applies. The render maps the Claude twin's demand tier onto this (careful-judgment personas run high); the mapping is the render tool's, not a schema rule.",
+      "description": "Platform reasoning effort. Reviewer renders omit it; audit and worker effort follows the central provider binding. Review depth never selects effort.",
       "type": "string",
       "minLength": 1
     }

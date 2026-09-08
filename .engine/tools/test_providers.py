@@ -487,5 +487,57 @@ class TestCodexHookCommandForm(unittest.TestCase):
         self.assertEqual(hooks.hook_command(rel), hooks.hook_command(rel, provider="claude"))
 
 
+class TestLaunchNormalization(unittest.TestCase):
+    def test_observed_spawn_preserves_identity_and_never_borrows_parent_model(self):
+        payload = {"tool_name": "collaborationspawn_agent", "model": "gpt-6-astra",
+                   "session_id": "parent:exact/id", "tool_input": {
+                       "agent_type": "explorer", "fork_turns": "none", "message": "private task"}}
+        out = providers.normalize("PreToolUse", payload)
+        self.assertEqual(out["tool_name"], "Agent")
+        self.assertEqual(out["tool_input"]["subagent_type"], "Explore")
+        launch = out["provider_launch"]
+        self.assertEqual(launch["semantic_role"], "search")
+        self.assertEqual(launch["session_id"], "parent:exact/id")
+        self.assertIsNone(launch["requested_model"])
+        self.assertIsNone(launch["effective_model"])
+        self.assertIn("requested_model", launch["unknown_fields"])
+        self.assertNotIn("private task", json.dumps(out["provider_raw"]))
+        self.assertNotIn("subagent_type", payload["tool_input"])
+
+    def test_explicit_settings_have_provenance_not_effective_claims(self):
+        payload = {"tool_name": "spawn_agent", "session_id": "s", "tool_input": {
+            "agent_type": "explorer", "model": "gpt-5.6-luna", "reasoning_effort": "low",
+            "sandbox_mode": "read-only", "fork_turns": "none"}}
+        launch = providers.launch_record(payload, "codex")
+        self.assertEqual(launch["model_source"], "tool_input.model")
+        self.assertEqual(launch["requested_model"], "gpt-5.6-luna")
+        self.assertEqual(launch["requested_effort"], "low")
+        self.assertEqual(launch["sandbox_intent"], "read-only")
+        self.assertIsNone(launch["effective_sandbox"])
+        self.assertIsNone(launch["recursion_limit"])
+
+    def test_prose_and_task_name_do_not_classify_an_unknown_agent(self):
+        payload = {"tool_name": "spawn_agent", "tool_input": {
+            "task_name": "Explore", "message": "Use model gpt-5.6-luna to plan.", "agent_type": "custom"}}
+        launch = providers.launch_record(payload, "codex")
+        self.assertEqual(launch["semantic_role"], "unclassified")
+        self.assertIsNone(launch["requested_model"])
+        self.assertIsNone(providers.launch_record({"tool_name": "future_spawn"}, "codex"))
+
+    def test_claude_launch_remains_identity_and_has_a_separate_record(self):
+        payload = {"tool_name": "Agent", "tool_input": {"subagent_type": "Plan", "model": "haiku"}}
+        with mock.patch.dict(os.environ, {providers.PROVIDER_ENV: "claude"}):
+            self.assertIs(providers.normalize("PreToolUse", payload), payload)
+            launch = providers.launch_record(payload)
+        self.assertEqual(launch["semantic_role"], "plan")
+        self.assertEqual(launch["requested_model"], "haiku")
+
+    def test_malformed_tool_fields_stay_unknown(self):
+        for value in (None, [], 1):
+            payload = {"tool_name": value}
+            self.assertIs(providers.normalize("PreToolUse", payload), payload)
+            self.assertIsNone(providers.launch_record(payload, "codex"))
+
+
 if __name__ == "__main__":
     unittest.main()

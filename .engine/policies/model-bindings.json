@@ -1,23 +1,78 @@
 {
   "schema_version": 1,
   "tiers": {
-    "judgment": { "model": "opus", "effort": "high" },
-    "mechanical": { "model": "haiku", "effort": "low" }
+    "judgment": {
+      "model": "opus",
+      "effort": "high"
+    },
+    "mechanical": {
+      "model": "haiku",
+      "effort": "low"
+    }
   },
   "overrides": {
-    "engine-qa-review-spec-conformance": { "model": "sonnet" },
-    "engine-qa-review-technical-integrity": { "model": "sonnet" },
-    "engine-qa-review-usability": { "model": "sonnet" },
-    "engine-validation-runner": { "model": "sonnet", "effort": "low" }
+    "engine-qa-review-spec-conformance": {
+      "model": "sonnet"
+    },
+    "engine-qa-review-technical-integrity": {
+      "model": "sonnet"
+    },
+    "engine-qa-review-usability": {
+      "model": "sonnet"
+    },
+    "engine-validation-runner": {
+      "model": "sonnet",
+      "effort": "low"
+    }
   },
   "implementation_classes": {
     "builder": {
-      "claude": { "model": "sonnet", "effort": "medium" },
-      "codex": { "model": "gpt-5.6-terra", "effort": "medium" }
+      "claude": {
+        "model": "sonnet",
+        "effort": "medium"
+      },
+      "codex": {
+        "model": "gpt-5.6-terra",
+        "effort": "medium"
+      }
     },
     "bounded": {
-      "claude": { "model": "haiku", "effort": "low" },
-      "codex": { "model": "gpt-5.6-luna", "effort": "low" }
+      "claude": {
+        "model": "haiku",
+        "effort": "low"
+      },
+      "codex": {
+        "model": "gpt-5.6-luna",
+        "effort": "low"
+      }
+    }
+  },
+  "providers": {
+    "codex": {
+      "tiers": {
+        "judgment": {
+          "model": "gpt-6-astra",
+          "effort": "high"
+        },
+        "mechanical": {
+          "model": "gpt-5.6-luna",
+          "effort": "low"
+        }
+      },
+      "overrides": {
+        "engine-qa-review-spec-conformance": {
+          "model": "gpt-5.6-terra"
+        },
+        "engine-qa-review-technical-integrity": {
+          "model": "gpt-5.6-terra"
+        },
+        "engine-qa-review-usability": {
+          "model": "gpt-5.6-terra"
+        },
+        "engine-validation-runner": {
+          "model": "gpt-5.6-terra"
+        }
+      }
     }
   }
 }

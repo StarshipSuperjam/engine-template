@@ -221,16 +221,16 @@ class TestWorkerBinding(unittest.TestCase):
 
     def test_worker_resolves_through_implementation_class_not_tier(self):
         fm = {"name": "engine-worker-x", "role": "worker", "implementation-class": "builder"}
-        self.assertEqual(ab._binding_for(fm, self._bindings()), {"model": "sonnet", "effort": "medium"})
+        self.assertEqual(ab.resolve_persona(fm, self._bindings()), {"model": "sonnet", "effort": "medium"})
 
     def test_reviewer_still_resolves_through_tier(self):
         fm = {"name": "engine-review-x", "role": "plan-review", "model-tier": "judgment"}
-        self.assertEqual(ab._binding_for(fm, self._bindings()), {"model": "opus", "effort": "high"})
+        self.assertEqual(ab.resolve_persona(fm, self._bindings()), {"model": "opus", "effort": "high"})
 
     def test_worker_with_no_binding_raises(self):
         fm = {"name": "engine-worker-x", "role": "worker", "implementation-class": "ghost"}
         with self.assertRaises(KeyError):
-            ab._binding_for(fm, self._bindings())
+            ab.resolve_persona(fm, self._bindings())
 
 
 class TestReviewDepthIsRosterOnly(unittest.TestCase):
@@ -247,6 +247,42 @@ class TestReviewDepthIsRosterOnly(unittest.TestCase):
     def test_the_bindings_module_resolves_no_depth_effort(self):
         self.assertFalse(hasattr(ab, "depth_effort"))
         self.assertNotIn("operator_review_effort", sys.modules.get("agent_bindings").__dict__)
+
+
+class TestProviderPersonaBindings(unittest.TestCase):
+    def bindings(self):
+        data = _valid_bindings()
+        data["providers"] = {"codex": {"tiers": {
+            "judgment": {"model": "gpt-test-1", "effort": "high"},
+            "mechanical": {"model": "gpt-test-2", "effort": "low"}},
+            "overrides": {"systematic": {"model": "gpt-test-3"}}}}
+        return data
+
+    def test_provider_override_is_separate_from_claude(self):
+        data = self.bindings()
+        self.assertEqual(ab.resolve("systematic", "judgment", data, "codex"),
+                         {"model": "gpt-test-3", "effort": "high"})
+        self.assertEqual(ab.resolve("systematic", "judgment", data),
+                         {"model": "opus", "effort": "high"})
+        self.assertEqual(_errors(data), [])
+
+    def test_missing_or_invalid_codex_bindings_do_not_fall_back(self):
+        with self.assertRaisesRegex(KeyError, "providers.codex"):
+            ab.resolve("reviewer", "judgment", _valid_bindings(), "codex")
+        for bad in (None, [], "", "Model With Spaces"):
+            data = self.bindings()
+            data["providers"]["codex"]["tiers"]["judgment"]["model"] = bad
+            self.assertTrue(_errors(data))
+            with self.assertRaises(ValueError):
+                ab.resolve("reviewer", "judgment", data, "codex")
+
+    def test_provider_schema_rejects_incomplete_tiers_and_unknown_provider(self):
+        data = self.bindings()
+        del data["providers"]["codex"]["tiers"]["mechanical"]
+        self.assertTrue(_errors(data))
+        data = self.bindings()
+        data["providers"]["unknown"] = {}
+        self.assertTrue(_errors(data))
 
 
 if __name__ == "__main__":

@@ -52,7 +52,7 @@ def load_bindings(root: str | None = None) -> dict:
         return json.load(fh)
 
 
-def resolve(name: str, model_tier: str, bindings: dict) -> dict:
+def resolve(name: str, model_tier: str, bindings: dict, provider: str = "claude") -> dict:
     """The {model, effort} for a persona: its override if one exists, else its tier default.
 
     An override may pin the MODEL alone. The three reviewer overrides do, because a reviewer persona
@@ -60,8 +60,24 @@ def resolve(name: str, model_tier: str, bindings: dict) -> dict:
     on such an override would have nothing to ride on. An override without an effort falls back to the TIER's effort rather than to None: None means
     "deliberately un-pinned" to `_stamp`, and inferring that from a silent field would un-pin a worker
     whose author only meant to retune its model."""
-    override = (bindings.get("overrides") or {}).get(name)
-    tier = (bindings.get("tiers") or {}).get(model_tier)
+    if provider == "claude":
+        selected = bindings  # Preserve the existing Claude configuration and stamps.
+    elif provider == "codex":
+        selected = (bindings.get("providers") or {}).get(provider)
+        if not isinstance(selected, dict):
+            raise KeyError(f"no providers.{provider} persona bindings")
+    else:
+        raise KeyError(f"unknown binding provider {provider!r}")
+    override = (selected.get("overrides") or {}).get(name)
+    tier = (selected.get("tiers") or {}).get(model_tier)
+    for label, value in (("tier", tier), ("override", override)):
+        if value is None:
+            continue
+        if not isinstance(value, dict) or not isinstance(value.get("model"), str) or not re.fullmatch(
+                r"[a-z0-9]+(?:[.-][a-z0-9]+)*", value["model"]):
+            raise ValueError(f"invalid {provider} {label} model binding for {name!r}")
+        if (label == "tier" or "effort" in value) and value.get("effort") not in ("low", "medium", "high"):
+            raise ValueError(f"invalid {provider} {label} effort binding for {name!r}")
     if override and "effort" in override:
         return {"model": override["model"], "effort": override["effort"]}
     if not tier:
@@ -116,17 +132,17 @@ def _stamp(text: str, model: str, effort: str | None) -> str:
     return rebuilt + "\n" if text.endswith("\n") else rebuilt
 
 
-def _binding_for(fm: dict, bindings: dict) -> dict:
+def resolve_persona(fm: dict, bindings: dict, provider: str = "claude") -> dict:
     """The {model, effort} for one persona: a review/audit persona resolves through its model-tier;
     a worker resolves through its implementation-class -> the Claude side of implementation_classes,
     so both axes are single-sourced from the one bindings file."""
     if fm.get("role") == "worker":
         cls = fm.get("implementation-class")
-        provider = (bindings.get("implementation_classes", {}).get(cls) or {}).get("claude")
-        if not provider:
-            raise KeyError(f"no implementation_classes.{cls}.claude binding for worker persona")
-        return {"model": provider["model"], "effort": provider["effort"]}
-    return resolve(fm["name"], fm.get("model-tier"), bindings)
+        binding = (bindings.get("implementation_classes", {}).get(cls) or {}).get(provider)
+        if not binding:
+            raise KeyError(f"no implementation_classes.{cls}.{provider} binding for worker persona")
+        return {"model": binding["model"], "effort": binding["effort"]}
+    return resolve(fm["name"], fm.get("model-tier"), bindings, provider)
 
 
 def render(root: str | None = None) -> list[str]:
@@ -141,7 +157,7 @@ def render(root: str | None = None) -> list[str]:
         if not parsed:
             continue
         _, _, fm = parsed
-        binding = _binding_for(fm, bindings)
+        binding = resolve_persona(fm, bindings)
         effort = binding["effort"] if _stamps_effort(fm) else None
         new = _stamp(text, binding["model"], effort)
         if new != text:
@@ -164,7 +180,7 @@ def check(root: str | None = None) -> list[str]:
             continue
         _, _, fm = parsed
         names.add(fm["name"])
-        binding = _binding_for(fm, bindings)
+        binding = resolve_persona(fm, bindings)
         if _stamps_effort(fm):
             want = {"model": binding["model"], "effort": binding["effort"]}
             got = {"model": fm.get("model"), "effort": fm.get("effort")}
@@ -194,6 +210,10 @@ def check(root: str | None = None) -> list[str]:
         for override in (bindings.get("overrides") or {}):
             if override not in names:
                 problems.append(f"override '{override}' names no installed persona")
+        for provider, settings in (bindings.get("providers") or {}).items():
+            for override in (settings.get("overrides") or {}):
+                if override not in names:
+                    problems.append(f"{provider} override '{override}' names no installed persona")
     return problems
 
 
