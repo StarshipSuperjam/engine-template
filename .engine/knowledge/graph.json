@@ -7532,7 +7532,7 @@
       },
       "slug": "plan-record.v1",
       "source": {
-        "fingerprint": "sha256:b440ea99192a1cb327260c5e2bcbd17057b11208b597e8f267771b1cc5a5b765",
+        "fingerprint": "sha256:f3fdb8044d7c43d1a53bec0eb0e40d034d7582ab1550c53be5902b291f29f074",
         "path": ".engine/schemas/plan-record.v1.json"
       },
       "status": "active",
@@ -9543,7 +9543,7 @@
       },
       "slug": "build_coordinator",
       "source": {
-        "fingerprint": "sha256:b7f1603f51a6131297e5a37873f35bff377892b2102917728230017f13ccf952",
+        "fingerprint": "sha256:ed6727f3b810fd530204923a8e9a36e12980b4f463247ba2ffbf56093ebf300e",
         "path": ".engine/tools/build_coordinator.py"
       },
       "status": "active",
@@ -9587,7 +9587,7 @@
       },
       "slug": "build_coordinator_core",
       "source": {
-        "fingerprint": "sha256:ac33db94602f030bcf9b4ace7a7b7f394fe90ed4e89d097357f0b35502699aa3",
+        "fingerprint": "sha256:7897834382b156d33ff0ea44c85896e867dca4c09b16a1bc312c128196779644",
         "path": ".engine/tools/build_coordinator_core.py"
       },
       "status": "active",
@@ -9850,7 +9850,7 @@
       },
       "slug": "build_state_store",
       "source": {
-        "fingerprint": "sha256:893c4b3545a60446ae0723b1660d3347f70f54b46b7ee4c571e11e1ace232f07",
+        "fingerprint": "sha256:a55cc84c41c43f10c6e3472a90225f064406bff4b8bd8f7a2ecd2b5c00c4c67c",
         "path": ".engine/tools/build_state_store.py"
       },
       "status": "active",
@@ -14374,7 +14374,7 @@
       },
       "slug": "project_manager",
       "source": {
-        "fingerprint": "sha256:e75cee368c41d24cb6322882f98c4d26d812021eb80fd15ce500ef7ea61c9d39",
+        "fingerprint": "sha256:51a7bb04ab9258d1942a93eef624315b3ae9b1f2f81dc500fa07e2a5cb6f62f8",
         "path": ".engine/tools/project_manager.py"
       },
       "status": "active",
@@ -16548,7 +16548,7 @@
       },
       "slug": "test_build_state_store",
       "source": {
-        "fingerprint": "sha256:f88cd341733580ad398e561349103d3004612e04948ed453a5276cb63a5e72fb",
+        "fingerprint": "sha256:e24db598ffa88268b0a4a6999aa3877a3e4077ca5c75fff1c4d60a4732bb3ed3",
         "path": ".engine/tools/test_build_state_store.py"
       },
       "status": "active",
