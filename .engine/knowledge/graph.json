@@ -5983,7 +5983,7 @@
       },
       "slug": "codex-validation",
       "source": {
-        "fingerprint": "sha256:5c1056d505b06abd08d1e090d3d059d836d4a1476dfec4c9bb52a979fe6efdb5",
+        "fingerprint": "sha256:e031eee641faec778b965a51ec0cd061b8575f73e1a5bc2de972f35a45bda01c",
         "path": ".engine/operations/codex-validation.md"
       },
       "status": "active",
