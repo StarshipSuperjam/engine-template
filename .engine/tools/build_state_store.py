@@ -120,7 +120,7 @@ def _claim_path(library, slug, claim) -> Path:
 
 
 @contextlib.contextmanager
-def ownership_lock(library, slug, *, snapshots=()):
+def ownership_lock(library, slug, *, snapshots=(), legacy_sources=()):
     """Program callers enter first; then plan locks, then snapshot locks in path order.
 
     Include the permanent legacy lock and every current/caller-held snapshot address. A stale
@@ -138,6 +138,13 @@ def ownership_lock(library, slug, *, snapshots=()):
         for path in paths:
             plan_store.ensure_dir(path.parent, within=library.root)
             locks.add(path.with_name(path.name + '.lock'))
+        sources = set(Path(p).resolve() for p in legacy_sources)
+        if claim and claim['state'] == 'preparing' and claim.get('legacy_source'):
+            sources.add(Path(claim['legacy_source']))
+        for source in sources:
+            if not source.parent.is_dir():
+                raise BuildStateError(f'legacy source folder is missing: {source.parent}; restore its evidence before retrying')
+            locks.add(source.with_name(source.name + '.lock'))
         with contextlib.ExitStack() as held:
             for path in sorted(locks):
                 held.enter_context(core.exclusive_lock(path))
@@ -183,20 +190,23 @@ def _check_seal(record, state) -> None:
 
 
 def reserve_build(library, slug, state, *, consent=None, locator=None,
-                  legacy_source=None) -> dict:
+                  legacy_source=None, legacy_clients_stopped=False) -> dict:
     """Reserve before any snapshot write. A retry receives the same identity and consent.
 
     No timeout or rollback can steal this reservation. A caller changing any request field
     must explicitly retire it first. Legacy migration names and fingerprints its source;
     missing or ambiguous legacy evidence is never interpreted as an unused plan.
     """
+    if legacy_source and not legacy_clients_stopped:
+        raise BuildStateError('legacy migration requires --legacy-clients-stopped: pause affected sessions, '
+                             'wait for old Engine commands to exit, update their worktrees, then migrate and resume')
     if locator:
         if Path(locator).is_symlink():
             raise BuildStateError('a Build locator must not be a symlink')
         locator = str(Path(locator).resolve())
         if Path(locator).is_relative_to(library.root):
             raise BuildStateError('omit --state for canonical evidence; an external locator must be outside the library')
-    with ownership_lock(library, slug):
+    with ownership_lock(library, slug, legacy_sources=(legacy_source,) if legacy_source else ()):
         record = library.read_record(slug)
         _check_seal(record, state)
         wanted = {'repository': state['build']['repository'], 'pull_request': state['build']['pr'],
@@ -206,6 +216,8 @@ def reserve_build(library, slug, state, *, consent=None, locator=None,
         lease = record.get('build_lease')
         if lease and lease['current']:
             claim = lease['current']
+            if claim['state'] == 'preparing' and claim.get('legacy_source') and not legacy_source:
+                raise BuildStateError('legacy migration is preparing; retry state migrate with --legacy-clients-stopped')
             if any(claim[k] != v for k, v in wanted.items()) or claim['state'] not in ('preparing', 'active'):
                 raise BuildStateError('this plan already has a different Build claim; resume it or explicitly supersede it')
             if legacy_source and claim.get('legacy_source') != str(Path(legacy_source).resolve()):
@@ -290,6 +302,8 @@ def finish_binding(library, slug, identity, state, schema) -> dict:
             raise BuildStateError('this preparation belongs to successor adoption; retry the recorded adoption')
         _check_seal(record, state)
         path = _claim_path(library, slug, claim)
+        if claim['state'] == 'preparing' and claim.get('legacy_source'):
+            _legacy_evidence_locked(library, slug, claim)
         plan_store.ensure_dir(path.parent, within=library.root)
         if path.exists():
             saved = core.json_file(path)
@@ -314,6 +328,19 @@ def finish_binding(library, slug, identity, state, schema) -> dict:
         claim['state'] = 'active'
         library.write_build_record_locked(slug, record)
         return saved
+
+
+def _legacy_evidence_locked(library, slug, claim):
+    """Recheck the reserved source under its sibling lock, including a resumed rename."""
+    source = Path(claim['legacy_source'])
+    evidence = source
+    if source == _legacy_slot(library, slug) and not source.is_file():
+        evidence = _claim_path(library, slug, claim).parent / 'legacy-original.json'
+    if not evidence.is_file() or core.digest(core.json_file(evidence)) != claim['legacy_digest']:
+        raise BuildStateError(f'legacy evidence changed or disappeared at {source}; preserve it and '
+                             f'{claim["snapshot"]}. Restore the original matching reserved digest '
+                             f'{claim["legacy_digest"]} at {evidence} from retained evidence or backup, then retry the same migration')
+    return core.json_file(evidence)
 
 
 class ClaimedBuildStore(core.RevisionedStore):
@@ -576,14 +603,9 @@ def retire_build(library, slug, identity, schema, *, reason, expected_revision,
         if archive.parent != path.parent:
             raise BuildStateError('retirement archive moved outside its Build folder; recover the recorded address')
         if claim['state'] == 'preparing' and claim.get('legacy_source'):
+            original = _legacy_evidence_locked(library, slug, claim)
             if not path.exists():
-                source = Path(claim['legacy_source'])
-                if not source.is_file():
-                    raise BuildStateError('the reserved legacy source is missing; recover its evidence before retirement')
-                saved = core.json_file(source)
-                if core.digest(saved) != claim['legacy_digest']:
-                    raise BuildStateError('legacy evidence changed after reservation; preserve it and reconcile ownership')
-                saved = core.forward_migrate(saved)
+                saved = core.forward_migrate(original)
                 saved['ownership'] = identity
                 core.validate(saved, schema(saved) if callable(schema) else schema)
                 _assert_snapshot_claim(record, claim, saved)

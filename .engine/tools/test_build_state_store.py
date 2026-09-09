@@ -537,6 +537,30 @@ def _paused_legacy_supersede(library_root, slug, after_read, paused, resume, out
         outcome.put('retired')
 
 
+# Frozen pre-upgrade command bodies from 8b354a81ae36015dbd7c872670f26b17cb757418.
+# Shared parsing/locking helpers are reused; these exact old bodies own the challenged decisions.
+_LEGACY_BIND = 'def cmd_plan_bind(args, store: Snapshot) -> None:\n    mode = getattr(args, "mode", "same-session")\n    plan_id, sealed_digest, plan = _sealed_plan(args.plan)\n    # The closed door. B2 made v1 unreachable at entry; the sunset removed the schemas and the\n    # converter, so this refusal is now terminal rather than a wait. Deliberately so: migrating a\n    # SEALED plan would invalidate the seal that is the only thing making it a plan a Build may enter,\n    # and a converter that produced a plan nobody approved would have been a way around the seal\n    # wearing the costume of a migration. Re-authoring is the path, and the refusal names it.\n    if _plan_version(plan) == "build-plan.v1":\n        raise CoordinatorError(\n            "this sealed plan carries a build-plan.v1 payload, and v1 no longer enters a Build. There "\n            "is no converter: a migration would invalidate the seal, and an unapproved plan is not a "\n            "plan. Re-author this work as a fresh plan through the Project Manager — its deliberation "\n            "can be imported from the old one — and seal that. If a v1 Build is already in flight, "\n            "finish it on the engine it started on.")\n    issue = args.issue\n    # Profile first, then authorization. Both can be true of one bad bind — a trivial plan handed an\n    # Issue and unattended mode breaks two rules at once — and the profile rule is the root cause: it\n    # says this plan may not run in this mode AT ALL, so no Issue could have fixed it. Reporting the\n    # authorization failure there would send the operator hunting for the right Issue number for a\n    # Build that was never going to be unattended.\n    if plan["profile"] == "trivial" and mode != "same-session":\n        raise CoordinatorError("trivial Builds are same-session only")\n    if plan["profile"] == "routine" and mode != "unattended":\n        raise CoordinatorError("routine plans require unattended mode and durable Issue authority")\n    _check_authorization(plan, issue, mode)\n    # The last consent gate, and the one the silent ceremony reached: a sealed plan bound to a fresh\n    # pull request in the same unattended breath as the seal that produced it. The operator\'s go for\n    # the BUILD to begin is its own decision, distinct from their go to seal the plan, and it is\n    # taken here where the Build actually starts. Recorded, not proven (issue 914\'s residual).\n    import moment\n    import plan_lifecycle\n    if not getattr(args, "operator_decided", False):\n        raise CoordinatorError(plan_lifecycle.missing_consent({}, "bind"))\n    consent = plan_lifecycle.attestation("bind", at=moment.utc_now())\n    pr = _verify_draft(args.repository, args.pr)\n    if pr.get("headRefOid") != _head():\n        raise CoordinatorError("the draft PR head does not match this worktree")\n    state = _initial_state(args.repository, args.pr, pr.get("baseRefOid") or _base(), plan_id,\n                           sealed_digest, plan, issue, mode)\n    # Where this Build\'s evidence lands. With no --state it goes to the durable store beside its own\n    # sealed plan, which is the default because the alternative is what actually happened: a killed\n    # Build whose approval, receipts, findings and progress were reconstructed by hand.\n    if store is None:\n        store = build_state_store.store_for_plan(plan_id, _state_schema_for, library=_library())\n    # The refusal `store.create` would raise is asserted HERE, before the binding write. Two cold\n    # reviewers independently proved the alternative: with the write first, a plain operator retry —\n    # bind again over an existing Build — rewrote `build_binding` to a PR that carries no Build and\n    # appended a consent attestation for a bind that was then refused. A refused command must leave\n    # nothing behind. (A crash BETWEEN the binding write and `create` still converges: the snapshot\n    # does not exist yet, so this check passes on the re-run and the same binding is rewritten.)\n    if store.path.exists():\n        raise CoordinatorError(\n            f"a durable Build snapshot already exists at {store.path} — this plan\'s Build is "\n            "already bound. Resume it (`status`, or `handoff export`) rather than re-binding; "\n            "nothing was written.")\n    _record_build_binding(plan_id, args.repository, args.pr, sealed_digest, state["plan"]["digest"],\n                          consent)\n    store.create(state)\n    # Tag the PR the coordinator just adopted, so it carries a durable "coordinator owns this workflow"\n    # marker (StarshipSuperjam/engine-template#1014). Best-effort and non-fatal: a labeling failure is\n    # disclosed on stderr and the Build proceeds — the stdout below stays a clean machine-readable line.\n    if not github.tag_coordinator_owned(ROOT, args.repository, args.pr):\n        print("build-coordinator: could not tag this PR \'engine-coordinator-owned\' (a non-blocking aid); "\n              "the Build proceeds — reach ready only through \'submit apply\', never a bare \'gh pr ready\'.",\n              file=sys.stderr)\n    _record_session_binding(state, pr_number=args.pr)\n    # The carrier rule, said at the kickoff itself (StarshipSuperjam/engine-template#1091): on\n    # stderr with the other human-facing notes, so stdout stays the one machine-readable line.\n    print(plan_lifecycle.CARRIER_RULE, file=sys.stderr)\n    print(json.dumps({"plan_digest": state["plan"]["digest"], "state": str(store.path)}))'
+_LEGACY_MIGRATE = 'def migrate(source: Path | str, selector: str, schema, *,\n            library: plan_store.PlanLibrary | None = None, worktree: Path | str | None = None) -> Path:\n    """Move one OS-temp snapshot into the durable library, or refuse with a remedy.\n\n    PROVEN ON A COPY FIRST, and that ordering is the whole safety argument. This function is the one\n    place in the engine that can destroy live Build evidence, so nothing touches the real snapshot\n    until the migrated document has been built, validated against the schema it will be stored\n    under, and written to a scratch file inside the destination folder. Only then does the atomic\n    replace happen, and only then is the source left behind — left, never deleted, because a\n    migration that removes its own source has no way back if the operator disagrees with the result.\n\n    A build-state.v1 snapshot is REFUSED rather than converted, and the refusal names why. v1 is a\n    linear Build with no work ledger, and the current schema derives completion from integration\n    evidence that a v1 snapshot never recorded. Fabricating an empty ledger would produce a document\n    that validates and then wedges: every completed item would read as completed without the\n    evidence that earns it. So an in-flight v1 Build finishes on the engine it started on.\n    """\n    library = library or plan_store.PlanLibrary()\n    source_path = Path(source).resolve()\n    if not source_path.is_file():\n        raise BuildStateError(f"no snapshot to migrate at {source_path}")\n    state = core.json_file(source_path)\n    version = state.get("schema_version")\n    if version != CURRENT_SCHEMA_VERSION:\n        raise BuildStateError(\n            f"{source_path} is a {version or \'versionless\'} Build snapshot, and the durable store "\n            f"holds {CURRENT_SCHEMA_VERSION} only. It is not converted, because a {version} snapshot "\n            "carries no work ledger and the current schema derives completion from one — an invented "\n            "ledger would validate and then wedge the Build. Finish this Build on the engine it "\n            "started on, or abandon it and re-bind its sealed plan for a fresh Build. The file is "\n            "untouched.")\n    slug = library.resolve(selector)\n    destination = snapshot_path(library, slug)\n    if destination.exists():\n        raise BuildStateError(\n            f"{slug} already holds a durable Build snapshot at {destination}. Migrating over it would "\n            "destroy the evidence already there; supersede it explicitly if that is what you mean.")\n    if worktree is not None:\n        state.setdefault("build", {})["worktree"] = str(Path(worktree).resolve())\n    # Through the same forward migration the stores apply on load. This verb exists to move a document\n    # written by an older engine forward, so it is the last place that should refuse one for carrying a\n    # field that engine declared and this one retired.\n    state = core.forward_migrate(state)\n    core.validate(state, schema(state) if callable(schema) else schema)\n    plan_store.ensure_dir(destination.parent, within=library.root)\n    # The rehearsal: the exact bytes, written to a scratch name in the destination folder, so a full\n    # disk or a refused durable flush fails HERE, with the source still the only copy that matters.\n    rehearsal = destination.with_name(destination.name + ".migrating")\n    core.atomic_write(rehearsal, json.dumps(state, indent=2, sort_keys=True) + "\\n",\n                      durable=True, mode=plan_store.FILE_MODE)\n    rehearsal.replace(destination)\n    return destination'
+_LEGACY_MUTATE = 'def mutate(self, change: Callable[[dict], Any], *, from_revision: int | None = None) -> Any:\n    with self._locked():\n        if not self.path.exists():\n            raise CoordinatorError(f"no {self.what} at {self.path}; {self.missing_remedy}")\n        state = forward_migrate(json_file(self.path))\n        validate(state, self._schema_for(state))\n        expected = self.expected_revision if self.expected_revision is not None else from_revision\n        assert_revision(state["revision"], expected, "snapshot", self.stale_remedy)\n        result = change(state)\n        state["revision"] += 1\n        self._write(state)\n        return result'
+
+def _legacy_reservation_after_source_lock(root, slug, source, state, attempted, outcome):
+    lib = plan_store.PlanLibrary(root)
+    real = core.exclusive_lock
+    @contextlib.contextmanager
+    def observed(path):
+        if Path(path).resolve() == Path(source).resolve().with_name(Path(source).name + '.lock'):
+            attempted.set()
+        with real(path):
+            yield
+    try:
+        with mock.patch.object(core, 'exclusive_lock', observed):
+            build_state_store.reserve_build(lib, slug, state, legacy_source=source,
+                                            legacy_clients_stopped=True)
+        outcome.put('reserved')
+    except core.CoordinatorError as exc:
+        outcome.put(str(exc))
+
+
 def _competing_adopt(root, source, target, identity, barrier, outcome):
     lib = plan_store.PlanLibrary(Path(root))
     record = lib.read_record(target)
@@ -646,6 +670,8 @@ class TransactionalOwnership(unittest.TestCase):
         self.consent = {'gate': 'bind', 'at': stamp}
 
     def reserve(self, **kwargs):
+        if kwargs.get('legacy_source'):
+            kwargs.setdefault('legacy_clients_stopped', True)
         return build_state_store.reserve_build(self.lib, self.slug, self.state,
                                                 consent=self.consent, **kwargs)
 
@@ -1215,7 +1241,7 @@ class TransactionalOwnership(unittest.TestCase):
             for _ in range(2):
                 out = io.StringIO()
                 with contextlib.redirect_stdout(out):
-                    code = bc.main(['state', 'migrate', '--source', str(old), '--plan', self.slug])
+                    code = bc.main(['state', 'migrate', '--legacy-clients-stopped', '--source', str(old), '--plan', self.slug])
                 self.assertEqual(code, 0)
                 outputs.append(json.loads(out.getvalue()))
         self.assertEqual(outputs[0]['ownership'], outputs[1]['ownership'])
@@ -1259,7 +1285,7 @@ class TransactionalOwnership(unittest.TestCase):
         with mock.patch.object(bc, '_library', return_value=self.lib), \
                 mock.patch.object(bc, 'ROOT', Path(self.state['build']['worktree'])), \
                 contextlib.redirect_stdout(io.StringIO()):
-            self.assertEqual(bc.main(['state', 'migrate', '--source', str(source), '--plan', self.slug]), 0)
+            self.assertEqual(bc.main(['state', 'migrate', '--legacy-clients-stopped', '--source', str(source), '--plan', self.slug]), 0)
         claim = self.lib.read_record(self.slug)['build_lease']['current']
         proof = {k: claim[k] for k in ('build_id', 'generation', 'snapshot', 'repository', 'pull_request', 'sealed_digest')}
         proof.update(merged=True, snapshot=str(source))
@@ -1408,6 +1434,120 @@ class TransactionalOwnership(unittest.TestCase):
         self.assertEqual(lock.stat().st_ino, inode)
         self.assertEqual(Path(claim['snapshot']).read_bytes(), evidence)
         self.assertTrue(build_state_store._legacy_slot(self.lib, self.slug).is_dir())
+
+    def test_actual_old_bind_mutate_and_migrate_refuse_completed_canonical_barrier(self):
+        import build_coordinator as bc
+        claim = self.reserve(); self.finish(claim)
+        old = build_state_store._legacy_slot(self.lib, self.slug)
+        lock = build_state_store._legacy_lock(self.lib, self.slug)
+        inode = lock.stat().st_ino
+        evidence = Path(claim['snapshot']).read_bytes()
+        old_store = core.StateStore(str(old), SCHEMA)
+        namespace = dict(vars(bc))
+        binding = mock.Mock()
+        namespace.update(_sealed_plan=lambda *a: (self.state['plan']['plan_id'],
+            self.seal['sealed_digest'], self.lib.head(self.slug)['build_plan']),
+            _verify_draft=lambda *a: {'headRefOid': 'e' * 40, 'baseRefOid': 'a' * 40},
+            _head=lambda: 'e' * 40, _initial_state=lambda *a: self.state,
+            _record_build_binding=binding)
+        exec(_LEGACY_BIND, namespace)
+        args = argparse.Namespace(plan=self.slug, issue=None, repository='o/r', pr=1,
+                                  mode='same-session', operator_decided=True)
+        with self.assertRaisesRegex(core.CoordinatorError, 'already exists'):
+            namespace['cmd_plan_bind'](args, old_store)
+        binding.assert_not_called()
+        namespace = dict(vars(core)); exec(_LEGACY_MUTATE, namespace)
+        change = mock.Mock()
+        with self.assertRaises((core.CoordinatorError, OSError)):
+            namespace['mutate'](old_store, change, from_revision=1)
+        change.assert_not_called()
+        source = self.root / 'retained-external.json'; source.write_text(json.dumps(self.state))
+        namespace = dict(vars(build_state_store)); namespace['snapshot_path'] = build_state_store._legacy_slot
+        exec(_LEGACY_MIGRATE, namespace)
+        with self.assertRaisesRegex(core.CoordinatorError, 'already holds'):
+            namespace['migrate'](source, self.slug, SCHEMA, library=self.lib)
+        self.assertEqual(lock.stat().st_ino, inode)
+        self.assertEqual(Path(claim['snapshot']).read_bytes(), evidence)
+        self.assertTrue(old.is_dir())
+
+    def test_old_superseder_before_cutover_demonstrates_why_clients_must_be_stopped(self):
+        old = build_state_store._legacy_slot(self.lib, self.slug)
+        build_state_store.DurableBuildStore(old, SCHEMA, library_root=self.lib.root).create(self.state)
+        lock = build_state_store._legacy_lock(self.lib, self.slug)
+        namespace = dict(vars(build_state_store)); namespace['snapshot_path'] = build_state_store._legacy_slot
+        exec(_LEGACY_SUPERSEDE, namespace)
+        with core.exclusive_lock(lock):
+            # Old supersede ignores this held lock and unlinks its pathname. This is the
+            # unsupported boundary, deliberately a negative witness rather than a claimed guarantee.
+            archive = namespace['supersede'](self.lib, self.slug, reason='negative witness')
+            self.assertFalse(lock.exists())
+            self.assertFalse(old.exists())
+            self.assertEqual(core.json_file(archive), self.state)
+
+    def test_migration_acknowledgement_refuses_before_reservation(self):
+        import build_coordinator as bc
+        with mock.patch.object(bc, '_library') as library, contextlib.redirect_stderr(io.StringIO()):
+            self.assertEqual(bc.main(['state', 'migrate', '--source', 'unused', '--plan', self.slug]), 2)
+            library.assert_not_called()
+        with self.assertRaisesRegex(core.CoordinatorError, 'legacy-clients-stopped'):
+            build_state_store.reserve_build(self.lib, self.slug, self.state, legacy_source=self.root / 'unused')
+        self.assertIsNone(self.lib.read_record(self.slug).get('build_lease'))
+
+    def test_external_source_change_after_copy_refuses_activation_and_preserves_both_copies(self):
+        source = self.root / 'external.json'
+        build_state_store.DurableBuildStore(source, SCHEMA).create(self.state)
+        original = source.read_bytes()
+        self.lib.update_record(self.slug, lambda r: r.update(build_binding={
+            'sealed_digest': self.seal['sealed_digest'], 'build_plan_digest': self.seal['build_plan_digest'],
+            'repository': 'o/r', 'pull_request': 1, 'at': self.consent['at']}))
+        claim = self.reserve(legacy_source=source)
+        with self.assertRaisesRegex(core.CoordinatorError, 'retry state migrate'):
+            self.reserve()
+        with mock.patch.object(build_state_store, '_cutover_locked', side_effect=OSError('after copy')):
+            with self.assertRaisesRegex(OSError, 'after copy'): self.finish(claim)
+        canonical = Path(claim['snapshot']); copied = canonical.read_bytes()
+        build_state_store.DurableBuildStore(source, SCHEMA).mutate(
+            lambda s: s['progress'].update(current_item='newer external progress'), from_revision=1)
+        changed = source.read_bytes()
+        with self.assertRaisesRegex(core.CoordinatorError, 'Restore the original'):
+            self.finish(claim)
+        self.assertEqual(source.read_bytes(), changed)
+        self.assertEqual(canonical.read_bytes(), copied)
+        self.assertEqual(self.lib.read_record(self.slug)['build_lease']['current']['state'], 'preparing')
+        source.unlink()
+        with self.assertRaisesRegex(core.CoordinatorError, 'Restore the original'):
+            self.finish(claim)
+        self.assertEqual(canonical.read_bytes(), copied)
+        source.write_bytes(original)
+        self.finish(claim)
+        self.assertEqual(source.read_bytes(), original)
+
+    def test_external_source_lock_serializes_reservation_with_cooperating_writer(self):
+        import queue
+        source = self.root / 'external.json'
+        build_state_store.DurableBuildStore(source, SCHEMA).create(self.state)
+        self.lib.update_record(self.slug, lambda r: r.update(build_binding={
+            'sealed_digest': self.seal['sealed_digest'], 'build_plan_digest': self.seal['build_plan_digest'],
+            'repository': 'o/r', 'pull_request': 1, 'at': self.consent['at']}))
+        ctx = multiprocessing.get_context('spawn'); attempted = ctx.Event(); outcome = ctx.Queue()
+        process = ctx.Process(target=_legacy_reservation_after_source_lock,
+            args=(str(self.lib.root), self.slug, str(source), self.state, attempted, outcome))
+        try:
+            with core.exclusive_lock(source.with_name(source.name + '.lock')):
+                process.start()
+                self.assertTrue(attempted.wait(10), 'reservation never reached the source lock')
+                with self.assertRaises(queue.Empty): outcome.get(timeout=0.2)
+                updated = core.json_file(source); updated['revision'] += 1
+                updated['progress']['current_item'] = 'writer finished first'
+                core.atomic_write(source, json.dumps(updated), durable=True, mode=0o600)
+            process.join(10); self.assertFalse(process.is_alive(), 'source lock deadlocked')
+            self.assertEqual(process.exitcode, 0)
+            self.assertIn('legacy source changed', outcome.get(timeout=3))
+            self.assertIsNone(self.lib.read_record(self.slug).get('build_lease'))
+            self.assertEqual(core.json_file(source)['progress']['current_item'], 'writer finished first')
+        finally:
+            if process.is_alive(): process.terminate(); process.join(3)
+            outcome.close(); outcome.join_thread()
 
     def test_legacy_cutover_preserves_original_and_old_lock_inode(self):
         old = build_state_store._legacy_slot(self.lib, self.slug)
