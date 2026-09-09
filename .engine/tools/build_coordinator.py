@@ -1257,6 +1257,10 @@ def cmd_state_continue(args, store: Snapshot) -> None:
 
 def cmd_state_migrate(args, store: "Snapshot | None") -> None:
     """Move one OS-temp snapshot into the durable library, or refuse and leave it untouched."""
+    if not getattr(args, 'legacy_clients_stopped', False):
+        raise CoordinatorError('migration requires --legacy-clients-stopped: pause sessions using old Engine code, '
+                               'wait for running commands to exit, update affected worktrees, then migrate and resume. '
+                               'Tasks and unfinished Builds need not be closed.')
     library = _library()
     slug = library.resolve(args.plan)
     record = library.read_record(slug)
@@ -1276,7 +1280,8 @@ def cmd_state_migrate(args, store: "Snapshot | None") -> None:
         core.validate(state, _state_schema_for(state))
         if Path(state['build'].get('worktree', '')).resolve() != ROOT.resolve():
             raise CoordinatorError('migration does not change the Build worktree; use verified handoff for continuation')
-        claim = build_state_store.reserve_build(library, slug, state, legacy_source=source)
+        claim = build_state_store.reserve_build(library, slug, state, legacy_source=source,
+                                                legacy_clients_stopped=True)
     saved = build_state_store.finish_binding(library, slug,
         build_state_store.claim_identity(claim), state, _state_schema_for)
     print(json.dumps({'migrated': claim['snapshot'], 'source': str(source),
@@ -5563,7 +5568,7 @@ def parser() -> argparse.ArgumentParser:
     continuation.add_argument('--repository', required=True)
     continuation.add_argument('--pr', type=int, required=True)
     continuation.set_defaults(func=cmd_state_continue)
-    smigrate = state_p.add_parser("migrate"); smigrate.add_argument("--source", required=True, help="an existing OS-temp Build snapshot"); smigrate.add_argument("--plan", required=True, help="the sealed plan whose library folder receives it"); smigrate.set_defaults(func=cmd_state_migrate)
+    smigrate = state_p.add_parser("migrate"); smigrate.add_argument("--source", required=True, help="an existing legacy Build snapshot"); smigrate.add_argument("--plan", required=True, help="the sealed plan whose library folder receives it"); smigrate.add_argument("--legacy-clients-stopped", action="store_true", help="confirm old Engine commands have exited and affected sessions will resume only with updated code; unfinished tasks may stay open"); smigrate.set_defaults(func=cmd_state_migrate)
     ssupersede = state_p.add_parser("supersede", help="clear a confirmed-stale binding so a fresh Build of the plan may start", description=_SUPERSEDE_GUIDANCE); ssupersede.add_argument("--plan", required=True, help="the sealed plan whose confirmed-stale snapshot is set aside"); ssupersede.add_argument("--reason", required=True, help="why it is confirmed stale; recorded beside the retained snapshot"); ssupersede.set_defaults(func=cmd_state_supersede)
     validate = sub.add_parser("validate"); validate.add_argument("mode", nargs="?", choices=["candidate", "final"], help="bare `validate` and `validate candidate` are the same run; `validate final import` verifies and imports the live engine-ci proof for the submitted head"); validate.add_argument("action", nargs="?", choices=["import"], help="for `final`: import is the only action — the proof is never run locally"); validate.add_argument("--force", action="store_true", help="re-run even when the cached candidate identity matches"); validate.add_argument("--plan", help="the approved plan; REQUIRED for a build-plan.v2 Build, whose node roster lives only there"); validate.set_defaults(func=cmd_validate)
     sync_artifacts = sub.add_parser("sync-artifacts"); sync_artifacts.set_defaults(func=cmd_sync_artifacts)
