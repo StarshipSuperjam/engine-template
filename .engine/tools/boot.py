@@ -3875,16 +3875,13 @@ def assemble_pack(session_id: str | None = None, *, use_ledger: bool = False, pa
                "alarm above still relays every session; routine status (milestone, what's next, what shipped, "
                "the backlog) is pull-only now. " + EXPLICIT_STATUS_PULL_TRIGGER)
     if providers.detect(payload) == providers.CODEX:
-        # DISCLOSED, not fixed here (StarshipSuperjam/engine-template#1187 provider-adapters node): Claude's session-economy spend gate
-        # (.engine/tools/session_economy.py, .engine/policies/session-economy.md) is a wired PreToolUse hook —
-        # a subagent naming an expensive model, or a self-scheduling wakeup call, is mechanically refused before
-        # it runs. Codex has NO such tool-layer enforcement (session_economy.py is not registered in
-        # .codex/hooks.json's PreToolUse list) — nothing here blocks either spend. So the guidance rides the
-        # envelope instead of the gate: hold the same two rules yourself, by discipline, since Codex will not.
-        out.append("5. (Codex-only, no mechanical gate here — hold this by discipline) Session economy: run "
-                   "a search/planning subagent on a cheap model only (the mechanical tier's, or `sonnet` — "
-                   "never a strong model for delegated search/plan work), and never invoke a self-scheduling "
-                   "wakeup action from inside a session.")
+        # The qualified explorer spawn is enforced; unsupported roles and wakeup surfaces still
+        # need discipline. Model choices remain owned by the central provider bindings.
+        out.append("5. (Codex-only) Session economy: a recognized explorer launch must name a cheap model "
+                   "from the provider bindings; the PreToolUse gate refuses a strong or missing model. "
+                   "Unknown launch shapes remain unclassified and allowed. Other search/planning work "
+                   "and self-scheduling wakeup actions remain discipline-only on this provider: keep "
+                   "delegated search cheap and never invoke a self-scheduling wakeup action.")
     out.append("")
     # POINT-OF-USE DEFERRAL + typed cutover: boot used to carry describe_explore_scope()'s ~1,900-char prose
     # lecture on the write gate here, and then a compact typed-contract restatement. Both are now redundant with

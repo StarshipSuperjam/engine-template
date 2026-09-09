@@ -6,12 +6,17 @@ date: 2026-08-22
 
 ## Rule
 
-Two ways a session spends heavily are refused mechanically, at the moment they are attempted.
+The supported provider surfaces below refuse expensive actions at the moment they are attempted.
 
 - **A search or planning subagent runs on a cheap model.** `Explore` and `Plan` are the platform's own
   general-purpose helpers; unlike the engine's review personas, which carry a model stamped from
   `.engine/policies/model-bindings.json`, they carry no binding of their own and so inherit whatever the
-  orchestrating session is running. They may name only a cheap model — the mechanical tier's, or `sonnet`.
+  orchestrating session is running. For Claude, they may name only a cheap model — the mechanical
+  tier's, or `sonnet`. Codex applies this rule to the qualified native `explorer` role. Its cheap choices
+  come from the Codex mechanical tier and implementation-worker bindings, excluding the judgment tier;
+  `.engine/policies/model-bindings.json` owns those choices. Missing models are refused too.
+  General judgment and named reviewers remain outside this rule; unknown roles remain unclassified
+  and allowed. No Codex-native planning role is qualified by this correction.
   A strong model is never valid here: an expensive search agent is spin-up cost for work the orchestrator
   should have done inline, and if a task genuinely needs stronger judgment the orchestrator should do it
   itself rather than delegate it.
@@ -22,7 +27,8 @@ Two ways a session spends heavily are refused mechanically, at the moment they a
   shell loop or poll; Engine changes must not introduce one as a workaround.
 
 Both are enforced by `.engine/tools/session_economy.py`, a PreToolUse gate registered under its own narrow
-matcher so it never costs a subprocess on unrelated tool calls.
+matcher so it never costs a subprocess on unrelated tool calls. Codex has a qualified explorer-spawn
+gate; no Codex self-wakeup tool is qualified, so the wakeup prohibition there remains discipline-only.
 
 ## Scope
 

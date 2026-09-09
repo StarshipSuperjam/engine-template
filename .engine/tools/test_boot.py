@@ -1688,9 +1688,9 @@ class TestMcpAvailabilitySurfacing(unittest.TestCase):
             self.assertIn(needle, doc)
 
     def test_codex_pack_carries_session_economy_guidance_claude_does_not(self):
-        # StarshipSuperjam/engine-template#1187: Claude relies on its wired PreToolUse gate (session_economy.py); Codex has no
-        # tool-layer enforcement for the same two rules (not registered in .codex/hooks.json), so the guidance
-        # must ride the Codex envelope instead — and must NOT appear on Claude, which already has the mechanism.
+        # Codex guidance distinguishes its qualified explorer gate from unsupported surfaces;
+        # it must not claim either that no gate exists or that every economy rule is enforced.
+        # Claude retains its existing briefing without this provider-specific explanation.
         patchers = _offline()
         try:
             with mock.patch.object(boot.providers, "detect", return_value=boot.providers.CODEX):
@@ -1703,7 +1703,9 @@ class TestMcpAvailabilitySurfacing(unittest.TestCase):
         self.assertIn("Session economy", codex_pack)
         self.assertIn("cheap model", codex_pack)
         self.assertIn("self-scheduling wakeup", codex_pack)
-        self.assertIn("no mechanical gate here", codex_pack)
+        self.assertIn("PreToolUse gate refuses a strong or missing model", codex_pack)
+        self.assertIn("Unknown launch shapes remain unclassified and allowed", codex_pack)
+        self.assertIn("remain discipline-only", codex_pack)
         self.assertNotIn("Session economy", claude_pack)
 
     def test_provider_parity_envelope_identical_only_frame_handles_differ(self):
