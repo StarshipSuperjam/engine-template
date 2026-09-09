@@ -1549,6 +1549,30 @@ class TransactionalOwnership(unittest.TestCase):
             if process.is_alive(): process.terminate(); process.join(3)
             outcome.close(); outcome.join_thread()
 
+    def test_retirement_of_copied_migration_rechecks_changed_external_evidence(self):
+        source = self.root / 'external.json'
+        build_state_store.DurableBuildStore(source, SCHEMA).create(self.state)
+        self.lib.update_record(self.slug, lambda r: r.update(build_binding={
+            'sealed_digest': self.seal['sealed_digest'], 'build_plan_digest': self.seal['build_plan_digest'],
+            'repository': 'o/r', 'pull_request': 1, 'at': self.consent['at']}))
+        claim = self.reserve(legacy_source=source)
+        with mock.patch.object(build_state_store, '_cutover_locked', side_effect=OSError('copy cut')):
+            with self.assertRaisesRegex(OSError, 'copy cut'): self.finish(claim)
+        canonical = Path(claim['snapshot']); before = canonical.read_bytes()
+        original = source.read_bytes()
+        build_state_store.DurableBuildStore(source, SCHEMA).mutate(
+            lambda s: s['progress'].update(current_item='new external evidence'), from_revision=1)
+        changed = source.read_bytes()
+        with self.assertRaisesRegex(core.CoordinatorError, 'Restore the original'):
+            self.retire(claim)
+        self.assertEqual(source.read_bytes(), changed)
+        self.assertEqual(canonical.read_bytes(), before)
+        self.assertEqual(self.lib.read_record(self.slug)['build_lease']['current']['state'], 'preparing')
+        source.write_bytes(original)
+        archive = self.retire(claim)
+        self.assertEqual(archive.read_bytes(), before)
+        self.assertFalse(canonical.exists())
+
     def test_legacy_cutover_preserves_original_and_old_lock_inode(self):
         old = build_state_store._legacy_slot(self.lib, self.slug)
         build_state_store.DurableBuildStore(old, SCHEMA, library_root=self.lib.root).create(self.state)
