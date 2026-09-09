@@ -35,6 +35,7 @@ Run: uv run --directory .engine -- python tools/demo_plan_to_ready_pr.py
 """
 from __future__ import annotations
 
+import io
 import json
 import os
 import shutil
@@ -42,6 +43,9 @@ import stat
 import subprocess
 import sys
 import tempfile
+import unittest
+from pathlib import Path
+from unittest import mock
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import build_coordinator as bc  # noqa: E402 — the real coordinator, for schema-true seeding only
@@ -417,7 +421,53 @@ def _arc_two(copy, head, env, holder, pr_state):
     return ok
 
 
+class _IsolationTests(unittest.TestCase):
+    def test_inherited_git_selectors_cannot_redirect_the_disposable_repository(self):
+        with tempfile.TemporaryDirectory() as d:
+            outside = Path(d) / 'outside'; outside.mkdir()
+            target = Path(d) / 'target'; target.mkdir()
+            clean = {k: v for k, v in os.environ.items() if not k.startswith('GIT_')}
+            clean.update(GIT_CONFIG_NOSYSTEM='1', GIT_CONFIG_GLOBAL=os.devnull)
+            subprocess.run(['git', 'init', '-q', str(outside)], env=clean, check=True)
+            sentinel = outside / 'keep.txt'; sentinel.write_text('unchanged')
+            before = (outside / '.git' / 'HEAD').read_bytes()
+            with mock.patch.dict(os.environ, {'GIT_DIR': str(outside / '.git'),
+                    'GIT_WORK_TREE': str(outside), 'GIT_INDEX_FILE': str(outside / 'wrong-index'),
+                    'GIT_CONFIG_COUNT': '1', 'GIT_CONFIG_KEY_0': 'core.worktree',
+                    'GIT_CONFIG_VALUE_0': str(outside)}):
+                result = _git(str(target), 'init', '-q')
+                self.assertEqual(result.returncode, 0, result.stderr)
+                env = _demo_env()
+                self.assertNotIn('GIT_DIR', env)
+                self.assertNotIn('GIT_CONFIG_COUNT', env)
+            self.assertTrue((target / '.git' / 'HEAD').is_file())
+            self.assertEqual((outside / '.git' / 'HEAD').read_bytes(), before)
+            self.assertEqual(sentinel.read_text(), 'unchanged')
+            self.assertFalse((outside / 'wrong-index').exists())
+
+    def test_source_symlink_refuses_before_any_git_or_fixture_write(self):
+        with tempfile.TemporaryDirectory() as d:
+            source = Path(d) / 'source'; source.mkdir()
+            holder = Path(d) / 'holder'; holder.mkdir()
+            outside = Path(d) / 'keep.txt'; outside.write_text('unchanged')
+            (source / 'widget_cache.py').symlink_to(outside)
+            with mock.patch.object(validate, 'ROOT', str(source)), \
+                    mock.patch(__name__ + '._git') as git:
+                with self.assertRaisesRegex(ValueError, 'source symlink'):
+                    _throwaway(str(holder))
+                git.assert_not_called()
+            self.assertEqual(outside.read_text(), 'unchanged')
+
+
+
 def main(_argv=None) -> int:
+    # This setup-only demo owns its isolation regressions and retires with them.
+    diagnostics = io.StringIO()
+    result = unittest.TextTestRunner(stream=diagnostics).run(
+        unittest.defaultTestLoader.loadTestsFromTestCase(_IsolationTests))
+    if not result.wasSuccessful():
+        print(diagnostics.getvalue(), file=sys.stderr)
+        return 1
     print("What this checks: a plan cannot be sealed before it is approved, cannot start a Build before")
     print("it is sealed, and — once it is — carries all the way to a pull request ready for you.\n")
     holder = tempfile.mkdtemp(prefix="entry-door-demo-")

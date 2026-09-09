@@ -514,48 +514,6 @@ class TheKillAndResumeDemo(unittest.TestCase):
 
 
 
-class FrontDoorDemoIsolation(unittest.TestCase):
-    def test_inherited_git_selectors_cannot_redirect_the_disposable_repository(self):
-        import demo_plan_to_ready_pr as demo
-        import quiet_call
-        with tempfile.TemporaryDirectory() as d:
-            outside = Path(d) / 'outside'; outside.mkdir()
-            target = Path(d) / 'target'; target.mkdir()
-            clean = {k: v for k, v in os.environ.items() if not k.startswith('GIT_')}
-            clean.update(GIT_CONFIG_NOSYSTEM='1', GIT_CONFIG_GLOBAL=os.devnull)
-            subprocess.run(['git', 'init', '-q', str(outside)], env=clean, check=True)
-            sentinel = outside / 'keep.txt'; sentinel.write_text('unchanged')
-            before = (outside / '.git' / 'HEAD').read_bytes()
-            with mock.patch.dict(os.environ, {'GIT_DIR': str(outside / '.git'),
-                    'GIT_WORK_TREE': str(outside), 'GIT_INDEX_FILE': str(outside / 'wrong-index'),
-                    'GIT_CONFIG_COUNT': '1', 'GIT_CONFIG_KEY_0': 'core.worktree',
-                    'GIT_CONFIG_VALUE_0': str(outside)}):
-                result = quiet_call.run(demo._git, str(target), 'init', '-q')
-                self.assertEqual(result.returncode, 0, result.stderr)
-                env = quiet_call.run(demo._demo_env)
-                self.assertNotIn('GIT_DIR', env)
-                self.assertNotIn('GIT_CONFIG_COUNT', env)
-            self.assertTrue((target / '.git' / 'HEAD').is_file())
-            self.assertEqual((outside / '.git' / 'HEAD').read_bytes(), before)
-            self.assertEqual(sentinel.read_text(), 'unchanged')
-            self.assertFalse((outside / 'wrong-index').exists())
-
-    def test_source_symlink_refuses_before_any_git_or_fixture_write(self):
-        import demo_plan_to_ready_pr as demo
-        import quiet_call
-        with tempfile.TemporaryDirectory() as d:
-            source = Path(d) / 'source'; source.mkdir()
-            holder = Path(d) / 'holder'; holder.mkdir()
-            outside = Path(d) / 'keep.txt'; outside.write_text('unchanged')
-            (source / 'widget_cache.py').symlink_to(outside)
-            with mock.patch.object(demo.validate, 'ROOT', str(source)), \
-                    mock.patch.object(demo, '_git') as git:
-                with self.assertRaisesRegex(ValueError, 'source symlink'):
-                    quiet_call.run(demo._throwaway, str(holder))
-                git.assert_not_called()
-            self.assertEqual(outside.read_text(), 'unchanged')
-
-
 # Actual supersede from a54c8119, frozen to challenge the compatibility boundary.
 _LEGACY_SUPERSEDE = 'def supersede(library: plan_store.PlanLibrary, slug: str, *, reason: str) -> Path | None:\n    """Clear a confirmed-stale binding: set the current snapshot aside so a fresh Build of the same\n    plan may start. Never silent.\n\n    This is deliberately NOT the resume path — a genuine continuation keeps its worktree and\n    re-verifies the binding in place, and never comes here. Nor is it needed to start a Build of some\n    OTHER plan: each plan gets its own snapshot, so a different plan just binds fresh. But this plan\n    cannot bind fresh in a different worktree — snapshots are keyed by plan, not worktree, so while this\n    snapshot exists a re-bind of the same plan is refused. Superseding clears that one snapshot so its\n    slot is free again. Once cleared, the plan no longer answers `bound_snapshots` (the live snapshot is\n    gone), so a resuming session sees no live work for it. Superseding neither completes the plan nor\n    touches the PR.\n\n    The displaced snapshot is MOVED, not removed: it becomes `superseded-<revision>.json` beside the\n    new one, byte-for-byte as it stood, with the reason recorded in a sibling `.reason.json`. An\n    operator superseding a Build usually does so because something went wrong, which is precisely\n    when the evidence of what went wrong is worth keeping — and keeping the snapshot itself\n    unaltered is what lets it still be read as the schema-valid document it is.\n    """\n    current = snapshot_path(library, slug)\n    if not current.is_file():\n        return None\n    state = core.json_file(current)\n    revision = state.get("revision", 0)\n    retired = current.with_name(f"superseded-{revision:06d}.json")\n    if retired.exists():\n        raise BuildStateError(\n            f"{retired} already exists, so superseding again would overwrite a snapshot already set "\n            "aside. Move or delete it first — this store does not silently destroy evidence.")\n    core.atomic_write(retired, json.dumps(state, indent=2, sort_keys=True) + "\\n",\n                      durable=True, mode=plan_store.FILE_MODE)\n    core.atomic_write(retired.with_suffix(".reason.json"),\n                      json.dumps({"at": moment.utc_now(), "reason": reason,\n                                  "superseded_revision": revision}, indent=2, sort_keys=True) + "\\n",\n                      durable=True, mode=plan_store.FILE_MODE)\n    current.unlink()\n    lock = current.with_name(current.name + ".lock")\n    if lock.exists():\n        lock.unlink()\n    return retired'
 
