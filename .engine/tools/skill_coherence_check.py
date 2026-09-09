@@ -59,10 +59,10 @@ def engine_skills(root: str | None = None, skills_dir: str | None = None) -> lis
     return skills
 
 
-def emit(findings: list) -> int:
-    """Write the finding.v1 array to stdout and return 0 — a successful evaluation, whatever it found."""
-    print(json.dumps(findings))
-    return 0
+emit = validate.emit
+USAGE = ("Usage: skill_coherence_check.py [-h|--help] [demo]\n\n"
+         "Checks engine skill declarations and emits a finding.v1 JSON array. "
+         "Environment: ENGINE_RULE_TIER, ENGINE_SKILL_FIXTURE_DIR.")
 
 
 def _demo() -> int:
@@ -111,7 +111,7 @@ def _demo() -> int:
     return 0
 
 
-def main(argv: list) -> int:
+def _main(argv: list) -> int:
     if argv and argv[0] == "demo":
         return _demo()
     tier = os.environ.get("ENGINE_RULE_TIER", "hard")
@@ -120,6 +120,10 @@ def main(argv: list) -> int:
     # (StarshipSuperjam/engine-template#286) without the fixture being loaded as a real skill by Claude Code's own loader.
     skills = engine_skills(skills_dir=validate.env_override_path("ENGINE_SKILL_FIXTURE_DIR"))
     return emit(validate.skill_coherence_findings(skills, tier, _MESSAGE))
+
+
+def main(argv: list) -> int:
+    return validate.cli_main(argv, usage=USAGE, run=_main)
 
 
 if __name__ == "__main__":

@@ -138,11 +138,10 @@ def findings(tier: str, decl, root: str | None = None) -> list:
     return out
 
 
-def emit(fs: list) -> int:
-    """Write the finding.v1 array to stdout (the custom/script machine channel) and return 0 — a successful
-    evaluation, whatever it found. Human-readable prose lives inside each finding's `message`."""
-    print(json.dumps(fs))
-    return 0
+emit = validate.emit
+USAGE = ("Usage: operator_guarded_paths_check.py [-h|--help] [demo]\n\n"
+         "Checks extra guarded-path declarations and emits a finding.v1 JSON array. "
+         "Environment: ENGINE_RULE_TIER, ENGINE_GUARDED_PATHS_PATH.")
 
 
 def _demo() -> int:
@@ -166,7 +165,7 @@ def _demo() -> int:
     return 0
 
 
-def main(argv: list) -> int:
+def _main(argv: list) -> int:
     if argv and argv[0] == "demo":
         return _demo()
     tier = os.environ.get("ENGINE_RULE_TIER", "hard")
@@ -175,6 +174,10 @@ def main(argv: list) -> int:
     seeded = validate.env_override_path("ENGINE_GUARDED_PATHS_PATH")
     path = seeded if seeded else os.path.join(validate.ROOT, _FILE)
     return emit(findings(tier, load_declaration(path)))
+
+
+def main(argv: list) -> int:
+    return validate.cli_main(argv, usage=USAGE, run=_main)
 
 
 if __name__ == "__main__":

@@ -59,10 +59,10 @@ def findings(tier: str, paths=None) -> list:
     return out
 
 
-def emit(fs: list) -> int:
-    """Write the finding.v1 array to stdout (the custom/script machine channel) and return 0."""
-    print(json.dumps(fs))
-    return 0
+emit = validate.emit
+USAGE = ("Usage: conduct_shape_check.py [-h|--help] [demo]\n\n"
+         "Checks conduct frontmatter and headings, emitting a finding.v1 JSON array. "
+         "Environment: ENGINE_RULE_TIER, ENGINE_CONDUCT_DIR.")
 
 
 def _demo() -> int:
@@ -97,7 +97,7 @@ def _demo() -> int:
     return 0
 
 
-def main(argv: list) -> int:
+def _main(argv: list) -> int:
     if argv and argv[0] == "demo":
         return _demo()
     tier = os.environ.get("ENGINE_RULE_TIER", "hard")
@@ -106,6 +106,10 @@ def main(argv: list) -> int:
     conduct_dir = validate.env_override_path("ENGINE_CONDUCT_DIR")
     paths = sorted(glob.glob(os.path.join(conduct_dir, "*.md"))) if conduct_dir else None
     return emit(findings(tier, paths))
+
+
+def main(argv: list) -> int:
+    return validate.cli_main(argv, usage=USAGE, run=_main)
 
 
 if __name__ == "__main__":
