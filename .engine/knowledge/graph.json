@@ -7532,7 +7532,7 @@
       },
       "slug": "plan-record.v1",
       "source": {
-        "fingerprint": "sha256:f3fdb8044d7c43d1a53bec0eb0e40d034d7582ab1550c53be5902b291f29f074",
+        "fingerprint": "sha256:fd22659a04a20d34abc489328df4a1ae5d75524b6356ddacb3d2dcefdd156d62",
         "path": ".engine/schemas/plan-record.v1.json"
       },
       "status": "active",
@@ -9543,7 +9543,7 @@
       },
       "slug": "build_coordinator",
       "source": {
-        "fingerprint": "sha256:bcc737b1577c2f388c9f4630594c6fc099a03402ff5d4b969c666a7e4595aa16",
+        "fingerprint": "sha256:91334b65f6dabf33ca0fe2dde0cd921f28c996948ad0209409ed0fa32d218de3",
         "path": ".engine/tools/build_coordinator.py"
       },
       "status": "active",
@@ -9587,7 +9587,7 @@
       },
       "slug": "build_coordinator_core",
       "source": {
-        "fingerprint": "sha256:70f57efe84faf82bf50c165b77029ae3abeb57536e154bd8d557471a56befe93",
+        "fingerprint": "sha256:d887383744461663f5e7e92b693bac4c259c33a58c7dbce943544efced2a8deb",
         "path": ".engine/tools/build_coordinator_core.py"
       },
       "status": "active",
@@ -9850,7 +9850,7 @@
       },
       "slug": "build_state_store",
       "source": {
-        "fingerprint": "sha256:37e9ffae02d91bb4d0cbc028935faca8403d7df0f9c0d59de13ff78ae990aaaf",
+        "fingerprint": "sha256:9cceb92c79ebb5e2aed0cf98671dc5eb622344aaf81144e7721fbb2b7970e4c1",
         "path": ".engine/tools/build_state_store.py"
       },
       "status": "active",
@@ -16548,7 +16548,7 @@
       },
       "slug": "test_build_state_store",
       "source": {
-        "fingerprint": "sha256:dc92c3f59be795cc2cdc25de0466b4ddbd3a7b0fef45fd0618089e88ef946c02",
+        "fingerprint": "sha256:67a66ffa0dd5486f76bfa5a3c48fe37fd36518c02d459fd41cfe42e22cda7d02",
         "path": ".engine/tools/test_build_state_store.py"
       },
       "status": "active",
