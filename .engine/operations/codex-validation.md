@@ -12,8 +12,10 @@ host and version actually tested. Enter after adapter changes or when hooks stop
 
 1. Record `codex --version`, OS, host kind and host version (or why unavailable). Hooks require a
    supported build (around v0.114 or later). CLI evidence never certifies Desktop or Windows.
-2. Approve Engine hooks with `/hooks` in CLI or Settings → Hooks in Desktop. New or changed entries in
-   `.codex/hooks.json` are skipped until re-approved. Preserve saved trust during isolated qualification.
+2. Approve Engine hooks with the CLI's `/hooks` browser. Do not direct a Desktop user to type that
+   command in Desktop or assume their build has a Hooks settings screen. Project-folder trust and
+   approval of each hook's current hash are separate. New or changed entries in `.codex/hooks.json`
+   require approval. Preserve saved trust during isolated qualification; verify actual events afterward.
 3. Start fresh: verify `AGENTS.md` and the opening **Project status** block. If the briefing is absent,
    disclose that automation is off and ground manually with
    `uv run --directory .engine --frozen -- python tools/engine_status.py` before continuing.
@@ -99,6 +101,44 @@ live arm must pass before release; defects inside the agreed bar require a fix, 
 Routine/audit migration and Desktop acceptance remain separate gates where those changes apply.
 
 ## Notes
+
+### Scoped-agent baseline, September 9, 2026
+
+macOS Desktop 26.901.51231 (build 8109), with Codex 0.153.4, passed bounded native lifecycle probes.
+Ten distinct fresh children ran across twelve launches; two capacity refusals were expected. Three
+actual running children saturated the available slots; completion permitted a fresh launch without a
+close tool or limit change. Queue-only messages to completed children reproduced failed allocation;
+same-assignment followups consumed the messages and restored fresh allocation. A message in the
+original incident was sent before completion and remained pending afterward: a completed-only ban
+would miss that race. Retained conversations are not proof of resident capacity consumption.
+
+A separate disposable Desktop fixture observed `collaborationspawn_agent`,
+`collaborationsend_message` and `collaborationfollowup_task`. `PreToolUse` denied the queue-only
+send before delivery. Two actual child IDs had distinct immutable packets and successful `Bash`
+packet-read `PostToolUse` responses. Child hook `session_id` remained the parent's ID; `agent_id`
+identified the child. `SubagentStart` and `SubagentStop` were observed, but a start by itself does
+not correlate a launch to a packet, and a stop is a turn boundary, not proof an assignment succeeded.
+Both children first needed clarification, then completed their original assignment through followup.
+Parent and child transcripts corroborated packet reads, denial and delivery. A separate live probe
+delivered followup during a running tool; an empty followup woke a child without useful progress,
+and an unknown recipient was rejected. Do not infer exactly-once transport from these bounded cases.
+
+The fixture's first controls produced no hook events: project trust alone was insufficient. After
+the operator approved all five hook hashes through CLI `/hooks`, the already-running Desktop task
+still produced no events. Archiving and restoring that same task loaded the fixture configuration;
+the subsequent Desktop control and native probes passed. Preserve both failed controls and the
+passing run. This is an observed recovery, not a universal hot-reload guarantee. CLI trust approval
+does not certify Desktop execution. The disposable fixture and its runner are test equipment, not
+requirements for repositories that install the Engine.
+
+These are baseline observations, not validation of a later implementation. Renew candidate witnesses
+after changing hooks; cover active and near-completion denial, parent-directed reporting, clarification,
+missing hooks and fresh review acceptance. Offline fixtures derived from Anthropic's
+[hook reference](https://code.claude.com/docs/en/hooks) and
+[subagent reference](https://code.claude.com/docs/en/sub-agents) are a separate evidence class:
+Claude uses `Agent` and `SendMessage`; fresh custom agents, forks and resumed contexts differ.
+For issue 1269 the operator deferred live Claude 2.1.185 confirmation to September 12 afternoon.
+Documented-contract tests must run before merge; the live result remains unverified until recorded.
 
 **2026-09-08, macOS / CLI 0.153.4:** the same child retained configured `gpt-5.6-luna`/low effort under
 both parent modes, while inheriting the parent's effective sandbox. Read Only permitted shell invocation

@@ -566,5 +566,60 @@ class TestLaunchNormalization(unittest.TestCase):
             self.assertIsNone(providers.launch_record(payload, "codex"))
 
 
+class TestScopedAgentBaseline(unittest.TestCase):
+    """Sanitized September 9 Desktop envelopes, distinct from Claude documentation fixtures.
+
+    These exercise the real normalization boundary, not a simulated native allocator. Replaced
+    identities and paths preserve the observed parent/child split; no private task bodies are kept.
+    The local probe's packets/witness flags were instrumentation, not native payload fields.
+    """
+
+    def test_desktop_launch_preserves_correlation_fields_on_both_tool_events(self):
+        for event in ("PreToolUse", "PostToolUse"):
+            payload = {"hook_event_name": event, "session_id": "parent", "turn_id": "turn",
+                       "tool_use_id": "call-launch", "tool_name": "collaborationspawn_agent",
+                       "tool_input": {"agent_type": "default", "task_name": "review_a",
+                                      "fork_turns": "none", "message": "synthetic packet path"}}
+            result = providers.normalize(event, payload)
+            self.assertEqual(result["tool_name"], "Agent")
+            self.assertEqual(result["session_id"], "parent")
+            self.assertEqual(result["tool_use_id"], "call-launch")
+            self.assertEqual(result["provider_launch"]["fork_context"], "none")
+            self.assertNotIn("agent_id", result)  # a request does not establish the actual child
+
+    def test_desktop_child_read_does_not_replace_parent_session_with_child_id(self):
+        payload = {"session_id": "parent", "agent_id": "child-a", "agent_type": "default",
+                   "turn_id": "child-turn", "tool_name": "Bash", "tool_use_id": "exec-read",
+                   "tool_input": {"command": "cat /fixture/packets/A.json"},
+                   "tool_response": "synthetic packet content"}
+        result = providers.normalize("PostToolUse", payload)
+        self.assertEqual((result["session_id"], result["agent_id"]), ("parent", "child-a"))
+        self.assertEqual(result["tool_response"], "synthetic packet content")
+        self.assertEqual(result["tool_use_id"], "exec-read")
+
+    def test_desktop_control_tools_are_distinct_from_launches(self):
+        for tool in ("collaborationsend_message", "collaborationfollowup_task"):
+            payload = {"turn_id": "turn", "session_id": "parent", "tool_name": tool,
+                       "tool_input": {"target": "review_a", "message": "synthetic"}}
+            self.assertEqual(providers.detect(payload), "codex")
+            self.assertIsNone(providers.launch_record(payload, "codex"))
+            result = providers.normalize("PreToolUse", payload)
+            self.assertEqual(result["tool_input"]["target"], "review_a")
+
+    def test_claude_documented_child_fields_remain_identity_without_codex_turn_id(self):
+        # Official hooks reference: common session_id plus agent_id/agent_type on child tools.
+        # Documentation contract only; no live Claude run is represented by this fixture.
+        with mock.patch.dict(os.environ, {providers.PROVIDER_ENV: "claude"}):
+            for event in ("PreToolUse", "PostToolUse", "SubagentStart", "SubagentStop"):
+                payload = {"hook_event_name": event, "session_id": "parent", "agent_id": "child",
+                           "agent_type": "engine-design-review-architecture"}
+                self.assertIs(providers.normalize(event, payload), payload)
+                self.assertEqual(providers.detect(payload), "claude")
+            message = {"tool_name": "SendMessage", "tool_input": {
+                "type": "message", "recipient": "child", "content": "synthetic clarification"}}
+            self.assertIs(providers.normalize("PreToolUse", message), message)
+            self.assertIsNone(providers.launch_record(message))
+
+
 if __name__ == "__main__":
     unittest.main()
