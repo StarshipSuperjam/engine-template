@@ -14512,7 +14512,7 @@
       },
       "slug": "providers",
       "source": {
-        "fingerprint": "sha256:51a0c1a3c0e1828a38f487730f2f2ffc8d6fee99d20615e42066a83cf4f2c986",
+        "fingerprint": "sha256:14bea1a9afe0c3b5174d8966c32092ee6b028004e5898747d6ae673e3258666b",
         "path": ".engine/tools/providers.py"
       },
       "status": "active",
@@ -15374,7 +15374,7 @@
       },
       "slug": "session_economy",
       "source": {
-        "fingerprint": "sha256:e4fa459f97c87578b6340d8d0c56d8c3b838f859885ec78479340911cd4e2f9b",
+        "fingerprint": "sha256:9e9c6392022373ad6038352b47d3b547fc0a1a79585b781dd9b7c182cb9d73aa",
         "path": ".engine/tools/session_economy.py"
       },
       "status": "active",
@@ -20686,7 +20686,7 @@
       },
       "slug": "test_session_economy",
       "source": {
-        "fingerprint": "sha256:91413ce17a35867aa475b65ea7ddd552b383dfdc6ec62c5b369ec4fc0f96de8d",
+        "fingerprint": "sha256:16a34578b5799a88df4f25dbc007660d6dc2ef67d891d4fc2c0c2abe5b229352",
         "path": ".engine/tools/test_session_economy.py"
       },
       "status": "active",
