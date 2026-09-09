@@ -160,3 +160,75 @@ Five documented owner replays passed, including the real bound Build pointer and
 The nested-cwd reminder repair was followed by another real compact-pointer witness. Executable shim
 tests now round-trip stdin and target exit status. Provider tests retain a redacted Claude transcript
 launch projection with provenance, explicitly distinct from a newly observed hook envelope.
+
+### Candidate shell-result qualification — September 9, 2026
+
+The N5 diagnostic in the same authorized Desktop task
+`01a086fe-0081-7010-9865-f0508d76430d` found that native Bash PostToolUse carries
+`tool_response` as plain output text, with no exit status or error flag in the hook envelope.
+Two commands printing the same public marker, one exiting 0 and one exiting 7, produced identical
+hook response strings. The candidate's structured-response-only packet-read check consequently
+rejected the successful native read too. This was a candidate defect, not proof that hooks failed.
+
+The witness then inspected the bounded native transcript tail **during the hook**. It found the
+exact `event_msg/item_completed/CommandExecution` records for both calls:
+
+- `exec-7be67ebd-1d1f-4c2f-91c6-51a8f938122c`: exit 0, status `completed`;
+- `exec-7035d3bc-a81f-43ea-b90b-f6cef8c23c70`: exit 7, status `failed`.
+
+Both matched the actual task and turn (`01a087bc-9161-7ba0-9e85-d170cc690e7e`),
+and each native stdout and aggregated output exactly matched its hook response. This supports a
+Codex adapter correction that joins the observed response to one exact native completion by actor,
+turn and call ID, requiring successful status and exit 0. Missing, ambiguous, contradictory or failed
+completion must remain unverified. Child execution additionally retains the existing parent/child
+metadata join. Plain text alone must never be upgraded to successful evidence. The correction now requires that
+exact native join. The original failed diagnostic remains evidence of the defect, not acceptance.
+
+The diagnostic modified only the disposable witness, preserving its baseline copy. Its hook definitions
+and saved trust were not changed. These probe additions are not adopter setup requirements. Claude's
+structured Read contract is separate; live Claude validation remains the agreed September 12 follow-up.
+
+### Candidate verification and remaining limits — September 9, 2026
+
+The repaired candidate completed a native blocked-worker assignment on child
+`01a087cd-da8a-72f1-9c58-1e79c05640e5`: the actual candidate hook denied a queue-only send,
+then one necessary supplement and one followup produced the correct result and original witness on
+the same child. The shared acceptance helper verified the observed execution under the plan lock.
+This was disposable worker evidence, not production review coverage.
+
+Six further fresh workers launched in two batches of three, without retries, messages, reused children
+or limit changes. All returned correct variable results. Five passed evidence verification; the sixth
+used a relative `cat` path that the first adapter missed. Its failed companion remains unchanged.
+The adapter now resolves a simple relative `cat` against the exact observed command completion's cwd;
+computed paths and arbitrary shell directory changes remain unsupported. The exposed limit was four
+concurrent slots including the controller. Six distinct children demonstrate successive reuse beyond
+that exposed limit, not knowledge of an unexposed separate resident allocator limit.
+
+All 860 focused provider, scoped-agent, Project Manager, Build and storage tests passed in a fresh,
+hash-matched disposable copy. These include Claude documented-payload cases through the real Engine
+hook runner, interrupted acceptance, stale generation, missing evidence and partial completion.
+Offline fixtures do not establish live Claude behavior. A separate old/new-reader experiment used
+base `a31ecfae453e2c77dd4cb31979293a7cfed531b6`: its actual plan and Build readers round-tripped
+sanitized fixture records while preserving companion and packet bytes. Re-upgrade retained verified
+receipt provenance; removing the companion made verification fail, and restoring its original bytes
+restored verification. The older code has no scoped-agent enforcement. Storage compatibility must not
+be presented as enforcement surviving rollback. The experiment's first script invocation used an
+incorrect storage constructor and failed; the corrected invocation is the passing result.
+
+The fresh relative-path rerun passed on child `01a087e7-d9b9-78a0-9993-ce3bcd312c5e`,
+assignment `sa_53321ccbc69d4141b65e7505ca8d6f25`: native command
+`exec-5ab2fc13-010c-4e56-80f5-a4ff582043e0` read the relative packet, exited 0, and the same
+child returned 79 with its new witness. The acceptance helper verified it. The preliminary full-CLI
+registration attempt correctly refused the earlier minimal lower-level fixture; using the existing
+valid disposable plan resolved this harness error without changing source or old evidence.
+A further permanent planning crash regression passed with its four related tests after correcting
+the test's expectation that filesystem interruption propagates. Receipt publication was interrupted,
+legacy history remained unchanged, and retry accepted the original evidence once.
+
+Native reviewer-gate qualification, candidate/CI validation and the independent deliverable review
+remain separate obligations until their results are recorded. The
+operator and assisting session own the agreed live Claude follow-up on September 12 afternoon:
+fresh and concurrent reviews, same-assignment clarification, cross-assignment resume rejection,
+worker continuation and correct completion attribution on the merged candidate. Record the actual
+version and results; address any incompatibility in a focused follow-up PR. This deferral is approved
+and is not a merge prerequisite. No local probe establishes adversarial isolation or exactly-once delivery.

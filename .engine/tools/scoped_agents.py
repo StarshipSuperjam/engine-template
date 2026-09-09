@@ -220,10 +220,10 @@ class Store:
             # Packet reads supply the non-timing identity join. Parent reads never satisfy it.
             if not _text(actor):
                 return hooks.proceed()
-            packet_read = event == "PostToolUse" and any(a["packet_path"] in json.dumps(call["input"]) for a in owned)
+            packet_read = event == "PostToolUse" and any(providers.scoped_reads_path(payload, a["packet_path"]) for a in owned)
             transcript = providers.scoped_transcript(payload, call["provider"]) if packet_read or event == "SubagentStop" else {}
             for a in owned:
-                if event == "PostToolUse" and a["packet_path"] in json.dumps(call["input"]):
+                if event == "PostToolUse" and providers.scoped_reads_path(payload, a["packet_path"]):
                     if not a["launch"] or not a["launch"]["fresh"]:
                         a["faults"].append("packet read without observed fresh dispatch")
                         continue
@@ -256,7 +256,7 @@ class Store:
                     a["start"] = {"child": actor, "role": call.get("role")}
                 for c in a["continuations"]:
                     for s in a["supplements"]:
-                        if event == "PostToolUse" and s["call_id"] == c["call_id"] and s["path"] in json.dumps(call["input"]):
+                        if event == "PostToolUse" and s["call_id"] == c["call_id"] and providers.scoped_reads_path(payload, s["path"]):
                             body = Path(s["path"]).read_text(encoding="utf-8")
                             if core.digest(body.encode()) == s["digest"] and providers.scoped_read_succeeded(payload, body):
                                 c["delivered"] = True
@@ -309,6 +309,14 @@ class Store:
                     continue
             elif not _text(a["stops"][-1]["output"]):
                 continue
+            else:
+                try:
+                    worker_output = json.loads(a["stops"][-1]["output"])
+                except ValueError:
+                    worker_output = None
+                if isinstance(worker_output, dict) and worker_output.get("status") in (
+                        "blocked", "partial", "needs_clarification", "cancelled", "failed", "error"):
+                    continue
             if core.digest(Path(a["packet_path"]).read_bytes()) != a["file_digest"]:
                 continue
             valid.append(a)

@@ -283,13 +283,118 @@ def scoped_launch_child(response):
     return None
 
 
+def _codex_command_completion(payload: dict) -> dict | None:
+    """Join plain hook output to an exact native completion; stdout never supplies its own status.
+
+    Qualified on Desktop 26.901.51231 / Codex 0.153.4. The native completion was visible during
+    PostToolUse. A missing, truncated, changed or unfamiliar transcript leaves execution unverified.
+    """
+    from pathlib import Path
+    actor = payload.get("agent_id") or payload.get("session_id")
+    root, turn, call = (payload.get(k) for k in ("session_id", "turn_id", "tool_use_id"))
+    path = payload.get("agent_transcript_path") or payload.get("transcript_path")
+    if not all(isinstance(x, str) and x for x in (actor, root, turn, call, path)):
+        return None
+    try:
+        with Path(path).open("rb") as stream:
+            meta = json.loads(stream.readline())
+            stream.seek(0, 2)
+            offset = max(0, stream.tell() - 4 * 1024 * 1024)
+            stream.seek(offset)
+            tail = stream.read()
+        if offset:
+            tail = tail.split(b"\n", 1)[-1]
+        if meta.get("type") != "session_meta" or meta.get("payload", {}).get("id") != actor:
+            return None
+        if payload.get("agent_id"):
+            spawn = meta["payload"].get("source", {}).get("subagent", {}).get("thread_spawn", {})
+            if spawn.get("parent_thread_id") != root:
+                return None
+        matches = []
+        for line in tail.splitlines():
+            row = json.loads(line)
+            data = row.get("payload", {})
+            item = data.get("item", {})
+            if row.get("type") == "event_msg" and data.get("type") == "item_completed" and item.get("id") == call:
+                matches.append((data, item))
+        if len(matches) != 1:
+            return None
+        data, item = matches[0]
+        if item.get("type") == "CommandExecution" and data.get("thread_id") == actor and data.get("turn_id") == turn:
+            return item
+    except (OSError, ValueError, TypeError, AttributeError, KeyError):
+        pass
+    return None
+
+
+def _codex_shell_read_succeeded(payload: dict, content: str, response: str) -> bool:
+    item = _codex_command_completion(payload)
+    return bool(item and content and content in response and item.get("status") == "completed"
+                and type(item.get("exit_code")) is int and item["exit_code"] == 0
+                and item.get("aggregated_output") == response
+                and isinstance(item.get("stdout"), str) and content in item["stdout"])
+
+
+def scoped_reads_path(payload: dict, path: str) -> bool:
+    """Recognize the immutable path, including a simple relative native cat or Read.
+
+    Arbitrary shell directory changes and computed paths remain unsupported; do not guess their meaning.
+    Successful full-content evidence is checked separately before a read can be recorded.
+    """
+    from pathlib import Path
+    from urllib.parse import urlparse, unquote
+    inp = payload.get("tool_input") or {}
+    if path in json.dumps(inp):
+        return True
+    if not isinstance(inp, dict):
+        return False
+    cwd = payload.get("cwd")
+    if payload.get("tool_name") == "Read":
+        target = inp.get("file_path")
+    elif payload.get("tool_name") == "Bash":
+        try:
+            words = shlex.split(_shell_command(inp))
+        except ValueError:
+            return False
+        if not words or Path(words[0]).name != "cat":
+            return False
+        operands = words[1:]
+        if operands[:1] == ["--"]:
+            operands = operands[1:]
+        if len(operands) != 1 or operands[0].startswith("-"):
+            return False
+        target = operands[0]
+        if detect(payload) == CODEX:
+            item = _codex_command_completion(payload)
+            if not item:
+                return False
+            cwd = item.get("cwd")
+            if isinstance(cwd, str) and cwd.startswith("file:"):
+                parsed = urlparse(cwd)
+                if parsed.netloc not in ("", "localhost"):
+                    return False
+                cwd = unquote(parsed.path)
+    else:
+        return False
+    if not isinstance(target, str) or not target:
+        return False
+    candidate = Path(target)
+    if not candidate.is_absolute():
+        if not isinstance(cwd, str) or not Path(cwd).is_absolute():
+            return False
+        candidate = Path(cwd) / candidate
+    return candidate.resolve() == Path(path).resolve()
+
+
 def scoped_read_succeeded(payload: dict, content: str) -> bool:
     """Successful Read/Bash response containing the whole immutable packet, never just its name."""
     if payload.get("is_error") or payload.get("tool_name") not in ("Read", "Bash"):
         return False
     response = payload.get("tool_response")
     if isinstance(response, str):
-        # Native shell output may wrap its stdout as a JSON object.
+        if payload.get("tool_name") == "Bash" and detect(payload) == CODEX:
+            return _codex_shell_read_succeeded(payload, content, response)
+        # Structured output from other qualified provider surfaces.
         try:
             decoded = json.loads(response)
         except ValueError:

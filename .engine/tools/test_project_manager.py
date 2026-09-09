@@ -2611,6 +2611,35 @@ class ObservedPlanReview(_Governed):
         self.assertEqual(len(companion.read()["assignments"]), 1)
 
 
+    def test_interrupted_plan_receipt_preserves_unaccepted_history_and_retries_once(self):
+        import scoped_agents
+        from test_build_coordinator import observe_review_execution
+        slug = self.prepared()
+        record = self.lib.read_record(slug)
+        digest = self._packet_digest(slug)
+        companion, assignment = observe_review_execution(self.lib, slug,
+            scoped_agents.plan_owner(record), "architecture", digest, [])
+        original_write = plan_store.PlanLibrary._write_json
+        def interrupted(library, path, value):
+            if path == self.lib._record_path(slug):
+                raise OSError("simulated interruption before plan receipt publication")
+            return original_write(library, path, value)
+        argv = ("review", "record", slug, "--lens", "architecture", "--packet-digest", digest,
+                "--session", "fixture-root")
+        with mock.patch.object(plan_store.PlanLibrary, "_write_json", new=interrupted):
+            # The interruption propagates; it must not publish a successful review.
+            with self.assertRaisesRegex(OSError, "simulated interruption"):
+                self.run_command(*argv, observe=False)
+        self.assertEqual(self.lib.read_record(slug), record)
+        self.assertIsNone(record.get("plan_review"))
+        self.assertEqual(len(companion.read()["acceptances"]), 1)
+        code, _, err = self.run_command(*argv, observe=False)
+        self.assertEqual(code, 0, err)
+        saved = self.lib.read_record(slug)["plan_review"]
+        self.assertTrue(companion.receipt_verified(saved, scoped_agents.plan_owner(record)))
+        self.assertEqual(len(companion.read()["assignments"]), 1)
+        self.assertEqual(len(companion.read()["acceptances"]), 1)
+
     def test_concurrent_plan_receipts_cannot_overwrite_or_combine_coverage(self):
         import concurrent.futures
         import scoped_agents

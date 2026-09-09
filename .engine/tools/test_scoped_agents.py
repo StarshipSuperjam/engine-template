@@ -68,6 +68,40 @@ class ScopedAssignments(unittest.TestCase):
         return self.store.verified_locked(owner=self.owner, root="root-id", lens="architecture",
                                           packet_digest=self.a["packet_digest"])
 
+    def test_worker_partial_status_is_not_finished_work(self):
+        self.a = self.store.register(owner=self.owner, root="root-id", purpose="worker", lens=None,
+            role="engine-worker-bounded", packet=self.packet, packet_digest=core.digest(self.packet.read_bytes()))
+        self.launch()
+        self.child_read()
+        def verify():
+            return self.store.verified_locked(owner=self.owner, root="root-id", lens=None,
+                packet_digest=self.a["packet_digest"], assignment_id=self.a["id"])
+        for status in ("blocked", "partial", "needs_clarification", "cancelled", "failed", "error"):
+            self.stop(json.dumps({"status": status}))
+            with self.assertRaises(scoped.EvidenceError):
+                verify()
+        self.stop('{"status":"complete","artifact":"useful result"}')
+        self.assertEqual(verify()["child"], "child-a")
+
+    def test_relative_native_cat_binds_the_same_immutable_packet(self):
+        self.launch()
+        self.observe("SubagentStart", child="child-a")
+        body = self.packet.read_text()
+        meta = {"type": "session_meta", "payload": {"id": "child-a", "source": {"subagent": {
+            "thread_spawn": {"parent_thread_id": "root-id", "agent_path": "/root/" + self.a["id"]}}}}}
+        event = {"type": "event_msg", "payload": {"type": "item_completed", "thread_id": "child-a",
+                 "turn_id": "read-turn", "item": {"type": "CommandExecution", "id": "relative-read",
+                 "cwd": self.root.as_uri(), "status": "completed", "exit_code": 0,
+                 "stdout": body, "aggregated_output": body}}}
+        transcript = self.root / "child.jsonl"
+        transcript.write_text(json.dumps(meta) + "\n" + json.dumps(event) + "\n")
+        relative = os.path.relpath(self.a["packet_path"], self.root)
+        self.observe("PostToolUse", "Bash", {"command": "cat " + relative}, child="child-a",
+                     response=body, tool_use_id="relative-read", turn_id="read-turn",
+                     transcript_path=str(transcript), cwd=str(self.root))
+        self.stop()
+        self.assertEqual(self.verified()["child"], "child-a")
+
     def test_queue_is_denied_while_active_and_after_turn_end(self):
         self.launch()
         self.child_read()
@@ -237,6 +271,191 @@ class NativeProviderFacts(unittest.TestCase):
             self.assertTrue(providers.scoped_read_succeeded({"tool_name": "Read", "tool_response": {"file": {"content": "packet"}}}, "packet"))
             self.assertFalse(providers.scoped_call({"tool_name": "Agent", "tool_input": {"subagent_type": "fork"}})["fresh"])
             self.assertEqual(providers.scoped_call({"tool_name": "SendMessage", "tool_input": {"recipient": "child", "content": "x"}})["kind"], "continue")
+
+
+class NativeShellCompletion(unittest.TestCase):
+    """Sanitized native CommandExecution shape observed during actual Desktop PostToolUse."""
+    def setUp(self):
+        self.temp = tempfile.TemporaryDirectory()
+        self.addCleanup(self.temp.cleanup)
+        self.path = Path(self.temp.name) / "native.jsonl"
+        self.meta = {"type": "session_meta", "payload": {"id": "child-a", "source": {
+            "subagent": {"thread_spawn": {"parent_thread_id": "root-id", "agent_path": "/root/assignment"}}}}}
+        self.item = {"type": "CommandExecution", "id": "exec-read", "status": "completed", "exit_code": 0,
+                     "stdout": "whole packet\n", "stderr": "", "aggregated_output": "whole packet\n"}
+        self.event = {"type": "event_msg", "payload": {"type": "item_completed", "thread_id": "child-a",
+                      "turn_id": "turn-a", "item": self.item}}
+        self.payload = {"session_id": "root-id", "agent_id": "child-a", "turn_id": "turn-a",
+                        "tool_use_id": "exec-read", "tool_name": "Bash", "tool_response": "whole packet\n",
+                        "transcript_path": str(self.path)}
+        self.env = mock.patch.dict(os.environ, {providers.PROVIDER_ENV: "codex"})
+        self.env.start()
+        self.addCleanup(self.env.stop)
+
+    def check(self, extra=()):
+        self.path.write_text("\n".join(json.dumps(r) for r in (self.meta, self.event, *extra)) + "\n")
+        return providers.scoped_read_succeeded(self.payload, "whole packet\n")
+
+    def test_exact_success_and_failed_command_with_identical_output(self):
+        self.assertTrue(self.check())
+        self.item.update(exit_code=7, status="failed")
+        self.assertFalse(self.check())
+
+    def test_completion_identity_and_output_are_required(self):
+        for section, key, value in [(self.event["payload"], "thread_id", "wrong-child"),
+                                    (self.event["payload"], "turn_id", "old-turn"),
+                                    (self.item, "id", "other-call"), (self.item, "type", "other-tool"),
+                                    (self.item, "status", "running"), (self.item, "exit_code", None),
+                                    (self.item, "exit_code", False), (self.item, "aggregated_output", "different"),
+                                    (self.item, "stdout", "")]:
+            with self.subTest(key=key, value=value):
+                old = section[key]
+                section[key] = value
+                self.assertFalse(self.check())
+                section[key] = old
+        self.meta["payload"]["source"]["subagent"]["thread_spawn"]["parent_thread_id"] = "other-root"
+        self.assertFalse(self.check())
+        self.meta["payload"]["id"] = "other-child"
+        self.assertFalse(self.check())
+
+    def test_missing_duplicate_and_malformed_evidence_stays_unverified(self):
+        self.assertFalse(self.check([self.event]))
+        self.path.write_text("not json")
+        self.assertFalse(providers.scoped_read_succeeded(self.payload, "whole packet\n"))
+        self.path.unlink()
+        self.assertFalse(providers.scoped_read_succeeded(self.payload, "whole packet\n"))
+
+    def test_relative_cat_requires_the_observed_directory_and_simple_command(self):
+        self.item["cwd"] = self.path.parent.as_uri()
+        self.payload["tool_input"] = {"command": "cat -- packet.md"}
+        target = str(self.path.parent / "packet.md")
+        self.check()
+        self.assertTrue(providers.scoped_reads_path(self.payload, target))
+        self.assertFalse(providers.scoped_reads_path(self.payload, str(self.path.parent / "other.md")))
+        self.item["cwd"] = "/another/directory"
+        self.check()
+        self.assertFalse(providers.scoped_reads_path(self.payload, target))
+        self.payload["tool_input"]["command"] = "cd elsewhere && cat packet.md"
+        self.assertFalse(providers.scoped_reads_path(self.payload, target))
+
+    def test_json_printed_by_a_command_cannot_claim_its_own_exit_code(self):
+        self.payload["tool_response"] = json.dumps({"exit_code": 0, "stdout": "whole packet\n"})
+        self.item.update(status="failed", exit_code=7, aggregated_output=self.payload["tool_response"])
+        self.assertFalse(self.check())
+
+
+class ScopedAgentHookRunner(unittest.TestCase):
+    """Documented Claude envelopes through the real shell runner and candidate CLI.
+
+    These are offline contract tests, not live Anthropic model execution. The private fixture
+    library is the only evidence store. No production plan or Build receives fixture evidence.
+    """
+    def setUp(self):
+        self.fixture = ScopedAssignments()
+        self.fixture.setUp()
+        self.addCleanup(self.fixture.doCleanups)
+        slug = "test-plan--a1b2c3"
+        self.fixture.library._mkdir(self.fixture.library.plan_dir(slug))
+        self.fixture.library._write_json(self.fixture.library._record_path(slug), {})
+        self.fixture.store = scoped.Store(self.fixture.library, slug)
+        self.fixture.a = self.fixture.register("architecture")
+        self.fixture.observe = self.observe
+
+    def observe(self, event, tool=None, inp=None, child=None, response=None, **kw):
+        import subprocess
+        import sys
+        payload = {"hook_event_name": event, "session_id": "root-id", "tool_use_id": "call-1", **kw}
+        if tool:
+            payload.update(tool_name=tool, tool_input=inp or {})
+        if child:
+            payload.update(agent_id=child, agent_type=self.fixture.a["role"])
+        if response is not None:
+            payload["tool_response"] = response
+        tools = Path(__file__).resolve().parent
+        env = {**os.environ, plan_store.ENV_DIR: str(self.fixture.library.root)}
+        result = subprocess.run(["sh", str(tools / "hook-runner.sh"), sys.executable,
+                                 str(tools / "scoped_agents.py"), event],
+                                input=json.dumps(payload), text=True, capture_output=True,
+                                env=env, cwd=self.fixture.root, timeout=20)
+        self.assertIn(result.returncode, (0, 2), result.stderr)
+        if result.returncode == 0:
+            self.assertEqual(result.stderr, "", "an allowed call must not hide a hook crash")
+        return {"action": "block" if result.returncode == 2 else "proceed"}
+
+    def test_claude_partial_then_same_child_clarification(self):
+        self.fixture.test_claude_packet_and_clarification_reads_with_actual_returned_child()
+
+    def test_claude_fork_and_resume_cannot_start_a_fresh_assignment(self):
+        f = self.fixture
+        with mock.patch.dict(os.environ, {providers.PROVIDER_ENV: "claude"}):
+            for extra in ({"resume": "old-child"}, {"fork_context": True}, {"subagent_type": "fork"}):
+                args = {"subagent_type": f.a["role"], "prompt": "Read " + f.a["packet_path"], **extra}
+                self.assertEqual(self.observe("PreToolUse", "Agent", args)["action"], "block")
+            self.assertIsNone(f.store.read()["assignments"][f.a["id"]]["launch"])
+
+    def test_claude_missing_child_start_and_partial_final_cannot_earn_credit(self):
+        f = self.fixture
+        with mock.patch.dict(os.environ, {providers.PROVIDER_ENV: "claude"}):
+            args = {"subagent_type": f.a["role"], "prompt": "Read " + f.a["packet_path"]}
+            self.observe("PreToolUse", "Agent", args)
+            self.observe("PostToolUse", "Agent", args, response={"agentId": "child-a"})
+            self.observe("PostToolUse", "Read", {"file_path": f.a["packet_path"]}, child="child-a",
+                         response={"file": {"content": f.packet.read_text()}})
+            self.observe("SubagentStop", child="child-a", last_assistant_message="[]")
+            with self.assertRaises(scoped.EvidenceError):
+                f.verified()
+            self.observe("SubagentStart", child="child-a")
+            self.observe("SubagentStop", child="child-a", last_assistant_message='{"status":"blocked"}')
+            with self.assertRaises(scoped.EvidenceError):
+                f.verified()
+
+    def test_claude_failed_launch_cannot_earn_credit_from_a_final_message(self):
+        f = self.fixture
+        with mock.patch.dict(os.environ, {providers.PROVIDER_ENV: "claude"}):
+            args = {"subagent_type": f.a["role"], "prompt": "Read " + f.a["packet_path"]}
+            self.observe("PreToolUse", "Agent", args)
+            self.observe("SubagentStart", child="child-a")
+            self.observe("PostToolUse", "Read", {"file_path": f.a["packet_path"]}, child="child-a",
+                         response={"file": {"content": f.packet.read_text()}})
+            self.observe("SubagentStop", child="child-a", last_assistant_message="[]")
+            self.observe("PostToolUse", "Agent", args, response={"agentId": "child-a"}, is_error=True)
+            with self.assertRaises(scoped.EvidenceError):
+                f.verified()
+
+    def test_missing_companion_does_not_create_execution_credit(self):
+        f = self.fixture
+        f.store.path.unlink()
+        with mock.patch.dict(os.environ, {providers.PROVIDER_ENV: "claude"}):
+            args = {"subagent_type": f.a["role"], "prompt": "Read " + f.a["packet_path"]}
+            self.assertEqual(self.observe("PreToolUse", "Agent", args)["action"], "proceed")
+            self.observe("SubagentStart", child="child-a")
+            self.observe("SubagentStop", child="child-a", last_assistant_message="[]")
+            with self.assertRaises(scoped.EvidenceError):
+                f.verified()
+            self.assertFalse(f.store.path.exists())
+
+    def test_claude_two_concurrent_launches_keep_their_packet_and_child(self):
+        f = self.fixture
+        assignments = [f.a, f.register("feasibility")]
+        with mock.patch.dict(os.environ, {providers.PROVIDER_ENV: "claude"}):
+            def launch(pair):
+                index, assignment = pair
+                args = {"subagent_type": assignment["role"], "prompt": "Read " + assignment["packet_path"]}
+                return self.observe("PreToolUse", "Agent", args, tool_use_id="launch-" + str(index))
+            with concurrent.futures.ThreadPoolExecutor(max_workers=2) as pool:
+                self.assertTrue(all(r["action"] == "proceed" for r in pool.map(launch, enumerate(assignments))))
+            # Reverse completion order; no nearest-start or timestamp join can satisfy this test.
+            for index in (1, 0):
+                f.a = assignments[index]
+                child = "child-" + str(index)
+                args = {"subagent_type": f.a["role"], "prompt": "Read " + f.a["packet_path"]}
+                self.observe("SubagentStart", child=child)
+                self.observe("PostToolUse", "Read", {"file_path": f.a["packet_path"]}, child=child,
+                             response={"file": {"content": f.packet.read_text()}})
+                self.observe("SubagentStop", child=child, last_assistant_message="[]")
+                self.observe("PostToolUse", "Agent", args, response={"agentId": child}, tool_use_id="launch-" + str(index))
+                self.assertEqual(f.store.verified_locked(owner=f.owner, root="root-id", lens=f.a["lens"],
+                    packet_digest=f.a["packet_digest"], assignment_id=f.a["id"])["child"], child)
 
 
 if __name__ == "__main__":
