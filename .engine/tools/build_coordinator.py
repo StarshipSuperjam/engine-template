@@ -5731,23 +5731,22 @@ def reground_handler(payload: dict) -> dict:
         return hooks.proceed()
     cwd = payload.get("cwd")
     if cwd is not None:
-        hook_root = None
+        same_worktree = False
         if isinstance(cwd, str) and cwd:
             try:
-                if Path(cwd).resolve() == ROOT.resolve():
-                    hook_root = ROOT.resolve()
-                else:
-                    # A nested cwd can belong to this worktree, but a nested repository cannot.
-                    # Inherited Git selectors must not make an unrelated cwd resolve as this one.
-                    result = subprocess.run(["git", "-C", cwd, "rev-parse", "--show-toplevel"],
-                                            capture_output=True, text=True, timeout=5,
-                                            env={k: v for k, v in os.environ.items()
-                                                 if not k.startswith("GIT_")})
-                    if result.returncode == 0 and result.stdout.strip():
-                        hook_root = Path(result.stdout.strip()).resolve()
-            except (OSError, subprocess.TimeoutExpired):
-                pass
-        if hook_root != ROOT.resolve():
+                location, root = Path(cwd).resolve(), ROOT.resolve()
+                same_worktree = location.is_dir() and (location == root or root in location.parents)
+                # Read only directory markers: another repository/worktree inside this one owns
+                # its own context. Resolving paths also prevents symlink escapes. Git environment
+                # selectors cannot redirect this filesystem-only check.
+                while same_worktree and location != root:
+                    marker = location / ".git"
+                    if marker.exists() or marker.is_symlink():
+                        same_worktree = False
+                    location = location.parent
+            except (OSError, RuntimeError, ValueError):
+                same_worktree = False
+        if not same_worktree:
             return hooks.inject("Engine: this session was compacted, but the hook worktree does not match "
                                 "this Engine checkout. No Build pointer is assumed.")
     try:

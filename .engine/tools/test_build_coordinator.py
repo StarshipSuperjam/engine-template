@@ -6026,12 +6026,28 @@ class TestPostCompactionRegrounding(CoordinatorCase):
             self.assertIn(PLAN_ID, decision["context"])
             self.assertIn("CX-01", decision["context"])
             self.assertEqual(path.read_bytes(), before)
+            outside = Path(self.temp.name) / "outside"
+            outside.mkdir()
+            link = root / "escape"
+            link.symlink_to(outside, target_is_directory=True)
+            for cwd in (link, root / "missing"):
+                with mock.patch.object(bc, "_library") as library:
+                    decision = bc.reground_handler({"source": "compact", "cwd": str(cwd)})
+                library.assert_not_called()
+                self.assertIn("No Build pointer is assumed", decision["context"])
             subprocess.run(["git", "init", "-q", str(nested)], env=env, check=True,
                            capture_output=True)
             with mock.patch.object(bc, "_library") as library, \
                  mock.patch.dict(os.environ, {"GIT_DIR": str(root / ".git"),
                                               "GIT_WORK_TREE": str(root)}):
                 decision = bc.reground_handler({"source": "compact", "cwd": str(nested)})
+            library.assert_not_called()
+            self.assertIn("No Build pointer is assumed", decision["context"])
+            linked = root / "linked-worktree"
+            linked.mkdir()
+            (linked / ".git").write_text("gitdir: /another-worktree/.git\n")
+            with mock.patch.object(bc, "_library") as library:
+                decision = bc.reground_handler({"source": "compact", "cwd": str(linked)})
             library.assert_not_called()
             self.assertIn("No Build pointer is assumed", decision["context"])
 
