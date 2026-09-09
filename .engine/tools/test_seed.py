@@ -889,6 +889,94 @@ class TestWeakeningDerivedSet(unittest.TestCase):
         for p in expected:
             self.assertIn(p, derived, p)
 
+    def test_explicit_inventory_closes_dependencies_once_and_rejects_bad_declarations(self):
+        # The pure seam gives the inventory a small graph proof without reading
+        # the repository's live rules.  A shared dependency and a cycle are both
+        # visited once; an exclusion has a recorded reason but is not guarded.
+        with tempfile.TemporaryDirectory() as d:
+            tools = os.path.join(d, ".engine", "tools")
+            os.makedirs(tools)
+            for name in ("root.py", "other.py", "gate.py", "shared.py", "utility.py"):
+                with open(os.path.join(tools, name), "w", encoding="utf-8") as fh:
+                    fh.write("# fixture\n")
+            paths = {name: ".engine/tools/" + name for name in
+                     ("root.py", "other.py", "gate.py", "shared.py", "utility.py")}
+            inventory = {
+                paths["root.py"]: {"dependencies": (paths["gate.py"], paths["shared.py"]),
+                                   "exclusions": {paths["utility.py"]: "ordinary reporting helper"}},
+                paths["other.py"]: {"dependencies": (paths["shared.py"],), "exclusions": {}},
+                paths["gate.py"]: {"dependencies": (paths["shared.py"],), "exclusions": {}},
+                paths["shared.py"]: {"dependencies": (paths["gate.py"],), "exclusions": {}},
+            }
+            roots = {"root": paths["root.py"], "optional": paths["other.py"]}
+            got = weakening_guard._derive_enforcement_coverage(
+                {"root": paths["root.py"]}, tools, inventory, roots)
+            self.assertEqual(got, {paths["root.py"], paths["gate.py"], paths["shared.py"]})
+            self.assertNotIn(paths["utility.py"], got)
+            bad = {paths["root.py"]: {"dependencies": (".engine/tools/../escape.py",), "exclusions": {}}}
+            self.assertIsNone(weakening_guard._derive_enforcement_coverage(
+                {"root": paths["root.py"]}, tools, bad, roots))
+
+    def test_enforcement_inventory_fails_closed_on_missing_conflicting_or_unsafe_inputs(self):
+        with tempfile.TemporaryDirectory() as d:
+            tools = os.path.join(d, ".engine", "tools")
+            os.makedirs(tools)
+            root, gate = ".engine/tools/root.py", ".engine/tools/gate.py"
+            for name in ("root.py", "gate.py"):
+                with open(os.path.join(tools, name), "w", encoding="utf-8") as fh:
+                    fh.write("# gate fixture\n")
+            inventory = {root: {"dependencies": [gate], "exclusions": {}},
+                         gate: {"dependencies": [], "exclusions": {}}}
+            roots = {"fixture": root}
+            def coverage(inv, active=None, expected=None):
+                return weakening_guard._derive_enforcement_coverage(
+                    roots if active is None else active, tools, inv,
+                    roots if expected is None else expected)
+            self.assertEqual(coverage(inventory), {root, gate})
+            cases = []
+            missing = json.loads(json.dumps(inventory)); del missing[gate]; cases.append(missing)
+            for bad in (".engine/tools/./gate.py", ".engine/tools/../gate.py", "/tmp/gate.py",
+                        ".engine/tools//gate.py", ".engine/tools/gate.sh", ".engine/tools/..\\gate.py"):
+                changed = json.loads(json.dumps(inventory))
+                changed[root]["dependencies"] = [bad]; cases.append(changed)
+            duplicate = json.loads(json.dumps(inventory)); duplicate[root]["dependencies"] *= 2
+            cases.append(duplicate)
+            conflict = json.loads(json.dumps(inventory)); conflict[root]["exclusions"][gate] = "conflict"
+            cases.append(conflict)
+            blank = json.loads(json.dumps(inventory)); blank[root]["exclusions"][".engine/tools/x.py"] = " "
+            cases.append(blank)
+            for bad in cases:
+                with self.subTest(inventory=bad):
+                    self.assertIsNone(coverage(bad))
+            self.assertIsNone(coverage(inventory, active={"unknown": root}))
+            self.assertIsNone(coverage(inventory, active={"fixture": gate}))
+            os.unlink(os.path.join(tools, "gate.py"))
+            self.assertIsNone(coverage(inventory))
+            # Dormant roots still have valid declarations, but need no installed files.
+            self.assertEqual(coverage(inventory, active={}), set())
+            outside = os.path.join(d, "outside.py")
+            with open(outside, "w", encoding="utf-8") as fh:
+                fh.write("# outside the trusted tool tree\n")
+            os.symlink(outside, os.path.join(tools, "gate.py"))
+            self.assertIsNone(coverage(inventory))
+
+    def test_hard_rule_with_missing_script_never_disappears_from_discovery(self):
+        with tempfile.TemporaryDirectory() as d:
+            for script in (None, "", 7):
+                _write_check_json(os.path.join(d, "broken.json"),
+                                  {"id": "engine/check/broken", "kind": "custom/script", "tier": "hard",
+                                   "params": {"script": script}})
+                self.assertIsNone(weakening_guard._derive_check_scripts(d))
+
+    def test_live_enforcement_libraries_and_ordinary_utilities_are_distinct(self):
+        derived = weakening_guard._derive_check_scripts()
+        self.assertIsNotNone(derived)
+        for path in ("audit_digest.py", "module_catalog.py", "build_protocol.py", "local_references.py"):
+            self.assertIn(".engine/tools/" + path, derived)
+        for path in ("boot.py", "engine_status.py", "memory/compact.py"):
+            self.assertNotIn(".engine/tools/" + path, derived)
+
+
 
 class TestEnforcementHookGuardCoverage(unittest.TestCase):
     """Drift detector (issue #250): every hook wired on a block-eligible event (PreToolUse / Stop) in
