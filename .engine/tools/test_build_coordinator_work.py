@@ -683,6 +683,18 @@ class TestWorkRouting(unittest.TestCase):
         self.assertEqual(work.resolve_route(self.bindings, "bounded", "codex"),
                          {"executor_class": "bounded", "provider": "codex", "model": "gpt-5.6-luna", "effort": "low", "inline": False})
 
+    def test_higher_efforts_reach_each_worker_route_unchanged(self):
+        for effort in ("xhigh", "max", "ultra"):
+            for cls in ("builder", "bounded"):
+                for provider in ("claude", "codex"):
+                    with self.subTest(effort=effort, cls=cls, provider=provider):
+                        bindings = bc._bindings()
+                        binding = bindings["implementation_classes"][cls][provider]
+                        binding["effort"] = effort
+                        route = work.resolve_route(bindings, cls, provider)
+                        self.assertEqual(route, {"executor_class": cls, "provider": provider,
+                                               "model": binding["model"], "effort": effort, "inline": False})
+
     def test_integrator_is_inline_and_inherits(self):
         route = work.resolve_route(self.bindings, "integrator", "claude")
         self.assertTrue(route["inline"])
