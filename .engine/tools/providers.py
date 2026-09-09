@@ -56,6 +56,9 @@ CODEX_SHELL_TOOLS = frozenset({"shell", "local_shell", "unified_exec"})
 # Keep the matcher here with the names the adapter understands, not in gate logic.
 CODEX_SPAWN_TOOLS = frozenset({"spawn_agent", "collaborationspawn_agent"})
 CODEX_SPAWN_MATCHER = "^(Agent|spawn_agent|collaborationspawn_agent)$"
+CODEX_QUEUE_TOOLS = frozenset({"send_message", "collaborationsend_message"})
+CODEX_CONTINUE_TOOLS = frozenset({"followup_task", "collaborationfollowup_task"})
+CODEX_CONTROL_TOOLS = CODEX_QUEUE_TOOLS | CODEX_CONTINUE_TOOLS
 
 # The apply_patch envelope: one call may create/edit/delete MANY files, each named on a marker line.
 _PATCH_FILE_RE = re.compile(r"^\*\*\* (?:Update|Add|Delete) File:\s*(.+?)\s*$", re.MULTILINE)
@@ -73,7 +76,7 @@ def detect(payload: dict | None = None) -> str:
         if "turn_id" in payload:
             return CODEX
         tool = payload.get("tool_name")
-        if isinstance(tool, str) and (tool == CODEX_EDIT_TOOL or tool in CODEX_SHELL_TOOLS or tool in CODEX_SPAWN_TOOLS):
+        if isinstance(tool, str) and (tool == CODEX_EDIT_TOOL or tool in CODEX_SHELL_TOOLS or tool in CODEX_SPAWN_TOOLS or tool in CODEX_CONTROL_TOOLS):
             return CODEX
     return CLAUDE
 
@@ -92,7 +95,7 @@ def detect_signal(payload: dict | None = None) -> str:
         if "turn_id" in payload:
             return "turn_id"
         tool = payload.get("tool_name")
-        if isinstance(tool, str) and (tool == CODEX_EDIT_TOOL or tool in CODEX_SHELL_TOOLS or tool in CODEX_SPAWN_TOOLS):
+        if isinstance(tool, str) and (tool == CODEX_EDIT_TOOL or tool in CODEX_SHELL_TOOLS or tool in CODEX_SPAWN_TOOLS or tool in CODEX_CONTROL_TOOLS):
             return "tool_name"
     return "default"
 
@@ -190,6 +193,138 @@ def launch_record(payload, provider: str | None = None):
         "session_id": payload.get("session_id") if isinstance(payload.get("session_id"), str) else None,
         "unknown_fields": unknown,
     }
+
+
+def scoped_call(payload: dict) -> dict:
+    """Native assignment facts. Unknowns remain unknown; no inference from task prose.
+
+    Call after normalization or on the original envelope. Exact launch aliases live here. The
+    controller registers the task name (Codex) or unique packet path (Claude) before dispatch.
+    A tool's successful return is not child delivery or assignment completion.
+    """
+    raw_name = (payload.get("provider_raw") or {}).get("tool_name", payload.get("tool_name"))
+    provider = (payload.get("provider_launch") or {}).get("provider") or detect(payload)
+    inp = payload.get("tool_input")
+    inp = inp if isinstance(inp, dict) else {}
+    result = {"provider": provider, "kind": "other", "call_id": payload.get("tool_use_id"),
+              "root": payload.get("session_id"), "child": payload.get("agent_id"),
+              "role": payload.get("agent_type"), "input": inp}
+    launch = launch_record(payload, provider)
+    if launch:
+        fork = launch["fork_context"]
+        fresh = (fork == "none") if provider == CODEX else (
+            fork in (None, False) and not inp.get("resume") and launch["agent_type"] != "fork")
+        result.update(kind="launch", role=launch["agent_type"], fresh=fresh,
+                      name=inp.get("task_name") if provider == CODEX else None,
+                      prompt=inp.get("prompt") if provider == CLAUDE else None)
+    elif provider == CODEX and raw_name in CODEX_CONTROL_TOOLS:
+        result.update(kind="queue" if raw_name in CODEX_QUEUE_TOOLS else "continue",
+                      target=inp.get("target"), content=inp.get("message"))
+    elif provider == CLAUDE and raw_name == "SendMessage":
+        result.update(kind="continue", target=inp.get("recipient"), content=inp.get("content"))
+    return result
+
+
+def scoped_transcript(payload: dict, provider: str) -> dict:
+    """Read observed child identity, delivered control payloads and final output.
+
+    Deliberately bounded to the two qualified native formats. Never convert malformed or missing
+    data into successful evidence. This is local operational provenance, not same-user isolation.
+    """
+    from pathlib import Path
+    path = payload.get("agent_transcript_path") or payload.get("transcript_path")
+    if not isinstance(path, str) or not path:
+        return {}
+    result = {"path": path, "messages": [], "final": None}
+    try:
+        for line in Path(path).read_text(encoding="utf-8").splitlines():
+            row = json.loads(line)
+            if not isinstance(row, dict):
+                return {}
+            data = row.get("payload") or {}
+            if provider == CODEX:
+                if row.get("type") == "event_msg" and data.get("type") == "task_started":
+                    result["final"] = None
+                elif row.get("type") == "session_meta":
+                    source = data.get("source") or {}
+                    spawn = (source.get("subagent") or {}).get("thread_spawn") if isinstance(source, dict) else None
+                    if isinstance(spawn, dict):
+                        result.update(child=data.get("id"), root=spawn.get("parent_thread_id"),
+                                      name=spawn.get("agent_path"))
+                elif row.get("type") == "response_item" and data.get("type") == "agent_message":
+                    result["messages"].append(data)
+                elif row.get("type") == "response_item" and data.get("type") == "message" and data.get("role") == "assistant" and data.get("phase") in ("final", "final_answer"):
+                    result["final"] = "".join(x.get("text", "") for x in data.get("content", []) if isinstance(x, dict))
+            else:
+                if row.get("type") == "assistant":
+                    content = (row.get("message") or {}).get("content", [])
+                    texts = [x.get("text", "") for x in content if isinstance(x, dict) and x.get("type") == "text"]
+                    if texts:
+                        result["final"] = "".join(texts)
+                elif row.get("type") == "user":
+                    result["final"] = None
+                    result["messages"].append(row)
+    except (OSError, ValueError, TypeError):
+        return {}
+    return result
+
+
+def scoped_launch_child(response):
+    """Claude's documented Agent output identifies the child independently of start ordering."""
+    if isinstance(response, str):
+        try:
+            response = json.loads(response)
+        except ValueError:
+            return None
+    if isinstance(response, dict):
+        child = response.get("agentId")
+        if isinstance(child, str) and child:
+            return child
+    return None
+
+
+def scoped_read_succeeded(payload: dict, content: str) -> bool:
+    """Successful Read/Bash response containing the whole immutable packet, never just its name."""
+    if payload.get("is_error") or payload.get("tool_name") not in ("Read", "Bash"):
+        return False
+    response = payload.get("tool_response")
+    if isinstance(response, str):
+        # Native shell output may wrap its stdout as a JSON object.
+        try:
+            decoded = json.loads(response)
+        except ValueError:
+            decoded = None
+        if isinstance(decoded, dict):
+            response = decoded
+        else:
+            return payload.get("tool_name") == "Read" and content in response
+    if not isinstance(response, dict) or response.get("isError") or response.get("is_error"):
+        return False
+    if payload.get("tool_name") == "Bash" and response.get("exit_code", response.get("exitCode")) != 0:
+        return False
+    values = [response.get(k) for k in ("stdout", "output", "content")]
+    file = response.get("file")
+    if isinstance(file, dict):
+        values.append(file.get("content"))
+    return any(isinstance(value, str) and content in value for value in values)
+
+
+def scoped_deliveries(transcript: dict, content: str, name: str) -> int:
+    """Count exact native delivered payloads with controller/recipient attribution.
+
+    Codex encrypted content is retained privately and compared as opaque transport bytes. It cannot
+    establish the meaning of clarification. Unknown Claude envelope shapes remain unverified.
+    """
+    count = 0
+    for message in transcript.get("messages", []):
+        if message.get("author") != "/root" or message.get("recipient") != "/root/" + name:
+            continue
+        for part in message.get("content", []):
+            if not isinstance(part, dict):
+                continue
+            if content in (part.get("encrypted_content"), part.get("text")):
+                count += 1
+    return count
 
 
 def normalize(event: str, payload):
