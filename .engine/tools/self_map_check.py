@@ -25,15 +25,13 @@ import self_map  # noqa: E402
 import validate  # noqa: E402  (the negative-fixture meta-check's input-substitution seam)
 
 
-def emit(findings: list) -> int:
-    """Write the finding.v1 array to stdout and return 0 — a successful evaluation, whatever it
-    found. The dispatcher's custom/script kind decides where the teeth land; the plain-language
-    fix lives inside each finding's `message`, so stdout stays pure JSON."""
-    print(json.dumps(findings))
-    return 0
+emit = validate.emit
+USAGE = ("Usage: self_map_check.py [-h|--help]\n\n"
+         "Checks the committed self-map and emits a finding.v1 JSON array. "
+         "Environment: ENGINE_SELF_MAP_PATH.")
 
 
-def main() -> int:
+def _main() -> int:
     # ENGINE_SELF_MAP_PATH (unset in every production run) lets the negative-fixture meta-check
     # point the committed-side read at a seeded stale map while the canonical side still derives
     # from the real repo — so the drift gate is witnessed biting a real bad input (StarshipSuperjam/engine-template#286).
@@ -41,5 +39,10 @@ def main() -> int:
     return emit([f] if f["severity"] == "hard" else [])
 
 
+def main(argv: list | None = None) -> int:
+    argv = [] if argv is None else argv
+    return validate.cli_main(argv, usage=USAGE, run=lambda _argv: _main())
+
+
 if __name__ == "__main__":
-    sys.exit(main())
+    sys.exit(main(sys.argv[1:]))
