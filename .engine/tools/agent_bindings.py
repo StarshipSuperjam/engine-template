@@ -35,6 +35,17 @@ _OWNED = re.compile(r"^(model|effort):")   # the two lines this tool owns (not '
 # audit) keeps its effort stamp, so an exclusion of workers alone would wrongly un-pin it.
 EFFORT_UNPINNED_ROLES = frozenset({"plan-review", "pre-submission-review"})
 
+# The committed schema owns the finite vocabulary for both validation and resolution.
+# Resolve beside this tool, not relative to a fixture/deployment binding file.
+with open(os.path.join(os.path.dirname(__file__), "..", "schemas", "model-bindings.v1.json"),
+          encoding="utf-8") as _schema_file:
+    EFFORT_VALUES = tuple(json.load(_schema_file)["$defs"]["effort"]["enum"])
+
+
+def _validate_effort(value, context: str) -> None:
+    if not isinstance(value, str) or value not in EFFORT_VALUES:
+        raise ValueError(f"invalid {context} effort binding")
+
 
 def _stamps_effort(fm: dict) -> bool:
     """True when this persona's effort is stamped into frontmatter (workers, audit); False for the reviewer
@@ -76,8 +87,8 @@ def resolve(name: str, model_tier: str, bindings: dict, provider: str = "claude"
         if not isinstance(value, dict) or not isinstance(value.get("model"), str) or not re.fullmatch(
                 r"[a-z0-9]+(?:[.-][a-z0-9]+)*", value["model"]):
             raise ValueError(f"invalid {provider} {label} model binding for {name!r}")
-        if (label == "tier" or "effort" in value) and value.get("effort") not in ("low", "medium", "high"):
-            raise ValueError(f"invalid {provider} {label} effort binding for {name!r}")
+        if label == "tier" or "effort" in value:
+            _validate_effort(value.get("effort"), f"{provider} {label} for {name!r}")
     if override and "effort" in override:
         return {"model": override["model"], "effort": override["effort"]}
     if not tier:
@@ -141,6 +152,7 @@ def resolve_persona(fm: dict, bindings: dict, provider: str = "claude") -> dict:
         binding = (bindings.get("implementation_classes", {}).get(cls) or {}).get(provider)
         if not binding:
             raise KeyError(f"no implementation_classes.{cls}.{provider} binding for worker persona")
+        _validate_effort(binding.get("effort"), f"implementation_classes.{cls}.{provider}")
         return {"model": binding["model"], "effort": binding["effort"]}
     return resolve(fm["name"], fm.get("model-tier"), bindings, provider)
 

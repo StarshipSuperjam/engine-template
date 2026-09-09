@@ -93,12 +93,7 @@
           "pattern": "^[a-z]+(-[a-z]+)*$"
         },
         "effort": {
-          "description": "The reasoning-effort level that, with the model, realizes the tier. A bounded platform concept.",
-          "enum": [
-            "low",
-            "medium",
-            "high"
-          ]
+          "$ref": "#/$defs/effort"
         }
       }
     },
@@ -134,12 +129,7 @@
           "pattern": "^[a-z0-9]+([.-][a-z0-9]+)*$"
         },
         "effort": {
-          "description": "The reasoning-effort level for this worker class.",
-          "enum": [
-            "low",
-            "medium",
-            "high"
-          ]
+          "$ref": "#/$defs/effort"
         }
       }
     },
@@ -188,6 +178,18 @@
           "$ref": "#/$defs/provider_binding/properties/effort"
         }
       }
+    },
+    "effort": {
+      "description": "Accepted execution-effort vocabulary; availability depends on the selected provider and model. Reviewer personas do not carry effort pins.",
+      "type": "string",
+      "enum": [
+        "low",
+        "medium",
+        "high",
+        "xhigh",
+        "max",
+        "ultra"
+      ]
     }
   }
 }
