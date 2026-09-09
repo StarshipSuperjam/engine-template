@@ -38,6 +38,7 @@ reindex, doctor). The governance verbs and the terminal seal live alongside it.
 from __future__ import annotations
 
 import argparse
+import copy
 import difflib
 import json
 import os
@@ -51,6 +52,8 @@ import plan_lifecycle
 import plan_program
 import plan_projection
 import plan_store
+import providers
+import scoped_agents
 
 ProjectManagerError = plan_store.PlanStoreError
 
@@ -287,6 +290,10 @@ def cmd_show(args) -> int:
         value = record.get(gate)
         if value:
             print(f"  {label:<11} revision {value.get('revision', '—')} at {value['at']}")
+    historical_review = record.get("plan_review")
+    if historical_review and not scoped_agents.Store(library, slug).receipt_verified(
+            historical_review, scoped_agents.plan_owner(record, historical_review)):
+        print("  execution   unverified — historical review is readable; observed fresh execution is absent")
     if record.get("closure"):
         print(f"  closed      {record['closure']['state']} — {record['closure']['reason']}")
     problems = library.verify_chain(slug)
@@ -753,6 +760,17 @@ def cmd_review_packet(args) -> int:
     else:
         print(header + packet)
     print(f"\npacket digest: {packet_digest}", file=sys.stderr)
+    if covering and getattr(args, "session", None):
+        source = library.plan_dir(slug) / "scoped-review-source.md"
+        core.atomic_write(source, header + packet, mode=0o600)
+        assignments = scoped_agents.prepare_packets(library, slug, scoped_agents.plan_owner(record),
+            args.session, source, {lens: packet_digest for lens in covering},
+            {lens: "engine-design-review-" + lens for lens in covering})
+        print("\nFresh assignments (native task name, role and immutable packet):")
+        for a in assignments:
+            print(f"  {a['id']} | {a['role']} | {a['packet_path']}")
+    elif covering:
+        print("\nExecution evidence is unverified: pass --session with the current root identity to prepare fresh assignments.", file=sys.stderr)
     return 0
 
 
@@ -849,6 +867,8 @@ def cmd_review_record(args) -> int:
             raise ProjectManagerError(
                 "another session recorded a plan review while this one was being prepared, and there "
                 "is exactly one per plan. Re-read the plan before deciding what to do next.")
+        scoped_agents.accept_plan(library, slug, current, review, list(args.lens),
+                                  providers.resolve_session(explicit=getattr(args, "session", None)))
         current["plan_review"] = review
 
     library.update_record(slug, record_review)
@@ -909,8 +929,11 @@ def cmd_review_amend(args) -> int:
             raise ProjectManagerError(
                 "this review was sealed or began being dispositioned while the amendment was being "
                 "prepared; re-read it before deciding what to do next")
+        prior = copy.deepcopy(current["plan_review"])
         current["plan_review"]["lenses"] = current["plan_review"]["lenses"] + added_lenses
         current["plan_review"].setdefault("findings", []).extend(added)
+        scoped_agents.accept_plan(library, slug, current, current["plan_review"],
+            list(args.lens or []), providers.resolve_session(explicit=getattr(args, "session", None)), prior)
         current.setdefault("amendments", []).append(amendment)
 
     library.update_record(slug, amend)
@@ -1904,6 +1927,8 @@ def cmd_export(args) -> int:
     redacted = [e["revision"] for e in bundle["record"]["ledger"] if "redacted" in e]
     print(f"exported {bundle['record']['plan_id']} to {path} ({len(bundle['revisions'])} revision(s))")
     print(f"  bundle digest {bundle['bundle_digest']}")
+    print("  execution companions and private packets stay in the source library. This bundle alone "
+          "does not preserve verified fresh execution; new acceptance requires observed evidence.")
     if redacted:
         print(f"  revision(s) {', '.join(str(r) for r in redacted)} travel as ledger entries only; "
               "their bodies were redacted and are not resurrected here.")
@@ -1934,6 +1959,8 @@ def cmd_import(args) -> int:
         raise ProjectManagerError(
             f"not a plan bundle (schema_version {bundle.get('schema_version')!r})")
     raw_record, revisions = bundle["record"], bundle["revisions"]
+    print("Plan bundles do not carry execution companions. Historical review remains readable; "
+          "missing execution evidence is unverified and cannot support new acceptance.", file=sys.stderr)
     # Forward-migrate BEFORE the shape check, exactly as the store does on its own read: a bundle
     # exported before a field retirement carries the retired field, and validating the raw record
     # refused every such bundle outright — the operator's only transport for a plan, refused over a
@@ -2179,9 +2206,11 @@ def build_parser() -> argparse.ArgumentParser:
     packet = review.add_parser("packet", help="the plan as the cold lenses read it, at a named digest")
     packet.add_argument("plan")
     packet.add_argument("--output")
+    packet.add_argument("--session", help="actual owning root session for fresh native assignments")
     packet.set_defaults(func=cmd_review_packet)
     record_review = review.add_parser("record", help="record the review — once per plan")
     record_review.add_argument("plan")
+    record_review.add_argument("--session", help="actual owning root session")
     record_review.add_argument("--lens", action="append", required=True)
     record_review.add_argument("--packet-digest", required=True)
     record_review.add_argument("--findings", help="a JSON array of findings, in either accepted shape: "
@@ -2192,6 +2221,7 @@ def build_parser() -> argparse.ArgumentParser:
     amend_review = review.add_parser(
         "amend", help="complete or correct the recorded review, until its first finding is dispositioned")
     amend_review.add_argument("plan")
+    amend_review.add_argument("--session", help="actual owning root session for added assignments")
     amend_review.add_argument("--lens", action="append",
                               help="a lens to add; repeatable. Omit to add findings for the recorded lenses.")
     amend_review.add_argument("--packet-digest", required=True,
@@ -2367,7 +2397,7 @@ def main(argv: list | None = None) -> int:
     args = build_parser().parse_args(resolved)
     try:
         return args.func(args)
-    except ProjectManagerError as exc:
+    except (ProjectManagerError, core.CoordinatorError) as exc:
         print(f"project-manager: {exc}", file=sys.stderr)
         return 2
 

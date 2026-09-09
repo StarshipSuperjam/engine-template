@@ -237,5 +237,141 @@ class TestAvailableDepths(unittest.TestCase):
                                     {"quick": None, "standard": "medium", "thorough": "high"})
 
 
+
+
+
+class TestObservedExecutionIngress(CoordinatorCase):
+    """Receipt claims alone do not establish a fresh native execution."""
+
+    def setUp(self):
+        super().setUp()
+        self.seed()
+        self.approve("thorough")
+        self.integrate_all()
+        self.store.mutate(lambda s: s.update(validation={"commit": HEAD_A, "results": [
+            {"id": "self-test", "commit": HEAD_A, "passed": True, "summary": "fixture"}]}))
+        from test_build_coordinator import TestReviewAndFindings
+        self.DELIVERABLE_LENSES = TestReviewAndFindings.DELIVERABLE_LENSES
+        self.packet = TestReviewAndFindings.packet(self)
+        self.args = TestReviewAndFindings.receipt_args(self, self.packet, "spec-conformance", [])
+        self.args.session = "fixture-root"
+
+    def observe(self, output=None):
+        import scoped_agents
+        from test_build_coordinator import observe_review_execution
+        return observe_review_execution(self.review_library, self.review_slug,
+            scoped_agents.build_owner(self.state()), self.args.lens, self.args.lens_packet_digest,
+            [] if output is None else output)
+
+    def record(self):
+        with contextlib.redirect_stdout(io.StringIO()):
+            bc.cmd_review_record(self.args, self.store)
+
+    def test_empty_findings_without_observed_execution_do_not_publish_receipt(self):
+        before = self.state()
+        with self.assertRaisesRegex(bc.CoordinatorError, "unverified"):
+            self.record()
+        self.assertEqual(self.state(), before)
+
+    def test_observed_final_result_is_accepted_and_missing_companion_loses_verification(self):
+        import scoped_agents
+        companion, assignment = self.observe()
+        self.record()
+        state = self.state()
+        receipt = state["reviews"]["deliverable"]["receipts"][0]
+        self.assertTrue(companion.receipt_verified(receipt, scoped_agents.build_owner(state)))
+        self.assertEqual(set(receipt), {"lens", "packet_digest", "referent_digest", "lens_packet_digest",
+            "commit", "finding_ids", "code_execution", "reviewed_range"})
+        companion.path.unlink()
+        self.assertFalse(companion.receipt_verified(receipt, scoped_agents.build_owner(state)))
+        self.assertEqual(scoped_agents.missing_build_evidence(self.review_library, state, [receipt]),
+                         ["spec-conformance"])
+        self.assertEqual(self.state(), state)  # reading never fabricates or rewrites history
+
+    def test_partial_native_turn_does_not_count_as_completed_review(self):
+        self.observe({"status": "needs_clarification"})
+        with self.assertRaisesRegex(bc.CoordinatorError, "unverified"):
+            self.record()
+
+    def test_changed_packet_and_wrong_root_refuse(self):
+        companion, assignment = self.observe()
+        self.args.session = "other-root"
+        with self.assertRaisesRegex(bc.CoordinatorError, "unverified"):
+            self.record()
+        self.args.session = "fixture-root"
+        Path(assignment["packet_path"]).write_text("changed obligations")
+        with self.assertRaisesRegex(bc.CoordinatorError, "unverified"):
+            self.record()
+
+    def test_new_generation_cannot_accept_old_unaccepted_assignment(self):
+        self.observe()
+        self.store.mutate(lambda s: s["ownership"].update(generation=2))
+        with self.assertRaisesRegex(bc.CoordinatorError, "unverified"):
+            self.record()
+
+    def test_invalid_result_schema_is_not_review_completion(self):
+        self.observe([{"severity": "nit", "message": "missing required location"}])
+        with self.assertRaises(bc.CoordinatorError):
+            self.record()
+
+
+    def test_clarification_completes_the_same_assignment_once(self):
+        import scoped_agents
+        from test_build_coordinator import clarify_review_execution
+        companion, assignment = self.observe({"status": "needs_clarification"})
+        with self.assertRaisesRegex(bc.CoordinatorError, "unverified"):
+            self.record()
+        final = clarify_review_execution(companion, assignment)
+        self.assertEqual(len(final["continuations"]), 1)
+        self.record()
+        state = self.state()
+        receipt = state["reviews"]["deliverable"]["receipts"][0]
+        self.assertTrue(companion.receipt_verified(receipt, scoped_agents.build_owner(state)))
+        self.assertEqual(len(companion.read()["acceptances"]), 1)
+
+
+    def test_companion_persisted_before_interrupted_receipt_is_not_coverage(self):
+        companion, assignment = self.observe()
+        before = self.state()
+        def interrupted(change, **kwargs):
+            candidate = json.loads(json.dumps(before))
+            change(candidate)  # companion staged; legacy snapshot publication has not happened
+            raise OSError("simulated interruption before receipt publication")
+        with mock.patch.object(self.store, "mutate", side_effect=interrupted):
+            with self.assertRaisesRegex(OSError, "simulated interruption"):
+                self.record()
+        self.assertEqual(self.state(), before)
+        self.assertEqual(len(companion.read()["acceptances"]), 1)
+        self.assertEqual(self.state()["reviews"]["deliverable"]["receipts"], [])
+        self.record()  # recover the same observed result without inventing another child
+        self.assertEqual(len(companion.read()["acceptances"]), 1)
+        self.assertEqual(len(self.state()["reviews"]["deliverable"]["receipts"]), 1)
+
+    def test_repeated_receipt_does_not_manufacture_another_assignment(self):
+        companion, assignment = self.observe()
+        self.record()
+        self.record()
+        self.assertEqual(len(companion.read()["assignments"]), 1)
+        self.assertEqual(len(companion.read()["acceptances"]), 1)
+        self.assertEqual(len(self.state()["reviews"]["deliverable"]["receipts"]), 1)
+
+
+    def test_worker_completion_cannot_be_used_as_a_review(self):
+        import scoped_agents
+        from test_build_coordinator import observe_review_execution
+        companion, assignment = observe_review_execution(self.review_library, self.review_slug,
+            scoped_agents.build_owner(self.state()), self.args.lens, self.args.lens_packet_digest,
+            [], purpose="worker")
+        with self.assertRaisesRegex(bc.CoordinatorError, "worker/scout"):
+            self.record()
+        with mock.patch.object(scoped_agents.plan_store, "PlanLibrary", return_value=self.review_library), \
+                contextlib.redirect_stdout(io.StringIO()):
+            result = scoped_agents.main(["finish", "--plan", PLAN_ID, "--session", "fixture-root",
+                                         "--assignment", assignment["id"]])
+        self.assertEqual(result, 0)
+        self.assertTrue(companion.read()["assignments"][assignment["id"]]["accepted"])
+        self.assertEqual(companion.read()["acceptances"], {})
+
+
 if __name__ == "__main__":
     unittest.main()

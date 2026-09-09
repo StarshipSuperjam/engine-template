@@ -122,6 +122,61 @@ def plan_v2(objective="Ship a dependency-ordered Build", items=None, mode="seria
     }
 
 
+def observe_review_execution(library, slug, owner, lens, digest, output, root="fixture-root", purpose="review"):
+    """Synthetic native event fixture through the real store, not acceptance bypasses."""
+    import uuid
+    import scoped_agents
+    import providers
+    packet = library.plan_dir(slug) / (uuid.uuid4().hex + ".packet.txt")
+    packet.write_text("Synthetic frozen reviewer obligations: " + digest)
+    store = scoped_agents.Store(library, slug)
+    role = "engine-qa-review-" + lens if owner["kind"] == "build" else "engine-design-review-" + lens
+    a = store.register(owner=owner, root=root, purpose=purpose, lens=lens, role=role,
+                       packet=packet, packet_digest=digest)
+    child = "child-" + a["id"]
+    transcript = packet.with_suffix(".jsonl")
+    transcript.write_text(json.dumps({"type": "session_meta", "payload": {"id": child,
+        "source": {"subagent": {"thread_spawn": {"parent_thread_id": root,
+            "agent_path": "/root/" + a["id"]}}}}}) + "\n" +
+        json.dumps({"type": "response_item", "payload": {"type": "message", "role": "assistant",
+            "phase": "final_answer", "content": [{"type": "output_text", "text": json.dumps(output)}]}}) + "\n")
+    def event(name, **fields):
+        with mock.patch.dict(os.environ, {providers.PROVIDER_ENV: "codex"}):
+            return store.observe(name, providers.normalize(name, {"session_id": root,
+                "tool_use_id": a["id"], **fields}))
+    launch = {"tool_name": "collaborationspawn_agent", "tool_input": {
+        "task_name": a["id"], "agent_type": role, "fork_turns": "none"}}
+    event("PreToolUse", **launch)
+    event("PostToolUse", **launch, tool_response={"task_name": "/root/" + a["id"]})
+    child_fields = {"agent_id": child, "agent_type": role, "agent_transcript_path": str(transcript)}
+    event("SubagentStart", **child_fields)
+    event("PostToolUse", **child_fields, tool_name="Bash", tool_input={"command": "cat " + a["packet_path"]},
+          tool_response={"exit_code": 0, "stdout": packet.read_text()})
+    event("SubagentStop", **child_fields, last_assistant_message=json.dumps(output))
+    return store, a
+
+
+def clarify_review_execution(store, assignment, root="fixture-root"):
+    """A documented successful supplement read supplies observable delivery, not a send claim."""
+    import providers
+    a = store.read()["assignments"][assignment["id"]]
+    supplement = store.clarify(a["id"], root, "The existing packet's access issue is resolved.")
+    call = {"session_id": root, "tool_use_id": "clarify-" + a["id"],
+            "tool_name": "collaborationfollowup_task", "tool_input": {
+                "target": a["child"], "message": "Read the clarification at " + supplement["path"]}}
+    with mock.patch.dict(os.environ, {providers.PROVIDER_ENV: "codex"}):
+        for _ in range(2):  # repeated hook observation must not invent a second continuation
+            assert store.observe("PreToolUse", providers.normalize("PreToolUse", call))["action"] == "proceed"
+        store.observe("PostToolUse", providers.normalize("PostToolUse", {**call, "tool_response": {"ok": True}}))
+        child = {"session_id": root, "agent_id": a["child"], "agent_type": a["role"]}
+        read = {**child, "tool_name": "Bash", "tool_use_id": "read-clarification",
+                "tool_input": {"command": "cat " + supplement["path"]},
+                "tool_response": {"exit_code": 0, "stdout": Path(supplement["path"]).read_text()}}
+        store.observe("PostToolUse", providers.normalize("PostToolUse", read))
+        store.observe("SubagentStop", providers.normalize("SubagentStop", {**child, "last_assistant_message": "[]"}))
+    return store.read()["assignments"][a["id"]]
+
+
 class CoordinatorCase(unittest.TestCase):
     def setUp(self):
         self.temp = tempfile.TemporaryDirectory()
@@ -136,6 +191,26 @@ class CoordinatorCase(unittest.TestCase):
         self.store = bc.StateStore(self.state_path)
         self.plan_path = Path(self.temp.name) / "plan.json"
         self.write_plan(plan())
+        import plan_store
+        from test_plan_store import _document
+        self.review_library = plan_store.PlanLibrary(Path(self.temp.name) / "scoped-review-fixture-plans")
+        self.review_slug = self.review_library.create(_document(plan_id=PLAN_ID))
+        library_patch = mock.patch.object(bc, "_library", return_value=self.review_library)
+        library_patch.start()
+        self.addCleanup(library_patch.stop)
+
+    def record_review(self, args, store):
+        import scoped_agents
+        state = store.read()
+        if "ownership" not in state:
+            store.mutate(lambda s: s.update(ownership={"build_id": "bld_" + "1" * 32, "generation": 1}))
+            state = store.read()
+        args.session = "fixture-root"
+        findings = bc._receipt_finding_ids(args)
+        observe_review_execution(self.review_library, self.review_slug, scoped_agents.build_owner(state),
+            args.lens, args.lens_packet_digest,
+            [{"severity": "nit", "message": fid, "location": None} for fid in findings])
+        return bc.cmd_review_record(args, store)
 
     def write_plan(self, value):
         self.plan_path.write_text(json.dumps(value), encoding="utf-8")
@@ -145,6 +220,7 @@ class CoordinatorCase(unittest.TestCase):
         Issue that AUTHORIZED the work, which after the cutover is never where the plan lives."""
         value = plan()
         state = bc._initial_state("owner/repo", 7, BASE, PLAN_ID, SEALED, value, issue)
+        state["ownership"] = {"build_id": "bld_" + "1" * 32, "generation": 1}
         self.store.create(state)
         return state
 
@@ -932,7 +1008,7 @@ class TestReviewAndFindings(CoordinatorCase):
         pkt = self.packet()
         for lens in self.DELIVERABLE_LENSES:
             with contextlib.redirect_stdout(io.StringIO()):
-                bc.cmd_review_record(self.receipt_args(pkt, lens, ["F-" + lens]), self.store)
+                self.record_review(self.receipt_args(pkt, lens, ["F-" + lens]), self.store)
         return pkt
 
     # --- the plan stage is gone from this side ----------------------------------------
@@ -1522,7 +1598,7 @@ class TestReviewAndFindings(CoordinatorCase):
     def test_retrying_identical_packet_preserves_receipts_and_findings(self):
         packet = self.packet()
         with contextlib.redirect_stdout(io.StringIO()):
-            bc.cmd_review_record(self.receipt_args(packet, "spec-conformance", ["PI-1"]), self.store)
+            self.record_review(self.receipt_args(packet, "spec-conformance", ["PI-1"]), self.store)
             bc.cmd_finding_record(argparse.Namespace(id="PI-1", stage="deliverable", lens="spec-conformance", severity="nit", summary="Concern", disposition="rejected", rationale="Evidence disproves it.", escalation_kind=None, blocks_this_pr_stated=False, handoff_summary=None), self.store)
         before = self.state()
         retried = self.packet()
@@ -1546,13 +1622,13 @@ class TestReviewAndFindings(CoordinatorCase):
         args = self.receipt_args(packet, "spec-conformance", [])
         args.lens_packet_digest = "sha256:" + "f" * 64
         with self.assertRaisesRegex(bc.CoordinatorError, "attest"):
-            bc.cmd_review_record(args, self.store)
+            self.record_review(args, self.store)
 
     def test_review_receipt_inventory_drives_disposition_completeness(self):
         packet = self.packet()
         args = self.receipt_args(packet, "spec-conformance", ["PI-1"])
         with contextlib.redirect_stdout(io.StringIO()):
-            bc.cmd_review_record(args, self.store)
+            self.record_review(args, self.store)
         with mock.patch.object(bc, "_head", return_value=HEAD_A):
             result = bc._status(self.state())
         self.assertIn("finding disposition: PI-1", result["required_evidence"])
@@ -1560,14 +1636,14 @@ class TestReviewAndFindings(CoordinatorCase):
     def test_wrong_lens_disposition_does_not_satisfy_receipt(self):
         packet = self.packet()
         with contextlib.redirect_stdout(io.StringIO()):
-            bc.cmd_review_record(self.receipt_args(packet, "spec-conformance", ["PI-1"]), self.store)
+            self.record_review(self.receipt_args(packet, "spec-conformance", ["PI-1"]), self.store)
             bc.cmd_finding_record(argparse.Namespace(id="PI-1", stage="deliverable", lens="divergence-hunter", severity="nit", summary="Different finding", disposition="rejected", rationale="Not the declared finding.", escalation_kind=None, blocks_this_pr_stated=False, handoff_summary=None), self.store)
         self.assertEqual(bc._missing_findings(self.state()), ["PI-1"])
 
     def test_severity_does_not_choose_remedy_or_blocking_posture(self):
         packet = self.packet()
         with contextlib.redirect_stdout(io.StringIO()):
-            bc.cmd_review_record(self.receipt_args(packet, "spec-conformance", ["PI-1"]), self.store)
+            self.record_review(self.receipt_args(packet, "spec-conformance", ["PI-1"]), self.store)
             bc.cmd_finding_record(argparse.Namespace(id="PI-1", stage="deliverable", lens="spec-conformance", severity="blocking", summary="Reviewer concern", disposition="rejected", rationale="The evidence disproves it.", escalation_kind=None, blocks_this_pr_stated=False, handoff_summary=None, operator_summary="The concern was rejected because the cited evidence does not support it.", private_reference=None), self.store)
         finding = self.state()["findings"][0]
         self.assertEqual(finding["severity"], "blocking")
@@ -1607,7 +1683,7 @@ class TestReviewAndFindings(CoordinatorCase):
         args = self.receipt_args(packet, "usability", None)
         args.findings_from_file = batch
         with contextlib.redirect_stdout(io.StringIO()), contextlib.redirect_stderr(io.StringIO()):
-            bc.cmd_review_record(args, self.store)
+            self.record_review(args, self.store)
             bc.cmd_finding_record(argparse.Namespace(stage="deliverable", id=None, from_file=batch),
                                   self.store)
         receipt = next(r for r in self.state()["reviews"]["deliverable"]["receipts"]
@@ -1623,7 +1699,7 @@ class TestReviewAndFindings(CoordinatorCase):
         bad = {**good, "id": "B-2", "disposition": "accepted-fixed", "blocks_this_pr": True}
         args = self.receipt_args(packet, "usability", ["B-1", "B-2"])
         with contextlib.redirect_stdout(io.StringIO()), contextlib.redirect_stderr(io.StringIO()):
-            bc.cmd_review_record(args, self.store)
+            self.record_review(args, self.store)
         before = self.state()["findings"]
         with self.assertRaises(bc.CoordinatorError):
             bc.cmd_finding_record(argparse.Namespace(
@@ -1662,7 +1738,7 @@ class TestReviewAndFindings(CoordinatorCase):
     def test_a_receipt_records_what_its_lens_read_and_nothing_about_effort(self):
         packet = self.packet()
         with contextlib.redirect_stdout(io.StringIO()), contextlib.redirect_stderr(io.StringIO()):
-            bc.cmd_review_record(self.receipt_args(packet, "usability", []), self.store)
+            self.record_review(self.receipt_args(packet, "usability", []), self.store)
         receipt = next(r for r in self.state()["reviews"]["deliverable"]["receipts"]
                        if r["lens"] == "usability")
         self.assertFalse({k for k in receipt if "effort" in k}, "a receipt records no effort")
@@ -2748,7 +2824,7 @@ class TestValidationRepairAndStatus(CandidateInventoryFixture):
         packet = json.loads(output.getvalue())
         with contextlib.redirect_stdout(io.StringIO()):
             contract = next(item for item in packet["reviewer_contracts"] if item["lens"] == "usability")
-            bc.cmd_review_record(argparse.Namespace(stage="repair", lens="usability",
+            self.record_review(argparse.Namespace(stage="repair", lens="usability",
                                                     packet_digest=packet["packet_digest"],
                                                     lens_packet_digest=contract["lens_packet_digest"],
                                                     finding=["R-1"], code_execution="none"), self.store)
@@ -5071,7 +5147,7 @@ class TestEvidenceDurability(CoordinatorCase):
         pkt = json.loads(out.getvalue())
         for item in pkt["reviewer_contracts"]:
             with contextlib.redirect_stdout(io.StringIO()):
-                bc.cmd_review_record(self.receipt_args(pkt, item["lens"], []), self.store)
+                self.record_review(self.receipt_args(pkt, item["lens"], []), self.store)
         return pkt
 
     def receipt_args(self, packet, lens, findings):
@@ -5096,7 +5172,7 @@ class TestEvidenceDurability(CoordinatorCase):
         pkt = json.loads(out.getvalue())
         for item in pkt["reviewer_contracts"]:
             with contextlib.redirect_stdout(io.StringIO()):
-                bc.cmd_review_record(self.receipt_args(pkt, item["lens"], []), self.store)
+                self.record_review(self.receipt_args(pkt, item["lens"], []), self.store)
 
     def _repair_packet(self, lenses, final=HEAD_B, reviewed=HEAD_A):
         self.store.mutate(lambda s: s.update({
@@ -5125,7 +5201,7 @@ class TestEvidenceDurability(CoordinatorCase):
         self._deliverable_reviewed()
         pkt = self._repair_packet(["usability"])
         with contextlib.redirect_stdout(io.StringIO()):
-            bc.cmd_review_record(self.receipt_args(pkt, "usability", ["R-1"]), self.store)
+            self.record_review(self.receipt_args(pkt, "usability", ["R-1"]), self.store)
         # regenerate the repair packet for a DIFFERENT lens: the spliced receipt survives in the
         # deliverable stage carrying the old packet digest, and still demands R-1.
         self._repair_packet(["spec-conformance"], final=HEAD_B)
@@ -5144,7 +5220,7 @@ class TestEvidenceDurability(CoordinatorCase):
         self._deliverable_reviewed()
         pkt = self._repair_packet(["usability"])
         with contextlib.redirect_stdout(io.StringIO()):
-            bc.cmd_review_record(self.receipt_args(pkt, "usability", ["R-2"]), self.store)
+            self.record_review(self.receipt_args(pkt, "usability", ["R-2"]), self.store)
         with mock.patch.object(bc, "_head", return_value=HEAD_C), \
                 mock.patch.object(bc, "_must_run", return_value="1 file changed"), \
                 mock.patch.object(repair_divergence, "classify",
@@ -5168,7 +5244,7 @@ class TestEvidenceDurability(CoordinatorCase):
         self._deliverable_reviewed()
         pkt = self._repair_packet(["usability"])
         with contextlib.redirect_stdout(io.StringIO()):
-            bc.cmd_review_record(self.receipt_args(pkt, "usability", ["R-3"]), self.store)
+            self.record_review(self.receipt_args(pkt, "usability", ["R-3"]), self.store)
             bc.cmd_finding_record(argparse.Namespace(
                 id="R-3", stage="repair", lens="usability", severity="blocking", summary="Serious.",
                 disposition="accepted-fixed", rationale="Fixed.", escalation_kind=None,
@@ -5638,7 +5714,7 @@ class TestEvidenceDurability(CoordinatorCase):
         self._deliverable_reviewed()
         pkt = self._repair_packet(["usability"])
         with contextlib.redirect_stdout(io.StringIO()):
-            bc.cmd_review_record(self.receipt_args(pkt, "usability", ["R-8"]), self.store)
+            self.record_review(self.receipt_args(pkt, "usability", ["R-8"]), self.store)
             bc.cmd_finding_record(argparse.Namespace(
                 id="R-8", stage="repair", lens="usability", severity="blocking", summary="Earlier concern",
                 disposition="accepted-fixed", rationale="Fixed.", escalation_kind=None,
@@ -6840,7 +6916,7 @@ class TheCoverageBulletNamesTheLensesThatRecordedReceipts(CoordinatorCase):
                                          lens_packet_digest=contract["lens_packet_digest"], finding=[],
                                          findings_from_file=None, code_execution="none")
             with contextlib.redirect_stdout(io.StringIO()):
-                bc.cmd_review_record(receipt, self.store)
+                self.record_review(receipt, self.store)
         state = self.state()
         claim = _good_claim()
         claim["review"]["finding_summaries"] = []

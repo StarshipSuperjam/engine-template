@@ -28,6 +28,28 @@ class EvidenceError(core.CoordinatorError):
     pass
 
 
+def plan_owner(record, receipt=None):
+    source = receipt if receipt is not None else record["approval"]
+    return {"kind": "plan", "plan": record["plan_id"],
+            "revision": source["revision"], "digest": source["plan_digest"]}
+
+
+def build_owner(state):
+    return {"kind": "build", "plan": state["plan"]["plan_id"],
+            "build_id": state["ownership"]["build_id"], "generation": state["ownership"]["generation"],
+            "digest": state["plan"]["digest"]}
+
+
+def receipt_key(receipt):
+    # Receipt identity survives existing finding correction/disposition and timestamp recovery.
+    # Original observed output remains immutable in the companion; those editorial operations
+    # neither add coverage nor attest another native execution.
+    identity = {k: v for k, v in receipt.items() if k != "at"}
+    if "findings" in identity:
+        identity["findings"] = [{"id": f["id"], "lens": f["lens"]} for f in identity["findings"]]
+    return core.digest(identity)
+
+
 def _text(value):
     return isinstance(value, str) and bool(value.strip())
 
@@ -49,6 +71,11 @@ class Store:
         value = core.json_file(self.path)
         if value.get("schema_version") != VERSION or not isinstance(value.get("assignments"), dict):
             raise EvidenceError("unsupported or damaged scoped-assignment companion; review is unverified")
+        schema = Path(__file__).resolve().parents[1] / "schemas" / (VERSION + ".json")
+        try:
+            core.validate(value, schema)
+        except core.CoordinatorError as exc:
+            raise EvidenceError("damaged scoped-assignment companion; review is unverified: " + str(exc)) from exc
         return value
 
     def write_locked(self, value):
@@ -167,6 +194,11 @@ class Store:
                     content = call.get("content")
                     if not _text(content) or not _text(call.get("call_id")):
                         return hooks.block("Clarification needs non-empty content and an observed tool identity.")
+                    previous = next((c for c in a["continuations"] if c["call_id"] == call["call_id"]), None)
+                    if previous is not None:
+                        if previous["input_digest"] == core.digest(call["input"]):
+                            return hooks.proceed()  # duplicate observation, not another native send
+                        return hooks.block("Contradictory clarification observations; preserve evidence and reconcile.")
                     if any(not c.get("delivered") for c in a["continuations"]):
                         return hooks.block("Prior clarification delivery is uncertain. Reconcile the child's actual delivery before retrying.")
                     staged = [s for s in a["supplements"] if not s["call_id"]]
@@ -215,6 +247,9 @@ class Store:
                                  "file_digest": a["file_digest"], "response_digest": core.digest(response)}
                 if a["child"] != actor:
                     continue
+                if a["launch"]["provider"] != call["provider"]:
+                    a["faults"].append("contradictory execution provider")
+                    continue
                 if event == "SubagentStart":
                     a["start"] = {"child": actor, "role": call.get("role")}
                 for c in a["continuations"]:
@@ -239,13 +274,16 @@ class Store:
             return hooks.proceed()
         return self.change(update)
 
-    def verified_locked(self, *, owner, root, lens, packet_digest):
+    def verified_locked(self, *, owner, root, lens, packet_digest, assignment_id=None):
         candidates = [a for a in self.read()["assignments"].values() if a["owner"] == owner and
-                      a["root"] == root and a["lens"] == lens and a["packet_digest"] == packet_digest]
+                      a["root"] == root and a["lens"] == lens and a["packet_digest"] == packet_digest
+                      and (assignment_id is None or a["id"] == assignment_id)]
         valid = []
         for a in candidates:
             launch = a["launch"] or {}
             if a["faults"] or not launch.get("fresh") or not launch.get("successful") or not a["read"] or not a["stops"] or not a["start"]:
+                continue
+            if launch.get("provider") not in (providers.CLAUDE, providers.CODEX):
                 continue
             if launch.get("provider") == providers.CLAUDE and launch.get("returned_child") != a["child"]:
                 continue
@@ -259,12 +297,15 @@ class Store:
                 continue
             if not a["stops"][-1]["delivered"]:
                 continue
-            try:
-                output = json.loads(a["stops"][-1]["output"])
-            except (TypeError, ValueError):
-                continue
-            # Existing finding-array contract. A partial/blocked object or prose is not coverage.
-            if not isinstance(output, list) or any(not isinstance(f, dict) for f in output):
+            if a["purpose"] == "review":
+                try:
+                    output = json.loads(a["stops"][-1]["output"])
+                except (TypeError, ValueError):
+                    continue
+                # Existing finding-array contract. A partial/blocked object or prose is not coverage.
+                if not isinstance(output, list) or any(not isinstance(f, dict) for f in output):
+                    continue
+            elif not _text(a["stops"][-1]["output"]):
                 continue
             if core.digest(Path(a["packet_path"]).read_bytes()) != a["file_digest"]:
                 continue
@@ -272,6 +313,108 @@ class Store:
         if len(valid) != 1:
             raise EvidenceError(f"{lens}: fresh completed execution is unverified ({len(valid)} unambiguous candidates); preserve evidence and finish or replace the assignment")
         return valid[0]
+
+    def accept_locked(self, *, owner, root, receipt, lenses, packet_digests, prior_receipt=None):
+        """Called inside the existing plan/Build transaction, before publishing its receipt.
+
+        Persisting this first can leave an orphan after a crash. An orphan is never coverage:
+        history lookup also needs the matching published legacy receipt. Retrying is idempotent.
+        """
+        assignments = [self.verified_locked(owner=owner, root=root, lens=lens,
+                                             packet_digest=packet_digests[lens]) for lens in lenses]
+        if any(a["purpose"] != "review" for a in assignments):
+            raise EvidenceError("a worker/scout completion cannot satisfy independent review")
+        if prior_receipt is not None:
+            if not self.receipt_verified(prior_receipt, owner):
+                raise EvidenceError("the prior review's fresh execution is unverified; an amendment cannot upgrade it")
+            data = self.read()
+            prior = data["acceptances"][receipt_key(prior_receipt)]
+            assignments.extend(data["assignments"][key] for key in prior["assignments"]
+                               if data["assignments"][key]["lens"] not in lenses)
+        expected_lenses = set(receipt.get("lenses", [receipt.get("lens")]))
+        if {a["lens"] for a in assignments} != expected_lenses or len(assignments) != len(expected_lenses):
+            raise EvidenceError("observed assignments do not match the exact claimed lens coverage")
+        if len({a["child"] for a in assignments}) != len(assignments):
+            raise EvidenceError("one child cannot satisfy several independent lenses")
+        for a in assignments:
+            output = json.loads(a["stops"][-1]["output"])
+            schema = "plan-review-finding.v1.json" if owner["kind"] == "plan" else "pre-submission-review-finding.v1.json"
+            for finding in output:
+                core.validate(finding, Path(__file__).resolve().parents[1] / "schemas" / schema)
+        data = self.read()
+        key = receipt_key(receipt)
+        for a in assignments:
+            data["assignments"][a["id"]]["accepted"] = True
+        data["acceptances"][key] = {"owner": owner, "assignments": [a["id"] for a in assignments],
+                                     "outputs": {a["id"]: a["stops"][-1]["digest"] for a in assignments}}
+        self.write_locked(data)
+
+    def receipt_verified(self, receipt, owner):
+        """History remains readable; a missing companion never upgrades it to fresh execution."""
+        try:
+            data = self.read()
+            accepted = data["acceptances"].get(receipt_key(receipt))
+            if not accepted:
+                return False
+            recorded = accepted["owner"]
+            # Valid handoff may advance a generation. The original receipt remains historical;
+            # only new acceptance requires the CURRENT generation under its owning transaction.
+            if any(recorded.get(k) != v for k, v in owner.items() if k != "generation"):
+                return False
+            assigned = [data["assignments"][key] for key in accepted["assignments"]]
+            if {a["lens"] for a in assigned} != set(receipt.get("lenses", [receipt.get("lens")])):
+                return False
+            if len({a["child"] for a in assigned}) != len(assigned):
+                return False
+            for assignment_id in accepted["assignments"]:
+                a = data["assignments"][assignment_id]
+                if a["owner"] != recorded or not a["accepted"] or a["faults"] or not a["stops"]:
+                    return False
+                verified = self.verified_locked(owner=recorded, root=a["root"], lens=a["lens"],
+                                                packet_digest=a["packet_digest"], assignment_id=assignment_id)
+                if verified["id"] != assignment_id:
+                    return False
+                if a["stops"][-1]["digest"] != core.digest(a["stops"][-1]["output"]):
+                    return False
+                if a["stops"][-1]["digest"] != accepted["outputs"][assignment_id]:
+                    return False
+                if core.digest(Path(a["packet_path"]).read_bytes()) != a["file_digest"]:
+                    return False
+                if any(core.digest(Path(s["path"]).read_bytes()) != s["digest"] for s in a["supplements"]):
+                    return False
+            return bool(accepted["assignments"])
+        except (OSError, ValueError, KeyError, core.CoordinatorError):
+            return False
+
+
+def prepare_packets(library, slug, owner, root, packet, digest_by_lens, roles):
+    if not _text(root):
+        raise EvidenceError("fresh review dispatch requires the current root session identity; supply --session")
+    store = Store(library, slug)
+    return [store.register(owner=owner, root=root, purpose="review", lens=lens, role=roles[lens],
+                           packet=packet, packet_digest=digest) for lens, digest in digest_by_lens.items()]
+
+
+def accept_plan(library, slug, record, receipt, lenses, root, prior_receipt=None):
+    Store(library, slug).accept_locked(owner=plan_owner(record), root=root, receipt=receipt,
+        lenses=lenses, packet_digests={lens: receipt["packet_digest"] for lens in lenses},
+        prior_receipt=prior_receipt)
+
+
+def accept_build(library, state, receipt, root):
+    slug = library.resolve(state["plan"]["plan_id"])
+    Store(library, slug).accept_locked(owner=build_owner(state), root=root, receipt=receipt,
+        lenses=[receipt["lens"]], packet_digests={receipt["lens"]: receipt["lens_packet_digest"]})
+
+
+def missing_build_evidence(library, state, receipts):
+    if not receipts:
+        return []
+    try:
+        store = Store(library, library.resolve(state["plan"]["plan_id"]))
+        return sorted({r["lens"] for r in receipts if not store.receipt_verified(r, build_owner(state))})
+    except (OSError, ValueError, KeyError, core.CoordinatorError):
+        return sorted({r["lens"] for r in receipts})
 
 
 def handler(event, payload, library=None):
@@ -287,11 +430,97 @@ def handler(event, payload, library=None):
 
 
 def main(argv=None):
+    argv = list(sys.argv[1:] if argv is None else argv)
+    events = ("PreToolUse", "PostToolUse", "SubagentStart", "SubagentStop")
+    if argv and argv[0] in events:
+        event = argv[0]
+        return hooks.run_hook(event, lambda payload: handler(event, payload),
+            fail_open_notice="Engine agent checks did not run; execution and review freshness are unverified.")
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("event", choices=["PreToolUse", "PostToolUse", "SubagentStart", "SubagentStop"])
+    parser.add_argument("command", choices=("status", "register", "finish", "clarify", "reconcile", "abandon"))
+    parser.add_argument("--plan", required=True)
+    parser.add_argument("--session", required=True)
+    parser.add_argument("--assignment")
+    parser.add_argument("--input", help="Private text file containing necessary same-assignment clarification")
+    parser.add_argument("--reason")
+    parser.add_argument("--purpose", choices=("worker", "scout"))
+    parser.add_argument("--role")
+    parser.add_argument("--packet")
+    parser.add_argument("--transcript")
     args = parser.parse_args(argv)
-    return hooks.run_hook(args.event, lambda payload: handler(args.event, payload),
-                          fail_open_notice="Engine agent checks did not run; execution and review freshness are unverified.")
+    try:
+        library = plan_store.PlanLibrary()
+        store = Store(library, library.resolve(args.plan))
+        if args.command == "register":
+            if not args.purpose or not _text(args.role) or not args.packet:
+                raise EvidenceError("register requires --purpose worker|scout, --role and --packet; review assignments come from the review packet commands")
+            record = library.read_record(store.slug)
+            current = (record.get("build_lease") or {}).get("current")
+            if current:
+                import build_state_store
+                state = core.json_file(Path(current["snapshot"]))
+                build_state_store._assert_snapshot_claim(record, current, state)
+                owner = build_owner(state)
+            else:
+                # Read-only planning scouts need identity, not Build or plan approval.
+                # Registration grants neither write authority nor independent review coverage.
+                owner = plan_owner(record, record["current"])
+            packet = Path(args.packet)
+            assignment = store.register(owner=owner, root=args.session, purpose=args.purpose,
+                lens=None, role=args.role, packet=packet, packet_digest=core.digest(packet.read_bytes()))
+            print(json.dumps(assignment, indent=2))
+        elif args.command == "finish":
+            def finish(data):
+                a = data["assignments"].get(args.assignment)
+                if not a or a["root"] != args.session or a["purpose"] == "review":
+                    raise EvidenceError("finish requires an owned worker/scout assignment; reviews finish through review record")
+                store.verified_locked(owner=a["owner"], root=args.session, lens=a["lens"], packet_digest=a["packet_digest"], assignment_id=a["id"])
+                a["accepted"] = True
+            store.change(finish)
+            print("Worker assignment finished; this grants no review coverage or Build integration credit.")
+        elif args.command == "status":
+            data = store.read()
+            print(json.dumps([{k: a[k] for k in ("id", "lens", "role", "child", "packet_path", "accepted", "faults")}
+                              | {"clarifications": len(a["continuations"]),
+                                 "undelivered": sum(not c["delivered"] for c in a["continuations"])}
+                              for a in data["assignments"].values() if a["root"] == args.session], indent=2))
+        elif args.command == "reconcile":
+            def reconcile(data):
+                a = data["assignments"].get(args.assignment)
+                if not a or a["root"] != args.session or not a["launch"] or not args.transcript:
+                    raise EvidenceError("reconcile requires an owned observed assignment and --transcript")
+                provider = a["launch"]["provider"]
+                if provider != providers.CODEX:
+                    raise EvidenceError("Claude delivery requires an observed successful supplement read; transcript delivery is unqualified")
+                facts = providers.scoped_transcript({"agent_transcript_path": args.transcript}, provider)
+                if (facts.get("child"), facts.get("root"), facts.get("name")) != (a["child"], a["root"], "/root/" + a["id"]):
+                    raise EvidenceError("transcript identity does not match this assignment")
+                for c in a["continuations"]:
+                    count = providers.scoped_deliveries(facts, c["content"], a["id"])
+                    if count == 1:
+                        c["delivered"] = True
+                    elif count > 1:
+                        a["faults"].append("duplicate clarification delivery")
+            store.change(reconcile)
+            print("Reconciled observed delivery only. No dispatch success, completion or review coverage was inferred.")
+        elif args.command == "clarify":
+            if not args.assignment or not args.input:
+                raise EvidenceError("clarify requires --assignment and a private --input text file")
+            print(json.dumps(store.clarify(args.assignment, args.session, Path(args.input).read_text()), indent=2))
+        else:
+            if not args.assignment or not _text(args.reason):
+                raise EvidenceError("abandon requires --assignment and --reason")
+            def abandon(data):
+                a = data["assignments"].get(args.assignment)
+                if not a or a["root"] != args.session or a["accepted"]:
+                    raise EvidenceError("only the owning root may abandon an unaccepted assignment")
+                a["faults"].append("abandoned: " + args.reason)
+            store.change(abandon)
+            print("Assignment abandoned for review credit. Native execution and pending delivery still need reconciliation.")
+        return 0
+    except (OSError, ValueError, core.CoordinatorError) as exc:
+        print("scoped-agents: " + str(exc), file=sys.stderr)
+        return 2
 
 
 if __name__ == "__main__":
