@@ -217,6 +217,28 @@ class TestThroughTheRealHookRunner(GateCase):
         self.assertEqual(code, hooks.EXIT_PROCEED)
         self.assertEqual(out, "")
 
+    def test_codex_role_aliases_keep_the_gate_through_the_real_runner(self):
+        with mock.patch.dict(os.environ, {"ENGINE_PROVIDER": "codex"}):
+            for tool in ("Agent", "spawn_agent", "collaborationspawn_agent"):
+                for field in ("agent_type", "subagent_type"):
+                    for model in (None, "gpt-6-astra", *se.cheap_models("codex")):
+                        with self.subTest(tool=tool, field=field, model=model):
+                            tool_input = {field: "explorer"}
+                            if model is not None:
+                                tool_input["model"] = model
+                            code, out = self.drive({"tool_name": tool, "tool_input": tool_input})
+                            self.assertEqual(code, hooks.EXIT_PROCEED)
+                            if model in se.cheap_models("codex"):
+                                self.assertEqual(out, "")
+                            else:
+                                self.assertEqual(json.loads(out)["hookSpecificOutput"]["permissionDecision"], "deny")
+                    for kind in ("Explore", "future-role", "default", "worker"):
+                        with self.subTest(tool=tool, field=field, kind=kind):
+                            code, out = self.drive({"tool_name": tool, "tool_input": {
+                                field: kind, "model": "gpt-6-astra"}})
+                            self.assertEqual(code, hooks.EXIT_PROCEED)
+                            self.assertEqual(out, "")
+
     def test_a_crashing_gate_fails_open_and_never_blocks(self):
         # The handler cases prove odd INPUT allows; only this proves a raising gate does not strand anyone.
         with mock.patch.object(se, "cheap_models", side_effect=Exception("boom")):

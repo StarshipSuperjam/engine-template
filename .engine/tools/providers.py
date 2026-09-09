@@ -210,6 +210,9 @@ def normalize(event: str, payload):
         out["tool_name"] = "Agent"
         out["tool_input"] = dict(raw) if isinstance(raw, dict) else {}
         if launch["semantic_role"] == "search":
+            # Keep the native role when the compatibility field supplied it: downstream
+            # readers re-derive classification and must not mistake canonical Explore for unknown.
+            out["tool_input"]["agent_type"] = launch["agent_type"]
             out["tool_input"]["subagent_type"] = "Explore"
         out["provider_launch"] = launch
         # Diagnostics are bounded and omit the potentially private task message.

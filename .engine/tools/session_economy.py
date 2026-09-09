@@ -141,16 +141,6 @@ def handler(payload: dict) -> dict:
                             (isinstance(raw_name, str) and raw_name in providers.CODEX_SPAWN_TOOLS)) else providers.detect(payload)
     launch = providers.launch_record(payload, provider=provider)
     agent_reason = None
-    # A normalized native role alias carries the canonical Explore field. It is an additional
-    # search restriction, never an exemption from a native explorer restriction. Read the model
-    # from the actual tool input; provider_launch cannot supply a cheaper substitute or an allow.
-    raw_input = payload.get("tool_input")
-    canonical_search = (provider == "codex" and tool_name == "Agent" and
-                        isinstance(raw_name, str) and raw_name in providers.CODEX_SPAWN_TOOLS and
-                        isinstance(raw_input, dict) and not raw_input.get("agent_type") and
-                        raw_input.get("subagent_type") == "Explore")
-    if canonical_search:
-        agent_reason = subagent_denial("Agent", raw_input, provider)
     if launch and launch["semantic_role"] in {"search", "plan"}:
         agent_reason = subagent_denial("Agent", {
             "subagent_type": "Explore" if launch["semantic_role"] == "search" else "Plan",
