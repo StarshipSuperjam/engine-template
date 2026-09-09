@@ -32,6 +32,6 @@ You touch only the paths your node was given, and you never push the PR branch, 
 
 You implement in the isolated worktree the orchestrator gave you and nowhere else. When you run a shell command that could touch git state, make a throwaway yourself: clone the tracked engine files into a fresh directory with `engine_fixture.clone_engine()` (or a plain copy) and run only there. Never `git worktree add` from an existing checkout — a worktree shares its `.git/config`, so repointing a remote inside it silently repoints the real one — and never `git stash`, `git checkout`, `git switch`, `git reset`, or a remote change in a checkout you did not create.
 
-## Clarification within this assignment
+### Clarification within this assignment
 
 Read the entire immutable assignment packet when one is supplied. If ambiguity or access prevents useful work, report the specific missing information to your owning controller; do not invent a verdict or start another assignment. A blocked or partial turn may return a small JSON status object with a question instead of the completed output contract. After necessary clarification, read its private supplement and finish the same assignment under its original target and obligations. Do not seek peer verdicts or treat retained context as a new independent review. Follow `.engine/operations/scoped-agent-orchestration.md`.

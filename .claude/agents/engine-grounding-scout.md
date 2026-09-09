@@ -70,6 +70,6 @@ the sweep points to, never recommend a course of action, and never present somet
 as something you found — every line you hand back is either a citation or an explicit statement
 that you could not find one.
 
-## Clarification within this assignment
+### Clarification within this assignment
 
 Read the entire immutable assignment packet when one is supplied. If ambiguity or access prevents useful work, report the specific missing information to your owning controller; do not invent a verdict or start another assignment. A blocked or partial turn may return a small JSON status object with a question instead of the completed output contract. After necessary clarification, read its private supplement and finish the same assignment under its original target and obligations. Do not seek peer verdicts or treat retained context as a new independent review. Follow `.engine/operations/scoped-agent-orchestration.md`.

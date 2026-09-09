@@ -7,7 +7,9 @@ Use native runtime scheduling. A new assignment starts with a fresh context; nec
 continue that same assignment. Retained conversation history is not evidence of occupied execution capacity.
 Local hooks are fallible same-user guardrails. Protected main and the operator's merge remain the boundary.
 
-## Prepare and dispatch
+## Steps
+
+### Prepare and dispatch
 
 For independent review, cut the approved packet through `project_manager.py review packet <plan> --session
 <root-session>` or `build_coordinator.py review packet --stage deliverable|repair --plan <payload> --session
@@ -32,7 +34,7 @@ for the required complete packet read. It exposes no writes or commands. A refus
 does not establish a packet read. The existing no-shell instruction remains in force. Claude retains
 its native reader. This server's path checks constrain its own calls, not every tool in the host session.
 
-## Clarify within the assignment
+### Clarify within the assignment
 
 A child may ask its owning controller for missing information or access. A blocked/partial turn is not a
 completed assignment, even when the native UI says Completed. Rephrase instructions, explain a term or repair
@@ -53,7 +55,7 @@ An uncertain dispatch or missing completion stays unverified. A blocked reviewer
 object such as `{"status":"needs_clarification","question":"..."}`; its eventual valid findings array is the
 one completed result. An empty findings array means no findings only after observed valid execution.
 
-## Finish, recover and accept
+### Finish, recover and accept
 
 Use bounded native waits, checking the current assignment rather than polling every retained conversation.
 When capacity is exhausted, inspect owned assignments and actual pending deliveries once; finish or clarify
@@ -77,3 +79,38 @@ do not promise a Desktop slash command or settings screen. The September 9 Deskt
 approval and reopening the same task to load its configuration; verify an actual event afterward. That isolated
 qualification harness is not an Engine installation requirement. Claude 2.1.185 contract fixtures are offline
 checks; the operator's September 12 live smoke test remains explicitly outstanding.
+
+## Done when
+
+The observed result satisfies its original assignment, any clarification is accounted for, and the
+existing review or worker acceptance command succeeds. Missing evidence remains unverified.
+
+## Notes
+
+### Operator-run demonstration
+
+This optional qualification uses an explicitly authorized isolated test task, not production records.
+It is not an adopter installation requirement. Verify actual hooks after any needed approval; never
+change saved trust automatically. Record runtime version, root ID and source hashes before starting.
+
+1. Register private worker packets with independently chosen values and random witnesses. Launch more
+   successive fresh children than the exposed concurrency limit, respecting that limit at each launch.
+   Require distinct child IDs, full packet reads, correct finals and successful worker `finish` calls.
+2. Leave one calculation's adjustment unspecified. After its partial stop, attempt one queue-only send
+   with a unique sentinel: require native refusal before enqueue. Supply the adjustment through a
+   registered clarification and native wake-and-deliver call; require the same child's correct result.
+3. Repeat while the child performs a short bounded wait, varying delay and ordering. Record when the
+   continuation actually arrives; a tool-boundary delivery is not delivery during the running tool.
+4. Use a frozen review packet with one genuinely ambiguous term. Clarify only that term; require its
+   complete supplement read and valid final findings. Exercise actual PM and Build fixture acceptance.
+   Reuse the accepted child for a new packet: require refusal, then acceptance of a fresh replacement.
+5. Vary failed reads, partial output, missing hooks and wrong identities. None may earn coverage. For
+   shell reads, compare identical full stdout with exit 0 and exit 7: only successful native completion
+   may count. A later correct read can recover the same assignment while retaining the failed attempt.
+
+Record pass/fail/unverified with packet hashes, actual child/call IDs and event locations. On capacity
+refusal, inspect owned work once and retry only after observed progress; never raise limits. Preserve
+failures and consume accidentally queued fixture mail through legitimate continuation before cleanup.
+The operator can vary witnesses, inputs and ordering to challenge the result. Fixture receipts never
+satisfy production review. Run Claude documented contracts through the real Engine hook runner before
+merge; the separately approved live Claude follow-up remains September 12 afternoon.
