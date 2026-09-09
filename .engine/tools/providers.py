@@ -52,6 +52,10 @@ SESSION_ENV_CHAIN = ("ENGINE_SESSION_ID", "CLAUDE_CODE_SESSION_ID")
 # are the sibling names that may appear on other shell paths, mapped defensively.
 CODEX_EDIT_TOOL = "apply_patch"
 CODEX_SHELL_TOOLS = frozenset({"shell", "local_shell", "unified_exec"})
+# The first spelling is documented; the second was observed in CLI 0.153.4.
+# Keep the matcher here with the names the adapter understands, not in gate logic.
+CODEX_SPAWN_TOOLS = frozenset({"spawn_agent", "collaborationspawn_agent"})
+CODEX_SPAWN_MATCHER = "^(Agent|spawn_agent|collaborationspawn_agent)$"
 
 # The apply_patch envelope: one call may create/edit/delete MANY files, each named on a marker line.
 _PATCH_FILE_RE = re.compile(r"^\*\*\* (?:Update|Add|Delete) File:\s*(.+?)\s*$", re.MULTILINE)
@@ -69,7 +73,7 @@ def detect(payload: dict | None = None) -> str:
         if "turn_id" in payload:
             return CODEX
         tool = payload.get("tool_name")
-        if tool == CODEX_EDIT_TOOL or tool in CODEX_SHELL_TOOLS:
+        if isinstance(tool, str) and (tool == CODEX_EDIT_TOOL or tool in CODEX_SHELL_TOOLS or tool in CODEX_SPAWN_TOOLS):
             return CODEX
     return CLAUDE
 
@@ -88,7 +92,7 @@ def detect_signal(payload: dict | None = None) -> str:
         if "turn_id" in payload:
             return "turn_id"
         tool = payload.get("tool_name")
-        if tool == CODEX_EDIT_TOOL or tool in CODEX_SHELL_TOOLS:
+        if isinstance(tool, str) and (tool == CODEX_EDIT_TOOL or tool in CODEX_SHELL_TOOLS or tool in CODEX_SPAWN_TOOLS):
             return "tool_name"
     return "default"
 
@@ -132,6 +136,62 @@ def _shell_command(tool_input) -> str:
     return ""
 
 
+def launch_record(payload, provider: str | None = None):
+    """Provider-neutral requested launch facts, with provenance and explicit unknowns.
+
+    The common hook ``model`` describes the parent and is NEVER a child-model
+    fallback. Agent-file/default resolution and actual child settings are not in
+    the observed spawn input, so absence stays unknown. No task prose is parsed.
+    Runtime qualification supplies effective-setting evidence separately.
+    """
+    if not isinstance(payload, dict):
+        return None
+    provider = provider or detect(payload)
+    if provider not in (CLAUDE, CODEX):
+        return None
+    tool = payload.get("tool_name")
+    known = ("Agent", "Task") if provider == CLAUDE else ("Agent", *CODEX_SPAWN_TOOLS)
+    if not isinstance(tool, str) or tool not in known:
+        return None
+    raw = payload.get("tool_input")
+    if not isinstance(raw, dict):
+        raw = {}
+
+    def text_value(key):
+        value = raw.get(key)
+        return value if isinstance(value, str) and value.strip() else None
+
+    kind = text_value("subagent_type") if provider == CLAUDE else (
+        text_value("agent_type") or text_value("subagent_type"))
+    roles = {"Explore": "search", "Plan": "plan", "general-purpose": "judgment"}
+    if provider == CODEX:
+        roles = {"explorer": "search", "default": "judgment", "worker": "execution"}
+    role = roles.get(kind, "unclassified")
+    model = text_value("model")
+    effort = text_value("reasoning_effort") or text_value("model_reasoning_effort")
+    sandbox = text_value("sandbox_mode")
+    fork = raw.get("fork_turns") if provider == CODEX else raw.get("fork_context")
+    if not isinstance(fork, (str, bool, int)):
+        fork = None
+    unknown = ["effective_model", "effective_effort", "effective_sandbox", "recursion_limit"]
+    for field, value in (("requested_model", model), ("requested_effort", effort),
+                         ("sandbox_intent", sandbox), ("fork_context", fork)):
+        if value is None:
+            unknown.append(field)
+    if role == "unclassified":
+        unknown.append("semantic_role")
+    return {
+        "provider": provider, "agent_type": kind, "semantic_role": role,
+        "requested_model": model, "model_source": "tool_input.model" if model else None,
+        "effective_model": None, "requested_effort": effort,
+        "effort_source": "tool_input" if effort else None, "effective_effort": None,
+        "sandbox_intent": sandbox, "effective_sandbox": None,
+        "fork_context": fork, "recursion_limit": None,
+        "session_id": payload.get("session_id") if isinstance(payload.get("session_id"), str) else None,
+        "unknown_fields": unknown,
+    }
+
+
 def normalize(event: str, payload):
     """Canonicalize a hook payload. Claude payloads pass through as the SAME object (identity —
     test-pinned); a Codex edit becomes tool_name "Edit" with tool_input.file_paths = EVERY path the
@@ -141,6 +201,24 @@ def normalize(event: str, payload):
     if not isinstance(payload, dict):
         return payload
     tool = payload.get("tool_name")
+    if not isinstance(tool, str):
+        return payload
+    if tool in CODEX_SPAWN_TOOLS or (tool == "Agent" and detect(payload) == CODEX):
+        launch = launch_record(payload, CODEX)
+        out = dict(payload)
+        raw = payload.get("tool_input")
+        out["tool_name"] = "Agent"
+        out["tool_input"] = dict(raw) if isinstance(raw, dict) else {}
+        if launch["semantic_role"] == "search":
+            # Keep the native role when the compatibility field supplied it: downstream
+            # readers re-derive classification and must not mistake canonical Explore for unknown.
+            out["tool_input"]["agent_type"] = launch["agent_type"]
+            out["tool_input"]["subagent_type"] = "Explore"
+        out["provider_launch"] = launch
+        # Diagnostics are bounded and omit the potentially private task message.
+        out["provider_raw"] = {"tool_name": tool, "input_keys": sorted(
+            str(key)[:80] for key in raw)[:32] if isinstance(raw, dict) else []}
+        return out
     if tool == CODEX_EDIT_TOOL:
         raw = payload.get("tool_input")
         paths = _patch_file_paths(raw)

@@ -3,10 +3,10 @@
 
 Two legs over the Codex renders:
   1. REVIEWER REQUESTED DEFAULT: every engine Codex persona (`.codex/agents/*.toml` rendered from a
-     canonical Claude persona) keeps `sandbox_mode = "read-only"` and pins NO `model`. This is the
+     canonical Claude persona) keeps `sandbox_mode = "read-only"` and matches its central model binding. This is the
      standalone default, not a mechanical child boundary: Codex can reapply the parent task's live
      permission override (provider-exceptions.json). The check prevents weaker committed defaults and
-     rotting model ids without overstating runtime isolation.
+     drifting model choices without overstating runtime isolation.
   2. RENDER SYNC: every committed render (personas AND the `.agents/skills/` twins) matches what the
      render tool would produce from its canonical `.claude/` source, and no engine-prefixed render
      exists without a source — a hand-edited, stale, or orphaned render goes red (the drift gate
@@ -25,6 +25,7 @@ import tomllib
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import validate    # noqa: E402
 import codex_gen   # noqa: E402
+import agent_bindings  # noqa: E402
 
 
 def _canonical_frontmatter(slug: str) -> dict | None:
@@ -57,7 +58,7 @@ def _floor_findings(tier: str, agents_dir: str) -> list:
         source_fm = _canonical_frontmatter(slug)
         if source_fm is not None and source_fm.get("role") == "worker":
             # A worker render legitimately carries a write sandbox and an explicit per-provider model;
-            # the reviewer no-model floor does not apply. Instead it must NOT be read-only, and its model
+            # the reviewer requested sandbox does not apply. Instead it must NOT be read-only, and its model
             # must match the single-sourced implementation_classes binding (drift, not a pinned-id rot).
             if data.get("sandbox_mode") == "read-only":
                 out.append(validate.finding(tier, f"'{rel}' is a worker render with a read-only sandbox; a "
@@ -80,10 +81,24 @@ def _floor_findings(tier: str, agents_dir: str) -> list:
                        f"as its requested default — a reviewer must report findings, never edit the work. Restore "
                        f"sandbox_mode = \"read-only\" (edit the Claude source and regenerate).",
                        validate.loc(path)))
-        if "model" in data:
-            out.append(validate.finding(tier, f"'{rel}' pins a model id, which rots and silently "
-                       f"changes who reviews. A review persona never pins a model; remove it from the "
-                       f"canonical source and regenerate.", validate.loc(path)))
+        if source_fm is None and "model" in data:
+            out.append(validate.finding(tier, f"'{rel}' pins a model without an available canonical "
+                       f"persona source, so its binding cannot be verified. Restore the source and "
+                       f"regenerate.", validate.loc(path)))
+        elif source_fm is not None:
+            try:
+                want = agent_bindings.resolve_persona(
+                    source_fm, agent_bindings.load_bindings(validate.ROOT), "codex")
+            except (OSError, ValueError, KeyError, TypeError) as exc:
+                out.append(validate.finding(tier, f"'{rel}' could not resolve its Codex model binding "
+                           f"({exc}). Fix the central provider bindings and regenerate.", validate.loc(path)))
+                continue
+            if data.get("model") != want["model"]:
+                out.append(validate.finding(tier, f"'{rel}' model does not match its central Codex "
+                           f"binding {want['model']!r}; regenerate.", validate.loc(path)))
+            if source_fm.get("role") in agent_bindings.EFFORT_UNPINNED_ROLES and "model_reasoning_effort" in data:
+                out.append(validate.finding(tier, f"'{rel}' pins reviewer effort; reviewer effort is "
+                           f"not part of the review contract. Regenerate.", validate.loc(path)))
     return out
 
 

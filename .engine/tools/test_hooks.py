@@ -41,6 +41,7 @@ import json
 import os
 import re
 import shutil
+import shlex
 import subprocess
 import sys
 import tempfile
@@ -1357,6 +1358,103 @@ class _AcceptedDispatchRepo:
         return json.loads(path.read_text(encoding="utf-8"))
 
 
+class TestCodexLauncherExecution(unittest.TestCase):
+    """Execute the committed shim, shared runner, and rendered registration in isolation."""
+
+    def setUp(self):
+        self.temp = tempfile.TemporaryDirectory(prefix="codex-launcher-")
+        self.addCleanup(self.temp.cleanup)
+        self.root = Path(self.temp.name) / "project with spaces"
+        self.tools = self.root / ".engine/tools"
+        self.tools.mkdir(parents=True)
+        source = Path(__file__).resolve().parent
+        for name in ("hook-runner.sh", "codex-hook-runner.sh"):
+            shutil.copy2(source / name, self.tools / name)
+        self.interpreter = self.root / ".engine/.venv/bin/python"
+        self.interpreter.parent.mkdir(parents=True)
+        self.interpreter.symlink_to(sys.executable)
+        self.marker = self.root / "target-ran"
+        (self.tools / "launcher_probe.py").write_text(
+            "import json,os,sys\nfrom pathlib import Path\n"
+            "Path(os.environ['L49_TARGET_MARKER']).write_text('ran')\n"
+            "print(json.dumps({'provider':os.environ.get('ENGINE_PROVIDER'),"
+            "'argv':sys.argv[1:],'cwd':os.getcwd(),'stdin_hex':sys.stdin.buffer.read().hex()}))\n"
+            "sys.exit(int(os.environ.get('L49_TARGET_EXIT','0')))\n", encoding="utf-8")
+        self.nested = self.root / "nested path/deeper"
+        self.nested.mkdir(parents=True)
+        self.env = {k: v for k, v in os.environ.items() if not k.startswith("GIT_")}
+        self.env.update(ENGINE_PROVIDER="claude", ENGINE_HOOK_WAIT_POLLS="0",
+                        L49_TARGET_MARKER=str(self.marker), GIT_CONFIG_GLOBAL=os.devnull,
+                        GIT_CONFIG_NOSYSTEM="1")
+        subprocess.run(["git", "init", "-q", str(self.root)], env=self.env, check=True,
+                       capture_output=True)
+
+    def launch(self, cwd, args=(), rendered=False, stdin=""):
+        if rendered:
+            command = hooks.hook_command(".engine/tools/launcher_probe.py", provider="codex")
+            command += " " + shlex.join(args)
+            argv = ["sh", "-c", command]
+        else:
+            argv = ["sh", str(self.tools / "codex-hook-runner.sh"),
+                    ".engine/tools/launcher_probe.py", *args]
+        return subprocess.run(argv, cwd=cwd, env=self.env, input=stdin,
+                              capture_output=True, text=True, timeout=10)
+
+    def test_stdin_and_target_exit_status_survive_direct_and_rendered_launches(self):
+        payload = '{"session_id":"literal-session","text":"spaced value; $NAME"}\n\x00\r\n'
+        for cwd in (self.root, self.nested):
+            for rendered in (False, True):
+                for status in (0, 17):
+                    with self.subTest(cwd=cwd.name, rendered=rendered, status=status):
+                        self.env["L49_TARGET_EXIT"] = str(status)
+                        result = self.launch(cwd, rendered=rendered, stdin=payload)
+                        self.assertEqual(result.returncode, status, result.stderr)
+                        self.assertEqual(json.loads(result.stdout)["stdin_hex"], payload.encode().hex())
+
+    def test_root_nested_and_rendered_paths_preserve_provider_and_argv(self):
+        args = ["hook", "two words", "", '"quoted"', "$UNEXPANDED", "semi;colon"]
+        for cwd in (self.root, self.nested):
+            for rendered in (False, True):
+                with self.subTest(cwd=cwd.name, rendered=rendered):
+                    self.marker.unlink(missing_ok=True)
+                    result = self.launch(cwd, args, rendered)
+                    self.assertEqual(result.returncode, 0, result.stderr)
+                    receipt = json.loads(result.stdout)
+                    self.assertEqual(receipt["provider"], "codex")
+                    self.assertEqual(receipt["argv"], args)
+                    self.assertEqual(Path(receipt["cwd"]).resolve(), (self.root if rendered else cwd).resolve())
+                    self.assertTrue(self.marker.exists())
+
+    def test_missing_root_or_runtime_never_runs_target_or_system_python(self):
+        fake_bin = Path(self.temp.name) / "fake-bin"
+        fake_bin.mkdir()
+        system_marker = Path(self.temp.name) / "system-python-ran"
+        for name in ("python", "python3"):
+            fake = fake_bin / name
+            fake.write_text("#!/bin/sh\n: > " + shlex.quote(str(system_marker)) + "\nexit 99\n")
+            fake.chmod(0o755)
+        self.env["PATH"] = str(fake_bin) + os.pathsep + self.env.get("PATH", "")
+        missing_root = Path(self.temp.name) / "not-a-project"
+        missing_root.mkdir()
+        result = self.launch(missing_root)
+        self.assertEqual(result.returncode, 1, result.stderr)
+        self.assertIn("could not find its project folder", result.stderr)
+        self.assertFalse(self.marker.exists())
+        self.assertFalse(system_marker.exists())
+        self.interpreter.unlink()
+        for runtime in ("absent", "non-executable"):
+            if runtime == "non-executable":
+                self.interpreter.write_text("#!/bin/sh\nexit 99\n")
+                self.interpreter.chmod(0o644)
+            for rendered in (False, True):
+                with self.subTest(runtime=runtime, rendered=rendered):
+                    result = self.launch(self.nested, rendered=rendered)
+                    self.assertEqual(result.returncode, 1, result.stderr)
+                    self.assertIn("private Python runtime is not ready", result.stderr)
+                    self.assertFalse(self.marker.exists())
+                    self.assertFalse(system_marker.exists())
+
+
 class TestAcceptedAutomaticHookDispatch(unittest.TestCase):
     def setUp(self):
         self.repo = _AcceptedDispatchRepo()
@@ -2360,15 +2458,13 @@ class TestInventoryDriftCheckers(unittest.TestCase):
         self.assertTrue(any("names validation on PostToolUse" in f for f in failures), failures)
 
     def test_provider_only_bindings_satisfy_their_owners_only_across_the_union(self):
-        # Provider-only owners are an established, ledgered shape: build-coordinator's compact-matcher
-        # re-grounding and session-economy's spend gate are Claude-only; modes' native-plan importer on
-        # UserPromptSubmit is Codex-only. Read alone, EACH runtime's file reds the other's owners — which
-        # is exactly why the reverse leg reads the union (green above), never one file.
+        # The compact reminder and spawn gate now bind on both providers. The native-plan importer
+        # on UserPromptSubmit remains Codex-only, so the reverse leg still reads the union.
         live = self._live()
         installed = hooks.installed_modules()
         codex_only = hooks.inventory_reverse_failures({"codex": live["codex"]}, installed)
-        self.assertTrue(any("build-coordinator on SessionStart" in f for f in codex_only), codex_only)
-        self.assertTrue(any("session-economy on PreToolUse" in f for f in codex_only), codex_only)
+        self.assertFalse(any("build-coordinator on SessionStart" in f for f in codex_only), codex_only)
+        self.assertFalse(any("session-economy on PreToolUse" in f for f in codex_only), codex_only)
         claude_only = hooks.inventory_reverse_failures({"claude": live["claude"]}, installed)
         self.assertEqual([f for f in claude_only if "over-reports" in f],
                          ["the inventory names modes on UserPromptSubmit, but no engine command mapped to modes "

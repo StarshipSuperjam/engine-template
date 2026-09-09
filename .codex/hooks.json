@@ -75,6 +75,15 @@
             "command": "cd \"$(git rev-parse --show-toplevel 2>/dev/null || echo .)\" && sh \".engine/tools/codex-hook-runner.sh\" \".engine/tools/memory/backup_vault.py\" session-start"
           }
         ]
+      },
+      {
+        "matcher": "compact",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "cd \"$(git rev-parse --show-toplevel 2>/dev/null || echo .)\" && sh \".engine/tools/codex-hook-runner.sh\" \".engine/tools/build_coordinator.py\" reground-hook"
+          }
+        ]
       }
     ],
     "PreToolUse": [
@@ -99,6 +108,15 @@
           {
             "type": "command",
             "command": "cd \"$(git rev-parse --show-toplevel 2>/dev/null || echo .)\" && sh \".engine/tools/codex-hook-runner.sh\" \".engine/tools/product_design/obligation_matrix.py\" hook"
+          }
+        ]
+      },
+      {
+        "matcher": "^(Agent|spawn_agent|collaborationspawn_agent)$",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "cd \"$(git rev-parse --show-toplevel 2>/dev/null || echo .)\" && sh \".engine/tools/codex-hook-runner.sh\" \".engine/tools/session_economy.py\" hook"
           }
         ]
       }

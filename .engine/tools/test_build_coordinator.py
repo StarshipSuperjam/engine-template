@@ -5994,6 +5994,63 @@ class TestPostCompactionRegrounding(CoordinatorCase):
         text = decision["context"]
         self.assertIn("No Build is bound to this worktree", text)
 
+    def test_mismatched_hook_worktree_never_resolves_a_build(self):
+        with mock.patch.object(bc, "_library") as library:
+            decision = bc.reground_handler({"source": "compact", "cwd": "/another-worktree",
+                                            "session_id": "exact-hook-session"})
+        library.assert_not_called()
+        self.assertIn("No Build pointer is assumed", decision["context"])
+
+    def test_mismatched_snapshot_is_disclosed_without_mutation(self):
+        path = self.seeded_snapshot()
+        self.store.mutate(lambda s: s["build"].update(worktree="/another-worktree"))
+        before = path.read_bytes()
+        with self.resolve_to([("a-slug", path)]):
+            decision = bc.reground_handler({"source": "compact", "cwd": str(bc.ROOT)})
+        self.assertIn("different worktree", decision["context"])
+        self.assertEqual(path.read_bytes(), before)
+
+    def test_nested_cwd_resolves_its_worktree_but_a_nested_repository_does_not(self):
+        root = Path(self.temp.name) / "project with spaces"
+        nested = root / "src/deeper"
+        nested.mkdir(parents=True)
+        env = {k: v for k, v in os.environ.items() if not k.startswith("GIT_")}
+        subprocess.run(["git", "init", "-q", str(root)], env=env, check=True,
+                       capture_output=True)
+        path = self.seeded_snapshot()
+        self.store.mutate(lambda s: s["build"].update(worktree=str(root)))
+        with mock.patch.object(bc, "ROOT", root):
+            before = path.read_bytes()
+            with self.resolve_to([("a-slug", path)]):
+                decision = bc.reground_handler({"source": "compact", "cwd": str(nested)})
+            self.assertIn(PLAN_ID, decision["context"])
+            self.assertIn("CX-01", decision["context"])
+            self.assertEqual(path.read_bytes(), before)
+            outside = Path(self.temp.name) / "outside"
+            outside.mkdir()
+            link = root / "escape"
+            link.symlink_to(outside, target_is_directory=True)
+            for cwd in (link, root / "missing"):
+                with mock.patch.object(bc, "_library") as library:
+                    decision = bc.reground_handler({"source": "compact", "cwd": str(cwd)})
+                library.assert_not_called()
+                self.assertIn("No Build pointer is assumed", decision["context"])
+            subprocess.run(["git", "init", "-q", str(nested)], env=env, check=True,
+                           capture_output=True)
+            with mock.patch.object(bc, "_library") as library, \
+                 mock.patch.dict(os.environ, {"GIT_DIR": str(root / ".git"),
+                                              "GIT_WORK_TREE": str(root)}):
+                decision = bc.reground_handler({"source": "compact", "cwd": str(nested)})
+            library.assert_not_called()
+            self.assertIn("No Build pointer is assumed", decision["context"])
+            linked = root / "linked-worktree"
+            linked.mkdir()
+            (linked / ".git").write_text("gitdir: /another-worktree/.git\n")
+            with mock.patch.object(bc, "_library") as library:
+                decision = bc.reground_handler({"source": "compact", "cwd": str(linked)})
+            library.assert_not_called()
+            self.assertIn("No Build pointer is assumed", decision["context"])
+
     def test_several_bound_builds_disclose_the_ambiguity_and_assume_nothing(self):
         with self.resolve_to([("slug-one", Path("/a")), ("slug-two", Path("/b"))]):
             decision = bc.reground_handler({"source": "compact"})

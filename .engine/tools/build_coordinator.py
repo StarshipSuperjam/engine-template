@@ -5729,6 +5729,26 @@ def reground_handler(payload: dict) -> dict:
     # and injecting a second, narrower orientation there would compete with it.
     if (payload.get("source") or payload.get("matcher")) != "compact":
         return hooks.proceed()
+    cwd = payload.get("cwd")
+    if cwd is not None:
+        same_worktree = False
+        if isinstance(cwd, str) and cwd:
+            try:
+                location, root = Path(cwd).resolve(), ROOT.resolve()
+                same_worktree = location.is_dir() and (location == root or root in location.parents)
+                # Read only directory markers: another repository/worktree inside this one owns
+                # its own context. Resolving paths also prevents symlink escapes. Git environment
+                # selectors cannot redirect this filesystem-only check.
+                while same_worktree and location != root:
+                    marker = location / ".git"
+                    if marker.exists() or marker.is_symlink():
+                        same_worktree = False
+                    location = location.parent
+            except (OSError, RuntimeError, ValueError):
+                same_worktree = False
+        if not same_worktree:
+            return hooks.inject("Engine: this session was compacted, but the hook worktree does not match "
+                                "this Engine checkout. No Build pointer is assumed.")
     try:
         library = _library()
         found = build_state_store.bound_snapshots(ROOT, library=library)
@@ -5751,6 +5771,10 @@ def reground_handler(payload: dict) -> dict:
         state = core.json_file(path)
     except Exception:  # noqa: BLE001
         return hooks.proceed()
+    worktree = (state.get("build") or {}).get("worktree")
+    if not isinstance(worktree, str) or Path(worktree).resolve() != ROOT.resolve():
+        return hooks.inject("Engine: this session was compacted, but the Build snapshot names a "
+                            "different worktree. No Build pointer is assumed.")
     # The compaction itself is not written down anywhere. This hook REACTS to one; nothing reads a
     # history of them, and keeping a record no reader consumes would be bookkeeping for its own sake.
     # `slug` is the snapshot's own plan-directory identity (from bound_snapshots), which the advisory

@@ -3051,7 +3051,7 @@
       },
       "slug": "engine-audit",
       "source": {
-        "fingerprint": "sha256:609ffc003dccb5374e49f5588e075593066b34e23a1b225e36baaffb81aea571",
+        "fingerprint": "sha256:c6c9e9fd75419ba550c32826b2749faae51d6acb686ac8b483902f94838eb39f",
         "path": ".codex/agents/engine-audit.toml"
       },
       "status": "active",
@@ -3071,7 +3071,7 @@
       },
       "slug": "engine-design-review-architecture",
       "source": {
-        "fingerprint": "sha256:2c1b25590d1879346b885d23c83cdd1884e7242ed5064f43bb29d4eb95e7a4c7",
+        "fingerprint": "sha256:d58cf003a4bb3a27c595ed87cf8b1ee9204ee7ce43e8b95afc7e6e6f7d738f21",
         "path": ".codex/agents/engine-design-review-architecture.toml"
       },
       "status": "active",
@@ -3091,7 +3091,7 @@
       },
       "slug": "engine-design-review-feasibility",
       "source": {
-        "fingerprint": "sha256:16b580c172aa9213131d86a5afc14c91eb58205de8f783b7b41b52868b130909",
+        "fingerprint": "sha256:4c61bea6b33348e34357e2c4ca66ba9cef094d712c9cce8cc83fb1ead55bef4a",
         "path": ".codex/agents/engine-design-review-feasibility.toml"
       },
       "status": "active",
@@ -3111,7 +3111,7 @@
       },
       "slug": "engine-design-review-product-intent",
       "source": {
-        "fingerprint": "sha256:9f824d116105c6f7d00b43475532bd7a555062ca06bf17c03ce0e28447aea978",
+        "fingerprint": "sha256:e37596d61f2852be58bf7f1c983ea3eaf53df13080d0208b81f763b0fd7362ee",
         "path": ".codex/agents/engine-design-review-product-intent.toml"
       },
       "status": "active",
@@ -3131,7 +3131,7 @@
       },
       "slug": "engine-design-review-risk-governance",
       "source": {
-        "fingerprint": "sha256:40d04628dc0325d6a01bd6d28be7544361edd54ddc128c5d77f9400f9916aacf",
+        "fingerprint": "sha256:8338942fc3f672b22341c6fde32d00773ef4dd1413c2f4114c41a08d288820b5",
         "path": ".codex/agents/engine-design-review-risk-governance.toml"
       },
       "status": "active",
@@ -3151,7 +3151,7 @@
       },
       "slug": "engine-qa-review-divergence-hunter",
       "source": {
-        "fingerprint": "sha256:45b8895566cfb72d2b692da1648b006cdec9065673a97ae0027be259ef74f12b",
+        "fingerprint": "sha256:c593260014ab09e3ab02f44c7854442cc408f4eb90c25baf60ec945e010b205e",
         "path": ".codex/agents/engine-qa-review-divergence-hunter.toml"
       },
       "status": "active",
@@ -3171,7 +3171,7 @@
       },
       "slug": "engine-qa-review-security-governance",
       "source": {
-        "fingerprint": "sha256:ef2ddab93ec42ef6664d07dd4ee9ae0be400e5ad2d3af2646defd9feb0616306",
+        "fingerprint": "sha256:332c5148ab424a76f4ea09006ca1426ae0db1f95e978e14a432ce8eaed5fbd91",
         "path": ".codex/agents/engine-qa-review-security-governance.toml"
       },
       "status": "active",
@@ -3191,7 +3191,7 @@
       },
       "slug": "engine-qa-review-spec-conformance",
       "source": {
-        "fingerprint": "sha256:445b4892943d217ea333a9d6331b9714f882e6fd1f8f29641cf43fee09b86c15",
+        "fingerprint": "sha256:7a500a8877fe5ffbf4246e836b62f24ee5052cfaa16c8cc3043636efe910f24d",
         "path": ".codex/agents/engine-qa-review-spec-conformance.toml"
       },
       "status": "active",
@@ -3211,7 +3211,7 @@
       },
       "slug": "engine-qa-review-technical-integrity",
       "source": {
-        "fingerprint": "sha256:dd00462295b0c692955b5b19b13a698cefed2d1c0030e258a83bbb0acd933b71",
+        "fingerprint": "sha256:4074e6b4b3f7a44e2c3304911f3f8487ee0a4a3280c305f9a0ec8d9b4819c890",
         "path": ".codex/agents/engine-qa-review-technical-integrity.toml"
       },
       "status": "active",
@@ -3231,7 +3231,7 @@
       },
       "slug": "engine-qa-review-usability",
       "source": {
-        "fingerprint": "sha256:7616fd71595a15bef2556bdc661d52ec94b59472b4b3c984d6bdc9207e26c4c5",
+        "fingerprint": "sha256:491606b49dd4d95baffacce7446da9f309bda2337f8f3832e8b61d01433e32e8",
         "path": ".codex/agents/engine-qa-review-usability.toml"
       },
       "status": "active",
@@ -5211,7 +5211,7 @@
       },
       "slug": "ci-assurance",
       "source": {
-        "fingerprint": "sha256:16f121c6c7d112b39103f0baa06b7564342e953c0b0693dbef282b3149e76da5",
+        "fingerprint": "sha256:2577e899982d5482e80c646eea2738a10187ae520ec5b4960e4d347925fad08c",
         "path": ".engine/docs/ci-assurance.md"
       },
       "status": "active",
@@ -5452,7 +5452,7 @@
       },
       "slug": "core",
       "source": {
-        "fingerprint": "sha256:5209f99ba33d074d5c50c13157b7dffdd0fca5dbafa9ccddac1e0f16050cd86a",
+        "fingerprint": "sha256:305752d170d73f400b23a7bae0a65795b5c633fa225f72e169bb765c5b496206",
         "path": ".engine/modules/core/manifest.json"
       },
       "status": "required",
@@ -5703,7 +5703,7 @@
       },
       "slug": "build-continuity",
       "source": {
-        "fingerprint": "sha256:c8c321ef7b879db9c45a9ae9898036ae0aa2385a3acbde4f9ac7b96e873d4ffa",
+        "fingerprint": "sha256:091f532c7c4d7c46b9519fd2cde45c078edb209539620d51bd13d241a46af038",
         "path": ".engine/operations/build-continuity.md"
       },
       "status": "active",
@@ -5963,7 +5963,7 @@
       },
       "slug": "codex-settings",
       "source": {
-        "fingerprint": "sha256:efa49438d5eda2dfe3d1e326a3110fdf6cf13725b12b297e048c6cf5a15056bc",
+        "fingerprint": "sha256:fd666ca6d7e573485b9778402477501f19353951088517df6ebd19eeb0217b49",
         "path": ".engine/operations/codex-settings.md"
       },
       "status": "active",
@@ -5983,7 +5983,7 @@
       },
       "slug": "codex-validation",
       "source": {
-        "fingerprint": "sha256:65270862eb670cc834014f4c9e46b844dff8cd3fa15784c6f5ea22fc503e2273",
+        "fingerprint": "sha256:e031eee641faec778b965a51ec0cd061b8575f73e1a5bc2de972f35a45bda01c",
         "path": ".engine/operations/codex-validation.md"
       },
       "status": "active",
@@ -6690,7 +6690,7 @@
       },
       "slug": "model-bindings",
       "source": {
-        "fingerprint": "sha256:7e68c9a7d50c1c7bbf55354293ff6a16523b4d5031953f51ee222b43deb0f00d",
+        "fingerprint": "sha256:86abe9982ef25943b366a3d360601bac74fed5c3b3d947fa9d02c379b7aa202b",
         "path": ".engine/policies/model-bindings.json"
       },
       "status": "active",
@@ -6710,7 +6710,7 @@
       },
       "slug": "model-routing",
       "source": {
-        "fingerprint": "sha256:35714e3b622463577b91efb2bb6544ac5448a6ec16d74a839576ce16144beaa8",
+        "fingerprint": "sha256:422829ebd2711fe6933b1767831160a3444e5a9e9ba4b632fbf08ea6a2e2a0f0",
         "path": ".engine/policies/model-routing.md"
       },
       "status": "active",
@@ -6751,7 +6751,7 @@
       },
       "slug": "provider-exceptions",
       "source": {
-        "fingerprint": "sha256:17d9a81b9fbafab6fa3a01581e7dd080418bfd495b4d7c50a048ef0f60b5294b",
+        "fingerprint": "sha256:f59422da57be214f20267bc1811af6a7101eaf03f8af5f786d63c62b4122f78c",
         "path": ".engine/policies/provider-exceptions.json"
       },
       "status": "active",
@@ -6771,7 +6771,7 @@
       },
       "slug": "session-economy",
       "source": {
-        "fingerprint": "sha256:0abe5d8b71429e7e24f9d124d29c3600d7500293756161dcf6e1cf2d75f38ae2",
+        "fingerprint": "sha256:a2ec850a5b86d3b20ccb057c1194688e99e86a1c41c6b1af77aff058d92f4417",
         "path": ".engine/policies/session-economy.md"
       },
       "status": "active",
@@ -7107,7 +7107,7 @@
       },
       "slug": "codex-agent.v1",
       "source": {
-        "fingerprint": "sha256:5b376b418601651d65b9899617920667bd8ecd61698d3e1a97326b43ba47a865",
+        "fingerprint": "sha256:478d6f149ef2f05725507c1742b3d0f75a0e3336fabf86e9676408c165210f19",
         "path": ".engine/schemas/codex-agent.v1.json"
       },
       "status": "active",
@@ -7413,7 +7413,7 @@
       },
       "slug": "model-bindings.v1",
       "source": {
-        "fingerprint": "sha256:fb5e97d6c775e5d8582711cdca9b49cc5314be7dbc956c5de01c1d56fb52518b",
+        "fingerprint": "sha256:68cc7d8e38514ccc8f5a0938e7e63d6567c83913911c0e5ee8a9e172aaf5d16c",
         "path": ".engine/schemas/model-bindings.v1.json"
       },
       "status": "active",
@@ -9122,7 +9122,7 @@
       },
       "slug": "agent_bindings",
       "source": {
-        "fingerprint": "sha256:0f3c43c56d64b2a6db84f8bdc210b8b2289c5bf9049907ac5def30ae4381aaaa",
+        "fingerprint": "sha256:ca3d8788b31b6e9dfc5e3ab43c3a55531d70177eb1dda804d7c2e1d61f5cee85",
         "path": ".engine/tools/agent_bindings.py"
       },
       "status": "active",
@@ -9411,7 +9411,7 @@
       },
       "slug": "boot",
       "source": {
-        "fingerprint": "sha256:fdca5c44fddcbbad86fc9f2805b298e3ef15871e88b8c9525b6f88345a5186f5",
+        "fingerprint": "sha256:1f5288a4d965a73d90d02790d61e0b34e3fd15ce11bee6cb5cb4dd2a3895895b",
         "path": ".engine/tools/boot.py"
       },
       "status": "active",
@@ -9543,7 +9543,7 @@
       },
       "slug": "build_coordinator",
       "source": {
-        "fingerprint": "sha256:9143c91efa748cf336d48fd6e75e7050465d77bb30218944331d07c52ba19546",
+        "fingerprint": "sha256:34b7c8ba200ed2408414d1a70a94808038d2f92d611f1240fd6c9cd0cb1d63eb",
         "path": ".engine/tools/build_coordinator.py"
       },
       "status": "active",
@@ -10239,6 +10239,7 @@
       "owner": "core",
       "predicates": {
         "imports": [
+          "tool:agent_bindings",
           "tool:codex_gen",
           "tool:validate"
         ],
@@ -10248,7 +10249,7 @@
       },
       "slug": "codex_agent_coherence_check",
       "source": {
-        "fingerprint": "sha256:d1eae0717d09c8a19ddac27c98156220beb64913828fe307cdde698b6ee64670",
+        "fingerprint": "sha256:c8a9ed564cafa3780a61f978dcccb22b99838e3094878b23d6900781dd54756a",
         "path": ".engine/tools/codex_agent_coherence_check.py"
       },
       "status": "active",
@@ -10273,11 +10274,34 @@
       },
       "slug": "codex_gen",
       "source": {
-        "fingerprint": "sha256:135202b5bee39f9cd95e8623566f0bf359c7126bdc241a727c1a91c90b97c790",
+        "fingerprint": "sha256:9eaccb942bfd3f397bf5cd092185c1aeb7f0b63ea334f5c3e917146519356cb6",
         "path": ".engine/tools/codex_gen.py"
       },
       "status": "active",
       "summary": "The Codex render tool — one renderer for BOTH Codex adapter surfaces.",
+      "type": "tool"
+    },
+    {
+      "entrypoint": "cli",
+      "guarded": false,
+      "id": "tool:codex_qualification",
+      "name": ".engine/tools/codex_qualification.py",
+      "owner": "core",
+      "predicates": {
+        "imports": [
+          "tool:moment"
+        ],
+        "provided_by": [
+          "module:core"
+        ]
+      },
+      "slug": "codex_qualification",
+      "source": {
+        "fingerprint": "sha256:c7b30c87de1076b007de689b52a92e3052aaddcfb54073dfaaa2546d7e26a307",
+        "path": ".engine/tools/codex_qualification.py"
+      },
+      "status": "active",
+      "summary": "Check a live Codex qualification record's completeness, never its conclusions.",
       "type": "tool"
     },
     {
@@ -12630,7 +12654,7 @@
       },
       "slug": "hooks_path_health",
       "source": {
-        "fingerprint": "sha256:79fc83f354d99f02cf52dd6f35d46fd1a7b3b1dbff67cf6f594d7322cb4708d4",
+        "fingerprint": "sha256:775c4e62950e9116cbd2e6bc6370fbd4e035ec7e7257af796bddd95bc9891b3d",
         "path": ".engine/tools/hooks_path_health.py"
       },
       "status": "active",
@@ -14488,7 +14512,7 @@
       },
       "slug": "providers",
       "source": {
-        "fingerprint": "sha256:cab347eec8a13fb4fcd8a7e7eddf7af6264bcd4f4c1181686f68a5330fb04685",
+        "fingerprint": "sha256:14bea1a9afe0c3b5174d8966c32092ee6b028004e5898747d6ae673e3258666b",
         "path": ".engine/tools/providers.py"
       },
       "status": "active",
@@ -15341,7 +15365,8 @@
       "owner": "core",
       "predicates": {
         "imports": [
-          "tool:hooks"
+          "tool:hooks",
+          "tool:providers"
         ],
         "provided_by": [
           "module:core"
@@ -15349,7 +15374,7 @@
       },
       "slug": "session_economy",
       "source": {
-        "fingerprint": "sha256:30c379ebd0a3f124699f58b6f23ec8ad86c3916a99ee9411547d3aba096ad918",
+        "fingerprint": "sha256:9e9c6392022373ad6038352b47d3b547fc0a1a79585b781dd9b7c182cb9d73aa",
         "path": ".engine/tools/session_economy.py"
       },
       "status": "active",
@@ -15891,7 +15916,7 @@
       },
       "slug": "test_agent_bindings",
       "source": {
-        "fingerprint": "sha256:f915c4cefca2af0d3f24a5f82b1b90dbf620a531a6e9236a728b141d5889cb20",
+        "fingerprint": "sha256:6e9752c95a0911543ce54d29f687e5281ab0a705fa97cf7c46100bd0a01a23cd",
         "path": ".engine/tools/test_agent_bindings.py"
       },
       "status": "active",
@@ -16126,7 +16151,7 @@
       },
       "slug": "test_boot",
       "source": {
-        "fingerprint": "sha256:6f64407ddb8249d70b1ea37320f9feabf5f52c7d9850848a7752256a5de9fbd5",
+        "fingerprint": "sha256:95a955ca41bac0cf22425a59bf4596f9366c0966740573954c11194bf7a53c0c",
         "path": ".engine/tools/test_boot.py"
       },
       "status": "active",
@@ -16252,7 +16277,7 @@
       },
       "slug": "test_build_coordinator",
       "source": {
-        "fingerprint": "sha256:bd7c45027d7ca8b6bef23e4890eef526251b0346a6a8a7004af8f71eb59a760f",
+        "fingerprint": "sha256:691814694e98bbce527217580cbf8b8a240dee07cc9db1964ece311a0db83273",
         "path": ".engine/tools/test_build_coordinator.py"
       },
       "status": "active",
@@ -16841,11 +16866,34 @@
       },
       "slug": "test_codex_gen",
       "source": {
-        "fingerprint": "sha256:9799cff92481585e5dcdb86ff773772c7baa804bd8d62cb99729c22f7b6a69aa",
+        "fingerprint": "sha256:badf038a615ed8a096496e667967ee42fc4b1093c1f92eb25739d521f1e1bd2d",
         "path": ".engine/tools/test_codex_gen.py"
       },
       "status": "active",
       "summary": "Self-tests for the Codex render tool (codex_gen.py) — the pipeline five enforcement surfaces",
+      "type": "tool"
+    },
+    {
+      "entrypoint": "test",
+      "guarded": false,
+      "id": "tool:test_codex_qualification",
+      "name": ".engine/tools/test_codex_qualification.py",
+      "owner": "core",
+      "predicates": {
+        "provided_by": [
+          "module:core"
+        ],
+        "tests": [
+          "tool:codex_qualification"
+        ]
+      },
+      "slug": "test_codex_qualification",
+      "source": {
+        "fingerprint": "sha256:248886ad47cd9353ad8953b23b155d94e9c03207a393c26ae1aeb7062cb06b2b",
+        "path": ".engine/tools/test_codex_qualification.py"
+      },
+      "status": "active",
+      "summary": "Adversarial completeness checks for the live Codex qualification record.",
       "type": "tool"
     },
     {
@@ -17740,7 +17788,7 @@
       },
       "slug": "test_hooks",
       "source": {
-        "fingerprint": "sha256:d573332c21baacb1e769641356ae464630e2942e0e5fbc06fa72a9e487e592a3",
+        "fingerprint": "sha256:21b0888ab6ca092ef14cfb8418f54d9bc2c564931f1b30e91ba56066743754e6",
         "path": ".engine/tools/test_hooks.py"
       },
       "status": "active",
@@ -19547,7 +19595,7 @@
       },
       "slug": "test_providers",
       "source": {
-        "fingerprint": "sha256:5ff68985beb5a4096767dcb26012d0b9cfc408073f4e0098cdb28017c6daf3eb",
+        "fingerprint": "sha256:6c1e33abeed196fb9087555857aaf5b8d139b92a0c864da1ea6131ebcc7e8196",
         "path": ".engine/tools/test_providers.py"
       },
       "status": "active",
@@ -20638,7 +20686,7 @@
       },
       "slug": "test_session_economy",
       "source": {
-        "fingerprint": "sha256:54f09144bf7fcc6cc92a464631c3c5bb464f66e9aa465436e9c758365ace738f",
+        "fingerprint": "sha256:16a34578b5799a88df4f25dbc007660d6dc2ef67d891d4fc2c0c2abe5b229352",
         "path": ".engine/tools/test_session_economy.py"
       },
       "status": "active",

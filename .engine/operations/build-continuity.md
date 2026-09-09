@@ -30,7 +30,7 @@ it in the session that holds it, or re-plan.
 
 Compaction mid-Build is survivable by design and needs no ceremony: every mutating verb re-verifies this session
 against the durable snapshot and refuses on a mismatch whether or not a compaction was observed, and a
-`compact`-matcher hook re-grounds the fresh context (Claude only — see the provider-exception ledger).
+`compact` hook restores context on Claude and qualified Codex CLI hosts (see `codex-validation.md`).
 
 ## Done when
 
