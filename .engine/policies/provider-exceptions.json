@@ -76,7 +76,7 @@
       "id": "engine-review-reader",
       "missing_or_weaker": "missing",
       "provider": "claude",
-      "reason": "Operator-approved Codex-only reader for issue #1269: planning reviewers must retain their no-shell instruction, while this installed Codex host exposes no native local-file reader to them. Claude already provides native Read, so duplicating the MCP server there adds no needed capability. Codex 0.153.4 ignores role-local MCP registration; the compact server is registered at project level and exposes only bounded checkout or registered-packet reads, with no command or write tool. Actual Desktop same-assignment clarification and review acceptance passed. This records the approved provider-specific registration, not a weaker review acceptance requirement."
+      "reason": "Operator-approved Codex-only reader for StarshipSuperjam/engine-template#1269: planning reviewers must retain their no-shell instruction, while this installed Codex host exposes no native local-file reader to them. Claude already provides native Read, so duplicating the MCP server there adds no needed capability. Codex 0.153.4 ignores role-local MCP registration; the compact server is registered at project level and exposes only bounded checkout or registered-packet reads, with no command or write tool. Actual Desktop same-assignment clarification and review acceptance passed. This records the approved provider-specific registration, not a weaker review acceptance requirement."
     }
   ]
 }
