@@ -5963,7 +5963,7 @@
       },
       "slug": "codex-settings",
       "source": {
-        "fingerprint": "sha256:b72fe10d8832d3e99c9622a7a282a479f12ffde472157ab280776405d8ecb8a5",
+        "fingerprint": "sha256:fd666ca6d7e573485b9778402477501f19353951088517df6ebd19eeb0217b49",
         "path": ".engine/operations/codex-settings.md"
       },
       "status": "active",
@@ -5983,7 +5983,7 @@
       },
       "slug": "codex-validation",
       "source": {
-        "fingerprint": "sha256:5d9df0eff5eec01afa215f8b7f6b0b5daa9a4dd76a12cce920f789aaecae5681",
+        "fingerprint": "sha256:5c1056d505b06abd08d1e090d3d059d836d4a1476dfec4c9bb52a979fe6efdb5",
         "path": ".engine/operations/codex-validation.md"
       },
       "status": "active",
@@ -6710,7 +6710,7 @@
       },
       "slug": "model-routing",
       "source": {
-        "fingerprint": "sha256:29f5171006afdeb907ae2fe9e303f2dd172bff3f2528af4bb9b815f08532122f",
+        "fingerprint": "sha256:422829ebd2711fe6933b1767831160a3444e5a9e9ba4b632fbf08ea6a2e2a0f0",
         "path": ".engine/policies/model-routing.md"
       },
       "status": "active",
