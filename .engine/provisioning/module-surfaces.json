@@ -597,6 +597,9 @@
   ".engine/check/doc-shape.json": [
    "validators-core"
   ],
+  ".engine/check/enforcement-files.json": [
+   "validators-core"
+  ],
   ".engine/check/engine-manifest.json": [
    "validators-core"
   ],
@@ -1614,6 +1617,9 @@
   ".engine/tools/derived_state.py": [
    "core"
   ],
+  ".engine/tools/enforcement_files_check.py": [
+   "core"
+  ],
   ".engine/tools/engine_fixture.py": [
    "core"
   ],
@@ -2374,6 +2380,9 @@
    "core"
   ],
   ".engine/tools/test_doc.py": [
+   "core"
+  ],
+  ".engine/tools/test_enforcement_files_check.py": [
    "core"
   ],
   ".engine/tools/test_engine_fixture.py": [

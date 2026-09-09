@@ -1181,6 +1181,34 @@
       "type": "check"
     },
     {
+      "id": "check:enforcement-files",
+      "kind": "custom/script",
+      "name": ".engine/check/enforcement-files.json",
+      "owner": "validators-core",
+      "predicates": {
+        "enforced_by": [
+          "tool:enforcement_files_check"
+        ],
+        "governed_by": [
+          "schema:check.v1"
+        ],
+        "provided_by": [
+          "module:validators-core"
+        ]
+      },
+      "slug": "enforcement-files",
+      "source": {
+        "fingerprint": "sha256:1d4b8d3e91304720818954913a5da0482ab2a0712edb77507ab4486263bb8555",
+        "path": ".engine/check/enforcement-files.json"
+      },
+      "status": "active",
+      "suites": [
+        "CI"
+      ],
+      "tier": "hard",
+      "type": "check"
+    },
+    {
       "id": "check:engine-manifest",
       "kind": "schema",
       "name": ".engine/check/engine-manifest.json",
@@ -5213,7 +5241,7 @@
       },
       "slug": "ci-assurance",
       "source": {
-        "fingerprint": "sha256:43d212126421462af0d3bc16e6c344c0d8446f470d904bc8b52c85c435e8d2ae",
+        "fingerprint": "sha256:cb578d0a025e31ccec08ca5285cb145ed87924b7ed5ef8db60e3284af3f8e2fb",
         "path": ".engine/docs/ci-assurance.md"
       },
       "status": "active",
@@ -5665,7 +5693,7 @@
       },
       "slug": "validators-core",
       "source": {
-        "fingerprint": "sha256:0e8fcd1c64ad4e8a1fedce23a067af8db97ef5e320f0ad1d2b0f1ec470923057",
+        "fingerprint": "sha256:5c606bf2cfe3fec39c382a466ee3df255dd36ad39d19bebe932e29faaec50952",
         "path": ".engine/modules/validators-core/manifest.json"
       },
       "status": "required",
@@ -9148,7 +9176,7 @@
     },
     {
       "entrypoint": "cli",
-      "guarded": false,
+      "guarded": true,
       "id": "tool:agent_bindings",
       "name": ".engine/tools/agent_bindings.py",
       "owner": "core",
@@ -9222,7 +9250,7 @@
     },
     {
       "entrypoint": "library",
-      "guarded": false,
+      "guarded": true,
       "id": "tool:attention_rank",
       "name": ".engine/tools/attention_rank.py",
       "owner": "core",
@@ -9245,7 +9273,7 @@
     },
     {
       "entrypoint": "cli",
-      "guarded": false,
+      "guarded": true,
       "id": "tool:audit_digest",
       "name": ".engine/tools/audit_digest.py",
       "owner": "core",
@@ -9808,7 +9836,7 @@
     },
     {
       "entrypoint": "cli",
-      "guarded": false,
+      "guarded": true,
       "id": "tool:build_protocol",
       "name": ".engine/tools/build_protocol.py",
       "owner": "core",
@@ -10120,7 +10148,7 @@
     },
     {
       "entrypoint": "cli",
-      "guarded": false,
+      "guarded": true,
       "id": "tool:ci_assurance",
       "name": ".engine/tools/ci_assurance.py",
       "owner": "core",
@@ -12034,11 +12062,11 @@
       },
       "slug": "demo_weakening_guard_narrowed_set",
       "source": {
-        "fingerprint": "sha256:8f6fe345c0871e7ca921f84a9ae45e31e42d949a149a226ebd1c90045e163bfb",
+        "fingerprint": "sha256:c83f3fe48f533eb3ec691cb301b962b994b7a669190fe16b401e1ad584a3ddc5",
         "path": ".engine/tools/demo_weakening_guard_narrowed_set.py"
       },
       "status": "active",
-      "summary": "Demo — the safety guard now asks for your deliberate OK only when a real safety gate changes (#250).",
+      "summary": "Demo — guard attention distinguishes disclosure from hard acknowledgement (#250).",
       "type": "tool"
     },
     {
@@ -12083,7 +12111,7 @@
     },
     {
       "entrypoint": "cli",
-      "guarded": false,
+      "guarded": true,
       "id": "tool:derived_state",
       "name": ".engine/tools/derived_state.py",
       "owner": "core",
@@ -12188,6 +12216,30 @@
       "type": "tool"
     },
     {
+      "entrypoint": "ci",
+      "guarded": true,
+      "id": "tool:enforcement_files_check",
+      "name": ".engine/tools/enforcement_files_check.py",
+      "owner": "core",
+      "predicates": {
+        "imports": [
+          "tool:validate",
+          "tool:weakening_guard"
+        ],
+        "provided_by": [
+          "module:core"
+        ]
+      },
+      "slug": "enforcement_files_check",
+      "source": {
+        "fingerprint": "sha256:9e55de8f0282e7d48a759cc304e00b5596551c5cda5b851bc6b00b756915e4b9",
+        "path": ".engine/tools/enforcement_files_check.py"
+      },
+      "status": "active",
+      "summary": "Check that hard enforcement sources still match their reviewed import topology.",
+      "type": "tool"
+    },
+    {
       "entrypoint": "library",
       "guarded": false,
       "id": "tool:engine_fixture",
@@ -12261,7 +12313,7 @@
     },
     {
       "entrypoint": "cli",
-      "guarded": false,
+      "guarded": true,
       "id": "tool:engine_todo",
       "name": ".engine/tools/engine_todo.py",
       "owner": "core",
@@ -12412,7 +12464,7 @@
     },
     {
       "entrypoint": "cli",
-      "guarded": false,
+      "guarded": true,
       "id": "tool:execution_environment",
       "name": ".engine/tools/execution_environment.py",
       "owner": "core",
@@ -13086,7 +13138,7 @@
     },
     {
       "entrypoint": "hook",
-      "guarded": false,
+      "guarded": true,
       "id": "tool:knowledge_gen",
       "name": ".engine/tools/knowledge_gen.py",
       "owner": "core",
@@ -13395,7 +13447,7 @@
     },
     {
       "entrypoint": "cli",
-      "guarded": false,
+      "guarded": true,
       "id": "tool:local_references",
       "name": ".engine/tools/local_references.py",
       "owner": "core",
@@ -13693,7 +13745,7 @@
     },
     {
       "entrypoint": "cli",
-      "guarded": false,
+      "guarded": true,
       "id": "tool:module_catalog",
       "name": ".engine/tools/module_catalog.py",
       "owner": "core",
@@ -13741,7 +13793,7 @@
     },
     {
       "entrypoint": "cli",
-      "guarded": false,
+      "guarded": true,
       "id": "tool:module_coherence",
       "name": ".engine/tools/module_coherence.py",
       "owner": "core",
@@ -13771,7 +13823,7 @@
     },
     {
       "entrypoint": "cli",
-      "guarded": false,
+      "guarded": true,
       "id": "tool:module_manager",
       "name": ".engine/tools/module_manager.py",
       "owner": "core",
@@ -13818,7 +13870,7 @@
     },
     {
       "entrypoint": "cli",
-      "guarded": false,
+      "guarded": true,
       "id": "tool:module_surfaces",
       "name": ".engine/tools/module_surfaces.py",
       "owner": "core",
@@ -13867,7 +13919,7 @@
     },
     {
       "entrypoint": "library",
-      "guarded": false,
+      "guarded": true,
       "id": "tool:moment",
       "name": ".engine/tools/moment.py",
       "owner": "core",
@@ -14051,7 +14103,7 @@
     },
     {
       "entrypoint": "cli",
-      "guarded": false,
+      "guarded": true,
       "id": "tool:operator_overrides",
       "name": ".engine/tools/operator_overrides.py",
       "owner": "core",
@@ -14353,7 +14405,7 @@
     },
     {
       "entrypoint": "library",
-      "guarded": false,
+      "guarded": true,
       "id": "tool:product_design.__init__",
       "name": ".engine/tools/product_design/__init__.py",
       "owner": "product-design",
@@ -14427,7 +14479,7 @@
     },
     {
       "entrypoint": "cli",
-      "guarded": false,
+      "guarded": true,
       "id": "tool:project_manager",
       "name": ".engine/tools/project_manager.py",
       "owner": "core",
@@ -14791,7 +14843,7 @@
     },
     {
       "entrypoint": "cli",
-      "guarded": false,
+      "guarded": true,
       "id": "tool:release_impact",
       "name": ".engine/tools/release_impact.py",
       "owner": "core",
@@ -15347,7 +15399,7 @@
     },
     {
       "entrypoint": "hook",
-      "guarded": false,
+      "guarded": true,
       "id": "tool:self_map",
       "name": ".engine/tools/self_map.py",
       "owner": "core",
@@ -15560,7 +15612,7 @@
     },
     {
       "entrypoint": "cli",
-      "guarded": false,
+      "guarded": true,
       "id": "tool:setup_route_gen",
       "name": ".engine/tools/setup_route_gen.py",
       "owner": "core",
@@ -15659,7 +15711,7 @@
     },
     {
       "entrypoint": "library",
-      "guarded": false,
+      "guarded": true,
       "id": "tool:skill_discovery",
       "name": ".engine/tools/skill_discovery.py",
       "owner": "core",
@@ -17452,6 +17504,33 @@
     {
       "entrypoint": "test",
       "guarded": false,
+      "id": "tool:test_enforcement_files_check",
+      "name": ".engine/tools/test_enforcement_files_check.py",
+      "owner": "core",
+      "predicates": {
+        "provided_by": [
+          "module:core"
+        ],
+        "tests": [
+          "tool:enforcement_files_check",
+          "tool:module_coherence",
+          "tool:module_manager",
+          "tool:validate",
+          "tool:weakening_guard"
+        ]
+      },
+      "slug": "test_enforcement_files_check",
+      "source": {
+        "fingerprint": "sha256:7572849cdb82f6de0dfd400942c2cf88ac039415cf5958ff0aa4407e36bab2e2",
+        "path": ".engine/tools/test_enforcement_files_check.py"
+      },
+      "status": "active",
+      "summary": "Import drift proofs over miniature candidate trees and real registered entry points.",
+      "type": "tool"
+    },
+    {
+      "entrypoint": "test",
+      "guarded": false,
       "id": "tool:test_engine_fixture",
       "name": ".engine/tools/test_engine_fixture.py",
       "owner": "core",
@@ -18366,7 +18445,7 @@
       },
       "slug": "test_knowledge",
       "source": {
-        "fingerprint": "sha256:e92ab1189889d0a9b1dc6e5d67465ea56428c62b67d4407956c2e57a7580a264",
+        "fingerprint": "sha256:6d0ed037ce1f532f801d057f8e08f10cdc46da20c99e0be86527e22e3a11e86c",
         "path": ".engine/tools/test_knowledge.py"
       },
       "status": "active",
@@ -18975,7 +19054,7 @@
       },
       "slug": "test_modules",
       "source": {
-        "fingerprint": "sha256:4eb9ce0962b1ab0df34dc5e601c7d842d26137d8d217fa23c150640b0e89132e",
+        "fingerprint": "sha256:ee7db739ef1ff11d2dc10a7db8f7e9baeaef2c21064e051883c70a2abf4ef400",
         "path": ".engine/tools/test_modules.py"
       },
       "status": "active",
@@ -20703,7 +20782,7 @@
       },
       "slug": "test_seed",
       "source": {
-        "fingerprint": "sha256:d9ed5740043bfecaece9900ade8cff2c6fafeef2b59e3bfc84d08843220d8745",
+        "fingerprint": "sha256:918e4edec88c1891ba9682faf6953063a738afb18435b7d2c42ff41fe9bcd329",
         "path": ".engine/tools/test_seed.py"
       },
       "status": "active",
@@ -22042,7 +22121,7 @@
       },
       "slug": "weakening_guard",
       "source": {
-        "fingerprint": "sha256:6b5b58699736a4397790c4100bb2201aa74016a2a161bee978984ebad0d76dd3",
+        "fingerprint": "sha256:78730c5808c4ad705e5f20b0b4c438c9ff822c6dca647312c38a3c15bdbd2d25",
         "path": ".engine/tools/weakening_guard.py"
       },
       "status": "active",
