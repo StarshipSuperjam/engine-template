@@ -5703,7 +5703,7 @@
       },
       "slug": "build-continuity",
       "source": {
-        "fingerprint": "sha256:2525242cf152fd74aaaffc1b6a1b2adcc4114b38d36d50ebb68d28c97fbf06d1",
+        "fingerprint": "sha256:80d46b4deb4c4a40d5f871133aa8e0f1504a03cda608b729926984dc9c2d8edf",
         "path": ".engine/operations/build-continuity.md"
       },
       "status": "active",
@@ -5763,7 +5763,7 @@
       },
       "slug": "build-kickoff",
       "source": {
-        "fingerprint": "sha256:f30f11a4428a6e83dd244b7fc2296dde627e180f89b22a52c9ea3af4dcdeee0f",
+        "fingerprint": "sha256:f1b69bbc4452e2c93e18786cd9d62dfedc22522841337d856326333be935e7ad",
         "path": ".engine/operations/build-kickoff.md"
       },
       "status": "active",
@@ -11503,7 +11503,7 @@
       },
       "slug": "demo_plan_to_ready_pr",
       "source": {
-        "fingerprint": "sha256:3dc5ae28a90345298b092265277b17c09793c6f1f75c3ab9573571d2f557a586",
+        "fingerprint": "sha256:bc002a3ade93ecc5c403fe49435eaffb39156531f42231b690020a0d8e865463",
         "path": ".engine/tools/demo_plan_to_ready_pr.py"
       },
       "status": "active",
@@ -16538,6 +16538,7 @@
           "tool:build_coordinator_github",
           "tool:build_state_store",
           "tool:demo_build_resumes_after_a_kill",
+          "tool:demo_plan_to_ready_pr",
           "tool:plan_contract",
           "tool:plan_store",
           "tool:project_manager",
@@ -16548,7 +16549,7 @@
       },
       "slug": "test_build_state_store",
       "source": {
-        "fingerprint": "sha256:f4c3a123b4d3343d7a675e632638ea9e960f91a0a4d46ac0ba264dfef67a4754",
+        "fingerprint": "sha256:ee311f0db2c03b99737b4ae4866b216559904ce3f4a5751be8743e327168ed64",
         "path": ".engine/tools/test_build_state_store.py"
       },
       "status": "active",
