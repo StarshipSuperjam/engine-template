@@ -89,7 +89,10 @@ class TestCliBoundary(unittest.TestCase):
             validate.cli_main([], usage="unused", run=lambda _argv: (_ for _ in ()).throw(RuntimeError("dispatcher failed")))
 
     def test_emit_preserves_json_protocol_and_failures(self):
-        payload = [{"severity": "soft", "message": "café", "location": {"file": "x.md", "line": 4}}]
+        payload = [
+            {"severity": "soft", "message": "café", "location": {"file": "x.md", "line": 4}},
+            {"severity": "hard", "message": "blocking finding", "location": None},
+        ]
         for findings in ([], payload):
             with self.subTest(findings=findings), contextlib.redirect_stdout(io.StringIO()) as out:
                 self.assertEqual(validate.emit(findings), 0)
