@@ -1228,8 +1228,14 @@ def cmd_state_where(args, store: "Snapshot | None") -> None:
                     'expect_revision': revision, 'snapshot': claim['snapshot'], 'archive': claim['archive']},
                     sort_keys=True))
                 continue
-            print(f"{slug}: {claim['state']} Build {claim['build_id']} generation {claim['generation']}; "
-                  "retry its recorded transaction with the same identity, revision and inputs")
+            revision = core.json_file(path).get('revision') if path.is_file() else 0
+            print(f"{slug}: interrupted binding; retry with these recorded inputs: " + json.dumps({
+                'action': 'state migrate' if claim.get('legacy_source') else 'plan bind',
+                'plan': record['plan_id'], 'repository': claim['repository'], 'pr': claim['pull_request'],
+                'locator': claim['locator'], 'source': claim.get('legacy_source'),
+                'legacy_clients_stopped': bool(claim.get('legacy_source')),
+                'snapshot': claim['snapshot'], 'expect_build_id': claim['build_id'],
+                'expect_generation': claim['generation'], 'expect_revision': revision}, sort_keys=True))
             continue
         state = core.json_file(path)
         print(f"{slug}: {path} (revision {state.get('revision')}, "
@@ -3855,7 +3861,11 @@ def cmd_handoff_export(args, store: Snapshot) -> None:
     if args.output == "-":
         print(rendered, end="")
     else:
-        core.write_private_path(Path(args.output), rendered)
+        destination = Path(args.output).resolve()
+        if (isinstance(store, build_state_store.ClaimedBuildStore)
+                and destination.is_relative_to(store.library.root.resolve())):
+            raise CoordinatorError('handoff output must be a new file outside the plan library')
+        core.write_private_path(destination, rendered, replace=False)
         print(f"wrote bounded handoff snapshot to {args.output}")
 
 

@@ -1001,6 +1001,137 @@ class TransactionalOwnership(unittest.TestCase):
         with self.assertRaises(core.CoordinatorError): restore(value)
         self.assertFalse(Path(claim['snapshot']).exists())
 
+    def test_handoff_export_refuses_managed_or_existing_destinations_without_replacement(self):
+        import build_coordinator as bc
+        locator = self.root / 'locator.json'
+        claim = self.reserve(locator=locator); self.finish(claim)
+        store = build_state_store.ClaimedBuildStore(self.lib, self.slug, SCHEMA,
+            identity=build_state_store.claim_identity(claim))
+        snapshot = Path(claim['snapshot'])
+        archive = snapshot.parent / 'retained.json'; archive.write_text('retained evidence')
+        alias = self.root / 'alias.json'; alias.symlink_to(snapshot)
+        external = self.root / 'existing.json'; external.write_text('unrelated evidence')
+        paths = [snapshot, archive, self.lib.plan_dir(self.slug) / 'record.json', locator,
+                 Path(str(snapshot) + '.lock'), build_state_store._legacy_lock(self.lib, self.slug),
+                 alias, external, snapshot.parent / 'unused.json']
+        before = {path: (path.read_bytes(), path.stat().st_ino) for path in paths if path.exists()}
+        with mock.patch.object(bc, '_sealed_plan', return_value=(self.state['plan']['plan_id'],
+                self.seal['sealed_digest'], self.lib.head(self.slug)['build_plan'])), \
+                mock.patch.object(bc, '_assert_spec_boundary'), contextlib.redirect_stdout(io.StringIO()):
+            for path in paths:
+                with self.subTest(path=path), self.assertRaisesRegex(core.CoordinatorError, 'new|exists'):
+                    bc.cmd_handoff_export(argparse.Namespace(output=str(path)), store)
+            out = self.root / 'new-export.json'
+            bc.cmd_handoff_export(argparse.Namespace(output=str(out)), store)
+        for path, evidence in before.items():
+            self.assertEqual((path.read_bytes(), path.stat().st_ino), evidence)
+        self.assertFalse((snapshot.parent / 'unused.json').exists())
+        self.assertEqual(core.json_file(out)['schema_version'], 'build-handoff.v2')
+        self.assertEqual(out.stat().st_mode & 0o777, 0o600)
+
+    def test_private_export_publication_cannot_replace_a_concurrent_creator(self):
+        output = self.root / 'raced.json'
+        actual = os.link
+        def competing_link(source, target):
+            output.write_text('other creator won')
+            return actual(source, target)
+        with mock.patch.object(os, 'link', side_effect=competing_link):
+            with self.assertRaisesRegex(core.CoordinatorError, 'already exists'):
+                core.write_private_path(output, 'export', replace=False)
+        self.assertEqual(output.read_text(), 'other creator won')
+        self.assertEqual(list(self.root.glob('raced.json.*')), [])
+
+    def test_handoff_restore_preserves_private_integration_verification(self):
+        import build_coordinator as bc
+        self.state['work'] = {'N1': {'attempt_count': 1, 'claim': None, 'latest_result': None,
+            'latest_failure': None, 'integration': {'attempt_id': '0' * 32, 'commit': 'a' * 40,
+                'focused_verification': 'private verification evidence', 'restored': False}}}
+        claim = self.reserve(); saved = self.finish(claim)
+        value = bc._handoff(saved); value['snapshot'] = claim['snapshot']
+        restored = bc._restore_base_state(value, 'build-state.v2')
+        restored['work'] = bc._restore_work(value['work'])
+        self.assertNotIn('private verification evidence', json.dumps(value))
+        updated = build_state_store.restore_handoff(self.lib, self.slug, value, restored, SCHEMA,
+            worktree=self.state['build']['worktree'], projection=bc._handoff)
+        self.assertEqual(updated['work']['N1']['integration']['focused_verification'],
+                         'private verification evidence')
+        self.assertTrue(updated['work']['N1']['integration']['restored'])
+
+    def test_adoption_recreates_missing_locator_from_verified_transfer_on_retry(self):
+        locator = self.root / 'locator.json'
+        claim = self.reserve(locator=locator); self.finish(claim)
+        before = Path(claim['snapshot']).read_bytes()
+        slug, change = self.successor()
+        actual = build_state_store._durable_json
+        def cut_locator(path, value):
+            if Path(path).resolve() == locator.resolve(): raise OSError('locator publication cut')
+            return actual(path, value)
+        with mock.patch.object(build_state_store, '_durable_json', side_effect=cut_locator):
+            with self.assertRaisesRegex(OSError, 'locator publication cut'):
+                self.adopt(claim, slug, change)
+        locator.unlink()
+        saved = self.adopt(claim, slug, change)
+        self.assertEqual(core.json_file(locator)['ownership'], saved['ownership'])
+        self.assertEqual(locator.stat().st_mode & 0o777, 0o600)
+        self.assertEqual(self.adopt(claim, slug, change), saved)
+        history = self.lib.read_record(self.slug)['build_lease']['history']
+        self.assertEqual(Path(history[-1]['archive']).read_bytes(), before)
+
+    def test_cli_migrates_recorded_operator_revision_without_replacing_historical_seal(self):
+        import build_coordinator as bc
+        source = self.root / 'legacy.json'
+        legacy = build_state_store.DurableBuildStore(source, SCHEMA)
+        legacy.create(self.state)
+        self.lib.update_record(self.slug, lambda r: r.update(build_binding={
+            'sealed_digest': self.seal['sealed_digest'], 'build_plan_digest': self.seal['build_plan_digest'],
+            'repository': 'o/r', 'pull_request': 1, 'at': self.consent['at']}))
+        plan = self.lib.head(self.slug)['build_plan']; plan['objective'] += ' with authorized correction'
+        payload = self.root / 'revised.json'; payload.write_text(json.dumps(plan))
+        with mock.patch.object(bc, '_head', return_value='e' * 40), \
+                mock.patch.object(bc, '_read_now'), contextlib.redirect_stdout(io.StringIO()):
+            bc.cmd_plan_revise(argparse.Namespace(input=str(payload), operator_change='Operator directed this revision'), legacy)
+        revised = legacy.read(); original = source.read_bytes()
+        for defect in ('missing', 'unconnected', 'empty_authority', 'flag'):
+            bad = json.loads(json.dumps(revised))
+            if defect == 'missing': bad['plan_change_escalations'] = []
+            elif defect == 'unconnected': bad['plan_change_escalations'][0]['reviewed_plan_digest'] = 'sha256:' + 'f' * 64
+            elif defect == 'empty_authority': bad['plan_change_escalations'][0]['operator_change'] = ''
+            else: bad['plan']['diverged_from_seal'] = False
+            source.write_text(json.dumps(bad))
+            with self.subTest(defect=defect), self.assertRaisesRegex(core.CoordinatorError, 'sealed plan'):
+                build_state_store.reserve_build(self.lib, self.slug, bad,
+                    legacy_source=source, legacy_clients_stopped=True)
+            self.assertIsNone(self.lib.read_record(self.slug).get('build_lease'))
+        source.write_bytes(original)
+        outputs = []
+        with mock.patch.object(bc, '_library', return_value=self.lib), \
+                mock.patch.object(bc, 'ROOT', Path(self.state['build']['worktree'])):
+            for _ in range(2):
+                out = io.StringIO()
+                with contextlib.redirect_stdout(out):
+                    self.assertEqual(bc.main(['state', 'migrate', '--legacy-clients-stopped',
+                        '--source', str(source), '--plan', self.slug]), 0)
+                outputs.append(json.loads(out.getvalue()))
+        self.assertEqual(outputs[0], outputs[1])
+        saved = core.json_file(Path(outputs[0]['migrated']))
+        self.assertEqual(saved['plan'], revised['plan'])
+        self.assertEqual(saved['plan_change_escalations'], revised['plan_change_escalations'])
+        self.assertEqual(self.lib.read_record(self.slug)['seal'], self.seal)
+        self.assertEqual(source.read_bytes(), original)
+
+    def test_preparing_discovery_prints_recorded_retry_inputs_and_revision_zero(self):
+        import build_coordinator as bc
+        locator = self.root / 'locator.json'
+        claim = self.reserve(locator=locator)
+        out = io.StringIO()
+        with mock.patch.object(bc, '_library', return_value=self.lib), \
+                mock.patch.object(bc, 'ROOT', Path(self.state['build']['worktree'])), \
+                contextlib.redirect_stdout(out):
+            bc.cmd_state_where(argparse.Namespace(), None)
+        text = out.getvalue()
+        for value in (claim['snapshot'], str(locator), '"expect_revision": 0', '"repository": "o/r"', '"pr": 1'):
+            self.assertIn(value, text)
+
     def test_single_plan_operations_take_snapshot_locks_in_the_declared_path_order(self):
         claim = self.reserve()
         actual = core.exclusive_lock

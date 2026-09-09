@@ -27,7 +27,7 @@ Bound Project Manager `abandon`/`retire` require that tuple too. `complete --com
 requires merged=true, Build ID, generation, canonical snapshot, repository, PR and seal; CLI checks GitHub.
 Matching completion is idempotent. Automatic merge reconciliation is separate.
 
-`handoff export --output <file>` redacts private notes; `handoff restore --input <file>` verifies the seal and
+`handoff export --output <new-file-outside-library>` redacts private notes; `handoff restore --input <file>` verifies the seal and
 matches the surviving canonical identity, revision and worktree, preserving its private evidence. Missing or
 retired snapshots cannot be recreated from an export: recover the original from backup. Migrate legacy first.
 Compaction re-verifies each mutation; the compact hook restores context on Claude and qualified Codex CLI hosts

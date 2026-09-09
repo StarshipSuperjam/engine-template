@@ -416,7 +416,7 @@ def write_json_artifact(prefix: str, value: Any) -> tuple[str, str]:
     return str(path), value_digest
 
 
-def write_private_path(path: Path, rendered: str) -> None:
+def write_private_path(path: Path, rendered: str, *, replace: bool = True) -> None:
     """Write a caller-selected artifact atomically and owner-read/write only."""
     path = path.resolve()
     path.parent.mkdir(parents=True, exist_ok=True)
@@ -427,7 +427,15 @@ def write_private_path(path: Path, rendered: str) -> None:
             handle.write(rendered)
             handle.flush()
             os.fsync(handle.fileno())
-        os.replace(temporary, path)
+        if replace:
+            os.replace(temporary, path)
+        else:
+            # Publish the complete artifact only if the name is still unused. A pre-check
+            # followed by replace would race another creator and could destroy its evidence.
+            try:
+                os.link(temporary, path)
+            except FileExistsError as exc:
+                raise CoordinatorError('export destination already exists; choose a new output path') from exc
     finally:
         if os.path.exists(temporary):
             os.unlink(temporary)

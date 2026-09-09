@@ -177,14 +177,22 @@ def _binding_projection(claim) -> dict:
                                        'repository', 'pull_request')}
 
 
-def _check_seal(record, state) -> None:
+def _check_seal(record, state, *, legacy_revision=False) -> None:
     seal = record.get('seal') or {}
     if record.get('closure') or not seal:
         raise BuildStateError('a closed or unsealed plan cannot reserve a Build; preserve legacy evidence '
                               'and finish it on its original Engine, or select an open sealed successor')
+    executed = seal.get('build_plan_digest')
+    if legacy_revision and state['plan'].get('diverged_from_seal'):
+        # The binding names the historical seal; only a connected chain of recorded
+        # operator revisions can account for a different executed payload. Earlier adoption
+        # entries may precede that seal, so begin at the current sealed payload.
+        for change in state.get('plan_change_escalations', []):
+            if change['reviewed_plan_digest'] == executed and change['operator_change'].strip():
+                executed = change['plan_digest']
     if (record['plan_id'] != state['plan']['plan_id'] or
             seal.get('sealed_digest') != state['plan']['sealed_digest'] or
-            seal.get('build_plan_digest') != state['plan']['digest'] or
+            executed != state['plan']['digest'] or
             record['current']['plan_digest'] != seal.get('sealed_digest')):
         raise BuildStateError('the Build does not match the current sealed plan')
 
@@ -208,7 +216,7 @@ def reserve_build(library, slug, state, *, consent=None, locator=None,
             raise BuildStateError('omit --state for canonical evidence; an external locator must be outside the library')
     with ownership_lock(library, slug, legacy_sources=(legacy_source,) if legacy_source else ()):
         record = library.read_record(slug)
-        _check_seal(record, state)
+        _check_seal(record, state, legacy_revision=bool(legacy_source))
         wanted = {'repository': state['build']['repository'], 'pull_request': state['build']['pr'],
                   'sealed_digest': state['plan']['sealed_digest'],
                   'build_plan_digest': state['plan']['digest'],
@@ -237,7 +245,8 @@ def reserve_build(library, slug, state, *, consent=None, locator=None,
                 raise BuildStateError('legacy binding or source is missing; preserve the evidence and repair ownership first')
             if old.is_file() and old.resolve() != source:
                 raise BuildStateError('both canonical and external legacy snapshots exist; reconcile ambiguous evidence first')
-            if any(legacy.get(k) != wanted[k] for k in ('repository', 'pull_request', 'sealed_digest', 'build_plan_digest')):
+            if (any(legacy.get(k) != wanted[k] for k in ('repository', 'pull_request', 'sealed_digest'))
+                    or legacy.get('build_plan_digest') != record['seal']['build_plan_digest']):
                 raise BuildStateError('legacy snapshot and plan binding disagree; repair ownership first')
             on_disk = core.json_file(source)
             if core.digest(core.forward_migrate(on_disk)) != core.digest(core.forward_migrate(state)):
@@ -300,7 +309,7 @@ def finish_binding(library, slug, identity, state, schema) -> dict:
         claim = _assert_claim(record, identity, states=('preparing', 'active'))
         if claim['state'] == 'preparing' and claim.get('transfer'):
             raise BuildStateError('this preparation belongs to successor adoption; retry the recorded adoption')
-        _check_seal(record, state)
+        _check_seal(record, state, legacy_revision=bool(claim.get('legacy_source')))
         path = _claim_path(library, slug, claim)
         if claim['state'] == 'preparing' and claim.get('legacy_source'):
             _legacy_evidence_locked(library, slug, claim)
@@ -310,7 +319,7 @@ def finish_binding(library, slug, identity, state, schema) -> dict:
             core.validate(saved, schema(saved) if callable(schema) else schema)
             if saved.get('ownership') != identity:
                 raise BuildStateError('reserved snapshot holds another Build; preserve it and repair the claim')
-            _check_seal(record, saved)
+            _check_seal(record, saved, legacy_revision=bool(claim.get('legacy_source')))
         else:
             if claim['state'] == 'active':
                 raise BuildStateError('active snapshot is missing; restore its evidence, never recreate it from bind input')
@@ -654,11 +663,11 @@ CURRENT_SCHEMA_VERSION = "build-state.v2"
 
 def migrate(source: Path | str, selector: str, schema, *,
             library: plan_store.PlanLibrary | None = None, worktree: Path | str | None = None) -> Path:
-    """Move one OS-temp snapshot into the durable library, or refuse with a remedy.
+    """Legacy fixture seam; production migration uses reserve_build and finish_binding.
 
-    PROVEN ON A COPY FIRST, and that ordering is the whole safety argument. This function is the one
-    place in the engine that can destroy live Build evidence, so nothing touches the real snapshot
-    until the migrated document has been built, validated against the schema it will be stored
+    This retains the old copy-before-publication behavior for isolated compatibility tests and
+    refuses claimed storage. Nothing touches the fixture snapshot until the migrated document
+    has been built, validated against the schema it will be stored
     under, and written to a scratch file inside the destination folder. Only then does the atomic
     replace happen, and only then is the source left behind — left, never deleted, because a
     migration that removes its own source has no way back if the operator disagrees with the result.
@@ -746,7 +755,8 @@ def restore_handoff(library, slug, value, restored, schema, *, worktree, project
             if node.get('claim'):
                 original['claim'] = dict(original['claim'], restored=node['claim'].get('restored', False))
             if node.get('integration'):
-                original['integration'] = node['integration']
+                original['integration'].update({key: node['integration'][key]
+                    for key in ('restored', 'receipt') if key in node['integration']})
         current['validation'] = restored['validation']
         current['checkout_snapshot'] = None
         return current
@@ -914,10 +924,11 @@ def adopt_build(library, predecessor_slug, successor_slug, identity, expected_re
         if new_claim['locator']:
             locator = Path(new_claim['locator'])
             with core.exclusive_lock(locator.with_name(locator.name + '.lock')):
-                current_locator = _private_locator(locator)
-                allowed = (_locator_value(old_record, old_claim), _locator_value(new_record, new_claim))
-                if current_locator not in allowed:
-                    raise BuildStateError('adoption locator was replaced by another owner; recover its registered address')
+                if locator.exists() or locator.is_symlink():
+                    current_locator = _private_locator(locator)
+                    allowed = (_locator_value(old_record, old_claim), _locator_value(new_record, new_claim))
+                    if current_locator not in allowed:
+                        raise BuildStateError('adoption locator was replaced by another owner; recover its registered address')
                 _durable_json(locator, _locator_value(new_record, new_claim))
         new_claim['state'] = 'active'
         library.write_build_record_locked(successor_slug, new_record)
