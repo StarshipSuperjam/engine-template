@@ -777,6 +777,9 @@
   ".engine/conduct/defaults.md": [
    "core"
   ],
+  ".engine/demos/scoped-native-agents.md": [
+   "core"
+  ],
   ".engine/docs/accepted-hook-qualification.md": [
    "core"
   ],
@@ -2157,6 +2160,9 @@
   ".engine/tools/review_integrity.py": [
    "core"
   ],
+  ".engine/tools/review_reader.py": [
+   "core"
+  ],
   ".engine/tools/route_budget_check.py": [
    "core"
   ],
@@ -2629,6 +2635,9 @@
    "core"
   ],
   ".engine/tools/test_review_integrity.py": [
+   "core"
+  ],
+  ".engine/tools/test_review_reader.py": [
    "core"
   ],
   ".engine/tools/test_review_recipe_equivalence.py": [
