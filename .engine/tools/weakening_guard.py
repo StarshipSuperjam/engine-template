@@ -66,6 +66,7 @@ impossible ("cannot weaken at all" needs a distinct team identity).
 Superseded by the control-plane weakening guard once that module lands.
 """
 from __future__ import annotations
+import ast
 import json
 import os
 import re
@@ -413,6 +414,7 @@ def classify(path: str, status: str, prev: str = "", instance_guards=_READ_INSTA
 # Optional rules remain in this census; only rules present in the base check
 # directory are active.
 _HARD_SCRIPT_ROOTS = {
+    "engine/check/enforcement-files": ".engine/tools/enforcement_files_check.py",
     "engine/check/agent-coherence": ".engine/tools/agent_coherence_check.py",
     "engine/check/audit-digest-fingerprint": ".engine/tools/audit_digest_fingerprint_check.py",
     "engine/check/block-coherence": ".engine/tools/block_coherence_check.py",
@@ -1360,10 +1362,332 @@ ENFORCEMENT_SOURCE_INVENTORY = {'.engine/tools/agent_bindings.py': {'dependencie
                                               '.engine/tools/telemetry.py': 'PostToolUse capture is separate '
                                                                             'from CI run_unit and finding '
                                                                             'computation.'}},
+ '.engine/tools/enforcement_files_check.py': {'dependencies': ('.engine/tools/validate.py',
+                                                                '.engine/tools/weakening_guard.py'), 'exclusions': {}},
  '.engine/tools/weakening_guard.py': {'dependencies': ('.engine/tools/github_client.py',
                                                        '.engine/tools/validate.py'),
                                       'exclusions': {}},
  '.engine/tools/wiring.py': {'dependencies': ('.engine/tools/validate.py',), 'exclusions': {}}}
+
+
+ENFORCEMENT_DYNAMIC_LOADERS = {'.engine/tools/close.py': {'calls': ("Call(func=Name(id='real_import', ctx=Load()), args=[Name(id='name', "
+                                      "ctx=Load()), Starred(value=Name(id='a', ctx=Load()), ctx=Load())], "
+                                      "keywords=[keyword(value=Name(id='k', ctx=Load()))])",),
+                            'reason': 'The embedded no-capture self-test wraps builtins.__import__ to prove '
+                                      'capture stays off; BLOCK_INVARIANT inspection does not run this test.',
+                            'source': '.engine/tools/close.py'},
+ '.engine/tools/module_manager.py': {'calls': ("Call(func=Attribute(value=Attribute(value=Name(id='importlib', "
+                                               "ctx=Load()), attr='util', ctx=Load()), "
+                                               "attr='module_from_spec', ctx=Load()), args=[Name(id='spec', "
+                                               'ctx=Load())], keywords=[])',
+                                               "Call(func=Attribute(value=Attribute(value=Name(id='importlib', "
+                                               "ctx=Load()), attr='util', ctx=Load()), "
+                                               "attr='spec_from_file_location', ctx=Load()), "
+                                               "args=[JoinedStr(values=[Constant(value='engine_migration_'), "
+                                               "FormattedValue(value=Name(id='uniq', ctx=Load()), "
+                                               "conversion=-1)]), Name(id='path', ctx=Load())], keywords=[])",
+                                               "Call(func=Attribute(value=Attribute(value=Name(id='spec', "
+                                               "ctx=Load()), attr='loader', ctx=Load()), attr='exec_module', "
+                                               "ctx=Load()), args=[Name(id='mod', ctx=Load())], keywords=[])",
+                                               "Call(func=Name(id='__import__', ctx=Load()), "
+                                               "args=[Name(id='adapter_module', ctx=Load())], keywords=[])"),
+                                     'reason': 'Migration module construction/execution and transaction '
+                                               'adapters run only on install/update paths, not '
+                                               'derive_uv_groups or overlay_replace_paths used by hard '
+                                               'checks.',
+                                     'source': '.engine/tools/module_manager.py'},
+ '.engine/tools/validate.py': {'calls': ("Call(func=Attribute(value=Attribute(value=Name(id='importlib', "
+                                         "ctx=Load()), attr='util', ctx=Load()), attr='module_from_spec', "
+                                         "ctx=Load()), args=[Name(id='spec', ctx=Load())], keywords=[])",
+                                         "Call(func=Attribute(value=Attribute(value=Name(id='importlib', "
+                                         "ctx=Load()), attr='util', ctx=Load()), "
+                                         "attr='spec_from_file_location', ctx=Load()), "
+                                         "args=[JoinedStr(values=[Constant(value='engine_kind_'), "
+                                         "FormattedValue(value=Name(id='name', ctx=Load()), "
+                                         "conversion=-1)]), Name(id='path', ctx=Load())], keywords=[])",
+                                         "Call(func=Attribute(value=Attribute(value=Name(id='spec', "
+                                         "ctx=Load()), attr='loader', ctx=Load()), attr='exec_module', "
+                                         "ctx=Load()), args=[Name(id='module', ctx=Load())], keywords=[])",
+                                         "Call(func=Attribute(value=Name(id='importlib', ctx=Load()), "
+                                         "attr='import_module', ctx=Load()), args=[Name(id='module_name', "
+                                         'ctx=Load())], keywords=[])'),
+                               'reason': 'Lazy optional external dependencies and module-kind '
+                                         'construction/execution are runtime-selected; literal paths are '
+                                         'unavailable. Module-kind files remain independently guarded by the '
+                                         'existing kind path floor.',
+                               'source': '.engine/tools/validate.py'}}
+_DRIFT_EXTERNAL_MODULES = frozenset({"yaml", "jsonschema"})
+
+
+def _tool_module_index(root: str, inventory=None) -> dict:
+    """Map importable local tool module names to declared source paths, without imports."""
+    indexed = {}
+    inventory = ENFORCEMENT_SOURCE_INVENTORY if inventory is None else inventory
+    paths = set(inventory)
+    for entry in inventory.values():
+        if isinstance(entry, dict):
+            paths.update(entry.get('dependencies', ()))
+            paths.update(entry.get('exclusions', ()))
+    tools = os.path.join(root, '.engine', 'tools')
+    for base, _dirs, files in os.walk(tools):
+        for filename in files:
+            if filename.endswith('.py'):
+                rel = os.path.relpath(os.path.join(base, filename), tools).replace(os.sep, '/')
+                paths.add('.engine/tools/' + rel)
+    for path in sorted(paths):
+        rel = path[len('.engine/tools/'):]
+        if rel.endswith('/__init__.py'):
+            name = rel[:-12].replace('/', '.')
+        else:
+            name = rel[:-3].replace('/', '.')
+        # A package initializer is Python's package target when a same-named
+        # module file also exists; select it deliberately, never by set order.
+        if name not in indexed or path.endswith('/__init__.py'):
+            indexed[name] = path
+    return indexed
+
+
+def _package_for_source(source: str) -> str:
+    return '.'.join(source[len('.engine/tools/'):].split('/')[:-1])
+
+
+def _literal_string(node):
+    return node.value if isinstance(node, ast.Constant) and isinstance(node.value, str) else None
+
+
+def _ast_import_edges(source: str, text: str, index: dict) -> tuple[set, list, list, list]:
+    """Resolve bounded Python import syntax without importing any target.
+
+    Attribute exports are not inferred. Runtime-dependent loaders are retained as
+    exact call multisets for explicit review, not treated as resolved imports.
+    """
+    tree = ast.parse(text, filename=source)
+    edges, literal, unsupported, unresolved = set(), [], [], []
+    nodes = list(ast.walk(tree))
+    aliases = {'__import__': 'builtins.__import__', 'exec': 'builtins.exec',
+               'eval': 'builtins.eval'}
+    loader_names = {'importlib.import_module', 'builtins.__import__'}
+    unsupported_names = {'spec_from_file_location', 'spec_from_loader', 'module_from_spec',
+                         'SourceFileLoader', 'SourcelessFileLoader', 'ExtensionFileLoader',
+                         'exec_module', 'load_module', 'run_module', 'run_path', 'exec', 'eval'}
+
+    def spelling(node):
+        if isinstance(node, ast.Name):
+            return aliases.get(node.id, node.id)
+        if isinstance(node, ast.Attribute):
+            base = spelling(node.value)
+            return base + '.' + node.attr if base else node.attr
+        return None
+
+    # Only transparent import/assignment aliases are followed. A bounded fixed
+    # point accounts for aliases introduced after a function definition in source.
+    for node in nodes:
+        if isinstance(node, ast.Import):
+            for item in node.names:
+                aliases[item.asname or item.name.split('.')[0]] = item.name if item.asname else item.name.split('.')[0]
+        elif isinstance(node, ast.ImportFrom) and not node.level and node.module:
+            for item in node.names:
+                if item.name != '*':
+                    aliases[item.asname or item.name] = node.module + '.' + item.name
+    for _ in range(len(nodes) + 1):
+        changed = False
+        for node in nodes:
+            if isinstance(node, (ast.Assign, ast.AnnAssign)):
+                targets = node.targets if isinstance(node, ast.Assign) else [node.target]
+                value = spelling(node.value)
+                if value and (value in loader_names or value.rsplit('.', 1)[-1] in unsupported_names):
+                    for target in targets:
+                        if isinstance(target, ast.Name) and aliases.get(target.id) != value:
+                            aliases[target.id] = value
+                            changed = True
+        if not changed:
+            break
+
+    def namespace(name):
+        return any(key.startswith(name + '.') for key in index)
+
+    def local_top(name):
+        top = name.split('.')[0]
+        return top in index or namespace(top)
+
+    def add_module(name):
+        """Return whether a module resolves; add real package initialization edges."""
+        if name in index or namespace(name):
+            parts = name.split('.')
+            for count in range(1, len(parts)):
+                parent = index.get('.'.join(parts[:count]))
+                if parent:
+                    if not parent.endswith('/__init__.py'):
+                        unresolved.append(name)
+                        return False
+                    edges.add(parent)
+            if name in index:
+                edges.add(index[name])
+            return True
+        if local_top(name) or name.split('.')[0] not in sys.stdlib_module_names | _DRIFT_EXTERNAL_MODULES:
+            unresolved.append(name)
+            return False
+        return True
+
+    def relative_name(module, level, package):
+        parts = package.split('.') if package else []
+        if level < 1 or level > len(parts):
+            return None
+        return '.'.join(parts[:len(parts) - level + 1] + ([module] if module else []))
+
+    for node in nodes:
+        if isinstance(node, ast.Import):
+            for item in node.names:
+                add_module(item.name)
+        elif isinstance(node, ast.ImportFrom):
+            name = (relative_name(node.module, node.level, _package_for_source(source))
+                    if node.level else node.module)
+            if not name:
+                unresolved.append('.' * node.level + (node.module or '') + ' (relative import outside package)')
+                continue
+            if add_module(name):
+                for item in node.names:
+                    child = name + '.' + item.name
+                    if item.name != '*' and (child in index or namespace(child)):
+                        add_module(child)
+        elif isinstance(node, ast.Call):
+            name = spelling(node.func)
+            if not name:
+                continue
+            is_loader = name in loader_names
+            if not is_loader and name.rsplit('.', 1)[-1] not in unsupported_names:
+                continue
+            dump = ast.dump(node, include_attributes=False)
+            if not is_loader:
+                unsupported.append(dump)
+                continue
+            # Unsupported signatures keep every argument in the reviewed AST.
+            args = list(node.args)
+            keywords = {k.arg: k.value for k in node.keywords}
+            if (any(isinstance(arg, ast.Starred) for arg in args) or None in keywords
+                    or len(keywords) != len(node.keywords)):
+                unsupported.append(dump)
+                continue
+            if name == 'builtins.__import__':
+                safe = len(args) == 1 and not keywords
+                target = _literal_string(args[0]) if safe else None
+                package = None
+            else:
+                safe = (len(args) <= 2 and set(keywords) <= {'name', 'package'}
+                        and not (args and 'name' in keywords)
+                        and not (len(args) == 2 and 'package' in keywords))
+                target_node = args[0] if args else keywords.get('name')
+                package_node = args[1] if len(args) == 2 else keywords.get('package')
+                target = _literal_string(target_node)
+                package = _literal_string(package_node)
+                safe = safe and (package_node is None or package is not None)
+            if not safe or target is None:
+                unsupported.append(dump)
+                continue
+            if target.startswith('.'):
+                level = len(target) - len(target.lstrip('.'))
+                target = relative_name(target[level:], level, package)
+                if not target:
+                    unsupported.append(dump)
+                    continue
+            if not target:
+                unresolved.append('(empty import name)')
+            else:
+                add_module(target)
+            literal.append(dump)
+    return edges, sorted(literal), sorted(unsupported), sorted(set(unresolved))
+
+
+def _literal_inventory_value(node):
+    """Literal-only inventory data, with duplicate dictionary keys refused."""
+    for child in ast.walk(node):
+        if isinstance(child, ast.Dict):
+            keys = [ast.literal_eval(key) for key in child.keys]
+            if len(set(keys)) != len(keys):
+                raise ValueError('duplicate key in enforcement declaration')
+    return ast.literal_eval(node)
+
+
+def _validate_loader_inventory(loaders, inventory):
+    if not isinstance(loaders, dict):
+        raise ValueError('dynamic-loader exceptions must be a mapping')
+    for source, spec in loaders.items():
+        if not _canonical_inventory_path(source) or source not in inventory:
+            raise ValueError(f'{source!r}: dynamic-loader exception names an undeclared source')
+        if (not isinstance(spec, dict) or set(spec) != {'source', 'reason', 'calls'}
+                or spec['source'] != source or not isinstance(spec['reason'], str)
+                or not spec['reason'].strip() or not isinstance(spec['calls'], (tuple, list))
+                or not spec['calls'] or any(not isinstance(call, str) or not call.startswith('Call(')
+                                           for call in spec['calls'])
+                or list(spec['calls']) != sorted(spec['calls'])):
+            raise ValueError(f'{source}: malformed dynamic-loader exception; source, nonempty reason, '
+                             'sorted nonempty AST call multiset required')
+
+
+def enforcement_drift_findings(root: str) -> list[str]:
+    """Compare candidate imports to its protected literal inventory, without execution."""
+    root = os.path.realpath(root)
+    try:
+        guard_path = os.path.join(root, '.engine/tools/weakening_guard.py')
+        if os.path.commonpath((root, os.path.realpath(guard_path))) != root:
+            raise ValueError('candidate guard escapes the candidate root')
+        with open(guard_path, encoding='utf-8') as fh:
+            tree = ast.parse(fh.read(), filename=guard_path)
+        names = {'_HARD_SCRIPT_ROOTS', 'ENFORCEMENT_SOURCE_INVENTORY', 'ENFORCEMENT_DYNAMIC_LOADERS'}
+        values = {}
+        for node in tree.body:
+            if isinstance(node, (ast.Assign, ast.AnnAssign, ast.AugAssign)):
+                targets = node.targets if isinstance(node, ast.Assign) else [node.target]
+                for target in targets:
+                    if isinstance(target, ast.Name) and target.id in names:
+                        if target.id in values:
+                            raise ValueError(f'{target.id}: declaration assigned more than once')
+                        if not isinstance(node, ast.Assign) or len(targets) != 1:
+                            raise ValueError(f'{target.id}: expected one literal assignment')
+                        values[target.id] = _literal_inventory_value(node.value)
+        roots, inventory, loaders = (values['_HARD_SCRIPT_ROOTS'], values['ENFORCEMENT_SOURCE_INVENTORY'],
+                                     values['ENFORCEMENT_DYNAMIC_LOADERS'])
+        active = {}
+        check_dir = os.path.join(root, '.engine/check')
+        for name in sorted(os.listdir(check_dir)):
+            if not name.endswith('.json'):
+                continue
+            with open(os.path.join(check_dir, name), encoding='utf-8') as fh:
+                rule = json.load(fh)
+            if not isinstance(rule, dict):
+                raise ValueError(f'{name}: check rule must be an object')
+            if rule.get('kind') == 'custom/script' and rule.get('tier') == 'hard':
+                rule_id = rule.get('id')
+                script = (rule.get('params') or {}).get('script')
+                if not isinstance(rule_id, str) or not rule_id or rule_id in active:
+                    raise ValueError(f'{name}: missing or duplicate active hard rule ID')
+                active[rule_id] = script
+        coverage = _validate_enforcement_inventory(active, os.path.join(root, '.engine/tools'), inventory, roots)
+        _validate_loader_inventory(loaders, inventory)
+        index = _tool_module_index(root, inventory)
+    except Exception as exc:  # reject invalid declarations before computing any partial topology
+        return [f'Enforcement inventory is invalid: {exc}']
+    errors = []
+    for source in sorted(coverage):
+        entry = inventory[source]
+        try:
+            with open(os.path.join(root, source), encoding='utf-8') as fh:
+                edges, _literal, unsupported, unresolved = _ast_import_edges(source, fh.read(), index)
+        except (OSError, UnicodeError, SyntaxError, ValueError, RecursionError) as exc:
+            errors.append(f'{source}: cannot read or parse AST ({exc})')
+            continue
+        dispositions = set(entry['dependencies']) | set(entry['exclusions'])
+        for edge in sorted(edges - dispositions):
+            errors.append(f'{source}: local import edge {edge} is unclassified; declare a dependency or reasoned exclusion')
+        for edge in sorted(dispositions - edges):
+            errors.append(f'{source}: declared disposition for {edge} is stale; remove it or restore the import')
+        for name in unresolved:
+            errors.append(f'{source}: import {name} cannot be resolved as local, standard-library, or reviewed external')
+        expected = list(loaders[source]['calls']) if source in loaders else []
+        if unsupported != expected:
+            errors.append(f'{source}: dynamic-loader call multiset differs from its reviewed exception; '
+                          'declare new/changed unsupported calls or remove stale expectations')
+    return errors
 
 
 def _canonical_inventory_path(path: object) -> bool:
@@ -1435,6 +1759,8 @@ def _derive_enforcement_coverage(active_roots: dict, tools_dir: str,
                                  inventory=None, expected_roots=None) -> set | None:
     """Fail-safe adapter: any invalid/unreadable inventory selects blanket coverage."""
     try:
+        if inventory is None:
+            _validate_loader_inventory(ENFORCEMENT_DYNAMIC_LOADERS, ENFORCEMENT_SOURCE_INVENTORY)
         return _validate_enforcement_inventory(active_roots, tools_dir, inventory, expected_roots)
     except Exception:  # noqa: BLE001 — the guard never accepts a partial derivation
         return None
