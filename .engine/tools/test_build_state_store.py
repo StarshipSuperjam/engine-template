@@ -485,28 +485,75 @@ class TheKillAndResumeDemo(unittest.TestCase):
 
     def test_every_selectable_interruption_recovers(self):
         import demo_build_resumes_after_a_kill as demo
+        import quiet_call
         for point in ('none', 'reservation', 'activation', 'retire-archive', 'retire-rename', 'release'):
             with self.subTest(point=point), contextlib.redirect_stdout(io.StringIO()):
-                self.assertEqual(demo.main(['--interrupt', point, '--contenders', '3']), 0)
+                self.assertEqual(quiet_call.run(demo.main, ['--interrupt', point, '--contenders', '3']), 0)
 
     def test_demo_fails_when_old_writer_fencing_is_broken(self):
         import demo_build_resumes_after_a_kill as demo
+        import quiet_call
         with mock.patch.object(build_state_store.ClaimedBuildStore, '_check_write', return_value=None), \
-                contextlib.redirect_stdout(io.StringIO()) as out:
-            self.assertEqual(demo.main(['--interrupt', 'none']), 1)
-        self.assertIn('FAIL: old caller refuses', out.getvalue())
+                mock.patch('builtins.print') as printed:
+            self.assertEqual(quiet_call.run(demo.main, ['--interrupt', 'none']), 1)
+        self.assertTrue(any('FAIL: old caller refuses' in str(c) for c in printed.call_args_list))
 
     def test_demo_fails_when_competing_attempts_are_reported_as_winners(self):
         import demo_build_resumes_after_a_kill as demo
+        import quiet_call
         actual = demo._contend
         def corrupt(*args):
             results = actual(*args)
             winner = next(r for r in results if r[0] == 'reserved')
             return [winner, winner]
         with mock.patch.object(demo, '_contend', side_effect=corrupt), \
-                contextlib.redirect_stdout(io.StringIO()) as out:
-            self.assertEqual(demo.main([]), 1)
-        self.assertIn('FAIL: exactly one reservation', out.getvalue())
+                mock.patch('builtins.print') as printed:
+            self.assertEqual(quiet_call.run(demo.main, []), 1)
+        self.assertTrue(any('FAIL: exactly one reservation' in str(c) for c in printed.call_args_list))
+
+
+
+
+class FrontDoorDemoIsolation(unittest.TestCase):
+    def test_inherited_git_selectors_cannot_redirect_the_disposable_repository(self):
+        import demo_plan_to_ready_pr as demo
+        import quiet_call
+        with tempfile.TemporaryDirectory() as d:
+            outside = Path(d) / 'outside'; outside.mkdir()
+            target = Path(d) / 'target'; target.mkdir()
+            clean = {k: v for k, v in os.environ.items() if not k.startswith('GIT_')}
+            clean.update(GIT_CONFIG_NOSYSTEM='1', GIT_CONFIG_GLOBAL=os.devnull)
+            subprocess.run(['git', 'init', '-q', str(outside)], env=clean, check=True)
+            sentinel = outside / 'keep.txt'; sentinel.write_text('unchanged')
+            before = (outside / '.git' / 'HEAD').read_bytes()
+            with mock.patch.dict(os.environ, {'GIT_DIR': str(outside / '.git'),
+                    'GIT_WORK_TREE': str(outside), 'GIT_INDEX_FILE': str(outside / 'wrong-index'),
+                    'GIT_CONFIG_COUNT': '1', 'GIT_CONFIG_KEY_0': 'core.worktree',
+                    'GIT_CONFIG_VALUE_0': str(outside)}):
+                result = quiet_call.run(demo._git, str(target), 'init', '-q')
+                self.assertEqual(result.returncode, 0, result.stderr)
+                env = quiet_call.run(demo._demo_env)
+                self.assertNotIn('GIT_DIR', env)
+                self.assertNotIn('GIT_CONFIG_COUNT', env)
+            self.assertTrue((target / '.git' / 'HEAD').is_file())
+            self.assertEqual((outside / '.git' / 'HEAD').read_bytes(), before)
+            self.assertEqual(sentinel.read_text(), 'unchanged')
+            self.assertFalse((outside / 'wrong-index').exists())
+
+    def test_source_symlink_refuses_before_any_git_or_fixture_write(self):
+        import demo_plan_to_ready_pr as demo
+        import quiet_call
+        with tempfile.TemporaryDirectory() as d:
+            source = Path(d) / 'source'; source.mkdir()
+            holder = Path(d) / 'holder'; holder.mkdir()
+            outside = Path(d) / 'keep.txt'; outside.write_text('unchanged')
+            (source / 'widget_cache.py').symlink_to(outside)
+            with mock.patch.object(demo.validate, 'ROOT', str(source)), \
+                    mock.patch.object(demo, '_git') as git:
+                with self.assertRaisesRegex(ValueError, 'source symlink'):
+                    quiet_call.run(demo._throwaway, str(holder))
+                git.assert_not_called()
+            self.assertEqual(outside.read_text(), 'unchanged')
 
 
 # Actual supersede from a54c8119, frozen to challenge the compatibility boundary.

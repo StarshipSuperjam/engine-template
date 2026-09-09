@@ -3,9 +3,8 @@ title: Build kickoff — claim the Build and bind the sealed plan
 ---
 ## Purpose
 
-The first phase of a Build, read when the coordinator reports `planning`: open the draft pull request that is
-the Build's claim, bind the sealed plan with the operator's recorded decision, and record the approved depth
-against the bound payload. It ends with a bound, approved Build and nothing yet changed in the tree.
+Read in `planning`: open the draft PR, bind the sealed plan with the operator's recorded decision,
+and record its approved depth. This phase ends before implementation changes the tree.
 The surrounding flow is [Build orchestration](build-orchestration.md).
 
 ## Steps
@@ -43,30 +42,21 @@ refused at the door with its remaining lifecycle steps named, as is one whose co
 Add `--operator-decided` only after the operator's go; the bind refuses without it and records gate and moment,
 never words. For unattended work add `--issue <number>` — that Issue AUTHORIZES the work; it is never its plan.
 
-Keep the `ownership.build_id` and `ownership.generation` returned by bind. Every later mutation supplies
-those caller-held values as `--expect-build-id` and `--expect-generation`, together with the snapshot's
-current `--expect-revision`, before the verb. Status can refresh the revision; it never silently opts a
-caller into another Build's identity. An intentional cold continuation uses `state continue` as described
-in [Build continuity](build-continuity.md).
+Keep bind's `ownership.build_id` and `ownership.generation`; every mutation supplies them as
+`--expect-build-id` and `--expect-generation`, plus current `--expect-revision`, before the verb.
+Binding reserves ownership before evidence; matching retries preserve identity and consent. Full snapshots
+live at `builds/<build-id>/snapshot.json`; external `--state` files are private locators. For interrupted
+preparations, verified continuation or explicit legacy migration, follow [Build continuity](build-continuity.md).
 
-Binding reserves one claim before writing evidence. A matching retry converges on the same identity and
-consent event; a different request refuses. `state where` exposes an interrupted preparation and its recovery
-route. Full evidence lives under the plan's `builds/<build-id>/snapshot.json`. An external `--state` path is
-an owner-only locator to that canonical file, never another full snapshot. Existing external full snapshots
-require explicit `state migrate`; they are preserved and any retained external evidence is reported.
-
-**The seal hands back before the Build starts**, and [Plan orchestration](plan-orchestration.md) carries what
-that pause asks for. It is an offer, not a gate: the bind's `--operator-decided` consent is the operator's
-agreement to begin; nothing mechanical checks the hand-back's steps, and the engine neither reads nor records
-what the session runs on.
+**The seal hands back before Build**, as [Plan orchestration](plan-orchestration.md) describes.
+Binding records the operator's agreement to begin; it does not mechanically verify that hand-back or
+record what the session runs on.
 
 ### Where the plan lives
 
-In the local plan library, on this workstation, and never on GitHub — see
-[Plan orchestration](plan-orchestration.md). Never reconstruct an approved plan from a summary, transcript
-fragments, or implementation. An Issue may AUTHORIZE a Build, which is what `--issue` records, but
-authorization and plan authority are two artifacts and neither stands in for the other; no lifecycle event is
-a GitHub comment, and GitHub or network loss does not stop same-session local work.
+The plan lives in the local library, never GitHub; see [Plan orchestration](plan-orchestration.md).
+Never reconstruct approval from summaries, transcript fragments or implementation. An Issue authorizes
+work, not plan authority. Lifecycle events stay local; network loss does not stop same-session work.
 
 ### 2. Assess risk and approve the Build gate
 
@@ -86,11 +76,9 @@ The `trivial` profile is the one-entry fast path: its reduced plan needs raw int
 
 ### 3. The plan review already happened
 
-There is no plan review on this side: exactly one cold plan review runs per plan, on the plan side against the
-approved revision before the seal, and the seal refuses while the recorded lenses do not cover the approved
-depth's roster. A bound plan is a reviewed plan by construction, so this side has no plan-review gate and no
-waiver for one. Approve, seal and bind each refuse without a recorded operator decision at that gate, and each
-checks that the gate before it left its record — a record that the operator was asked, not proof.
+The plan-side seal requires every lens for the approved depth; Build has no separate plan-review gate
+or waiver. Approve, seal and bind each require a recorded operator decision and verify the previous gate's
+record. Those records attest that the operator was asked; they do not prove the decision was sound.
 
 ## Done when
 
