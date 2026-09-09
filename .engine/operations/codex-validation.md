@@ -114,3 +114,6 @@ and `H1_DEMO` during actual compaction; the next response repeated both. An abse
 The record retains commands, fixture sources and bounded observations. Invocation-scoped fixture trust
 was used only after an exact inventory check; saved trust was unchanged. Desktop and Windows remain
 unverified. The operator's protected-branch merge remains the wall; hooks are fallible guardrails.
+
+Final candidate probes renewed cheap/strong explorer and compact witnesses after the gate repair.
+Five documented owner replays passed, including the real bound Build pointer and mismatched-worktree case.

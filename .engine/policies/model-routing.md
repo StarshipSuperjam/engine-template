@@ -66,7 +66,7 @@ consent, in the same register as the review-depth choice below, and never which 
 operator's Quick/Standard/Thorough choice names the reviewer roster on each side of the seal, and each lens
 keeps the per-lens model its tier or override binds at every depth. On Claude a reviewer persona carries a
 model pin and no effort line; on Codex the reviewer twin carries the model resolved from the central
-provider bindings and no effort line. Depth never changes that model or supplies reviewer effort. This is the operator's explicit,
+provider bindings and no effort line. Depth never changes that model or stamps effort into reviewer renders. This is the operator's explicit,
 per-change consent, not the engine silently taking an environment shortcut, so it applies in **every**
 posture, including the conservative default: the "make no model-dependent shortcuts" instruction there is
 about the engine choosing a *model* on its own, which review depth never does. Depth thus modulates review
