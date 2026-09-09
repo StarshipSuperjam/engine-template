@@ -225,6 +225,13 @@ A further permanent planning crash regression passed with its four related tests
 the test's expectation that filesystem interruption propagates. Receipt publication was interrupted,
 legacy history remained unchanged, and retry accepted the original evidence once.
 
+The active clarification case also passed on child `01a087eb-f722-7441-874b-6858e4da6271`.
+The candidate denied one queue-only call during its native 45-second shell wait. One necessary
+followup was dispatched during that wait, delivered when the tool completed, and read before the
+same child's final result of 89 with its original witness. Verification passed with no evidence
+faults. Delivery occurred at the tool boundary, not during the sleeping shell command. The denied
+message was absent from the child mailbox; no queued fixture traffic needed cleanup.
+
 Native reviewer-gate qualification, candidate/CI validation and the independent deliverable review
 remain separate obligations until their results are recorded. The
 operator and assisting session own the agreed live Claude follow-up on September 12 afternoon:
@@ -232,3 +239,47 @@ fresh and concurrent reviews, same-assignment clarification, cross-assignment re
 worker continuation and correct completion attribution on the merged candidate. Record the actual
 version and results; address any incompatibility in a focused follow-up PR. This deferral is approved
 and is not a merge prerequisite. No local probe establishes adversarial isolation or exactly-once delivery.
+
+
+The first actual planning-review probe did not pass. Fresh architecture child
+`01a087ee-a882-7912-a181-95b448dbb32d` could not read its frozen packet: the generated Codex
+role prohibited shell commands, and that task exposed no other local-file reader. It returned
+`needs_clarification` without reading the packet. The real Project Manager gate refused credit and
+left the plan record and companion unchanged. This is an adapter usability gap; a blocked response
+is not an independent review. The Build-review fixture can be tested separately with its existing
+shell-capable QA role.
+
+A proposed Codex-only planning-role fallback would permit simple cat/rg file reads when no native
+local-file reader exists, while retaining the read-only sandbox request and prohibiting execution
+of project code, scripts, tests, shell substitutions, pipelines, redirection and writes. Claude's
+actual Bash denylist and other roles would stay as they are. Automatic approval review rejected
+applying this proposal as a persistent weakening of the planning roles' shell prohibition without
+explicit operator authorization. No generator or generated-role change was made. That decision
+is outstanding; do not claim the planning-review candidate case passed or work around the refusal.
+
+
+The unaffected Build gate passed with fresh QA child `01a087f6-ad64-76a1-b0f8-7e3dfab03793`,
+which read the full immutable fixture packet and returned its actual findings array. The real Build
+record callback and fixture transaction accepted it. A subsequent attempted reuse of that accepted
+child for the planning packet was denied before delivery; repeating planning acceptance still
+refused without changing the plan record. This proves the fixture transaction, not a production
+Build or CI result. All eight verified worker assignments were finished through the real CLI;
+failed historical evidence was preserved and no accepted queue traffic remained pending.
+
+A separate offline access-recovery check exposed another defect: a failed packet read permanently
+faulted the assignment, even after a later good read. The repair retains failed-read attempts in an
+optional `read_failures` field, separate from fatal identity or immutable-digest faults. An exact
+observed child identity can receive access clarification before a successful read, including a
+Codex blocked stop whose native metadata matches the registered root, task name and role. This is
+identity evidence only: acceptance still requires the full successful original packet read and
+complete continuation evidence. No prior fault or missing observation is backfilled. Fifty focused
+scoped/plan/Build acceptance tests passed; the expanded 37-test scoped suite then passed, including
+a failed Claude Read, clarification, successful original read and final through the real hook runner.
+The native access-recovery witness passed on fresh worker `01a08800-f047-7e92-9fc5-da643a30e473`,
+assignment `sa_5dc80f1a63974c2ea5652ae6a2f98cdf`. Its controlled `cat` followed by exit 7
+printed the full packet but earned no read credit. One necessary supplement and same-child followup
+produced successful supplement and original-packet reads, followed by result 126 with the original
+witness. Verification passed with the failed attempt retained; the real finish command completed
+the assignment. Prior assignments and reports stayed unchanged and no pending traffic remained.
+This repair does not grant shell permission to the blocked planning role, whose proposed exception
+still needs operator authorization.

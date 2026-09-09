@@ -102,6 +102,59 @@ class ScopedAssignments(unittest.TestCase):
         self.stop()
         self.assertEqual(self.verified()["child"], "child-a")
 
+    def test_failed_packet_read_can_be_clarified_then_completed_without_erasing_failure(self):
+        self.launch()
+        self.observe("SubagentStart", child="child-a")
+        facts = {"child": "child-a", "root": "root-id", "name": "/root/" + self.a["id"]}
+        with mock.patch.object(providers, "scoped_transcript", return_value=facts):
+            self.observe("PostToolUse", "Bash", {"command": "cat " + self.a["packet_path"]},
+                         child="child-a", response={"exit_code": 1, "stdout": ""}, tool_use_id="failed-read")
+        self.stop('{"status":"needs_clarification"}')
+        failed = self.store.read()["assignments"][self.a["id"]]
+        self.assertIsNone(failed["read"])
+        self.assertEqual(len(failed["read_failures"]), 1)
+        with self.assertRaises(scoped.EvidenceError):
+            self.verified()
+        supplement = self.store.clarify(self.a["id"], "root-id", "Read access to the original packet is repaired.")
+        args = {"target": "child-a", "message": supplement["path"]}
+        self.assertEqual(self.observe("PreToolUse", "followup_task", args, tool_use_id="repair")["action"], "proceed")
+        self.observe("PostToolUse", "followup_task", args, tool_use_id="repair", response={"ok": True})
+        self.observe("PostToolUse", "Bash", {"command": "cat " + supplement["path"]}, child="child-a",
+                     response={"exit_code": 0, "stdout": Path(supplement["path"]).read_text()})
+        self.stop()
+        with self.assertRaises(scoped.EvidenceError):
+            self.verified()  # a delivered supplement and valid final do not replace the packet read
+        self.child_read()
+        self.stop()
+        repaired = self.verified()
+        self.assertEqual(repaired["child"], "child-a")
+        self.assertEqual(repaired["read_failures"], failed["read_failures"])
+        self.assertEqual(repaired["faults"], [])
+
+    def test_exact_blocked_child_metadata_permits_clarification_but_not_review_credit(self):
+        self.launch()
+        self.observe("SubagentStart", child="child-a")
+        facts = {"child": "child-a", "root": "root-id", "name": "/root/" + self.a["id"],
+                 "final": '{"status":"needs_clarification"}'}
+        with mock.patch.object(providers, "scoped_transcript", return_value=facts):
+            self.observe("SubagentStop", child="child-a")
+        self.assertEqual(self.store.read()["assignments"][self.a["id"]]["child"], "child-a")
+        self.store.clarify(self.a["id"], "root-id", "Use the unchanged original packet path.")
+        with self.assertRaises(scoped.EvidenceError):
+            self.verified()
+
+    def test_wrong_blocked_child_metadata_cannot_enable_access_clarification(self):
+        self.launch()
+        self.observe("SubagentStart", child="child-a")
+        facts = {"child": "child-a", "root": "other-root", "name": "/root/" + self.a["id"],
+                 "final": '{"status":"needs_clarification"}'}
+        with mock.patch.object(providers, "scoped_transcript", return_value=facts):
+            self.observe("SubagentStop", child="child-a")
+        with self.assertRaises(scoped.EvidenceError):
+            self.store.clarify(self.a["id"], "root-id", "Do not bind another root's child.")
+        with self.assertRaises(scoped.EvidenceError):
+            self.verified()
+
     def test_queue_is_denied_while_active_and_after_turn_end(self):
         self.launch()
         self.child_read()
@@ -210,13 +263,19 @@ class ScopedAssignments(unittest.TestCase):
             self.verified()
 
     def test_claude_packet_and_clarification_reads_with_actual_returned_child(self):
+        self.claude_clarification()
+
+    def test_claude_failed_read_then_access_clarification_preserves_failed_attempt(self):
+        self.claude_clarification(failed_read=True)
+
+    def claude_clarification(self, failed_read=False):
         # Documented Agent/Read/SubagentStop shapes; no fabricated Claude transcript envelope.
         with mock.patch.dict(os.environ, {providers.PROVIDER_ENV: "claude"}):
             args = {"subagent_type": self.a["role"], "prompt": "Read " + self.a["packet_path"]}
             self.assertEqual(self.observe("PreToolUse", "Agent", args)["action"], "proceed")
             self.observe("SubagentStart", child="child-a")
             self.observe("PostToolUse", "Read", {"file_path": self.a["packet_path"]}, child="child-a",
-                         response={"file": {"content": self.packet.read_text()}})
+                         response={"isError": True} if failed_read else {"file": {"content": self.packet.read_text()}})
             self.observe("SubagentStop", child="child-a", last_assistant_message='{"status":"needs_clarification"}')
             self.observe("PostToolUse", "Agent", args, response={"agentId": "child-a", "status": "completed"})
             supplement = self.store.clarify(self.a["id"], "root-id", "The unchanged term means X.")
@@ -229,6 +288,13 @@ class ScopedAssignments(unittest.TestCase):
             self.observe("PostToolUse", "Read", {"file_path": supplement["path"]}, child="child-a",
                          response={"file": {"content": "The unchanged term means X."}})
             self.observe("SubagentStop", child="child-a", last_assistant_message="[]")
+            if failed_read:
+                with self.assertRaises(scoped.EvidenceError):
+                    self.verified()  # even a read supplement cannot replace the original packet
+                self.observe("PostToolUse", "Read", {"file_path": self.a["packet_path"]}, child="child-a",
+                             response={"file": {"content": self.packet.read_text()}})
+                self.observe("SubagentStop", child="child-a", last_assistant_message="[]")
+                self.assertEqual(len(self.verified()["read_failures"]), 1)
             self.assertEqual(self.verified()["child"], "child-a")
 
     def test_duplicate_launch_observation_is_idempotent_but_new_launch_is_not(self):
@@ -384,6 +450,9 @@ class ScopedAgentHookRunner(unittest.TestCase):
 
     def test_claude_partial_then_same_child_clarification(self):
         self.fixture.test_claude_packet_and_clarification_reads_with_actual_returned_child()
+
+    def test_claude_failed_read_can_recover_through_the_real_hook_runner(self):
+        self.fixture.test_claude_failed_read_then_access_clarification_preserves_failed_attempt()
 
     def test_claude_fork_and_resume_cannot_start_a_fresh_assignment(self):
         f = self.fixture

@@ -160,6 +160,22 @@ class TestWorkerFloorScoping(unittest.TestCase):
 
 
 class TestRenderTransforms(_FixtureTree):
+    def test_reader_is_local_to_plan_review_roles(self):
+        source = os.path.join(self.root, ".claude", "agents", "qa-review-widget.md")
+        original = AGENT_SRC
+        for role in ("plan-review", "pre-submission-review", "audit"):
+            _write(source, original.replace("role: pre-submission-review", "role: " + role))
+            rendered = tomllib.loads(codex_gen.render_agent(source, self.root))
+            self.assertIn("Do not run shell commands", rendered["developer_instructions"])
+            self.assertEqual(rendered["sandbox_mode"], "read-only")
+            if role == "plan-review":
+                reader = rendered["mcp_servers"]["engine-review-reader"]
+                self.assertEqual(reader["enabled_tools"], ["read_file"])
+                self.assertTrue(reader["required"])
+                self.assertEqual(reader["args"][-1], "tools/review_reader.py")
+            else:
+                self.assertNotIn("mcp_servers", rendered)
+
     def test_reviewer_render_uses_provider_model_and_leaves_effort_unpinned(self):
         codex_gen.generate(self.root)
         path = os.path.join(self.root, ".codex", "agents", "qa-review-widget.toml")

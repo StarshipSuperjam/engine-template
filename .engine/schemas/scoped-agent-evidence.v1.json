@@ -285,6 +285,33 @@
         },
         "accepted": {
           "type": "boolean"
+        },
+        "read_failures": {
+          "description": "Failed or incomplete packet-read attempts; retained without granting read credit. Older absent fields mean no recorded attempts, not success.",
+          "type": "array",
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "call_id",
+              "child",
+              "response_digest"
+            ],
+            "properties": {
+              "call_id": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "child": {
+                "type": "string"
+              },
+              "response_digest": {
+                "type": "string"
+              }
+            }
+          }
         }
       }
     }

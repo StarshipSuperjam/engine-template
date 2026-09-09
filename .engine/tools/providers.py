@@ -59,6 +59,8 @@ CODEX_SPAWN_MATCHER = "^(Agent|spawn_agent|collaborationspawn_agent)$"
 CODEX_QUEUE_TOOLS = frozenset({"send_message", "collaborationsend_message"})
 CODEX_CONTINUE_TOOLS = frozenset({"followup_task", "collaborationfollowup_task"})
 CODEX_CONTROL_TOOLS = CODEX_QUEUE_TOOLS | CODEX_CONTINUE_TOOLS
+REVIEW_READ_TOOLS = frozenset({"mcp__engine-review-reader__read_file",
+                              "mcp__engine_review_reader__read_file"})
 
 # The apply_patch envelope: one call may create/edit/delete MANY files, each named on a marker line.
 _PATCH_FILE_RE = re.compile(r"^\*\*\* (?:Update|Add|Delete) File:\s*(.+?)\s*$", re.MULTILINE)
@@ -344,6 +346,8 @@ def scoped_reads_path(payload: dict, path: str) -> bool:
     from pathlib import Path
     from urllib.parse import urlparse, unquote
     inp = payload.get("tool_input") or {}
+    if payload.get("tool_name") in REVIEW_READ_TOOLS:
+        return isinstance(inp, dict) and inp.get("path") == path
     if path in json.dumps(inp):
         return True
     if not isinstance(inp, dict):
@@ -388,6 +392,8 @@ def scoped_reads_path(payload: dict, path: str) -> bool:
 
 def scoped_read_succeeded(payload: dict, content: str) -> bool:
     """Successful Read/Bash response containing the whole immutable packet, never just its name."""
+    if payload.get("tool_name") in REVIEW_READ_TOOLS:
+        return _review_reader_succeeded(payload, content)
     if payload.get("is_error") or payload.get("tool_name") not in ("Read", "Bash"):
         return False
     response = payload.get("tool_response")
@@ -412,6 +418,35 @@ def scoped_read_succeeded(payload: dict, content: str) -> bool:
     if isinstance(file, dict):
         values.append(file.get("content"))
     return any(isinstance(value, str) and content in value for value in values)
+
+
+def _review_reader_succeeded(payload: dict, content: str) -> bool:
+    """Only a complete successful result from the named reader earns packet-read evidence."""
+    response = payload.get("tool_response")
+    if isinstance(response, str):
+        try:
+            response = json.loads(response)
+        except ValueError:
+            return False
+    if payload.get("is_error") or not isinstance(response, dict):
+        return False
+    if response.get("isError") or response.get("is_error"):
+        return False
+    blocks = response.get("content")
+    if not isinstance(blocks, list) or len(blocks) != 1:
+        return False
+    block = blocks[0]
+    if not isinstance(block, dict) or block.get("type") != "text":
+        return False
+    try:
+        result = json.loads(block["text"])
+    except (KeyError, TypeError, ValueError):
+        return False
+    return (isinstance(result, dict) and result.get("complete") is True
+            and type(result.get("offset")) is int and result["offset"] == 0
+            and result.get("file_path") == (payload.get("tool_input") or {}).get("path")
+            and result.get("content") == content
+            and result.get("sha256") == "sha256:" + hashlib.sha256(content.encode("utf-8")).hexdigest())
 
 
 def scoped_deliveries(transcript: dict, content: str, name: str) -> int:

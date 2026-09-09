@@ -223,6 +223,17 @@ class Store:
             packet_read = event == "PostToolUse" and any(providers.scoped_reads_path(payload, a["packet_path"]) for a in owned)
             transcript = providers.scoped_transcript(payload, call["provider"]) if packet_read or event == "SubagentStop" else {}
             for a in owned:
+                # A blocked Codex child can identify its assignment before it can read. This
+                # permits access clarification only; verification still requires the full read.
+                if (event == "SubagentStop" and a["child"] is None and a["launch"]
+                        and a["launch"].get("fresh") and a["launch"].get("successful")
+                        and a["launch"].get("provider") == providers.CODEX
+                        and call["provider"] == providers.CODEX and call.get("role") == a["role"]
+                        and (transcript.get("child"), transcript.get("root"), transcript.get("name"))
+                        == (actor, root, "/root/" + a["id"])
+                        and not any(b["child"] == actor and b["id"] != a["id"] for b in owned)):
+                    a["child"] = actor
+                    a["start"] = data["starts"].get(actor)
                 if event == "PostToolUse" and providers.scoped_reads_path(payload, a["packet_path"]):
                     if not a["launch"] or not a["launch"]["fresh"]:
                         a["faults"].append("packet read without observed fresh dispatch")
@@ -240,11 +251,18 @@ class Store:
                         continue
                     content = Path(a["packet_path"]).read_text(encoding="utf-8")
                     response = payload.get("tool_response")
-                    if core.digest(content.encode()) != a["file_digest"] or not providers.scoped_read_succeeded(payload, content):
-                        a["faults"].append("packet digest or successful read response is missing")
+                    if core.digest(content.encode()) != a["file_digest"]:
+                        a["faults"].append("immutable packet digest changed")
                         continue
                     a["child"] = actor
                     a["start"] = data["starts"].get(actor)
+                    if not providers.scoped_read_succeeded(payload, content):
+                        failure = {"call_id": call.get("call_id"), "child": actor,
+                                   "response_digest": core.digest(response)}
+                        failures = a.setdefault("read_failures", [])
+                        if failure not in failures:
+                            failures.append(failure)
+                        continue  # no read credit; a later exact successful read may repair access
                     a["read"] = {"call_id": call.get("call_id"), "child": actor,
                                  "file_digest": a["file_digest"], "response_digest": core.digest(response)}
                 if a["child"] != actor:

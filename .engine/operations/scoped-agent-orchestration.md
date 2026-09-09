@@ -23,6 +23,14 @@ or fork, and include its unique immutable packet path in the prompt. Ask the chi
 through a successful native read tool before working. A digest repeated in prose, a start event, or a caller's
 provider label cannot establish that read. Do not pass sibling findings or the controller's verdict.
 
+Codex planning reviewers receive `engine-review-reader` only through their own role configuration;
+ordinary sessions and unrelated roles do not register it. Its single `read_file` tool reads complete
+UTF-8 files up to 1 MiB from the checkout, or exact registered frozen packets and supplements from the
+canonical plan library. Optional zero-based line `offset` and `limit` bound source inspection; omit them
+for the required complete packet read. It exposes no writes or commands. A refused, incomplete or truncated response
+does not establish a packet read. The existing no-shell instruction remains in force. Claude retains
+its native reader. This server's path checks constrain its own calls, not every tool in the host session.
+
 ## Clarify within the assignment
 
 A child may ask its owning controller for missing information or access. A blocked/partial turn is not a

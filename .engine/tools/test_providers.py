@@ -621,5 +621,32 @@ class TestScopedAgentBaseline(unittest.TestCase):
             self.assertIsNone(providers.launch_record(message))
 
 
+class TestReviewReaderEvidence(unittest.TestCase):
+    def test_only_exact_complete_successful_reader_output_counts(self):
+        import copy
+        import hashlib
+        text = "frozen packet\n"
+        result = {"file_path": "/packets/a.md", "content": text, "complete": True,
+                  "offset": 0, "sha256": "sha256:" + hashlib.sha256(text.encode()).hexdigest()}
+        payload = {"tool_name": "mcp__engine-review-reader__read_file",
+                   "tool_input": {"path": "/packets/a.md"},
+                   "tool_response": {"content": [{"type": "text", "text": json.dumps(result)}],
+                                     "isError": False}}
+        self.assertTrue(providers.scoped_reads_path(payload, "/packets/a.md"))
+        self.assertTrue(providers.scoped_read_succeeded(payload, text))
+        for key, value in (("file_path", "/other"), ("complete", False), ("offset", 1),
+                           ("sha256", "wrong"), ("content", "partial")):
+            bad = copy.deepcopy(payload)
+            bad["tool_response"]["content"][0]["text"] = json.dumps({**result, key: value})
+            self.assertFalse(providers.scoped_read_succeeded(bad, text), key)
+        bad = copy.deepcopy(payload)
+        bad["tool_response"]["isError"] = True
+        self.assertFalse(providers.scoped_read_succeeded(bad, text))
+        bad = copy.deepcopy(payload)
+        bad["tool_name"] = "mcp__unrelated__read_file"
+        self.assertFalse(providers.scoped_read_succeeded(bad, text))
+        self.assertFalse(providers.scoped_reads_path(payload, "/packets/b.md"))
+
+
 if __name__ == "__main__":
     unittest.main()
