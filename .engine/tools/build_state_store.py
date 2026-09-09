@@ -12,8 +12,8 @@ WHERE it lives, and why there. The plan is already durable, already local, alrea
 already addressed: it sits in the plan library, one folder per plan. A Build enters only through a
 sealed plan, so the plan binding is the one name that identifies a Build without inventing a second
 registry to hold it. The snapshot therefore lives beside the plan it executes, at
-`<library>/<slug>/builds/snapshot.json`. No new store, no new address space, no new thing to garbage
-collect: retire the plan and its Build evidence goes with it.
+`<library>/<slug>/builds/<build-id>/snapshot.json`. The old `builds/snapshot.json` slot becomes a
+permanent directory barrier at migration. Retirement retains evidence in the same private Build folder.
 
 ONE snapshot per plan, and a second Build supersedes EXPLICITLY. A plan is per-Build by design — one
 plan, one seal, one pull request — so a second Build of the same plan means something went wrong
@@ -531,6 +531,8 @@ def retire_build(library, slug, identity, schema, *, reason, expected_revision,
             matches = [c for c in lease['history'] if claim_identity(c) == identity]
             if not matches or matches[-1]['state'] != terminal_state or matches[-1]['reason'] != reason:
                 raise BuildStateError('no matching retirement to retry; this identity cannot release another generation')
+            if close_state and (record.get('closure') or {}).get('state') != close_state:
+                raise BuildStateError('retirement retry must name the recorded plan closure')
             if terminal_state == 'complete':
                 _match_completion(matches[-1], completion)
             archive = Path(matches[-1]['archive'])
@@ -559,6 +561,8 @@ def retire_build(library, slug, identity, schema, *, reason, expected_revision,
         if claim['state'] == 'retiring':
             if claim['reason'] != reason or claim['terminal_state'] != terminal_state:
                 raise BuildStateError('retirement is already preparing a different decision; retry its recorded reason and state')
+            if 'close_state' in claim and claim['close_state'] != close_state:
+                raise BuildStateError('retry the recorded plan closure action')
             archive = Path(claim['archive'])
         else:
             # The revision supplied by the caller fixes the archive name before any irreversible
@@ -571,24 +575,26 @@ def retire_build(library, slug, identity, schema, *, reason, expected_revision,
         _flush_directory(path.parent.parent)
         if archive.parent != path.parent:
             raise BuildStateError('retirement archive moved outside its Build folder; recover the recorded address')
-        if claim['state'] == 'preparing' and claim.get('legacy_source') and not path.exists():
-            source = Path(claim['legacy_source'])
-            if not source.is_file():
-                raise BuildStateError('the reserved legacy source is missing; recover its evidence before retirement')
-            saved = core.json_file(source)
-            if core.digest(saved) != claim['legacy_digest']:
-                raise BuildStateError('legacy evidence changed after reservation; preserve it and reconcile ownership')
-            saved = core.forward_migrate(saved)
-            saved['ownership'] = identity
-            core.validate(saved, schema(saved) if callable(schema) else schema)
-            _assert_snapshot_claim(record, claim, saved)
-            _durable_json(path, saved)
+        if claim['state'] == 'preparing' and claim.get('legacy_source'):
+            if not path.exists():
+                source = Path(claim['legacy_source'])
+                if not source.is_file():
+                    raise BuildStateError('the reserved legacy source is missing; recover its evidence before retirement')
+                saved = core.json_file(source)
+                if core.digest(saved) != claim['legacy_digest']:
+                    raise BuildStateError('legacy evidence changed after reservation; preserve it and reconcile ownership')
+                saved = core.forward_migrate(saved)
+                saved['ownership'] = identity
+                core.validate(saved, schema(saved) if callable(schema) else schema)
+                _assert_snapshot_claim(record, claim, saved)
+                _durable_json(path, saved)
             _cutover_locked(library, slug, claim)
         was_unwritten = claim['state'] == 'preparing' and not path.exists()
 
         def prepare(state):
             claim.update(state='retiring', terminal_state=terminal_state, reason=reason,
-                         archive=str(archive), terminal_at=claim.get('terminal_at') or moment.utc_now())
+                         archive=str(archive), terminal_at=claim.get('terminal_at') or moment.utc_now(),
+                         retirement_revision=expected_revision, close_state=close_state)
             library.write_build_record_locked(slug, record)
 
         if was_unwritten or (claim['state'] == 'retiring' and expected_revision == 0):
@@ -821,6 +827,8 @@ def adopt_build(library, predecessor_slug, successor_slug, identity, expected_re
                 old_claim['state'] = 'active'
                 library.write_build_record_locked(predecessor_slug, old_record)
             raise BuildStateError('successor is no longer available; recover the recorded transfer or choose an available successor')
+        if existing_target and existing_target['state'] not in ('preparing', 'active'):
+            raise BuildStateError('successor is retiring; finish its recorded retirement, not an earlier adoption')
         if existing_target and any(existing_target.get(k) != v for k, v in new_claim.items() if k != 'state'):
             raise BuildStateError('successor reservation differs from the predecessor transfer journal')
         if completed_source and existing_target and existing_target['state'] == 'active':

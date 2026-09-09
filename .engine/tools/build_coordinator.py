@@ -932,7 +932,7 @@ def _library() -> "plan_store.PlanLibrary":
 # without assurance, and the operator named it governance overreach.
 
 
-def _sealed_plan(selector: str, *, entering: bool = True) -> tuple[str, str, dict]:
+def _sealed_plan(selector: str, *, entering: bool = True, transfer_recovery: bool = False) -> tuple[str, str, dict]:
     """Resolve a sealed plan in the local library: (plan_id, sealed_digest, build payload).
 
     This is the ONLY door a plan comes through. Anything unsealed is refused here rather than at some
@@ -966,7 +966,11 @@ def _sealed_plan(selector: str, *, entering: bool = True) -> tuple[str, str, dic
             "lifecycle first — preview, approve with a depth, record the one cold plan review, "
             f"disposition its findings, then `project_manager.py seal {record['plan_id']}`.")
     closure = record.get("closure")
-    if closure and not entering:
+    if closure and transfer_recovery:
+        print(f"warning: {record['plan_id']} is {closure['state']}; checking sealed evidence for "
+              "transfer recovery. The ownership transaction will refuse entry and recover any matching journal.",
+              file=sys.stderr)
+    elif closure and not entering:
         # Disclosed, never swallowed: the operator is finishing a Build whose plan was closed under
         # it, and that is worth saying out loud even though it does not stop the resume.
         # Warn, do not reassure. Letting the resume through is right; leaving it there is not.
@@ -1199,12 +1203,30 @@ def cmd_state_where(args, store: "Snapshot | None") -> None:
         claim = (record.get('build_lease') or {}).get('current')
         if claim and claim['state'] != 'active':
             transfer = claim.get('transfer')
-            if transfer:
+            if transfer and (claim['state'] == 'transferring' or claim['state'] == 'preparing'):
                 successor = transfer.get('successor_plan_id', record['plan_id'])
                 owner = transfer.get('predecessor_identity', build_state_store.claim_identity(claim))
                 print(f"{slug}: interrupted adoption; retry plan adopt --successor {successor} "
                       f"with --expect-build-id {owner['build_id']} --expect-generation {owner['generation']} "
                       f"--expect-revision {transfer['source_revision']} and the original predecessor payload")
+                continue
+            if claim['state'] == 'retiring':
+                revision = claim.get('retirement_revision')
+                if revision is None:
+                    evidence = Path(claim['snapshot'])
+                    if not evidence.is_file():
+                        evidence = Path(claim['archive'])
+                    if evidence.is_file():
+                        saved = core.json_file(evidence)
+                        revision = 0 if saved.get('unwritten_preparation') else saved.get('revision')
+                action = claim.get('close_state') or (
+                    'state supersede' if claim['terminal_state'] == 'superseded' else claim['terminal_state'])
+                action = {'abandoned': 'abandon', 'retired': 'retire'}.get(action, action)
+                print(f"{slug}: interrupted retirement; retry with these recorded inputs: " + json.dumps({
+                    'action': action, 'plan': record['plan_id'], 'reason': claim['reason'],
+                    'expect_build_id': claim['build_id'], 'expect_generation': claim['generation'],
+                    'expect_revision': revision, 'snapshot': claim['snapshot'], 'archive': claim['archive']},
+                    sort_keys=True))
                 continue
             print(f"{slug}: {claim['state']} Build {claim['build_id']} generation {claim['generation']}; "
                   "retry its recorded transaction with the same identity, revision and inputs")
@@ -1403,7 +1425,9 @@ def cmd_plan_adopt(args, store: Snapshot) -> None:
     if reasons:
         raise CoordinatorError('adoption must continue the owning worktree and ancestry: ' + '; '.join(reasons))
     bound_id = state["plan"]["plan_id"]
-    successor_id, sealed_digest, successor = _sealed_plan(args.successor)
+    # Closure is checked inside the transfer lock. An existing journal must reach that
+    # check to restore its predecessor when the successor closed before reservation.
+    successor_id, sealed_digest, successor = _sealed_plan(args.successor, entering=False, transfer_recovery=True)
     if successor_id == bound_id:
         raise CoordinatorError(
             f"{successor_id} is the plan this Build is already bound to. A sealed plan cannot be "
@@ -5759,6 +5783,7 @@ def main(argv: list[str] | None = None) -> int:
             if not _expected_identity(args) or args.expect_revision is None:
                 raise CoordinatorError('mutations require --expect-build-id, --expect-generation and --expect-revision; '
                                        'carry the identity received from bind or verified continuation')
+            store.verify_mutation_entry()
             verify_resume(store, args)
         args.func(args, store)
         return 0

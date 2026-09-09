@@ -1447,7 +1447,7 @@ def close_plan_record(library, slug: str, state: str, reason: str, *,
     """
     observed = library.read_record(slug)
     lease = observed.get('build_lease')
-    if lease and (lease['current'] or (observed.get('closure') and state == 'complete')):
+    if lease and (lease['current'] or observed.get('closure')):
         import build_state_store
         if refuse_if_active and lease['current']:
             raise ProjectManagerError('an active Build must be abandoned or completed before program supersession')

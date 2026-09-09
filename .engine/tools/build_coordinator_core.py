@@ -584,6 +584,14 @@ class RevisionedStore:
                 raise CoordinatorError(f"{self.what} already exists at {self.path}")
             self._write(state)
 
+    def verify_mutation_entry(self) -> None:
+        """Check ownership and revision before command side effects; writes still check again."""
+        with self._locked():
+            state = forward_migrate(json_file(self.path))
+            validate(state, self._schema_for(state))
+            self._check_write(state, creating=False)
+            assert_revision(state['revision'], self.expected_revision, 'snapshot', self.stale_remedy)
+
     def mutate(self, change: Callable[[dict], Any], *, from_revision: int | None = None) -> Any:
         with self._locked():
             if not self.path.exists():
@@ -597,6 +605,8 @@ class RevisionedStore:
             self._check_write(state, creating=False)
             state["revision"] += 1
             self._write(state)
+            if self.expected_revision is not None:
+                self.expected_revision = state["revision"]
             return result
 
     def _check_write(self, state: dict, *, creating: bool) -> None:

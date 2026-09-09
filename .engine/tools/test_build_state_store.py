@@ -699,6 +699,141 @@ class TransactionalOwnership(unittest.TestCase):
         with self.assertRaises(core.CoordinatorError):
             stale.mutate(lambda s: s['progress'].update(current_item='stale'))
 
+    def test_command_entry_fences_stale_identity_and_revision(self):
+        claim = self.reserve(); self.finish(claim)
+        identity = build_state_store.claim_identity(claim)
+        for owner, revision in ((dict(identity, generation=2), 1), (identity, 0)):
+            with self.subTest(owner=owner, revision=revision):
+                store = build_state_store.ClaimedBuildStore(self.lib, self.slug, SCHEMA,
+                    revision, identity=owner)
+                with self.assertRaises(core.CoordinatorError):
+                    store.verify_mutation_entry()
+        self.assertEqual(core.json_file(Path(claim['snapshot']))['revision'], 1)
+
+    def test_own_successful_writes_advance_revision_but_competing_writes_still_fence(self):
+        claim = self.reserve(); self.finish(claim)
+        identity = build_state_store.claim_identity(claim)
+        store = build_state_store.ClaimedBuildStore(self.lib, self.slug, SCHEMA, 1, identity=identity)
+        store.mutate(lambda s: s.update(submission='ready'))
+        store.mutate(lambda s: s.update(submission='draft'))
+        other = build_state_store.ClaimedBuildStore(self.lib, self.slug, SCHEMA, 3, identity=identity)
+        other.mutate(lambda s: s['progress'].update(current_item='another caller'))
+        with self.assertRaises(core.CoordinatorError):
+            store.mutate(lambda s: s.update(submission='ready'))
+        saved = store.read()
+        self.assertEqual(saved['submission'], 'draft')
+        self.assertEqual(saved['progress']['current_item'], 'another caller')
+
+    def test_stale_cli_cannot_reach_contract_sync_or_submit_side_effects(self):
+        import build_coordinator as bc
+        locator = self.root / 'locator.json'
+        claim = self.reserve(locator=locator); self.finish(claim)
+        self.retire(claim)
+        replacement = self.reserve(locator=locator); self.finish(replacement)
+        before = Path(replacement['snapshot']).read_bytes()
+        verbs = [(['sync-artifacts'], 'cmd_sync_artifacts'),
+                 (['submit', 'apply', '--plan', 'unused'], 'cmd_submit_apply'),
+                 (['contract', 'apply', '--plan', 'unused', '--claim', 'unused',
+                   '--source-body-digest', 'unused'], 'cmd_contract_apply')]
+        for verb, handler in verbs:
+            with self.subTest(verb=verb), mock.patch.object(bc, '_library', return_value=self.lib), \
+                    mock.patch.object(bc, 'ROOT', self.root / 'worktree'), \
+                    mock.patch.object(bc, handler) as side_effect, contextlib.redirect_stderr(io.StringIO()):
+                result = bc.main(['--state', str(locator), '--expect-build-id', claim['build_id'],
+                    '--expect-generation', str(claim['generation']), '--expect-revision', '1', *verb])
+                self.assertEqual(result, 2)
+                side_effect.assert_not_called()
+        self.assertEqual(Path(replacement['snapshot']).read_bytes(), before)
+
+    def test_old_adoption_retry_cannot_revive_retiring_successor(self):
+        claim = self.reserve(); self.finish(claim)
+        slug, change = self.successor()
+        saved = self.adopt(claim, slug, change)
+        store = build_state_store.ClaimedBuildStore(self.lib, slug, SCHEMA, 2,
+            identity=saved['ownership'])
+        store.mutate(lambda s: s['progress'].update(current_item='later progress'))
+        real_replace = Path.replace
+        def interrupted(source, target):
+            result = real_replace(source, target)
+            if source == store.path:
+                raise OSError('retirement rename cut')
+            return result
+        with mock.patch.object(Path, 'replace', interrupted):
+            with self.assertRaisesRegex(OSError, 'retirement rename cut'):
+                build_state_store.retire_build(self.lib, slug, saved['ownership'], SCHEMA,
+                    reason='stop successor', expected_revision=3)
+        target = self.lib.read_record(slug)['build_lease']['current']
+        archive = Path(target['archive']); evidence = archive.read_bytes()
+        with self.assertRaisesRegex(core.CoordinatorError, 'retiring'):
+            self.adopt(claim, slug, change)
+        self.assertFalse(store.path.exists())
+        self.assertEqual(archive.read_bytes(), evidence)
+        self.assertEqual(core.json_file(archive)['progress']['current_item'], 'later progress')
+        import build_coordinator as bc
+        output = io.StringIO()
+        with mock.patch.object(bc, '_library', return_value=self.lib), \
+                mock.patch.object(bc, 'ROOT', self.root / 'worktree'), contextlib.redirect_stdout(output):
+            bc.cmd_state_where(argparse.Namespace(), None)
+        guidance = output.getvalue()
+        self.assertNotIn('interrupted adoption', guidance)
+        self.assertIn('stop successor', guidance)
+        self.assertIn('"expect_revision": 3', guidance)
+        self.assertIn(str(archive), guidance)
+        self.assertIn('state supersede', guidance)
+
+    def test_matching_abandon_and_retire_retry_after_visible_release(self):
+        import project_manager as pm
+        for closure in ('abandoned', 'retired'):
+            case = TransactionalOwnership(); case.setUp()
+            try:
+                claim = case.reserve(); case.finish(claim)
+                identity = build_state_store.claim_identity(claim)
+                actual = case.lib.write_build_record_locked
+                def release_cut(slug, record):
+                    actual(slug, record)
+                    if record['build_lease']['current'] is None:
+                        raise OSError('visible release')
+                with mock.patch.object(case.lib, 'write_build_record_locked', side_effect=release_cut):
+                    with self.assertRaisesRegex(OSError, 'visible release'):
+                        pm.close_plan_record(case.lib, case.slug, closure, 'operator stopped',
+                            identity=identity, expected_revision=1)
+                pm.close_plan_record(case.lib, case.slug, closure, 'operator stopped',
+                    identity=identity, expected_revision=1)
+                with self.assertRaises(core.CoordinatorError):
+                    pm.close_plan_record(case.lib, case.slug,
+                        'retired' if closure == 'abandoned' else 'abandoned', 'operator stopped',
+                        identity=identity, expected_revision=1)
+            finally:
+                case.doCleanups()
+
+    def test_cli_adoption_retry_recovers_source_when_successor_closed_before_reservation(self):
+        import build_coordinator as bc
+        import project_manager as pm
+        claim = self.reserve(); self.finish(claim)
+        slug, change = self.successor()
+        actual = self.lib.write_build_record_locked
+        def before_target(target, record):
+            if target == slug:
+                raise OSError('before target reservation')
+            actual(target, record)
+        with mock.patch.object(self.lib, 'write_build_record_locked', side_effect=before_target):
+            with self.assertRaisesRegex(OSError, 'before target reservation'):
+                self.adopt(claim, slug, change)
+        original = Path(claim['snapshot']).read_bytes()
+        pm.close_plan_record(self.lib, slug, 'abandoned', 'withdrawn successor')
+        payload = self.root / 'plan.json'
+        payload.write_text(json.dumps(self.lib.head(self.slug)['build_plan']))
+        with mock.patch.object(bc, '_library', return_value=self.lib), \
+                mock.patch.object(bc, 'resume_reasons', return_value=[]), \
+                contextlib.redirect_stderr(io.StringIO()):
+            result = bc.main(['--expect-build-id', claim['build_id'], '--expect-generation', '1',
+                '--expect-revision', '1', 'plan', 'adopt', '--successor', slug,
+                '--input', str(payload), '--operator-decided'])
+        self.assertEqual(result, 2)
+        self.assertEqual(self.lib.read_record(self.slug)['build_lease']['current']['state'], 'active')
+        self.assertEqual(Path(claim['snapshot']).read_bytes(), original)
+        self.assertIsNone(self.lib.read_record(slug).get('build_lease'))
+
     def test_adoption_recovers_every_durable_write_boundary_with_original_consent(self):
         # All strict writes (records, snapshot, archive, locator) are faulted before and after
         # persistence. Rename and directory-flush recovery is independently covered by retirement.
@@ -1242,6 +1377,24 @@ class TransactionalOwnership(unittest.TestCase):
         self.finish(claim)
         self.assertTrue(old.is_dir())
         self.assertEqual(preserved.read_bytes(), original)
+
+    def test_retiring_copied_legacy_preparation_finishes_cutover_before_release(self):
+        old = build_state_store._legacy_slot(self.lib, self.slug)
+        build_state_store.DurableBuildStore(old, SCHEMA, library_root=self.lib.root).create(self.state)
+        original = old.read_bytes()
+        self.lib.update_record(self.slug, lambda r: r.update(build_binding={
+            'sealed_digest': self.seal['sealed_digest'], 'build_plan_digest': self.seal['build_plan_digest'],
+            'repository': 'o/r', 'pull_request': 1, 'at': self.consent['at']}))
+        claim = self.reserve(legacy_source=old)
+        with mock.patch.object(build_state_store, '_cutover_locked', side_effect=OSError('before cutover')):
+            with self.assertRaisesRegex(OSError, 'before cutover'):
+                self.finish(claim)
+        self.assertTrue(Path(claim['snapshot']).is_file())
+        self.retire(claim)
+        self.assertTrue(old.is_dir())
+        self.assertEqual((Path(claim['snapshot']).parent / 'legacy-original.json').read_bytes(), original)
+        replacement = self.reserve(); self.finish(replacement)
+        self.assertGreater(replacement['generation'], claim['generation'])
 
     def test_old_supersede_cannot_remove_tombstone_or_evidence_or_lock(self):
         claim = self.reserve(); self.finish(claim)
