@@ -22,6 +22,8 @@ import providers
 
 VERSION = "scoped-agent-evidence.v1"
 FILENAME = "scoped-agent-evidence.v1.json"
+BLOCK_INVARIANT = {"event": "PreToolUse", "name": "scoped-assignment-gate",
+                   "owner": "scoped_agents", "modes": ["explore", "build", "routine"]}
 
 
 class EvidenceError(core.CoordinatorError):

@@ -61,3 +61,5 @@ Candidate validation is green for the final commit and its engine-ci proof is im
 deliverable review reported carries a disposition; every reviewed-to-final change has a recorded proportional
 judgment and its required focused receipts; and `status` reports `submission-preflight`, naming
 [Build submission](build-submission.md).
+
+Before any scoped agent dispatch or review acceptance, follow [Scoped native agents](scoped-agent-orchestration.md). Prepare an immutable assignment packet, use a fresh context for each new assignment, and permit recorded same-assignment clarification. Missing observed execution cannot earn independent review coverage.

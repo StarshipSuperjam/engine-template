@@ -150,3 +150,5 @@ Two ways this goes wrong, both observed:
 
 Both are the same failure: treating the lifecycle as a sequence to complete rather than a conversation to
 have. The mechanics cannot catch it — a rushed plan and a considered one reach the seal by identical moves.
+
+Before any scoped agent dispatch or review acceptance, follow [Scoped native agents](scoped-agent-orchestration.md). Prepare an immutable assignment packet, use a fresh context for each new assignment, and permit recorded same-assignment clarification. Missing observed execution cannot earn independent review coverage.

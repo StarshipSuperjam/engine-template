@@ -81,3 +81,5 @@ Review lenses each Build stage consumes (`review_consumers` in `.engine/build-pr
 - **product-design spec lock** — product-intent, architecture, feasibility, risk-governance
 - **pre-submission gate** — spec-conformance, divergence-hunter, usability, technical-integrity, security-governance
 <!-- /generated: build-protocol review-consumers -->
+
+Before any scoped agent dispatch or review acceptance, follow [Scoped native agents](scoped-agent-orchestration.md). Prepare an immutable assignment packet, use a fresh context for each new assignment, and permit recorded same-assignment clarification. Missing observed execution cannot earn independent review coverage.

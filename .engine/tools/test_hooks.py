@@ -6,7 +6,7 @@ block-budget coherence leg (validate.block_budget_findings).
 Run: uv run --directory .engine --frozen -- python tools/selftest.py
 
 These lock the laws hooks owns:
-  - the event inventory is the engine's chosen subset of six events (SessionEnd is NOT governed — nothing
+  - the event inventory is the engine's chosen subset of eight events (SessionEnd is NOT governed — nothing
     ever ran on it on either runtime, so its never-bound row was retracted), every row naming the systems
     whose behaviour runs on the event: SessionStart five-owner (boot·memory·github-projects-sync·telemetry·
     build-coordinator), PreToolUse six-owner (its actually-bound systems, not a placeholder), PostToolUse
@@ -69,10 +69,10 @@ def _run(event, handler, payload=None, stdin_text=None):
 
 
 class TestEventInventory(unittest.TestCase):
-    def test_the_six_governed_events(self):
+    def test_the_eight_governed_events(self):
         self.assertEqual(hooks.EVENTS, {
             "SessionStart", "PreToolUse", "PostToolUse", "PreCompact",
-            "Stop", "UserPromptSubmit"})
+            "Stop", "UserPromptSubmit", "SubagentStart", "SubagentStop"})
 
     def test_sessionend_is_not_governed(self):
         # Retracted (StarshipSuperjam/engine-template#816, migration M2): the row claimed a hooks-owned
@@ -102,14 +102,14 @@ class TestEventInventory(unittest.TestCase):
         # The row used to name a placeholder ("invariant-owner") — the same under-report as StarshipSuperjam/engine-template#784 on the
         # busiest event. These are the systems whose commands are bound on PreToolUse.
         self.assertEqual(set(hooks.EVENT_INVENTORY["PreToolUse"]["owners"]),
-                         {"modes", "knowledge", "self-map", "validation", "product-design", "session-economy"})
+                         {"modes", "knowledge", "self-map", "validation", "product-design", "session-economy", "scoped-agents"})
         self.assertNotIn("invariant-owner", hooks.EVENT_INVENTORY["PreToolUse"]["owners"])
 
     def test_posttooluse_enumerates_its_three_owners(self):
         # validation's touched-file run + telemetry's ambient capture + modes' Claude native-plan
         # intake adapter coexist on one event (the owner inventory).
         self.assertEqual(set(hooks.EVENT_INVENTORY["PostToolUse"]["owners"]),
-                         {"validation", "telemetry", "modes"})
+                         {"validation", "telemetry", "modes", "scoped-agents"})
 
     def test_telemetry_is_a_declared_delegated_owner_on_posttooluse(self):
         # telemetry registers no PostToolUse hook of its own: validate's accept-hook relays each edit into
@@ -502,7 +502,11 @@ class TestHookCommandMatchesWiredLiterals(unittest.TestCase):
                      ".engine/tools/telemetry.py drain-inbox",
                      # The post-compaction re-grounding owner: the ONLY wire on the `compact` matcher,
                      # so it adds one to the set and one to the count.
-                     ".engine/tools/build_coordinator.py reground-hook")
+                     ".engine/tools/build_coordinator.py reground-hook",
+                     ".engine/tools/scoped_agents.py PreToolUse",
+                     ".engine/tools/scoped_agents.py PostToolUse",
+                     ".engine/tools/scoped_agents.py SubagentStart",
+                     ".engine/tools/scoped_agents.py SubagentStop")
     MEMORY_RELPATHS = (".engine/tools/memory/compact.py pre-compact",
                        ".engine/tools/memory/erasure_observer.py session-start",
                        ".engine/tools/memory/backup_vault.py session-start")
@@ -528,11 +532,11 @@ class TestHookCommandMatchesWiredLiterals(unittest.TestCase):
 
         core = validate.load_json(os.path.join(validate.ROOT, ".engine/modules/core/manifest.json"))
         c_cmds = self._hook_cmds(core)
-        self.assertEqual(len(c_cmds), 17, "the seventeen venv-rooted core hook wires (boot ×3 + 9: modes, "
+        self.assertEqual(len(c_cmds), 21, "the twenty-one venv-rooted core hook wires (boot ×3 + 9: modes, "
                          "knowledge_gen, self_map, validate pre-commit, session_economy, modes accept, "
                          "validate accept, close, "
                          "scent + telemetry run-ambient ×2 + telemetry drain-inbox ×2: startup + resume "
-                         "+ build_coordinator reground-hook on the compact matcher)")
+                         "+ build_coordinator reground-hook on the compact matcher + four scoped-agent events)")
         self.assertEqual(set(c_cmds), expected_core, "every core manifest hook command is hook_command's output")
 
         memory = validate.load_json(
@@ -560,14 +564,14 @@ class TestHookCommandMatchesWiredLiterals(unittest.TestCase):
         self.assertEqual(set(pd_cmds), expected_product_design,
                          "product-design's manifest hook command is hook_command's output")
 
-        # settings.json registers all installed modules' hooks: 17 core + 7 memory + 2 board-sync + 1 product-design venv-rooted.
+        # settings.json registers 21 core + 7 memory + 2 board-sync + 1 product-design hooks.
         settings = validate.load_json(os.path.join(validate.ROOT, ".claude", "settings.json"))
         s_cmds = self._venv_hook_commands(
             h.get("command", "") for groups in settings["hooks"].values()
             for grp in groups for h in grp.get("hooks", []))
-        self.assertEqual(len(s_cmds), 27,
-                         "the twenty-seven venv-rooted hook commands in settings "
-                         "(17 core + 7 memory + 2 board-sync + 1 product-design)")
+        self.assertEqual(len(s_cmds), 31,
+                         "the thirty-one venv-rooted hook commands in settings "
+                         "(21 core + 7 memory + 2 board-sync + 1 product-design)")
         self.assertEqual(set(s_cmds), expected_core | expected_memory | expected_projects | expected_product_design,
                          "settings matches the form (and so all four manifests) exactly")
 

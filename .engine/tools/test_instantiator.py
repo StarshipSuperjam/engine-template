@@ -4435,7 +4435,7 @@ class TestCodexHookTrustHandoff(unittest.TestCase):
     """StarshipSuperjam/engine-template#805: when setup wires the Engine's OWN Codex hooks into
     .codex/hooks.json, the operator is told — right after wiring (STEP 5) and once more in retire's
     close — that those hooks are untrusted until they approve them, and where to approve (CLI /hooks
-    and Codex Desktop Settings -> Hooks). The trigger is the Engine's own hooks landing on disk by
+    and observed Desktop activation). The trigger is the Engine's own hooks landing on disk by
     exact identity, never a foreign hook that merely mentions .engine/, and a repo with no Codex hook
     stays silent."""
 
@@ -4577,21 +4577,25 @@ class TestCodexHookTrustHandoff(unittest.TestCase):
 
     # ---- copy surface ----------------------------------------------------------------------------
 
-    def test_copy_names_both_approval_paths_and_the_three_that_stay_off(self):
+    def test_copy_names_verified_approval_path_and_activation_evidence(self):
         fallback = inst.FALLBACK_COPY["codex-hook-trust"]
         self.assertTrue(fallback.strip(), "the built-in fallback resolves to real copy")
         self.assertIn("/hooks", fallback, "the CLI approval path")
-        self.assertIn("Settings -> Hooks", fallback, "the Codex Desktop approval path")
+        self.assertIn("do not assume Desktop", fallback)
+        self.assertIn("actual hook event", fallback)
+        self.assertIn("Project trust alone", fallback)
         self.assertIn("VS Code", fallback, "the extension caveat is named")
         self.assertIn("does not run project hooks", fallback,
                       "the VS Code caveat says the extension does not run project hooks — it must not fold "
                       "VS Code into the Desktop 'open the Hooks screen' remedy")
         for stays_off in ("grounding", "write-gate", "memory"):
             self.assertIn(stays_off, fallback, f"the note names {stays_off!r} as staying off until approval")
-        # The template surface carries the same section (rendered by load_copy), with the arrow glyph.
+        # The template carries the same qualified guidance.
         template = inst.load_copy()["codex-hook-trust"]
         self.assertIn("/hooks", template)
-        self.assertIn("Settings → Hooks", template)
+        self.assertIn("do not assume Desktop", template)
+        self.assertIn("actual hook event", template)
+        self.assertIn("Project trust alone", template)
 
 
 if __name__ == "__main__":

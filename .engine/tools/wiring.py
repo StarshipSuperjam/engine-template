@@ -118,20 +118,16 @@ CATALOG_SCHEMA_PATH = os.path.join(validate.SCHEMAS_DIR, "surface-catalog.schema
 CODEX_HOOKS_PATH = os.path.join(validate.ROOT, ".codex", "hooks.json")    # codex-hook
 CODEX_CONFIG_PATH = os.path.join(validate.ROOT, ".codex", "config.toml")  # codex-mcp
 
-# The plain-language re-trust notice every codex-hook change carries: Codex records trust against each
-# hook's exact definition, so a new or changed registration is silently SKIPPED until the operator
-# re-trusts it — the one moment to say so is when the engine makes the change. It names BOTH approval
-# paths (the CLI /hooks review and the Codex Desktop Settings -> Hooks screen), warns that on Desktop
-# the prompt may not appear on its own and that the VS Code extension does not run project hooks at all,
-# and names what stays off until the operator approves: session grounding, the exploration write-gate,
-# and memory capture.
+# Trust is per hook definition; project trust does not establish hook activation.
+# The CLI approval browser was observed; Desktop activation requires actual event evidence.
 CODEX_RETRUST_NOTE = ("Codex records trust for each hook exactly as written, so a hook the engine just "
-                      "added or changed is untrusted until you approve it again — and until you do, its "
-                      "session grounding, its exploration write-gate, and its memory capture stay off. "
-                      "Approve it in the Codex CLI with /hooks, or in Codex Desktop under "
-                      "Settings -> Hooks; on Desktop the prompt may not appear on its own, so open that "
-                      "Hooks screen and approve it there yourself. The VS Code extension does not run "
-                      "project hooks at all, so approve from the CLI or the Desktop app instead.")
+                      "added or changed is untrusted until you approve it again. Until approval and an "
+                      "actual hook event verify activation, session grounding, the exploration write-gate, "
+                      "and memory capture remain unverified. Use the Codex CLI /hooks approval browser; "
+                      "do not assume Desktop exposes a Hooks settings screen. Project trust alone is "
+                      "insufficient. The tested Desktop task needed reopening after approval to load its "
+                      "configuration; verify actual events in your task. The VS Code extension does not "
+                      "run project hooks; use a qualified CLI or Desktop runtime.")
 
 
 class WiringError(Exception):
