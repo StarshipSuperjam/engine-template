@@ -6,6 +6,12 @@
   "additionalProperties": false,
   "required": ["schema_version", "revision", "build", "plan", "approval", "reviews", "findings", "checkpoint", "progress", "work", "validation", "repair", "preflights", "pr_contract", "submission"],
   "properties": {
+    "rewrite_preparation": {"$ref": "#/$defs/rewrite_preparation"},
+    "rewrite_recoveries": {"type": "array", "items": {"type": "object", "additionalProperties": false, "required": ["preparation", "to_commit", "divergent_paths", "invalidated_nodes", "prior_work", "prior_progress"], "properties": {
+      "preparation": {"$ref": "#/$defs/rewrite_preparation"}, "to_commit": {"$ref": "#/$defs/commit"},
+      "divergent_paths": {"type": "array", "items": {"type": "string"}}, "invalidated_nodes": {"type": "array", "items": {"type": "string"}},
+      "prior_work": {"type": "object", "additionalProperties": {"$ref": "#/$defs/node_work"}}, "prior_progress": {"$ref": "#/properties/progress"}
+    }}},
     "plan_change_escalations": {"type": "array", "items": {"type": "object", "additionalProperties": false, "required": ["reviewed_plan_digest", "plan_digest", "operator_change"], "properties": {"reviewed_plan_digest": {"type": "string"}, "plan_digest": {"type": "string"}, "operator_change": {"type": "string"}}}},
     "repair_rounds": {"type": "array", "items": {"type": "object", "additionalProperties": false, "required": ["reviewed_commit", "final_commit", "judgment", "lenses"], "properties": {"reviewed_commit": {"type": "string"}, "final_commit": {"type": "string"}, "judgment": {"enum": ["none", "scoped", "full"]}, "lenses": {"type": "array", "items": {"type": "string"}}, "guidance": {"type": ["string", "null"]}, "counted": {"type": "boolean"}, "anchor": {"type": "string", "pattern": "^[0-9a-f]{40}$"}, "anchor_note": {"type": ["string", "null"], "enum": [null, "reconcile", "rewritten"]}, "roster_provenance": {"enum": ["explicit", "blocker-union", "none"]}, "classification": {"$ref": "#/$defs/divergence_classification"}}}},
     "reconciles": {"type": "array", "items": {"type": "object", "additionalProperties": false, "required": ["from_commit", "to_commit", "base_before", "base_after", "contribution_identical", "divergent_paths", "anchored_to"], "properties": {"from_commit": {"type": "string"}, "to_commit": {"type": "string"}, "base_before": {"type": ["string", "null"]}, "base_after": {"type": "string"}, "contribution_identical": {"type": "boolean"}, "divergent_paths": {"type": "array", "items": {"type": "string"}}, "unmeasurable": {"type": ["string", "null"]}, "anchored_to": {"type": "string"}}}},
@@ -175,6 +181,19 @@
         }
       }
     },
+    "rewrite_preparation": {
+      "type": "object", "additionalProperties": false,
+      "required": ["id", "identity", "source_head", "source_base", "target_ref", "target_tip", "prepared_revision"],
+      "properties": {
+        "id": {"type": "string", "pattern": "^sha256:[0-9a-f]{64}$"},
+        "source_head": {"$ref": "#/$defs/commit"}, "source_base": {"$ref": "#/$defs/commit"}, "target_tip": {"$ref": "#/$defs/commit"},
+        "target_ref": {"type": "string", "minLength": 1}, "prepared_revision": {"type": "integer", "minimum": 1},
+        "identity": {"type": "object", "additionalProperties": false, "required": ["ownership", "plan_digest", "repository", "pr", "worktree", "branch"], "properties": {
+          "ownership": {"$ref": "#/properties/ownership"}, "plan_digest": {"type": "string"}, "repository": {"type": "string"},
+          "pr": {"type": "integer", "minimum": 1}, "worktree": {"type": "string"}, "branch": {"type": "string", "minLength": 1}
+        }}
+      }
+    },
     "integration": {
       "type": "object", "additionalProperties": false,
       "required": ["attempt_id", "commit", "focused_verification"],
@@ -182,6 +201,7 @@
         "attempt_id": {"$ref": "#/$defs/attempt_id"},
         "commit": {"$ref": "#/$defs/commit"},
         "focused_verification": {"type": "string", "minLength": 1},
+        "recovery_verification": {"type": "object", "additionalProperties": false, "required": ["recovery_id", "commit"], "properties": {"recovery_id": {"type": "string"}, "commit": {"$ref": "#/$defs/commit"}}},
         "receipt": {"oneOf": [{"type": "null"}, {"$ref": "#/$defs/receipt"}]},
         "restored": {"type": "boolean"}
       }

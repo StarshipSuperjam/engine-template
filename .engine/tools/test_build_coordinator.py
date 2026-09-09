@@ -6427,6 +6427,332 @@ class ScrubbedGitRepo:
         return self.git("rev-parse", "HEAD")
 
 
+class TestPreparedUnreviewedRewrite(unittest.TestCase):
+    """N1: real rebase provenance, evidence preservation and ordinary resume after recovery.
+
+    A schema-valid owned snapshot isolates recovery from the ownership transaction tests. Git facts,
+    fetch, reflog and contribution comparison are real; only remote service identity is substituted.
+    """
+
+    def setUp(self):
+        self.tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(self.tmp.cleanup)
+        self.repo = ScrubbedGitRepo(Path(self.tmp.name) / "checkout")
+        self.base = self.repo.commit_file(".engine/tools/shared.py", "base\n", "base")
+        remote = str(Path(self.tmp.name) / "origin.git")
+        self.repo.git("clone", "--bare", self.repo.path, remote)
+        self.repo.git("remote", "add", "origin", remote)
+        self.repo.git("checkout", "-q", "-b", "codex/recovery")
+        self.shared = self.repo.commit_file(".engine/tools/shared.py", "build\n", "shared work")
+        self.source = self.repo.commit_file(".engine/tools/adapter.py", "adapter\n", "adapter work")
+        self.plan = plan_v2()
+        self.plan_path = Path(self.tmp.name) / "plan.json"
+        self.plan_path.write_text(json.dumps(self.plan), encoding="utf-8")
+        patch = mock.patch.object(bc, "ROOT", Path(self.repo.path))
+        patch.start()
+        self.addCleanup(patch.stop)
+        state = bc._initial_state("owner/repo", 7, self.base, PLAN_ID, SEALED, self.plan, None)
+        state["ownership"] = {"build_id": "bld_" + "1" * 32, "generation": 1}
+        state["build"]["worktree"] = str(Path(self.repo.path).resolve())
+        state["plan"]["bound_head"] = self.source
+        state["approval"] = {"plan_digest": bc._digest(self.plan), "spec_digest": None, "depth": "thorough"}
+        for index, (item, commit, claim_base) in enumerate([
+                ("shared", self.shared, self.base), ("adapter", self.source, self.shared)]):
+            receipt = bc._compute_receipt(self.repo.path, self.plan, state, item,
+                                          claim_base, commit, "worker-commit")
+            state["work"][item] = {**bc.work.empty_node(), "attempt_count": 1,
+                "integration": {"attempt_id": str(index + 1) * 32, "commit": commit,
+                                "focused_verification": "original focused check", "receipt": receipt}}
+        state["progress"]["completed"] = [{"id": "shared", "commit": self.shared},
+                                             {"id": "adapter", "commit": self.source}]
+        state["validation"] = {"commit": self.source, "results": [
+            {"id": "ci", "commit": self.source, "passed": True, "summary": "original validation"}]}
+        self.store = bc.StateStore(str(Path(self.tmp.name) / "state.json"))
+        self.store.create(state)
+        self.original = self.store.read()
+
+    def _advance_target(self, conflict=False):
+        self.repo.git("checkout", "-q", "main")
+        self.target = self.repo.commit_file(
+            ".engine/tools/shared.py" if conflict else "upstream.txt",
+            "upstream\n", "upstream advance")
+        self.repo.git("push", "-q", "origin", "main")
+        self.repo.git("checkout", "-q", "codex/recovery")
+
+    def _reconcile(self, prepare=False, cancel=False):
+        args = argparse.Namespace(plan=str(self.plan_path), command="reconcile",
+                                  prepare=prepare, cancel_preparation=cancel)
+        with mock.patch.object(bc, "_verify_draft", return_value={
+                "baseRefName": "main", "headRefName": "codex/recovery", "headRefOid": self.source}), \
+                mock.patch.object(bc.repo_identity, "origin_slug", return_value="owner/repo"), \
+                contextlib.redirect_stdout(io.StringIO()):
+            bc.verify_resume(self.store, args)
+            bc.cmd_reconcile(args, self.store)
+
+    def _assert_refused_without_mutation(self, needle):
+        before = self.store.read()
+        with self.assertRaisesRegex(bc.CoordinatorError, needle):
+            self._reconcile()
+        self.assertEqual(self.store.read(), before)
+
+    def test_clean_prepared_rebase_preserves_original_evidence_and_resumes(self):
+        self._advance_target()
+        self._reconcile(prepare=True)
+        preparation = self.store.read()["rewrite_preparation"]
+        self.assertEqual(preparation["source_head"], self.source)
+        self.assertEqual(preparation["target_tip"], self.target)
+        refs = self.repo.git("for-each-ref", "--format=%(objectname)", "refs/engine/build-recovery/")
+        self.assertEqual(refs, self.source)
+        self.repo.git("rebase", "origin/main")
+        rewritten = self.repo.git("rev-parse", "HEAD")
+        with self.assertRaises(bc.CoordinatorError):
+            bc.verify_resume(self.store, argparse.Namespace(command="checkpoint"))
+        self._reconcile()
+        state = self.store.read()
+        self.assertEqual(state["plan"]["bound_head"], rewritten)
+        self.assertEqual(state["reviews"], self.original["reviews"])
+        self.assertEqual(state["work"], self.original["work"])
+        self.assertEqual(state["progress"], self.original["progress"])
+        self.assertIsNone(state["validation"])
+        self.assertNotIn("rewrite_preparation", state)
+        event = state["rewrite_recoveries"][-1]
+        self.assertEqual(event["divergent_paths"], [])
+        self.assertEqual(event["prior_work"], self.original["work"])
+        self.assertEqual(event["prior_progress"], self.original["progress"])
+        self.assertEqual(event["invalidated_nodes"], [])
+        bc.verify_resume(self.store, argparse.Namespace(command="checkpoint"))
+        self.repo.git("cat-file", "-e", self.source + "^{commit}")
+        before = self.store.read()
+        self._reconcile()
+        self.assertEqual(self.store.read(), before)
+        bc._verify_recovered_progress(state, rewritten)
+        for corruption in ("ownership", "missing_source", "false_divergence"):
+            corrupted = json.loads(json.dumps(state))
+            event = corrupted["rewrite_recoveries"][-1]
+            if corruption == "ownership":
+                event["preparation"]["identity"]["ownership"]["generation"] += 1
+            elif corruption == "missing_source":
+                event["preparation"]["source_base"] = "f" * 40
+            else:
+                event["divergent_paths"] = ["invented.py"]
+            with self.subTest(corruption=corruption), self.assertRaises(bc.CoordinatorError):
+                bc._verify_recovered_progress(corrupted, rewritten)
+
+    def test_conflict_resolution_invalidates_node_and_dependent_preserving_history(self):
+        self._advance_target(conflict=True)
+        self._reconcile(prepare=True)
+        result = subprocess.run(["git", "-C", self.repo.path, "rebase", "origin/main"],
+                                env=self.repo.env, text=True, capture_output=True)
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn("CONFLICT", result.stdout)
+        self.repo.write(".engine/tools/shared.py", "resolved contribution\n")
+        self.repo.git("add", ".engine/tools/shared.py")
+        self.repo.git("-c", "core.editor=true", "rebase", "--continue")
+        self._reconcile()
+        state = self.store.read()
+        event = state["rewrite_recoveries"][-1]
+        self.assertEqual(event["divergent_paths"], [".engine/tools/shared.py"])
+        self.assertEqual(event["invalidated_nodes"], ["adapter", "shared"])
+        self.assertEqual(event["prior_work"], self.original["work"])
+        self.assertEqual(event["prior_progress"], self.original["progress"])
+        self.assertEqual(state["progress"]["completed"], [])
+        for node in ("shared", "adapter"):
+            self.assertIsNone(state["work"][node]["integration"])
+            self.assertEqual(state["work"][node]["attempt_count"], 1)
+            self.assertIsNotNone(state["work"][node]["latest_failure"])
+        self.assertEqual(state["reviews"], self.original["reviews"])
+        self.assertIsNone(state["validation"])
+        self.assertEqual(self.repo.git("show", self.source + ":.engine/tools/shared.py"), "build")
+        bc.verify_resume(self.store, argparse.Namespace(command="checkpoint"))
+        rewritten = self.repo.git("rev-parse", "HEAD")
+        def integrate(node, attempt=None):
+            args = argparse.Namespace(plan=str(self.plan_path), item=node, recovery=True,
+                attempt=attempt or self.original["work"][node]["integration"]["attempt_id"],
+                commit=rewritten, verification_input="focused checks repeated after conflict resolution")
+            with contextlib.redirect_stdout(io.StringIO()):
+                bc.cmd_work_integrate(args, self.store)
+        before = self.store.read()
+        with self.assertRaisesRegex(bc.CoordinatorError, "reverify affected nodes"):
+            self._reconcile(prepare=True)
+        self.assertEqual(self.store.read(), before)
+        with self.assertRaisesRegex(bc.CoordinatorError, "dependencies first"):
+            integrate("adapter")
+        self.assertEqual(self.store.read(), before)
+        with self.assertRaisesRegex(bc.CoordinatorError, "original attempt"):
+            integrate("shared", "9" * 32)
+        self.assertEqual(self.store.read(), before)
+        integrate("shared")
+        integrate("adapter")
+        recovered = self.store.read()
+        self.assertEqual(recovered["progress"], self.original["progress"])
+        for node in ("shared", "adapter"):
+            integration = recovered["work"][node]["integration"]
+            original = self.original["work"][node]["integration"]
+            self.assertEqual(integration["receipt"], original["receipt"])
+            self.assertEqual(integration["commit"], original["commit"])
+            self.assertEqual(integration["recovery_verification"], {
+                "recovery_id": event["preparation"]["id"], "commit": rewritten})
+        self.assertEqual(recovered["rewrite_recoveries"][-1]["prior_work"], self.original["work"])
+        bc._verify_recovered_progress(recovered, rewritten)
+
+    def test_unprepared_rebase_refuses(self):
+        self._advance_target()
+        self.repo.git("fetch", "origin")
+        self.repo.git("rebase", "origin/main")
+        self._assert_refused_without_mutation("no prepared rewrite")
+
+    def test_prepared_unrelated_reset_refuses(self):
+        self._advance_target()
+        self._reconcile(prepare=True)
+        self.repo.git("reset", "--hard", "origin/main")
+        self._assert_refused_without_mutation("not the completed rebase")
+
+    def test_prepared_same_base_amend_refuses(self):
+        self._advance_target()
+        self._reconcile(prepare=True)
+        self.repo.git("commit", "--amend", "-q", "-m", "amended in place")
+        self._assert_refused_without_mutation("not the completed rebase")
+
+    def test_rebase_onto_a_different_target_tip_refuses(self):
+        self._advance_target()
+        self._reconcile(prepare=True)
+        self.repo.git("checkout", "-q", "main")
+        newer = self.repo.commit_file("later.txt", "later\n", "later target")
+        self.repo.git("checkout", "-q", "codex/recovery")
+        self.repo.git("rebase", newer)
+        self._assert_refused_without_mutation("not the completed rebase")
+
+    def test_preparation_refuses_outstanding_work_claim(self):
+        def claim(state):
+            node = state["work"]["adapter"]
+            node["integration"] = None
+            node["claim"] = bc.work.new_claim("3" * 32, self.source, self.repo.path, [],
+                {"executor_class": "builder", "provider": "claude", "model": "sonnet",
+                 "effort": "medium", "inline": False})
+        self.store.mutate(claim)
+        before = self.store.read()
+        with self.assertRaisesRegex(bc.CoordinatorError, "outstanding work claims"):
+            self._reconcile(prepare=True)
+        self.assertEqual(self.store.read(), before)
+
+    def test_two_clean_rebases_preserve_chain_then_plan_revision_uses_current_head(self):
+        for index in range(2):
+            self.repo.git("checkout", "-q", "main")
+            self.repo.commit_file(f"upstream-{index}.txt", f"advance {index}\n", f"advance {index}")
+            self.repo.git("push", "-q", "origin", "main")
+            self.repo.git("checkout", "-q", "codex/recovery")
+            self.source = self.repo.git("rev-parse", "HEAD")
+            self._reconcile(prepare=True)
+            self.repo.git("rebase", "origin/main")
+            self._reconcile()
+            bc._verify_recovered_progress(self.store.read(), self.repo.git("rev-parse", "HEAD"))
+        state = self.store.read()
+        self.assertEqual(len(state["rewrite_recoveries"]), 2)
+        self.assertEqual(state["progress"], self.original["progress"])
+        self.assertEqual(state["work"], self.original["work"])
+        head = self.repo.git("rev-parse", "HEAD")
+        revised = plan_v2(objective="Ship the revised dependency-ordered Build")
+        self.store.mutate(lambda current: bc._reset_after_revision(current, revised))
+        self.assertEqual(self.store.read()["plan"]["bound_head"], head)
+        bc.verify_resume(self.store, argparse.Namespace(command="checkpoint"))
+
+    def test_clean_recovery_round_trips_through_canonical_handoff_authority(self):
+        from test_plan_store import _document
+        import plan_contract
+        library = plan_store.PlanLibrary(Path(self.tmp.name) / "plans")
+        doc = _document(build_plan=self.plan)
+        slug = library.create(doc)
+        record = library.read_record(slug)
+        seal = {"revision": 1, "reviewed_digest": record["current"]["plan_digest"],
+                "sealed_digest": record["current"]["plan_digest"],
+                "build_plan_digest": plan_contract.build_plan_digest(doc),
+                "at": "2026-09-08T00:00:00Z", "delta_judgment": "none"}
+        library.update_record(slug, lambda r: r.update(seal=seal,
+            consent=[{"gate": "seal", "at": seal["at"]}]))
+        initial = self.store.read()
+        initial.pop("ownership")
+        initial["plan"]["sealed_digest"] = seal["sealed_digest"]
+        claim = build_state_store.reserve_build(library, slug, initial,
+            consent={"gate": "bind", "at": seal["at"]})
+        identity = build_state_store.claim_identity(claim)
+        build_state_store.finish_binding(library, slug, identity, initial, bc._state_schema_for)
+        self.store = build_state_store.ClaimedBuildStore(library, slug, bc._state_schema_for,
+                                                       identity=identity)
+        self._advance_target()
+        self._reconcile(prepare=True)
+        self.repo.git("rebase", "origin/main")
+        self._reconcile()
+        before = self.store.read()
+        head = self.repo.git("rev-parse", "HEAD")
+        output = Path(self.tmp.name) / "handoff.json"
+        with mock.patch.object(bc, "_library", return_value=library), \
+                mock.patch.object(bc.repo_identity, "origin_slug", return_value="owner/repo"), \
+                mock.patch.object(bc.github, "pr_state", return_value={
+                    "number": 7, "state": "OPEN", "headRefOid": head}), \
+                contextlib.redirect_stdout(io.StringIO()):
+            bc.cmd_handoff_export(argparse.Namespace(output=str(output)), self.store)
+            exported = json.loads(output.read_text())
+            self.assertNotIn("rewrite_recoveries", exported)
+            self.assertEqual(exported["snapshot"], str(self.store.path))
+            bc.cmd_handoff_restore(argparse.Namespace(input=str(output)), self.store)
+        after = self.store.read()
+        self.assertEqual(after["ownership"], identity)
+        self.assertEqual(after["revision"], before["revision"] + 1)
+        self.assertEqual(after["rewrite_recoveries"], before["rewrite_recoveries"])
+        self.assertEqual(after["progress"], before["progress"])
+        for node in ("shared", "adapter"):
+            self.assertEqual(after["work"][node]["integration"]["receipt"],
+                             before["work"][node]["integration"]["receipt"])
+        bc.verify_resume(self.store, argparse.Namespace(command="checkpoint"))
+
+    def test_failed_preparation_and_apply_preserve_git_and_retry_without_lost_evidence(self):
+        self._advance_target()
+        before = self.store.read()
+        with mock.patch.object(self.store, "mutate", side_effect=OSError("injected persistence failure")):
+            with self.assertRaisesRegex(OSError, "injected persistence failure"):
+                self._reconcile(prepare=True)
+        self.assertEqual(self.store.read(), before)
+        self.assertEqual(self.repo.git("rev-parse", "HEAD"), self.source)
+        self.assertEqual(self.repo.git("for-each-ref", "--format=%(objectname)",
+                                      "refs/engine/build-recovery/"), self.source)
+        self._reconcile(prepare=True)
+        prepared = self.store.read()
+        self.assertEqual(prepared["rewrite_preparation"]["source_head"], self.source)
+        self.repo.git("rebase", "origin/main")
+        rewritten = self.repo.git("rev-parse", "HEAD")
+        with mock.patch.object(self.store, "mutate", side_effect=OSError("injected persistence failure")):
+            with self.assertRaisesRegex(OSError, "injected persistence failure"):
+                self._reconcile()
+        self.assertEqual(self.store.read(), prepared)
+        self.assertEqual(self.repo.git("rev-parse", "HEAD"), rewritten)
+        self._reconcile()
+        self.assertEqual(self.store.read()["plan"]["bound_head"], rewritten)
+        self.assertEqual(self.store.read()["work"], self.original["work"])
+        bc.verify_resume(self.store, argparse.Namespace(command="checkpoint"))
+
+    def test_intervening_revision_requires_cancelling_pending_preparation_before_a_new_one(self):
+        self._advance_target()
+        self._reconcile(prepare=True)
+        self.store.mutate(lambda state: state["progress"].update(current_item="shared"))
+        pending = self.store.read()
+        with self.assertRaisesRegex(bc.CoordinatorError, "cancel|revision|pending"):
+            self._reconcile(prepare=True)
+        self.assertEqual(self.store.read(), pending)
+        self._reconcile(cancel=True)
+        self.assertNotIn("rewrite_preparation", self.store.read())
+        self._reconcile(prepare=True)
+        prepared = self.store.read()
+        self.assertEqual(prepared["rewrite_preparation"]["prepared_revision"], prepared["revision"])
+
+    def test_cancel_preparation_retains_original_git_ref(self):
+        self._advance_target()
+        self._reconcile(prepare=True)
+        self._reconcile(cancel=True)
+        self.assertNotIn("rewrite_preparation", self.store.read())
+        self.assertEqual(self.repo.git("for-each-ref", "--format=%(objectname)",
+                                       "refs/engine/build-recovery/"), self.source)
+
+
 class TestReceiptGitFacts(unittest.TestCase):
     """W2: the git-fact gatherer over real temporary repositories under the scrubbed fixture."""
 

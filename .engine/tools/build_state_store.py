@@ -734,7 +734,8 @@ def supersede(library, slug, *, reason, identity=None, expected_revision=None, s
                         expected_revision=expected_revision, terminal_state='superseded')
 
 
-def restore_handoff(library, slug, value, restored, schema, *, worktree, projection, locator=None):
+def restore_handoff(library, slug, value, restored, schema, *, worktree, projection, locator=None,
+                    validate_progress=None):
     """Verify a cold export against the surviving canonical evidence; never create ownership.
 
     A bounded export cannot prove it is the newest copy after the canonical evidence is lost.
@@ -757,6 +758,10 @@ def restore_handoff(library, slug, value, restored, schema, *, worktree, project
         bounded = {k: v for k, v in value.items() if k != 'snapshot'}
         if core.digest(projection(current)) != core.digest(bounded):
             raise BuildStateError('handoff evidence is stale or altered; re-export the current canonical Build')
+        if validate_progress:
+            # Recovery authority comes only from the surviving canonical record under its lock.
+            # Portable handoff contents never grant an ancestry exception.
+            validate_progress(current)
         # Preserve private notes from the canonical snapshot. Only continuation evidence changes.
         for node_id, node in restored['work'].items():
             original = current['work'].get(node_id, {})

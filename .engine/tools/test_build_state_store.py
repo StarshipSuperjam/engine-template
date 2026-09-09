@@ -1001,6 +1001,48 @@ class TransactionalOwnership(unittest.TestCase):
         with self.assertRaises(core.CoordinatorError): restore(value)
         self.assertFalse(Path(claim['snapshot']).exists())
 
+    def test_handoff_progress_validator_reads_private_canonical_recovery_and_refuses_atomically(self):
+        import build_coordinator as bc
+        claim = self.reserve(); saved = self.finish(claim)
+        identity = build_state_store.claim_identity(claim)
+        store = build_state_store.ClaimedBuildStore(self.lib, self.slug, SCHEMA, identity=identity)
+        preparation = {"id": "sha256:" + "1" * 64, "source_head": "a" * 40,
+            "source_base": "b" * 40, "target_ref": "main", "target_tip": "c" * 40,
+            "prepared_revision": 1, "identity": {"ownership": identity,
+                "plan_digest": saved["plan"]["digest"], "repository": saved["build"]["repository"],
+                "pr": saved["build"]["pr"], "worktree": saved["build"]["worktree"], "branch": "codex/build"}}
+        event = {"preparation": preparation, "to_commit": "d" * 40, "divergent_paths": [],
+                 "invalidated_nodes": [], "prior_work": {},
+                 "prior_progress": {"current_item": None, "completed": []}}
+        store.mutate(lambda s: s.update(rewrite_recoveries=[event]))
+        saved = store.read()
+        value = bc._handoff(saved); value['snapshot'] = claim['snapshot']
+        self.assertNotIn('rewrite_recoveries', value)
+        restored = bc._restore_base_state(value, 'build-state.v2'); restored['work'] = {}
+        before_snapshot = Path(claim['snapshot']).read_bytes()
+        before_record = (self.lib.plan_dir(self.slug) / 'record.json').read_bytes()
+        observed = []
+        def inspect_canonical(current):
+            observed.append(current['ownership'])
+            self.assertEqual(current['rewrite_recoveries'], [event])
+            self.assertEqual(current['revision'], saved['revision'])
+        def refuse(current):
+            inspect_canonical(current)
+            raise core.CoordinatorError('original recovery proof cannot be re-derived')
+        def restore(validator):
+            return build_state_store.restore_handoff(self.lib, self.slug, value, restored, SCHEMA,
+                worktree=self.state['build']['worktree'], projection=bc._handoff,
+                validate_progress=validator)
+        with self.assertRaisesRegex(core.CoordinatorError, 'cannot be re-derived'):
+            restore(refuse)
+        self.assertEqual(Path(claim['snapshot']).read_bytes(), before_snapshot)
+        self.assertEqual((self.lib.plan_dir(self.slug) / 'record.json').read_bytes(), before_record)
+        updated = restore(inspect_canonical)
+        self.assertEqual(observed, [identity, identity])
+        self.assertEqual(updated['ownership'], identity)
+        self.assertEqual(updated['revision'], saved['revision'] + 1)
+        self.assertEqual(updated['rewrite_recoveries'], [event])
+
     def test_handoff_export_refuses_managed_or_existing_destinations_without_replacement(self):
         import build_coordinator as bc
         locator = self.root / 'locator.json'

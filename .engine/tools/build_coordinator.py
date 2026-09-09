@@ -370,7 +370,10 @@ def verify_resume(store, args) -> None:
     # base. Its own command verifies the old/new commits, bases, and contribution before it re-anchors
     # any evidence, so applying the ordinary ancestor check first would deadlock the recovery path.
     # Only that expected rewritten-head mismatch is waived; a different worktree still refuses here.
-    reasons = resume_reasons(state, allow_rewritten_head=(command, sub) == ("reconcile", None))
+    applying_rewrite = ((command, sub) == ("reconcile", None)
+                        and not getattr(args, "prepare", False)
+                        and not getattr(args, "cancel_preparation", False))
+    reasons = resume_reasons(state, allow_rewritten_head=applying_rewrite)
     verb = command if not sub else f"{command} {sub}"
     if reasons:
         raise CoordinatorError(
@@ -3044,6 +3047,161 @@ def _history_was_rewritten(state: dict, head: str) -> bool:
     return bool(recorded_base) and bool(current_base) and recorded_base != current_base
 
 
+def _rewrite_checkout() -> tuple[str, str]:
+    """Require a finished, clean checkout on a named branch; never repair git implicitly."""
+    branch = core.run(["git", "symbolic-ref", "--short", "HEAD"], root=ROOT)
+    dirty = core.run(["git", "status", "--porcelain"], root=ROOT)
+    if branch.returncode or dirty.returncode or dirty.stdout.strip():
+        raise CoordinatorError("rewrite recovery requires a clean checkout on the Build branch")
+    for marker in ("rebase-merge", "rebase-apply", "MERGE_HEAD", "CHERRY_PICK_HEAD"):
+        path = core.run(["git", "rev-parse", "--git-path", marker], root=ROOT)
+        if path.returncode or (ROOT / path.stdout.strip()).exists():
+            raise CoordinatorError("finish or abort the git operation before rewrite recovery")
+    return branch.stdout.strip(), _head()
+
+
+def _rewrite_identity(state: dict, branch: str) -> dict:
+    if not state.get("ownership"):
+        raise CoordinatorError("rewrite preparation requires canonical Build ownership; migrate this legacy Build first")
+    return {"ownership": state["ownership"], "plan_digest": state["plan"]["digest"],
+            "repository": state["build"]["repository"], "pr": state["build"]["pr"],
+            "worktree": str(ROOT.resolve()), "branch": branch}
+
+
+def _prepare_rewrite(args, store, state, plan):
+    reasons = resume_reasons(state)
+    if reasons:
+        raise CoordinatorError("prepare recovery before rewriting history: " + "; ".join(reasons))
+    if _effective_reviewed(state):
+        raise CoordinatorError("this Build has review evidence; use the reviewed reconcile path")
+    branch, head = _rewrite_checkout()
+    identity = _rewrite_identity(state, branch)
+    old = state.get("rewrite_preparation")
+    if getattr(args, "cancel_preparation", False):
+        if old:
+            store.mutate(lambda s: s.pop("rewrite_preparation", None), from_revision=state["revision"])
+        print("rewrite preparation cancelled; retained git objects remain available")
+        return
+    if old:
+        if (old["identity"] != identity or old["source_head"] != head
+                or old["prepared_revision"] != state["revision"]):
+            raise CoordinatorError("a different rewrite preparation is pending; cancel it on the original line before preparing again")
+        print(json.dumps(old))
+        return
+    if any(n.get("claim") and not n.get("integration") for n in state.get("work", {}).values()):
+        raise CoordinatorError("finish or abandon outstanding work claims before preparing a rewrite")
+    pending = {node for event in state.get("rewrite_recoveries", [])
+               if event["preparation"]["identity"]["plan_digest"] == state["plan"]["digest"]
+               for node in event["invalidated_nodes"]
+               if not state.get("work", {}).get(node, {}).get("integration")}
+    if pending:
+        raise CoordinatorError("reverify affected nodes before preparing another rewrite: " + ", ".join(sorted(pending)))
+    pr = _verify_draft(identity["repository"], identity["pr"])
+    if not pr.get("baseRefName") or not pr.get("headRefName"):
+        pr.update(_gh_json(["pr", "view", str(identity["pr"]), "--repo", identity["repository"],
+                            "--json", "headRefName,baseRefName,headRefOid"]))
+    target = pr.get("baseRefName")
+    if pr.get("headRefName") != branch or pr.get("headRefOid") != head or not target:
+        raise CoordinatorError("the draft PR must name this branch and HEAD and a verifiable target ref")
+    if not repo_identity.slug_eq(repo_identity.origin_slug(str(ROOT)), identity["repository"]):
+        raise CoordinatorError("rewrite target repository differs from origin")
+    fetched = core.run(["git", "fetch", "--no-tags", "origin",
+                        f"+refs/heads/{target}:refs/remotes/origin/{target}"], root=ROOT)
+    tip = core.run(["git", "rev-parse", "--verify", f"refs/remotes/origin/{target}^{{commit}}"], root=ROOT)
+    base = core.run(["git", "merge-base", head, tip.stdout.strip()], root=ROOT)
+    if fetched.returncode or tip.returncode or base.returncode:
+        raise CoordinatorError("could not fetch and verify the rewrite target; no preparation recorded")
+    if (_rewrite_checkout() != (branch, head)
+            or not repo_identity.slug_eq(repo_identity.origin_slug(str(ROOT)), identity["repository"])):
+        raise CoordinatorError("checkout changed during rewrite preparation; retry")
+    preparation = {"identity": identity, "source_head": head, "source_base": base.stdout.strip(),
+                   "target_ref": target, "target_tip": tip.stdout.strip(),
+                   "prepared_revision": state["revision"] + 1}
+    preparation["id"] = _digest(preparation)
+    retained = "refs/engine/build-recovery/" + identity["ownership"]["build_id"] + "/" + preparation["id"].split(":")[1]
+    result = core.run(["git", "update-ref", retained, head], root=ROOT)
+    if result.returncode:
+        raise CoordinatorError("could not retain the original history; no preparation recorded")
+    store.mutate(lambda s: s.update(rewrite_preparation=preparation), from_revision=state["revision"])
+    print(json.dumps(preparation))
+
+
+def _rewrite_affected(plan, paths):
+    affected = {n["id"] for n in plan["work_items"]
+                if any(dag.path_within_declared(p, n["paths"]) for p in paths)}
+    # An unassigned change cannot be localized honestly.
+    if any(not any(dag.path_within_declared(p, n["paths"]) for n in plan["work_items"]) for p in paths):
+        affected = {n["id"] for n in plan["work_items"]}
+    while True:
+        expanded = affected | {n["id"] for n in plan["work_items"] if affected.intersection(n.get("depends_on", []))}
+        if expanded == affected:
+            return sorted(affected)
+        affected = expanded
+
+
+def _apply_unreviewed_rewrite(store, state, plan):
+    branch, head = _rewrite_checkout()
+    preparation = state.get("rewrite_preparation")
+    if not preparation:
+        if any(e["to_commit"] == head and e["preparation"]["identity"] == _rewrite_identity(state, branch)
+               for e in state.get("rewrite_recoveries", [])):
+            print("this history rewrite is already recorded")
+            return
+        raise CoordinatorError("no prepared rewrite: return to the original line and run reconcile --prepare before rebasing")
+    if preparation["identity"] != _rewrite_identity(state, branch) or state["revision"] != preparation["prepared_revision"]:
+        raise CoordinatorError("rewrite preparation no longer matches this Build revision and identity; preserve both histories and recover the original preparation")
+    source, base, target = preparation["source_head"], preparation["source_base"], preparation["target_tip"]
+    identity = preparation["identity"]
+    if not repo_identity.slug_eq(repo_identity.origin_slug(str(ROOT)), identity["repository"]):
+        raise CoordinatorError("rewrite origin no longer matches the prepared repository")
+    pr = _verify_draft(identity["repository"], identity["pr"])
+    if not pr.get("baseRefName") or not pr.get("headRefName"):
+        pr.update(_gh_json(["pr", "view", str(identity["pr"]), "--repo", identity["repository"],
+                            "--json", "headRefName,baseRefName,headRefOid"]))
+    if (pr.get("headRefOid") not in (source, head) or pr.get("headRefName") != branch
+            or pr.get("baseRefName") != preparation["target_ref"]):
+        raise CoordinatorError("the PR head or target no longer matches this prepared rewrite")
+    # Positive local git provenance is required, not just a plausible replacement SHA.
+    log = core.run(["git", "reflog", "show", "-2", "--format=%H%x00%gs", f"refs/heads/{branch}"], root=ROOT)
+    entries = log.stdout.splitlines()
+    if (log.returncode or len(entries) != 2 or not entries[0].startswith(head + "\0rebase (finish):")
+            or not entries[0].endswith("onto " + target) or not entries[1].startswith(source + "\0")
+            or source == head or base == target or not _is_ancestor(target, head)):
+        raise CoordinatorError("HEAD is not the completed rebase of the prepared source onto its pinned target; no anchor changed")
+    try:
+        paths = _contribution_divergence(base, source, target, head)
+    except _Unmeasurable as exc:
+        raise CoordinatorError("rewrite contribution cannot be measured; preserve original evidence: " + str(exc)) from exc
+    affected = _rewrite_affected(plan, paths)
+    event = {"preparation": preparation, "to_commit": head, "divergent_paths": paths,
+             "invalidated_nodes": affected, "prior_work": state.get("work", {}),
+             "prior_progress": state["progress"]}
+    baseline = review_integrity.snapshot(str(ROOT))
+    def change(s):
+        if (_rewrite_checkout() != (branch, head)
+                or not repo_identity.slug_eq(repo_identity.origin_slug(str(ROOT)), identity["repository"])):
+            raise CoordinatorError("checkout changed during rewrite verification")
+        # Deep copies preserve original receipts, attempts and verification for audit and re-derivation.
+        s.setdefault("rewrite_recoveries", []).append(json.loads(json.dumps(event)))
+        for node_id in affected:
+            nw = s.get("work", {}).get(node_id)
+            if nw and nw.get("integration"):
+                attempt = nw["integration"]["attempt_id"]
+                nw["integration"] = None
+                nw["latest_failure"] = work.failure_record(attempt, "integration",
+                    "history rewrite changed this node or a dependency; run work integrate --recovery with fresh verification", dag.DISP_OPEN)
+        s["progress"]["completed"] = [p for p in s["progress"]["completed"] if p["id"] not in affected]
+        s["plan"]["bound_head"] = head
+        s.pop("rewrite_preparation", None)
+        s["validation"] = s["pr_contract"] = s["checkpoint"] = None
+        s["preflights"] = []
+        s.pop("artifact_sync", None)
+        s["checkout_snapshot"] = baseline
+    store.mutate(change, from_revision=state["revision"])
+    print("unreviewed rewrite recorded; original evidence retained; " +
+          ("reverify affected nodes: " + ", ".join(affected) if affected else "contribution unchanged"))
+
+
 def cmd_reconcile(args, store: Snapshot) -> None:
     """Re-anchor the deliverable review's commit bindings after a diff-preserving history rewrite.
 
@@ -3065,10 +3223,12 @@ def cmd_reconcile(args, store: Snapshot) -> None:
     revision = state["revision"]
     plan = _plan(args.plan)
     _assert_plan(state, plan)
+    if getattr(args, "prepare", False) or getattr(args, "cancel_preparation", False):
+        return _prepare_rewrite(args, store, state, plan)
     delivery = state["reviews"]["deliverable"]
     reviewed = _effective_reviewed(state)
     if not reviewed:
-        raise CoordinatorError("deliverable review has not recorded a reviewed commit; there is nothing to re-anchor")
+        return _apply_unreviewed_rewrite(store, state, plan)
     if reviewed == head:
         raise CoordinatorError("the reviewed commit is already the current head; nothing was rewritten")
     if _is_ancestor(reviewed, head):
@@ -4002,6 +4162,42 @@ def _rederive_restored_receipts(plan: dict, state: dict) -> None:
         integ["receipt"] = fresh
 
 
+def _verify_recovered_progress(state: dict, head: str) -> None:
+    if _head() != head:
+        raise CoordinatorError("checkout changed while restoring the handoff")
+    for completed in state["progress"].get("completed", []):
+        node_id, commit = completed["id"], completed["commit"]
+        candidate = commit
+        if not _commit_present(commit):
+            raise CoordinatorError(f"handoff progress commit for {node_id} is not contained by the live PR head: original object missing")
+        for event in state.get("rewrite_recoveries", []):
+            prep = event["preparation"]
+            if not _is_ancestor(candidate, prep["source_head"]):
+                continue
+            branch = core.run(["git", "symbolic-ref", "--short", "HEAD"], root=ROOT)
+            if (branch.returncode or prep["identity"] != _rewrite_identity(state, branch.stdout.strip())
+                    or prep["id"] != _digest({k: v for k, v in prep.items() if k != "id"})
+                    or not _is_ancestor(prep["target_tip"], event["to_commit"])):
+                continue
+            try:
+                measured = _contribution_divergence(prep["source_base"], prep["source_head"],
+                                                     prep["target_tip"], event["to_commit"])
+            except _Unmeasurable:
+                continue
+            if measured != event["divergent_paths"]:
+                continue
+            if node_id in event["invalidated_nodes"]:
+                # Verification can live in a later event's retained work map after a second rewrite.
+                histories = [state.get("work", {})] + [e["prior_work"] for e in state.get("rewrite_recoveries", [])]
+                expected = {"recovery_id": prep["id"], "commit": event["to_commit"]}
+                if not any(h.get(node_id, {}).get("integration", {}).get("recovery_verification") == expected
+                           for h in histories if h.get(node_id, {}).get("integration")):
+                    continue
+            candidate = event["to_commit"]
+        if not _is_ancestor(candidate, head):
+            raise CoordinatorError(f"handoff progress commit for {node_id} is not contained by the live PR head or a verified canonical recovery")
+
+
 def cmd_handoff_restore(args, store: Snapshot) -> None:
     if not args.input:
         raise CoordinatorError(
@@ -4049,11 +4245,8 @@ def cmd_handoff_restore(args, store: Snapshot) -> None:
     if pr.get("number") != value["build"]["pr"] or pr.get("state") != "OPEN" or pr.get("headRefOid") != _head():
         raise CoordinatorError("handoff PR is not the open claim at this worktree's current HEAD")
     for completed in value["progress"].get("completed", []):
-        commit = completed.get("commit")
-        if (not isinstance(commit, str)
-                or _run(["git", "cat-file", "-e", f"{commit}^{{commit}}"]).returncode
-                or _run(["git", "merge-base", "--is-ancestor", commit, pr["headRefOid"]]).returncode):
-            raise CoordinatorError(f"handoff progress commit for {completed.get('id', 'unknown item')} is not contained by the live PR head")
+        if _run(["git", "cat-file", "-e", completed["commit"] + "^{commit}"], cwd=ROOT).returncode:
+            raise CoordinatorError(f"handoff progress commit for {completed['id']} is not contained by the live PR head: original object missing")
     # The replacement anchor for cold continuation: the sealed plan RECORD, not an Issue body. The plan
     # must still be in the library, still sealed, still sealed to the same digest, and still carrying
     # the payload this Build was bound to. Any of those missing or changed and continuation is blocked —
@@ -4084,7 +4277,8 @@ def cmd_handoff_restore(args, store: Snapshot) -> None:
     _rederive_restored_receipts(plan, state)
     library = _library()
     state = build_state_store.restore_handoff(library, library.resolve(plan_id), value, state,
-        _state_schema_for, worktree=ROOT, projection=_handoff, locator=getattr(args, 'state', None))
+        _state_schema_for, worktree=ROOT, projection=_handoff, locator=getattr(args, 'state', None),
+        validate_progress=lambda canonical: _verify_recovered_progress(canonical, pr["headRefOid"]))
     _record_session_binding(state, pr_number=value["build"]["pr"])
     print(f"restored Build snapshot against sealed plan {plan_id}")
     print(json.dumps({'ownership': state['ownership'], 'revision': state['revision'],
@@ -4486,7 +4680,7 @@ def cmd_work_result(args, store: Snapshot) -> None:
 def _commit_on_branch(commit: str) -> bool:
     if not re.fullmatch(r"[0-9a-f]{40}", commit):
         return False
-    return _run(["git", "merge-base", "--is-ancestor", commit, "HEAD"]).returncode == 0
+    return _run(["git", "merge-base", "--is-ancestor", commit, "HEAD"], cwd=ROOT).returncode == 0
 
 
 def cmd_work_reject(args, store: Snapshot) -> None:
@@ -4551,6 +4745,8 @@ def cmd_work_integrate(args, store: Snapshot) -> None:
     def change(state):
         _assert_plan(state, plan)
         nw = _node_work(state, args.item)
+        if getattr(args, "recovery", False):
+            return _integrate_recovered_work(args, state, plan, item, nw)
         result = nw.get("latest_result")
         if not result or result.get("outcome") != "returned" or result.get("attempt_id") != args.attempt:
             raise CoordinatorError(f"work item {args.item} has no returned result for attempt {args.attempt} to integrate")
@@ -4629,6 +4825,36 @@ def _sibling_attributions(plan: dict, state: dict, node_id: str) -> list:
         else:
             attributions.append({"node": oid, "fallback_commit": integ["commit"]})
     return attributions
+
+
+def _integrate_recovered_work(args, state, plan, item, nw):
+    """Earn current verification without pretending an original receipt covered rewritten commits.
+
+    This remains inside work integrate's single completion mutation. The archived receipt and result
+    stay unchanged; a separate record identifies the HEAD on which focused verification was repeated.
+    """
+    events = state.get("rewrite_recoveries", [])
+    event = events[-1] if events else None
+    if not event or args.item not in event["invalidated_nodes"]:
+        raise CoordinatorError("this node has no recorded rewrite invalidation to reverify")
+    original = event["prior_work"].get(args.item, {}).get("integration")
+    if (not original or original["attempt_id"] != args.attempt or nw.get("claim")
+            or nw.get("integration") or args.commit != event["to_commit"] or _head() != args.commit):
+        raise CoordinatorError("recovery integration must name the original attempt and unchanged recovered HEAD, without a new claim")
+    if any(not state["work"].get(dep, {}).get("integration") for dep in item.get("depends_on", [])):
+        raise CoordinatorError("reverify this node's dependencies first")
+    historical = dict(state, work=json.loads(json.dumps(event["prior_work"])))
+    _rederive_restored_receipts(plan, historical)
+    if not original.get("receipt"):
+        raise CoordinatorError("the original node has no reproducible receipt; explicitly retry its work")
+    integration = json.loads(json.dumps(original))
+    integration["focused_verification"] = args.verification_input.strip()
+    integration["recovery_verification"] = {"recovery_id": event["preparation"]["id"], "commit": args.commit}
+    nw["integration"] = integration
+    nw["latest_failure"] = None
+    state["progress"]["completed"] = [p for p in state["progress"]["completed"] if p["id"] != args.item]
+    state["progress"]["completed"].append({"id": args.item, "commit": original["commit"]})
+    return ("integrated", None, [])
 
 
 def _compute_receipt(repo_root: str, plan: dict, state: dict, node_id: str, claim_base: str,
@@ -5617,6 +5843,9 @@ def parser() -> argparse.ArgumentParser:
     repair = sub.add_parser("repair").add_subparsers(dest="repair_command", required=True)
     assess = repair.add_parser("assess"); assess.add_argument("--judgment", choices=["none", "scoped", "full"], required=True); assess.add_argument("--rationale", required=True); assess.add_argument("--guidance", help="The operator's answer when a third or later repair round is proposed; published in the PR body."); assess.add_argument("--lens", action="append"); assess.add_argument("--accept-receipt-loss", action="store_true", help="Re-bind even though recorded repair receipts do not cover the new divergence and will be dropped. Without it the re-bind refuses and names what each lens still owes."); assess.set_defaults(func=cmd_repair_assess)
     reconcile = sub.add_parser("reconcile"); reconcile.add_argument("--plan", required=True); reconcile.set_defaults(func=cmd_reconcile)
+    preparation = reconcile.add_mutually_exclusive_group()
+    preparation.add_argument("--prepare", action="store_true", help="pin and retain an unreviewed Build's source before an intentional rebase")
+    preparation.add_argument("--cancel-preparation", action="store_true", help="cancel a preparation while still on the original Build line")
     preflight = sub.add_parser("preflight"); preflight.add_argument("--pr-body"); preflight.add_argument("--json", action="store_true"); preflight.set_defaults(func=cmd_preflight)
     handoff = sub.add_parser("handoff").add_subparsers(dest="handoff_command", required=True)
     export = handoff.add_parser("export"); export.add_argument("--output", default="-"); export.set_defaults(func=cmd_handoff_export)
@@ -5638,6 +5867,7 @@ def parser() -> argparse.ArgumentParser:
     wretry = work_p.add_parser("retry"); wretry.add_argument("--item", required=True); wretry.add_argument("--strategy", choices=["redispatch", "integrator-inline"], required=True); wretry.add_argument("--reason", required=True); wretry.set_defaults(func=cmd_work_retry)
     wabandon = work_p.add_parser("abandon"); wabandon.add_argument("--item", required=True); wabandon.add_argument("--attempt", required=True); wabandon.add_argument("--reason", required=True); wabandon.set_defaults(func=cmd_work_abandon)
     wintegrate = work_p.add_parser("integrate"); wintegrate.add_argument("--item", required=True); wintegrate.add_argument("--attempt", required=True); wintegrate.add_argument("--commit", required=True); wintegrate.add_argument("--verification-input", required=True); wintegrate.add_argument("--plan", required=True, help="the approved plan; integration enforces the receipt against its declared paths, no-op permission, and sibling attribution"); wintegrate.set_defaults(func=cmd_work_integrate)
+    wintegrate.add_argument("--recovery", action="store_true", help="record fresh verification at the recovered HEAD for an invalidated original integration")
     wstage = work_p.add_parser("stage-digest"); wstage.add_argument("--item", required=True); wstage.add_argument("--plan", required=True); wstage.set_defaults(func=cmd_work_stage_digest)
     return p
 
