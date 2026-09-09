@@ -188,6 +188,15 @@ def clarify_review_execution(store, assignment, root="fixture-root"):
     return store.read()["assignments"][a["id"]]
 
 
+def _entry_observation_fixture(root, repository, number, pr):
+    """Admission seam for tests about other coordinator behavior; real git cases live separately."""
+    return {"observed_at": "2026-09-08T00:00:00Z", "material": {
+        "repository": repository, "pr": number, "head_repository": repository,
+        "head_ref": pr.get("headRefName", "codex/fixture"), "head": pr["headRefOid"],
+        "target_repository": repository, "target_ref": pr.get("baseRefName", "main"),
+        "target_tip": pr.get("baseRefOid") or BASE}}
+
+
 class CoordinatorCase(unittest.TestCase):
     def setUp(self):
         self.temp = tempfile.TemporaryDirectory()
@@ -265,19 +274,22 @@ class CoordinatorCase(unittest.TestCase):
         """
         library = mock.Mock()
         library.resolve.return_value = plan_id
+        library.read_record.return_value = {}
         claim = {'build_id': 'bld_' + '1' * 32, 'generation': 1, 'snapshot': self.state_path}
         def reserve(*args, **kwargs):
             if self.store.path.exists():
                 raise bc.CoordinatorError('snapshot already exists in this unit fixture')
             return claim
-        def finish(library, slug, identity, state, schema):
+        def finish(library, slug, identity, state, schema, **kwargs):
             state['ownership'] = identity
             self.store.create(state)
             return state
         with self.sealed(value, plan_id, sealed_digest), \
                 mock.patch.object(bc, '_library', return_value=library), \
                 mock.patch.object(build_state_store, 'reserve_build', side_effect=reserve) as reservation, \
-                mock.patch.object(build_state_store, 'finish_binding', side_effect=finish):
+                mock.patch.object(build_state_store, 'finish_binding', side_effect=finish), \
+                mock.patch.object(bc.entry, 'observe_fresh', side_effect=_entry_observation_fixture), \
+                mock.patch.object(bc.entry, 'verify_frozen'):
             self.reservation = reservation
             yield
 
@@ -366,6 +378,15 @@ class TestPlanAndSnapshot(CoordinatorCase):
                       "--operator-decision", "go"]):
             with self.assertRaises(SystemExit), contextlib.redirect_stderr(io.StringIO()):
                 parser.parse_args(argv)
+
+    def test_failed_fresh_admission_never_reserves_a_build(self):
+        with self.binding(), mock.patch.object(bc, "_head", return_value=HEAD_A), \
+                mock.patch.object(bc, "_verify_draft", return_value={"headRefOid": HEAD_A}), \
+                mock.patch.object(bc.entry, "observe_fresh", side_effect=bc.CoordinatorError("stale target")), \
+                self.assertRaisesRegex(bc.CoordinatorError, "stale target"):
+            bc.cmd_plan_bind(self.bind_args(), self.store)
+        self.reservation.assert_not_called()
+        self.assertFalse(Path(self.state_path).exists())
 
     def test_bind_initializes_only_for_the_matching_draft_pr_head(self):
         pr = {"number": 7, "state": "OPEN", "isDraft": True, "headRefOid": HEAD_A, "baseRefOid": BASE}
@@ -6226,6 +6247,8 @@ class TestFreshWorktreeBindIsIsolatedFromAPriorSubmittedBuild(unittest.TestCase)
         with mock.patch.object(bc, "ROOT", worktree), \
                 mock.patch.object(bc, "_library", return_value=self.lib), \
                 mock.patch.object(bc, "_verify_draft", return_value=draft), \
+                mock.patch.object(bc.entry, "observe_fresh", side_effect=_entry_observation_fixture), \
+                mock.patch.object(bc.entry, "verify_frozen"), \
                 mock.patch.object(bc, "_head", return_value=HEAD_A), \
                 mock.patch.object(bc.github, "tag_coordinator_owned", return_value=True), \
                 mock.patch.object(bc, "_record_session_binding"), \

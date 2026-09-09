@@ -29,6 +29,7 @@ import build_coordinator_github as github
 import build_coordinator_review as review
 import build_coordinator_spec as spec_service
 import build_coordinator_work as work
+import build_entry_preflight as entry
 import build_review_range as ranges
 import build_state_store
 import ci_gatekeeper
@@ -1147,6 +1148,35 @@ def cmd_plan_bind(args, store: Snapshot) -> None:
             "can be imported from the old one — and seal that. If a v1 Build is already in flight, "
             "finish it on the engine it started on.")
     issue = args.issue
+    library = _library()
+    slug = library.resolve(plan_id)
+    existing = (library.read_record(slug).get('build_lease') or {}).get('current')
+    caller = _expected_identity(args)
+    if caller and (not existing or caller != build_state_store.claim_identity(existing)):
+        raise CoordinatorError('stale Build identity on bind retry; preserve the existing claim and use verified continuation')
+    if existing and existing['state'] == 'active':
+        # A bind retry cannot mint new freshness or consent for work already running.
+        wanted = {'repository': args.repository, 'pull_request': args.pr, 'mode': mode,
+                  'authorizing_issue': issue, 'worktree': str(ROOT.resolve()),
+                  'sealed_digest': sealed_digest, 'build_plan_digest': _digest(plan)}
+        if any(existing.get(k) != v for k, v in wanted.items()):
+            raise CoordinatorError('this plan already has a different Build claim; use state continue with its recorded identity')
+        active = build_state_store.ClaimedBuildStore(library, slug, _state_schema_for,
+            identity=build_state_store.claim_identity(existing))
+        state = active.read()
+        expected_revision = getattr(args, 'expect_revision', None)
+        if expected_revision is not None and expected_revision != state['revision']:
+            raise CoordinatorError('stale Build revision on bind retry; reread the current continuation evidence')
+        reasons = resume_reasons(state)
+        if reasons:
+            raise CoordinatorError('active Build continuation refused: ' + '; '.join(reasons))
+        _record_session_binding(state, pr_number=args.pr)
+        print(json.dumps({'state': existing['snapshot'], 'ownership': state['ownership'],
+                          'revision': state['revision'], 'continuation': True,
+                          'admission': 'original' if state.get('admission') else 'legacy-unverified'}))
+        return
+    if existing and existing['state'] == 'preparing' and not existing.get('admission'):
+        raise CoordinatorError('this legacy preparation has no frozen admission evidence; preserve it, explicitly retire it, then bind fresh (or resume its original migration/adoption)')
     # Profile first, then authorization. Both can be true of one bad bind — a trivial plan handed an
     # Issue and unattended mode breaks two rules at once — and the profile rule is the root cause: it
     # says this plan may not run in this mode AT ALL, so no Issue could have fixed it. Reporting the
@@ -1163,23 +1193,30 @@ def cmd_plan_bind(args, store: Snapshot) -> None:
     # taken here where the Build actually starts. Recorded, not proven (issue 914's residual).
     import moment
     import plan_lifecycle
-    if not getattr(args, "operator_decided", False):
+    if not existing and not getattr(args, "operator_decided", False):
         raise CoordinatorError(plan_lifecycle.missing_consent({}, "bind"))
     consent = plan_lifecycle.attestation("bind", at=moment.utc_now())
     pr = _verify_draft(args.repository, args.pr)
     if pr.get("headRefOid") != _head():
         raise CoordinatorError("the draft PR head does not match this worktree")
+    admission = entry.observe_fresh(ROOT, args.repository, args.pr, pr)
     state = _initial_state(args.repository, args.pr, pr.get("baseRefOid") or _base(), plan_id,
                            sealed_digest, plan, issue, mode)
+    state['admission'] = admission
     # Where this Build's evidence lands. With no --state it goes to the durable store beside its own
     # sealed plan, which is the default because the alternative is what actually happened: a killed
     # Build whose approval, receipts, findings and progress were reconstructed by hand.
-    library = _library()
-    slug = library.resolve(plan_id)
     locator = getattr(args, 'state', None)
-    claim = build_state_store.reserve_build(library, slug, state, consent=consent, locator=locator)
+    claim = build_state_store.reserve_build(library, slug, state, consent=consent, locator=locator,
+        validate_entry=lambda: entry.verify_frozen(ROOT, admission))
+    # Remote facts are refreshed outside the ownership lock. A changed observation cannot activate
+    # the already-reserved snapshot; retirement, not a silent refresh, is its recovery route.
+    confirmed = entry.observe_fresh(ROOT, args.repository, args.pr, _verify_draft(args.repository, args.pr))
+    if entry.material_digest(confirmed) != entry.material_digest(admission):
+        raise CoordinatorError('admission changed after reservation; preserve the preparing claim, explicitly retire it, then bind fresh')
     state = build_state_store.finish_binding(library, slug,
-        build_state_store.claim_identity(claim), state, _state_schema_for)
+        build_state_store.claim_identity(claim), state, _state_schema_for,
+        validate_entry=lambda: entry.verify_frozen(ROOT, admission))
     # Tag the PR the coordinator just adopted, so it carries a durable "coordinator owns this workflow"
     # marker (StarshipSuperjam/engine-template#1014). Best-effort and non-fatal: a labeling failure is
     # disclosed on stderr and the Build proceeds — the stdout below stays a clean machine-readable line.

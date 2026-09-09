@@ -55,7 +55,7 @@ def verify_draft(root: Path, repo: str, pr: int) -> dict:
 
 def pr_state(root: Path, repo: str, pr: int) -> dict:
     return gh_json(root, ["pr", "view", str(pr), "--repo", repo,
-                          "--json", "number,state,isDraft,headRefOid,baseRefOid,mergeable,body,statusCheckRollup"])
+                          "--json", "number,state,isDraft,headRefOid,baseRefOid,headRefName,baseRefName,headRepository,headRepositoryOwner,closingIssuesReferences,mergeable,body,statusCheckRollup"])
 
 
 def required_check(data: dict, context: str) -> tuple:

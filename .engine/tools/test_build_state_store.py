@@ -459,13 +459,18 @@ class TheSeamAnOperatorActuallyCrosses(unittest.TestCase):
             raise bc.CoordinatorError("stop here — the address lookup is what was under test")
 
         head = "a" * 40
-        with mock.patch.object(bc.build_state_store, "reserve_build", reserve), \
+        from test_build_coordinator import _entry_observation_fixture
+        library = mock.MagicMock()
+        library.read_record.return_value = {}
+        with mock.patch.object(bc.entry, "observe_fresh", side_effect=_entry_observation_fixture), \
+                mock.patch.object(bc.entry, "verify_frozen"), \
+                mock.patch.object(bc.build_state_store, "reserve_build", reserve), \
                 mock.patch.object(bc, "_sealed_plan",
                                   return_value=("pln_0123456789ab", "sha256:" + "f" * 64, PLAN)), \
                 mock.patch.object(bc, "_verify_draft",
                                   return_value={"headRefOid": head, "baseRefOid": "0" * 40}), \
                 mock.patch.object(bc, "_head", return_value=head), \
-                mock.patch.object(bc, "_library", return_value=mock.MagicMock()), \
+                mock.patch.object(bc, "_library", return_value=library), \
                 self.assertRaises(bc.CoordinatorError):
             bc.cmd_plan_bind(argparse.Namespace(
                 plan="pln_0123456789ab", repository="o/r", pr=1, issue=None, mode="same-session",
@@ -578,12 +583,19 @@ def _competing_adopt(root, source, target, identity, barrier, outcome):
 
 def _competing_bind(library_root, slug, worktree, locator, pr, barrier, outcome):
     import build_coordinator as bc
+    from test_build_coordinator import _entry_observation_fixture
     library = plan_store.PlanLibrary(Path(library_root))
     stdout, stderr = io.StringIO(), io.StringIO()
+    first_observation = True
     def draft(*args):
-        barrier.wait(timeout=10)
+        nonlocal first_observation
+        if first_observation:
+            barrier.wait(timeout=10)
+            first_observation = False
         return {'headRefOid': 'e' * 40, 'baseRefOid': 'a' * 40}
-    with mock.patch.object(bc, '_library', return_value=library), \
+    with mock.patch.object(bc.entry, 'observe_fresh', side_effect=_entry_observation_fixture), \
+            mock.patch.object(bc.entry, 'verify_frozen'), \
+            mock.patch.object(bc, '_library', return_value=library), \
             mock.patch.object(bc, 'ROOT', Path(worktree)), \
             mock.patch.object(bc, '_head', return_value='e' * 40), \
             mock.patch.object(bc, '_verify_draft', side_effect=draft), \
@@ -979,6 +991,138 @@ class TransactionalOwnership(unittest.TestCase):
         self.assertEqual(Path(record['build_lease']['history'][0]['archive']).read_bytes(), original)
         with self.assertRaises(core.CoordinatorError): self.reserve()
 
+    def _check_active_bind_has_no_new_admission(self, with_admission):
+        import build_coordinator as bc
+        import plan_lifecycle
+        if with_admission:
+            self.state['admission'] = self._entry_observation()
+        claim = self.reserve(); self.finish(claim)
+        snapshot = Path(claim['snapshot'])
+        before = snapshot.read_bytes()
+        record = (self.lib.plan_dir(self.slug) / 'record.json').read_bytes()
+        args = argparse.Namespace(plan=self.state['plan']['plan_id'], mode='same-session',
+            repository=self.state['build']['repository'], pr=self.state['build']['pr'],
+            issue=None, operator_decided=False)
+        with mock.patch.object(bc, 'ROOT', Path(self.state['build']['worktree'])), \
+                mock.patch.object(bc, '_library', return_value=self.lib), \
+                mock.patch.object(bc, '_head', return_value=self.state['plan']['bound_head']), \
+                mock.patch.object(bc, '_is_ancestor', return_value=True), \
+                mock.patch.object(bc, '_record_session_binding'), \
+                mock.patch.object(bc, '_verify_draft', side_effect=AssertionError('must not observe PR')), \
+                mock.patch.object(bc.entry, 'observe_fresh', side_effect=AssertionError('must not admit again')), \
+                mock.patch.object(plan_lifecycle, 'attestation', side_effect=AssertionError('must not mint consent')), \
+                contextlib.redirect_stdout(io.StringIO()) as out:
+            stale_callers = [
+                {'expect_build_id': 'bld_' + 'f' * 32, 'expect_generation': claim['generation']},
+                {'expect_build_id': claim['build_id'], 'expect_generation': claim['generation'] + 1},
+                {'expect_build_id': claim['build_id'], 'expect_generation': claim['generation'],
+                 'expect_revision': self.state['revision'] + 1},
+            ]
+            for stale in stale_callers:
+                with self.subTest(stale=stale), self.assertRaisesRegex(core.CoordinatorError, 'stale Build'):
+                    bc.cmd_plan_bind(argparse.Namespace(**vars(args), **stale), None)
+                self.assertEqual(snapshot.read_bytes(), before)
+                self.assertEqual((self.lib.plan_dir(self.slug) / 'record.json').read_bytes(), record)
+            bc.cmd_plan_bind(args, None)
+        result = json.loads(out.getvalue())
+        self.assertTrue(result['continuation'])
+        self.assertEqual(result['admission'], 'original' if with_admission else 'legacy-unverified')
+        self.assertEqual(snapshot.read_bytes(), before)
+        self.assertEqual((self.lib.plan_dir(self.slug) / 'record.json').read_bytes(), record)
+
+    def test_active_bind_retains_original_admission_without_network_or_consent(self):
+        self._check_active_bind_has_no_new_admission(True)
+
+    def test_legacy_active_bind_continues_without_claiming_new_freshness(self):
+        self._check_active_bind_has_no_new_admission(False)
+
+    def test_preparing_without_admission_refuses_before_network_and_preserves_claim(self):
+        import build_coordinator as bc
+        self.reserve()
+        record_path = self.lib.plan_dir(self.slug) / 'record.json'
+        before = record_path.read_bytes()
+        args = argparse.Namespace(plan=self.state['plan']['plan_id'], mode='same-session',
+            repository=self.state['build']['repository'], pr=self.state['build']['pr'], issue=None)
+        with mock.patch.object(bc, '_library', return_value=self.lib), \
+                mock.patch.object(bc, '_verify_draft', side_effect=AssertionError('must not observe PR')), \
+                self.assertRaisesRegex(core.CoordinatorError, 'no frozen admission'):
+            bc.cmd_plan_bind(args, None)
+        self.assertEqual(record_path.read_bytes(), before)
+
+    def _entry_observation(self):
+        return {'observed_at': '2026-09-08T00:00:00Z', 'material': {
+            'repository': self.state['build']['repository'], 'pr': self.state['build']['pr'],
+            'head_repository': self.state['build']['repository'], 'head_ref': 'codex/build',
+            'head': self.state['plan']['bound_head'],
+            'target_repository': self.state['build']['repository'], 'target_ref': 'main',
+            'target_tip': self.state['build']['base_at_bind'], 'issues': [17],
+            'overlap': {'coverage': 'complete', 'matches': [], 'errors': [],
+                        'local_digest': 'sha256:' + '1' * 64}, 'override': None}}
+
+    def _check_entry_retry(self, after_snapshot):
+        self.state['admission'] = self._entry_observation()
+        original = json.loads(json.dumps(self.state['admission']))
+        claim = self.reserve()
+        identity = build_state_store.claim_identity(claim)
+        if after_snapshot:
+            with mock.patch.object(build_state_store, '_cutover_locked', side_effect=OSError('after snapshot')):
+                with self.assertRaisesRegex(OSError, 'after snapshot'):
+                    self.finish(claim)
+        snapshot = Path(claim['snapshot'])
+        record_path = self.lib.plan_dir(self.slug) / 'record.json'
+        before_record = record_path.read_bytes()
+        before_snapshot = snapshot.read_bytes() if snapshot.exists() else None
+        variants = {
+            'head': 'f' * 40, 'target_tip': 'f' * 40, 'issues': [18],
+            'overlap': {'coverage': 'complete', 'matches': ['another build'], 'errors': [],
+                        'local_digest': 'sha256:' + '2' * 64},
+            'override': {'observation_digest': 'sha256:' + '3' * 64, 'reason': 'changed exception'},
+        }
+        for field, changed in variants.items():
+            with self.subTest(after_snapshot=after_snapshot, field=field):
+                candidate = json.loads(json.dumps(self.state))
+                candidate['admission']['material'][field] = changed
+                candidate['admission']['observed_at'] = '2026-09-09T00:00:00Z'
+                with self.assertRaises(core.CoordinatorError):
+                    build_state_store.reserve_build(self.lib, self.slug, candidate, consent=self.consent)
+                with self.assertRaisesRegex(core.CoordinatorError, 'admission changed'):
+                    build_state_store.finish_binding(self.lib, self.slug, identity, candidate, SCHEMA)
+                self.assertEqual(record_path.read_bytes(), before_record)
+                self.assertEqual(snapshot.read_bytes() if snapshot.exists() else None, before_snapshot)
+        self.state['admission']['observed_at'] = '2026-09-10T00:00:00Z'
+        retried = self.reserve()
+        self.assertEqual(retried['admission'], original)
+        self.assertEqual(retried['admission_digest'], core.digest(original['material']))
+        saved = self.finish(retried)
+        self.assertEqual(saved['admission'], original)
+        self.assertEqual(saved['ownership'], identity)
+        current = self.lib.read_record(self.slug)['build_lease']['current']
+        self.assertEqual(current['state'], 'active')
+        self.assertEqual(current['admission'], original)
+
+    def test_entry_material_cannot_change_after_reservation_and_retry_keeps_original_time(self):
+        self._check_entry_retry(after_snapshot=False)
+
+    def test_entry_material_cannot_change_after_snapshot_write_and_retry_keeps_original_time(self):
+        self._check_entry_retry(after_snapshot=True)
+
+    def test_entry_local_validation_refusals_do_not_reserve_or_activate(self):
+        self.state['admission'] = self._entry_observation()
+        record_path = self.lib.plan_dir(self.slug) / 'record.json'
+        before = record_path.read_bytes()
+        def refuse():
+            raise core.CoordinatorError('local admission inputs moved')
+        with self.assertRaisesRegex(core.CoordinatorError, 'inputs moved'):
+            self.reserve(validate_entry=refuse)
+        self.assertEqual(record_path.read_bytes(), before)
+        claim = self.reserve()
+        reserved = record_path.read_bytes()
+        with self.assertRaisesRegex(core.CoordinatorError, 'inputs moved'):
+            build_state_store.finish_binding(self.lib, self.slug,
+                build_state_store.claim_identity(claim), self.state, SCHEMA, validate_entry=refuse)
+        self.assertEqual(record_path.read_bytes(), reserved)
+        self.assertFalse(Path(claim['snapshot']).exists())
+
     def test_handoff_restores_only_the_live_generation_at_its_canonical_address(self):
         import build_coordinator as bc
         from test_build_coordinator import TestPreflightHandoffAndSubmission
@@ -1229,11 +1373,14 @@ class TransactionalOwnership(unittest.TestCase):
 
     def test_unattended_reservation_only_cli_retry_keeps_mode_and_issue(self):
         import build_coordinator as bc
+        from test_build_coordinator import _entry_observation_fixture
         locator = self.root / 'locator.json'
         common = ['--state', str(locator), 'plan', 'bind', '--plan', self.slug,
                   '--repository', 'o/r', '--pr', '1', '--operator-decided']
         original = common + ['--mode', 'unattended', '--issue', '41']
-        with mock.patch.object(bc, '_library', return_value=self.lib), \
+        with mock.patch.object(bc.entry, 'observe_fresh', side_effect=_entry_observation_fixture), \
+                mock.patch.object(bc.entry, 'verify_frozen'), \
+                mock.patch.object(bc, '_library', return_value=self.lib), \
                 mock.patch.object(bc, 'ROOT', Path(self.state['build']['worktree'])), \
                 mock.patch.object(bc, '_head', return_value='e' * 40), \
                 mock.patch.object(bc, '_verify_draft', return_value={'headRefOid': 'e' * 40, 'baseRefOid': 'a' * 40}), \
@@ -1257,6 +1404,7 @@ class TransactionalOwnership(unittest.TestCase):
         saved = core.json_file(Path(claim['snapshot']))
         self.assertEqual(saved['ownership'], build_state_store.claim_identity(claim))
         self.assertEqual((saved['build']['mode'], saved['plan']['authorizing_issue']), ('unattended', 41))
+        self.assertEqual(saved['admission'], claim['admission'])
         self.assertEqual(sum(c['gate'] == 'bind' for c in self.lib.read_record(self.slug)['consent']), 1)
 
     def test_single_plan_operations_take_snapshot_locks_in_the_declared_path_order(self):
