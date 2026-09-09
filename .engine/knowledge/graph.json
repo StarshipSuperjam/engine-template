@@ -5211,7 +5211,7 @@
       },
       "slug": "ci-assurance",
       "source": {
-        "fingerprint": "sha256:50ca7e978866e637c98203048442c766cd06f987dc98a5780821301ae7996633",
+        "fingerprint": "sha256:2577e899982d5482e80c646eea2738a10187ae520ec5b4960e4d347925fad08c",
         "path": ".engine/docs/ci-assurance.md"
       },
       "status": "active",
@@ -9145,7 +9145,7 @@
       },
       "slug": "agent_coherence_check",
       "source": {
-        "fingerprint": "sha256:82822b226ae63cdb94026afc95e7d32c0ad9cb4acbbca9c985ac43ac73a9a508",
+        "fingerprint": "sha256:a94754ff810cd7aed515437708a3db131454436bfa6379443af7cdd8877dc51a",
         "path": ".engine/tools/agent_coherence_check.py"
       },
       "status": "active",
@@ -9350,7 +9350,7 @@
       },
       "slug": "block_coherence_check",
       "source": {
-        "fingerprint": "sha256:a96685a0b5dd3858123ebf3bb574cd0ce018bdb1d9864738338141df2b3828e3",
+        "fingerprint": "sha256:d8d1b55927c73088cbbc79aa7ad302f83a4918fea587818481422e02351db19f",
         "path": ".engine/tools/block_coherence_check.py"
       },
       "status": "active",
@@ -10374,7 +10374,7 @@
       },
       "slug": "conduct_shape_check",
       "source": {
-        "fingerprint": "sha256:917e52d3f64c38d53f1287f10a46667d771f00885d2a3879df9795e769684efb",
+        "fingerprint": "sha256:07dceb880ac1616e60fce8f971547df0f3e99ded7a973d6fbb52ecc0f93936f5",
         "path": ".engine/tools/conduct_shape_check.py"
       },
       "status": "active",
@@ -10397,7 +10397,7 @@
       },
       "slug": "conduct_weakening_check",
       "source": {
-        "fingerprint": "sha256:352ede8cb63ac0e2636a4c23f4511bf0b36263c1adabfe2ccc1d1906d386f00c",
+        "fingerprint": "sha256:dc1db8f34f361d875317369e3470b20b8d7369aa93df03baf19bb305e0c20cca",
         "path": ".engine/tools/conduct_weakening_check.py"
       },
       "status": "active",
@@ -12818,7 +12818,7 @@
       },
       "slug": "interface_coherence_check",
       "source": {
-        "fingerprint": "sha256:82c5308a59ba40ddc485cfc86a82cf0c584a8086e93e62565e0206748f69eaf3",
+        "fingerprint": "sha256:8939c4be33ef4a7d77473f018d06d907b4d2e8e0e20397603671249a47f8a759",
         "path": ".engine/tools/interface_coherence_check.py"
       },
       "status": "active",
@@ -13126,7 +13126,7 @@
       },
       "slug": "knowledge_vocabulary_check",
       "source": {
-        "fingerprint": "sha256:cc5fb9ba0b41d152fcc236f8075b6de8cd0cbdfa3bbb92983fa9a727486f1cd5",
+        "fingerprint": "sha256:7b6611fe9990d5987b5fb63b72ead2093e0df95d27bc53f596789ca34ba4444d",
         "path": ".engine/tools/knowledge_vocabulary_check.py"
       },
       "status": "active",
@@ -13941,7 +13941,7 @@
       },
       "slug": "operator_guarded_paths_check",
       "source": {
-        "fingerprint": "sha256:39b63f6b0de1c1df6bc03cdc3c62ff95978628cdfbee749e5245b1c191b03710",
+        "fingerprint": "sha256:2c919702809f6e1acc7ebec6c414b8a898e4dd1515f024a0e18ffce0b26a9781",
         "path": ".engine/tools/operator_guarded_paths_check.py"
       },
       "status": "active",
@@ -13965,7 +13965,7 @@
       },
       "slug": "operator_local_references_check",
       "source": {
-        "fingerprint": "sha256:ffa2920177f56e01f76389aebb0b55327355271baa250727dc338a107d275858",
+        "fingerprint": "sha256:dd9776052c6bba466579b1fc78f516dee744af1bd2327ec6194ab41ba340041a",
         "path": ".engine/tools/operator_local_references_check.py"
       },
       "status": "active",
@@ -14220,7 +14220,7 @@
       },
       "slug": "policy_override_check",
       "source": {
-        "fingerprint": "sha256:73caf1f2b32f85b8411b3747e3f506a57d277dd7b8454a6a276058140698ecbb",
+        "fingerprint": "sha256:4743707c9b18812a312664c4fb105e512b58ac3cf3bc1fd90817893f6be164d3",
         "path": ".engine/tools/policy_override_check.py"
       },
       "status": "active",
@@ -14433,7 +14433,8 @@
       "predicates": {
         "imports": [
           "tool:github_client",
-          "tool:repo_identity"
+          "tool:repo_identity",
+          "tool:validate"
         ],
         "provided_by": [
           "module:core"
@@ -14441,7 +14442,7 @@
       },
       "slug": "protection_guard",
       "source": {
-        "fingerprint": "sha256:146fef03b8f3064ee04068ddb33f9d606396e3520addaa6cf6693a0a0edf08bf",
+        "fingerprint": "sha256:0025b1441e0ade0e0fcabc2bb2ed4a56d5dc86d56c1517160a460b7f092e48f3",
         "path": ".engine/tools/protection_guard.py"
       },
       "status": "active",
@@ -14768,7 +14769,7 @@
       },
       "slug": "release_integrity_check",
       "source": {
-        "fingerprint": "sha256:e0c4d0cfaaaa7dc26f40a406ef4aca0a78d4881488a0f17b2a9eee3f548a5cfd",
+        "fingerprint": "sha256:99f881285e0df66fdb9c70280af1059cec098adb6f6553893a52bb5ddbf4354d",
         "path": ".engine/tools/release_integrity_check.py"
       },
       "status": "active",
@@ -15255,7 +15256,7 @@
       },
       "slug": "self_map_check",
       "source": {
-        "fingerprint": "sha256:438dc416164fb01e434c8f9681f6023399b679559318f3321c536609ec07e71d",
+        "fingerprint": "sha256:f6d74894c1be5b39c737bfa55052df11f539771163eb8002b4778cec40ddac86",
         "path": ".engine/tools/self_map_check.py"
       },
       "status": "active",
@@ -15516,7 +15517,7 @@
       },
       "slug": "skill_coherence_check",
       "source": {
-        "fingerprint": "sha256:6c3eee228e6b78dd1eb26590282bbf00ce7ae5357a0888379711c1c1d8343f61",
+        "fingerprint": "sha256:b34114f462583a50de95b29a8fe23de6d12d812c913b748edc0d6ef3508f1358",
         "path": ".engine/tools/skill_coherence_check.py"
       },
       "status": "active",
@@ -16644,6 +16645,26 @@
       },
       "status": "active",
       "summary": "Self-tests for the change classifier: the declared floor, the fail-closed vocabulary, and the git seam.",
+      "type": "tool"
+    },
+    {
+      "entrypoint": "test",
+      "guarded": false,
+      "id": "tool:test_check_cli",
+      "name": ".engine/tools/test_check_cli.py",
+      "owner": "core",
+      "predicates": {
+        "provided_by": [
+          "module:core"
+        ]
+      },
+      "slug": "test_check_cli",
+      "source": {
+        "fingerprint": "sha256:57baf5b75609104dc5ad2dfe6fc12abf60b32530d9b54f293316d966b33cde70",
+        "path": ".engine/tools/test_check_cli.py"
+      },
+      "status": "active",
+      "summary": "Bounded executable help regressions for the L3-7 finding-check roster.",
       "type": "tool"
     },
     {
@@ -21333,7 +21354,7 @@
       },
       "slug": "test_validate",
       "source": {
-        "fingerprint": "sha256:ef75daf0f69cb08f4ae0a582d21cf707b5ccc960876d5e125add589aec5f1e1e",
+        "fingerprint": "sha256:ce7ec565b76c1da1ff407488c9d9ff5573d5ca72e9f0e1b0289988e3230ad76e",
         "path": ".engine/tools/test_validate.py"
       },
       "status": "active",
@@ -21754,7 +21775,7 @@
       },
       "slug": "validate",
       "source": {
-        "fingerprint": "sha256:d57da7a839637590ceb03468d5e8d96c7d393cbe71a52886f4d2235bb7cc996e",
+        "fingerprint": "sha256:df5ea35e885bee207b47dd469945493b9da7eb1c663fa2b4917c0e4713c6334d",
         "path": ".engine/tools/validate.py"
       },
       "status": "active",
@@ -21787,7 +21808,8 @@
       "owner": "core",
       "predicates": {
         "imports": [
-          "tool:github_client"
+          "tool:github_client",
+          "tool:validate"
         ],
         "provided_by": [
           "module:core"
@@ -21795,7 +21817,7 @@
       },
       "slug": "weakening_guard",
       "source": {
-        "fingerprint": "sha256:a54d82523374ec07783b08cf761d19bbd8dc9cf77fe4d05dff859a2d2dd4ed28",
+        "fingerprint": "sha256:335ec5ceecd05eed82e7fb0f46a495e9f36e74ec8a3442cd4a1fafa326dc0678",
         "path": ".engine/tools/weakening_guard.py"
       },
       "status": "active",
