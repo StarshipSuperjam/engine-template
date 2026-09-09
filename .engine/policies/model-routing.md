@@ -74,7 +74,15 @@ about the engine choosing a *model* on its own, which review depth never does. D
 and pass) still holds.
 
 To retune the fleet's models, edit `.engine/policies/model-bindings.json`: each capability tier (`judgment`,
-`mechanical`) and each per-persona override binds a model and an effort (`low`/`medium`/`high`). The top-level
+`mechanical`) and each per-persona override binds a model, with execution effort chosen from
+`low`, `medium`, `high`, `xhigh`, `max`, or `ultra`. A model-only override inherits tier effort
+for execution personas; reviewer renders omit effort regardless of the tier or override.
+The model-bindings schema owns this finite vocabulary, and the binding resolver consumes it.
+Acceptance means the Engine can represent and render the value; support still depends on the
+selected provider and model. Adding a value does not retune any existing persona or certify
+a provider/model combination. The higher values are described in the
+[Codex subagent documentation](https://learn.chatgpt.com/docs/agent-configuration/subagents);
+choose only values supported by the model and runtime you intend to use. The top-level
 tiers/overrides retain Claude's durable aliases; `providers.codex` holds native Codex model identifiers.
 Worker choices remain in `implementation_classes`. Run `uv run --directory .engine --frozen -- python
 tools/agent_bindings.py render` and `uv run --directory .engine --frozen -- python tools/codex_gen.py generate`
