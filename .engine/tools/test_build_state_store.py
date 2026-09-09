@@ -832,6 +832,30 @@ class TransactionalOwnership(unittest.TestCase):
             finally:
                 case.doCleanups()
 
+    def test_pending_closure_retry_preserves_the_recorded_action(self):
+        import project_manager as pm
+        claim = self.reserve(); self.finish(claim)
+        identity = build_state_store.claim_identity(claim)
+        actual = core.atomic_write
+        def stop_archive(path, *args, **kwargs):
+            if Path(path).name.startswith('retired-'):
+                raise OSError('archive boundary')
+            return actual(path, *args, **kwargs)
+        with mock.patch.object(core, 'atomic_write', side_effect=stop_archive):
+            with self.assertRaisesRegex(OSError, 'archive boundary'):
+                pm.close_plan_record(self.lib, self.slug, 'abandoned', 'operator stopped',
+                                     identity=identity, expected_revision=1)
+        pending = self.lib.read_record(self.slug)['build_lease']['current']
+        self.assertEqual(pending['state'], 'retiring')
+        self.assertEqual(pending['close_state'], 'abandoned')
+        with self.assertRaisesRegex(core.CoordinatorError, 'recorded plan closure'):
+            pm.close_plan_record(self.lib, self.slug, 'retired', 'operator stopped',
+                                 identity=identity, expected_revision=1)
+        self.assertEqual(self.lib.read_record(self.slug)['build_lease']['current'], pending)
+        pm.close_plan_record(self.lib, self.slug, 'abandoned', 'operator stopped',
+                             identity=identity, expected_revision=1)
+        self.assertEqual(self.lib.read_record(self.slug)['closure']['state'], 'abandoned')
+
     def test_cli_adoption_retry_recovers_source_when_successor_closed_before_reservation(self):
         import build_coordinator as bc
         import project_manager as pm
