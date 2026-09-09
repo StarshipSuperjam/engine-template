@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Reviewer-only stdio MCP reader; no command or write tool is exposed.
+"""Compact stdio MCP reader for reviews; no command or write tool is exposed.
 
 Repository text is confined to the checkout containing this server. Outside it, only an exact
 registered frozen packet or supplement in the canonical PlanLibrary is readable. The companion is
@@ -134,7 +134,7 @@ def read_file(path: str, offset: StrictInt = 0, limit: StrictInt | None = None) 
 
 def main(argv: list[str] | None = None) -> int:
     argv = list(argv or [])
-    usage = "usage: review_reader.py [--help]\nReviewer-only read_file MCP tool; bare invocation serves stdio."
+    usage = "usage: review_reader.py [--help]\nRead-only read_file MCP tool; bare invocation serves stdio."
     if "--help" in argv or "-h" in argv:
         print(usage)
         return 0

@@ -472,6 +472,26 @@
       }
     },
     {
+      "type": "codex-mcp",
+      "name": "engine-review-reader",
+      "definition": {
+        "command": "uv",
+        "args": [
+          "run",
+          "--directory",
+          ".engine",
+          "--frozen",
+          "--",
+          "python",
+          "tools/review_reader.py"
+        ],
+        "enabled_tools": [
+          "read_file"
+        ],
+        "default_tools_approval_mode": "auto"
+      }
+    },
+    {
       "type": "codex-hook",
       "event": "SessionStart",
       "matcher": "startup",

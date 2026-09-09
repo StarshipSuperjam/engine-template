@@ -8,6 +8,12 @@ Use the installed runtime's native agent tools and the existing commands in
 [Scoped native agents](../operations/scoped-agent-orchestration.md). Give every new assignment a fresh
 context and unique packet. Do not run this against production review receipts or held work.
 
+On Codex, confirm the project's installed `engine-review-reader` exposes its single `read_file` tool.
+Use it to read complete packets and supplements without shell commands; partial source reads are
+useful for inspection but cannot establish a complete packet read. The project-level registration
+also makes the reader discoverable to other sessions. Record actual catalog exposure when measuring
+context overhead; definition size alone cannot establish billed tokens.
+
 ## Prepare variable inputs
 
 Create a private temporary directory. Generate a new random witness for every packet and choose different

@@ -930,6 +930,23 @@ class TestCodexHookSeam(_Redirected):
 
 
 class TestCodexMcpSeam(_Redirected):
+    def test_review_reader_wire_is_codex_only_narrow_and_reversible(self):
+        manifest = os.path.join(os.path.dirname(__file__), "..", "modules", "core", "manifest.json")
+        with open(manifest, encoding="utf-8") as stream:
+            wires = json.load(stream)["wires"]
+        readers = [w for w in wires if w.get("name") == "engine-review-reader"]
+        self.assertEqual(len(readers), 1)
+        wire = readers[0]
+        self.assertEqual(wire["type"], "codex-mcp")
+        self.assertEqual(wire["definition"]["enabled_tools"], ["read_file"])
+        self.assertEqual(wire["definition"]["args"][-1], "tools/review_reader.py")
+        wiring.apply(CODEX_MCP)
+        before = _read(wiring.CODEX_CONFIG_PATH)
+        wiring.apply(wire)
+        self.assertIn("engine-review-reader", self._parsed()["mcp_servers"])
+        wiring.reverse(wire)
+        self.assertEqual(_read(wiring.CODEX_CONFIG_PATH), before)
+
     def _parsed(self):
         import tomllib
         return tomllib.loads(_read(wiring.CODEX_CONFIG_PATH))

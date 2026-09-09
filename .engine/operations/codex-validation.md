@@ -254,8 +254,8 @@ local-file reader exists, while retaining the read-only sandbox request and proh
 of project code, scripts, tests, shell substitutions, pipelines, redirection and writes. Claude's
 actual Bash denylist and other roles would stay as they are. Automatic approval review rejected
 applying this proposal as a persistent weakening of the planning roles' shell prohibition without
-explicit operator authorization. No generator or generated-role change was made. That decision
-is outstanding; do not claim the planning-review candidate case passed or work around the refusal.
+explicit operator authorization. That fallback was not applied. The operator subsequently chose a
+mechanically read-only MCP reader while retaining the planning roles' shell prohibition.
 
 
 The unaffected Build gate passed with fresh QA child `01a087f6-ad64-76a1-b0f8-7e3dfab03793`,
@@ -281,5 +281,29 @@ printed the full packet but earned no read credit. One necessary supplement and 
 produced successful supplement and original-packet reads, followed by result 126 with the original
 witness. Verification passed with the failed attempt retained; the real finish command completed
 the assignment. Prior assignments and reports stayed unchanged and no pending traffic remained.
-This repair does not grant shell permission to the blocked planning role, whose proposed exception
-still needs operator authorization.
+This repair does not grant shell permission to the planning role.
+
+The dedicated reader passed 14 protocol and boundary tests, including an actual stdio handshake,
+bounded UTF-8 reads, registered external packets, escaping links, special files, changed digests and
+line-range reads. A whole packet remains mandatory for evidence credit; partial responses do not count.
+The initial reviewer-local registration failed on actual Desktop child
+`01a08870-64cf-73a0-8134-27c8a6102f53`: it received the new instructions but no reader tool, and the
+companion retained `read: null`. Codex tag `rust-v0.153.4`,
+`codex-rs/core/src/agent/role.rs`, applies a bounded `AgentRoleOverrides` without `mcp_servers`; this
+explains the observation despite the broader current documentation example. No read was backfilled.
+
+The operator then explicitly approved project-level registration and measuring its context overhead.
+The core manifest now registers one `read_file` tool through the existing Codex MCP wire; Claude's
+configuration is unchanged, and the ineffective per-role server blocks were removed. Other Codex
+sessions can discover the same reader: do not describe this as reviewer-only availability or zero
+context overhead. The adjusted reader/generator/wiring/provider suite passed 232 tests and module
+coherence passed. After project registration, the same previously blocked child read its original
+packet and clarification through native `mcp__engine_review_reader__read_file` calls. The recorded
+continuation was dispatched and delivered; the child completed an architecture review without shell
+commands, and the actual Project Manager accepted its observed receipt. This proves recovery of the
+original assignment, not another independent review. The earlier absence of a read remains recorded.
+
+In this Desktop test, the reader definition was absent from the root's initial explicit tool list
+and discoverable through `ALL_TOOLS`. Discovery returned one definition totaling 351 characters,
+including a 153-character TypeScript declaration. This measures catalog size and observed deferred
+exposure, not billed tokens or every runtime's initial context. Exact billing overhead was unavailable.

@@ -181,12 +181,6 @@ def render_agent(src_path: str, root: str | None = None) -> str:
         if fm.get("role") not in agent_bindings.EFFORT_UNPINNED_ROLES:
             lines.append(f'model_reasoning_effort = "{binding["effort"]}"')
     lines += [f"developer_instructions = {json.dumps(instructions)}", ""]
-    if fm.get("role") == "plan-review":
-        # Role-local registration: ordinary sessions never receive this tool definition.
-        # Keep the native no-shell prohibition; the server exposes no execution or write tool.
-        lines += ['[mcp_servers.engine-review-reader]', 'command = "uv"',
-                  'args = ["run", "--directory", ".engine", "--frozen", "--", "python", "tools/review_reader.py"]',
-                  'enabled_tools = ["read_file"]', 'required = true', ""]
     return "\n".join(lines)
 
 
