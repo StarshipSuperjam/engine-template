@@ -81,9 +81,12 @@ VALIDATE_USAGE = """Usage: validate.py [--suite NAME] [--pr-body-file PATH] [--c
        validate.py hook | accept-hook | demo | demo-kinds | --files PATH [PATH ...]
 
 Run the CI suite by default.  Use --suite to select a suite, --check to run one
-rule, --pr-body-file to provide a pull-request body, or the named operational
-routes above.  Pass --help or -h anywhere to show this help without running a
-check or hook.
+rule, or --pr-body-file to provide a pull-request body.
+hook and accept-hook read hook-event JSON from standard input for pre-commit
+and touched-file advice.  --files runs an advisory subset of pre-commit checks
+for the supplied paths.  demo exercises validation; demo-kinds checks module
+check-kind discovery.  Pass --help or -h anywhere to show this help without
+running a check or hook.
 """
 
 
