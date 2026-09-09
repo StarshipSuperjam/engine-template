@@ -450,8 +450,11 @@ class ProgramVerbs(_ProgramSurface):
         self.assertIn("strand that Build", str(caught.exception))
         # Nothing was written: raising from inside the mutator must abort before the record lands.
         self.assertIsNone(self.lib.read_record(slug_b).get("closure"))
-        # And without the flag the same call writes, so the fixture is testing the guard and not
-        # some unrelated refusal standing in front of it.
+        # Ordinary closure also refuses unowned legacy evidence; it cannot bypass the interlock.
+        with self.assertRaisesRegex(project_manager.ProjectManagerError, 'close its exact identity'):
+            project_manager.close_plan_record(self.lib, slug_b, "retired", "replaced")
+        self.assertIsNone(self.lib.read_record(slug_b).get('closure'))
+        self.lib.update_record(slug_b, lambda r: r.update(build_binding=None))
         project_manager.close_plan_record(self.lib, slug_b, "retired", "replaced")
         self.assertEqual(self.lib.read_record(slug_b)["closure"]["state"], "retired")
 

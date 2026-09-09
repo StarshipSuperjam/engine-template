@@ -114,7 +114,8 @@ def assert_revision(actual: int, expected: int | None, what: str, remedy: str) -
         raise CoordinatorError(f"{what} revision is {actual}, not expected {expected}; {remedy}")
 
 
-def atomic_write(path: Path, text: str, *, durable: bool = False, mode: int | None = None) -> None:
+def atomic_write(path: Path, text: str, *, durable: bool = False, mode: int | None = None,
+                 require_directory_flush: bool = False) -> None:
     """Write `text` to `path` so a reader sees either the whole old file or the whole new one.
 
     Write to a temp file in the SAME directory (a cross-filesystem rename is not atomic), flush,
@@ -148,7 +149,11 @@ def atomic_write(path: Path, text: str, *, durable: bool = False, mode: int | No
             # A directory flush that the platform declines is normal on some filesystems, so this one
             # is not fatal — the file itself is already durable, and only the rename's ordering is
             # at risk. Not worth refusing a write over; worth not pretending it happened either.
-            fsync_dir(path.parent)
+            flushed = fsync_dir(path.parent)
+            if require_directory_flush and not flushed:
+                raise CoordinatorError(
+                    f"the replacement at {path} is visible but its directory could not be flushed; "
+                    "durability is uncertain. Retry the recorded transaction; do not start another Build.")
     finally:
         if os.path.exists(temp_name):
             os.unlink(temp_name)
@@ -411,9 +416,9 @@ def write_json_artifact(prefix: str, value: Any) -> tuple[str, str]:
     return str(path), value_digest
 
 
-def write_private_path(path: Path, rendered: str) -> None:
+def write_private_path(path: Path, rendered: str, *, replace: bool = True) -> None:
     """Write a caller-selected artifact atomically and owner-read/write only."""
-    path = path.resolve()
+    path = path.resolve() if replace else path.absolute()
     path.parent.mkdir(parents=True, exist_ok=True)
     fd, temporary = tempfile.mkstemp(prefix=path.name + ".", dir=path.parent)
     try:
@@ -422,7 +427,15 @@ def write_private_path(path: Path, rendered: str) -> None:
             handle.write(rendered)
             handle.flush()
             os.fsync(handle.fileno())
-        os.replace(temporary, path)
+        if replace:
+            os.replace(temporary, path)
+        else:
+            # Publish the complete artifact only if the name is still unused. A pre-check
+            # followed by replace would race another creator and could destroy its evidence.
+            try:
+                os.link(temporary, path)
+            except FileExistsError as exc:
+                raise CoordinatorError('export destination already exists; choose a new output path') from exc
     finally:
         if os.path.exists(temporary):
             os.unlink(temporary)
@@ -539,6 +552,7 @@ class RevisionedStore:
 
     durable = False
     file_mode: int | None = None
+    require_directory_flush = False
     what = "snapshot"
     missing_remedy = "there is nothing to read"
     stale_remedy = "re-read it"
@@ -573,9 +587,18 @@ class RevisionedStore:
 
     def create(self, state: dict) -> None:
         with self._locked():
+            self._check_write(state, creating=True)
             if self.path.exists():
                 raise CoordinatorError(f"{self.what} already exists at {self.path}")
             self._write(state)
+
+    def verify_mutation_entry(self) -> None:
+        """Check ownership and revision before command side effects; writes still check again."""
+        with self._locked():
+            state = forward_migrate(json_file(self.path))
+            validate(state, self._schema_for(state))
+            self._check_write(state, creating=False)
+            assert_revision(state['revision'], self.expected_revision, 'snapshot', self.stale_remedy)
 
     def mutate(self, change: Callable[[dict], Any], *, from_revision: int | None = None) -> Any:
         with self._locked():
@@ -583,17 +606,65 @@ class RevisionedStore:
                 raise CoordinatorError(f"no {self.what} at {self.path}; {self.missing_remedy}")
             state = forward_migrate(json_file(self.path))
             validate(state, self._schema_for(state))
+            self._check_write(state, creating=False)
             expected = self.expected_revision if self.expected_revision is not None else from_revision
             assert_revision(state["revision"], expected, "snapshot", self.stale_remedy)
             result = change(state)
+            self._check_write(state, creating=False)
             state["revision"] += 1
             self._write(state)
+            if self.expected_revision is not None:
+                self.expected_revision = state["revision"]
             return result
+
+    def _check_write(self, state: dict, *, creating: bool) -> None:
+        """Ownership seam for plan-owned stores, called while their locks are held."""
+
+    def retire(self, archive: Path, *, validate_owner, prepare) -> dict:
+        """Retire under this store's permanent lock; callbacks compose the plan transaction.
+
+        The caller enters with any parent ownership locks held. `prepare` journals the terminal
+        reason after locked validation and before archive writes. A completed rename with an
+        unfinished journal is retryable from the archive; an unrelated archive is never replaced.
+        The sibling lock is never removed, including when the active file is gone.
+        """
+        with self._locked():
+            return self.retire_locked(archive, validate_owner=validate_owner, prepare=prepare)
+
+    def retire_locked(self, archive: Path, *, validate_owner, prepare) -> dict:
+        """The same retirement while a multi-store transaction already holds this store's lock."""
+        archive = Path(archive).resolve()
+        if archive in (self.path, self.lock) or archive.parent != self.path.parent:
+            raise CoordinatorError('retirement archives must stay beside their snapshot on the same filesystem')
+        source_exists = self.path.is_file()
+        if self.path.exists() and not source_exists:
+            raise CoordinatorError('the snapshot slot is not a regular file; recover its evidence before retirement')
+        if not source_exists and not archive.is_file():
+            raise CoordinatorError('snapshot and retirement archive are missing; recover the evidence before retrying')
+        state = forward_migrate(json_file(self.path if source_exists else archive))
+        validate(state, self._schema_for(state))
+        assert_revision(state['revision'], self.expected_revision, 'snapshot', self.stale_remedy)
+        validate_owner(state)
+        if source_exists and archive.exists():
+            previous = forward_migrate(json_file(archive))
+            if digest(previous) != digest(state):
+                raise CoordinatorError('retirement archive contains different evidence; neither copy was changed')
+        if self.path.parent.stat().st_dev != archive.parent.stat().st_dev:
+            raise CoordinatorError('cross-filesystem retirement is unsupported; source evidence is unchanged')
+        prepare(state)
+        atomic_write(archive, json.dumps(state, indent=2, sort_keys=True) + '\n',
+                     durable=True, mode=0o600, require_directory_flush=True)
+        if source_exists:
+            self.path.replace(archive)
+        if not fsync_dir(archive.parent):
+            raise CoordinatorError('retirement rename is visible but not durably confirmed; retry its recorded transaction')
+        return state
 
     def _write(self, state: dict) -> None:
         validate(state, self._schema_for(state))
         atomic_write(self.path, json.dumps(state, indent=2, sort_keys=True) + "\n",
-                     durable=self.durable, mode=self.file_mode)
+                     durable=self.durable, mode=self.file_mode,
+                     require_directory_flush=self.require_directory_flush)
 
 
 class StateStore(RevisionedStore):

@@ -35,6 +35,7 @@ Run: uv run --directory .engine -- python tools/demo_plan_to_ready_pr.py
 """
 from __future__ import annotations
 
+import io
 import json
 import os
 import shutil
@@ -42,6 +43,9 @@ import stat
 import subprocess
 import sys
 import tempfile
+import unittest
+from pathlib import Path
+from unittest import mock
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import build_coordinator as bc  # noqa: E402 — the real coordinator, for schema-true seeding only
@@ -127,15 +131,31 @@ def _document(plan_id, title, revision=1, payload=None, **over):
     return document
 
 
+def _demo_env():
+    # git -C alone does not override inherited repository/config selectors.
+    env = {k: v for k, v in os.environ.items() if not k.startswith("GIT_")}
+    env.update(GIT_CONFIG_NOSYSTEM="1", GIT_CONFIG_GLOBAL=os.devnull)
+    return env
+
+
 def _git(root, *args):
-    return subprocess.run(["git", "-C", root, *args], capture_output=True, text=True, check=False)
+    return subprocess.run(["git", "-C", root, *args], capture_output=True, text=True,
+                          check=False, env=_demo_env())
+
+
+def _copy_ignore(directory, names):
+    ignored = shutil.ignore_patterns(".git", ".venv", ".uv", "__pycache__", "*.pyc", ".pytest_cache")(directory, names)
+    for name in set(names) - ignored:
+        if os.path.islink(os.path.join(directory, name)):
+            raise ValueError("demo refuses a source symlink: " + os.path.join(directory, name))
+    return ignored
 
 
 def _throwaway(holder):
     """A committed git copy of this repo, a throwaway plan library, and a fake `gh` on PATH."""
     copy = os.path.join(holder, "repo")
     shutil.copytree(validate.ROOT, copy, symlinks=True,
-                    ignore=shutil.ignore_patterns(".git", ".venv", "__pycache__", "*.pyc", ".pytest_cache"))
+                    ignore=_copy_ignore)
     _git(copy, "init", "-q", "-b", "main")
     _git(copy, "add", "-A")
     _git(copy, "-c", "user.email=e@x", "-c", "user.name=n", "commit", "-q", "-m", "seed (copy of this repo)")
@@ -156,7 +176,7 @@ def _throwaway(holder):
                                           "conclusion": "SUCCESS",
                                           "completedAt": "2026-08-25T00:00:00Z"}]}, fh)
 
-    env = dict(os.environ)
+    env = _demo_env()
     env["PATH"] = bin_dir + os.pathsep + env.get("PATH", "")
     env["DEMO_PR_STATE"] = pr_state
     env["ENGINE_PLAN_DIR"] = os.path.join(holder, "plans")
@@ -173,8 +193,16 @@ def _plan_cmd(copy, env, *args):
     return _tool(copy, "project_manager.py", env, *args)
 
 
-def _build_cmd(copy, env, state_path, *args):
-    return _tool(copy, "build_coordinator.py", env, "--state", state_path, *args)
+def _build_cmd(copy, env, state_path, *args, ownership=None):
+    expected = []
+    if ownership is not None:
+        # Keep bind's identity; only refresh the revision from its canonical evidence.
+        with open(state_path, encoding="utf-8") as fh:
+            revision = json.load(fh)["revision"]
+        expected = ["--expect-build-id", ownership["build_id"],
+                    "--expect-generation", str(ownership["generation"]),
+                    "--expect-revision", str(revision)]
+    return _tool(copy, "build_coordinator.py", env, "--state", state_path, *expected, *args)
 
 
 def _pass(label, ok, detail):
@@ -233,7 +261,7 @@ def _arc_one(copy, head, env, pr_state, holder):
     ok &= _pass("cannot seal what nobody approved", early.returncode != 0,
                 "the seal refuses: " + (early.stdout + early.stderr).strip().splitlines()[-1][:96])
 
-    state_path = os.path.join(tempfile.mkdtemp(prefix="entry-door-state-"), "state.json")
+    state_path = os.path.join(holder, "arc1-state.json")
     unsealed = _build_cmd(copy, env, state_path, "plan", "bind", "--plan", plan_id,
                           "--repository", REPO, "--pr", str(PR),
                           "--operator-decided")
@@ -286,14 +314,23 @@ def _arc_one(copy, head, env, pr_state, holder):
     ok &= _pass("the Build binds to that seal", bound.returncode == 0,
                 "the Build is anchored to the sealed plan, not to a document handed over in chat")
 
+    if bound.returncode != 0:
+        return False
+    binding = json.loads(bound.stdout)
+    state_path = binding["state"]
+    ownership = binding["ownership"]
+
+    def build(*args):
+        return _build_cmd(copy, env, state_path, *args, ownership=ownership)
+
     # The Build records the depth the plan was approved at, against the payload it is executing. The
     # DECISION was made once, on the plan side, with the whole plan rendered; this is the Build writing
     # that decision into its own evidence, not a second time of asking.
-    gate = _build_cmd(copy, env, state_path, "approve", "--plan", payload, "--depth", "quick")
+    gate = build("approve", "--plan", payload, "--depth", "quick")
     ok &= _pass("the Build records the approved care level", gate.returncode == 0,
                 "quick — the same level the plan was approved at, carried across")
 
-    claim = _build_cmd(copy, env, state_path, "work", "claim", "--item", "W1",
+    claim = build("work", "claim", "--item", "W1",
                        "--provider", "claude", "--plan", payload, "--worktree", copy)
     attempt = json.loads(claim.stdout)["attempt_id"] if claim.returncode == 0 else ""
     # The integration is now proven, not asserted: the node is integrator-inline, so the Engine observes
@@ -303,13 +340,13 @@ def _arc_one(copy, head, env, pr_state, holder):
     with open(os.path.join(copy, ".engine", "tools", "widget_cache.py"), "w", encoding="utf-8") as fh:
         fh.write("CACHE = {}\n\n\ndef get(key, load):\n    if key not in CACHE:\n        CACHE[key] = load(key)\n    return CACHE[key]\n")
     _git(copy, "add", "-A")
-    staged = _build_cmd(copy, env, state_path, "work", "stage-digest", "--item", "W1", "--plan", payload)
+    staged = build("work", "stage-digest", "--item", "W1", "--plan", payload)
     tree_digest = json.loads(staged.stdout)["tree_digest"] if staged.returncode == 0 else ""
     result = _write(os.path.join(holder, "w1-result.json"),
                     {"outcome": "returned", "base_sha": head, "artifact_digest": tree_digest,
                      "evidence": {"changed_paths": [".engine/tools/widget_cache.py"],
                                   "verification_results": ["The widget-cache tests pass."]}})
-    _build_cmd(copy, env, state_path, "work", "result", "--item", "W1", "--attempt", attempt,
+    build("work", "result", "--item", "W1", "--attempt", attempt,
                "--plan", payload, "--input", result)
     _git(copy, "-c", "user.email=e@x", "-c", "user.name=n", "commit", "-q", "-m", "Add the widget cache")
     new_head = _git(copy, "rev-parse", "HEAD").stdout.strip()
@@ -318,14 +355,14 @@ def _arc_one(copy, head, env, pr_state, holder):
     pr["headRefOid"] = new_head
     with open(pr_state, "w", encoding="utf-8") as fh:
         json.dump(pr, fh)
-    integrated = _build_cmd(copy, env, state_path, "work", "integrate", "--item", "W1",
+    integrated = build("work", "integrate", "--item", "W1",
                             "--attempt", attempt, "--commit", new_head, "--plan", payload,
                             "--verification-input", "The widget-cache tests pass at this commit.")
     ok &= _pass("the work is integrated", integrated.returncode == 0,
                 "one node, done and proven on the branch by an Engine-computed receipt")
 
     _seed_submission(state_path, new_head, json.loads(bound.stdout)["plan_digest"] if bound.returncode == 0 else "")
-    submitted = _build_cmd(copy, env, state_path, "submit", "apply", "--plan", payload)
+    submitted = build("submit", "apply", "--plan", payload)
     with open(pr_state, encoding="utf-8") as fh:
         final = json.load(fh)
     ok &= _pass("the pull request is ready for you", submitted.returncode == 0 and not final["isDraft"],
@@ -375,7 +412,7 @@ def _arc_two(copy, head, env, holder, pr_state):
                            "--operator-decided")
     ok &= _pass("now it seals", sealed.returncode == 0, "approved at a care level, then locked")
 
-    state_path = os.path.join(tempfile.mkdtemp(prefix="entry-door-arc2-"), "state.json")
+    state_path = os.path.join(holder, "arc2-state.json")
     bound = _build_cmd(copy, env, state_path, "plan", "bind", "--plan", plan_id,
                        "--repository", REPO, "--pr", str(PR),
                        "--operator-decided")
@@ -384,7 +421,53 @@ def _arc_two(copy, head, env, holder, pr_state):
     return ok
 
 
+class _IsolationTests(unittest.TestCase):
+    def test_inherited_git_selectors_cannot_redirect_the_disposable_repository(self):
+        with tempfile.TemporaryDirectory() as d:
+            outside = Path(d) / 'outside'; outside.mkdir()
+            target = Path(d) / 'target'; target.mkdir()
+            clean = {k: v for k, v in os.environ.items() if not k.startswith('GIT_')}
+            clean.update(GIT_CONFIG_NOSYSTEM='1', GIT_CONFIG_GLOBAL=os.devnull)
+            subprocess.run(['git', 'init', '-q', str(outside)], env=clean, check=True)
+            sentinel = outside / 'keep.txt'; sentinel.write_text('unchanged')
+            before = (outside / '.git' / 'HEAD').read_bytes()
+            with mock.patch.dict(os.environ, {'GIT_DIR': str(outside / '.git'),
+                    'GIT_WORK_TREE': str(outside), 'GIT_INDEX_FILE': str(outside / 'wrong-index'),
+                    'GIT_CONFIG_COUNT': '1', 'GIT_CONFIG_KEY_0': 'core.worktree',
+                    'GIT_CONFIG_VALUE_0': str(outside)}):
+                result = _git(str(target), 'init', '-q')
+                self.assertEqual(result.returncode, 0, result.stderr)
+                env = _demo_env()
+                self.assertNotIn('GIT_DIR', env)
+                self.assertNotIn('GIT_CONFIG_COUNT', env)
+            self.assertTrue((target / '.git' / 'HEAD').is_file())
+            self.assertEqual((outside / '.git' / 'HEAD').read_bytes(), before)
+            self.assertEqual(sentinel.read_text(), 'unchanged')
+            self.assertFalse((outside / 'wrong-index').exists())
+
+    def test_source_symlink_refuses_before_any_git_or_fixture_write(self):
+        with tempfile.TemporaryDirectory() as d:
+            source = Path(d) / 'source'; source.mkdir()
+            holder = Path(d) / 'holder'; holder.mkdir()
+            outside = Path(d) / 'keep.txt'; outside.write_text('unchanged')
+            (source / 'widget_cache.py').symlink_to(outside)
+            with mock.patch.object(validate, 'ROOT', str(source)), \
+                    mock.patch(__name__ + '._git') as git:
+                with self.assertRaisesRegex(ValueError, 'source symlink'):
+                    _throwaway(str(holder))
+                git.assert_not_called()
+            self.assertEqual(outside.read_text(), 'unchanged')
+
+
+
 def main(_argv=None) -> int:
+    # This setup-only demo owns its isolation regressions and retires with them.
+    diagnostics = io.StringIO()
+    result = unittest.TextTestRunner(stream=diagnostics).run(
+        unittest.defaultTestLoader.loadTestsFromTestCase(_IsolationTests))
+    if not result.wasSuccessful():
+        print(diagnostics.getvalue(), file=sys.stderr)
+        return 1
     print("What this checks: a plan cannot be sealed before it is approved, cannot start a Build before")
     print("it is sealed, and — once it is — carries all the way to a pull request ready for you.\n")
     holder = tempfile.mkdtemp(prefix="entry-door-demo-")

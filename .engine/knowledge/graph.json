@@ -5703,7 +5703,7 @@
       },
       "slug": "build-continuity",
       "source": {
-        "fingerprint": "sha256:091f532c7c4d7c46b9519fd2cde45c078edb209539620d51bd13d241a46af038",
+        "fingerprint": "sha256:7e295f5e5384dd1cbe3e20fe871dba0713eef1d4690d54216281d0a1c38dcc37",
         "path": ".engine/operations/build-continuity.md"
       },
       "status": "active",
@@ -5763,7 +5763,7 @@
       },
       "slug": "build-kickoff",
       "source": {
-        "fingerprint": "sha256:456a5b1a914394a8be4489a77d48fade0a57c2be7857cf80073ea9312b3c2d6d",
+        "fingerprint": "sha256:9d9d04c3123a780565b6c61fadc835a56e74df146e40a378aacf8c63431396c3",
         "path": ".engine/operations/build-kickoff.md"
       },
       "status": "active",
@@ -6954,7 +6954,7 @@
       },
       "slug": "build-handoff.v2",
       "source": {
-        "fingerprint": "sha256:bd24a19684d07597d27bc03c8ca0257d831d5db497d6bb0ebdc49715ae25c74d",
+        "fingerprint": "sha256:fe61ae85929e29282ae80229afca42411dfee44519006d150243df6fd3db72fb",
         "path": ".engine/schemas/build-handoff.v2.json"
       },
       "status": "active",
@@ -7056,7 +7056,7 @@
       },
       "slug": "build-state.v2",
       "source": {
-        "fingerprint": "sha256:80f72717460411f9e47c374601e8042933e7be2ff6ffbdaec025ec3648cb3d98",
+        "fingerprint": "sha256:0265e1844fdff7cc1a89542c86a95bdef075e2bf4ce72c04785376bb0a86115f",
         "path": ".engine/schemas/build-state.v2.json"
       },
       "status": "active",
@@ -7532,7 +7532,7 @@
       },
       "slug": "plan-record.v1",
       "source": {
-        "fingerprint": "sha256:a37780c70bd5c0ecca732d596588a0d58753264f3a22c71acd4cc260d2f44c8a",
+        "fingerprint": "sha256:fd22659a04a20d34abc489328df4a1ae5d75524b6356ddacb3d2dcefdd156d62",
         "path": ".engine/schemas/plan-record.v1.json"
       },
       "status": "active",
@@ -9543,7 +9543,7 @@
       },
       "slug": "build_coordinator",
       "source": {
-        "fingerprint": "sha256:34b7c8ba200ed2408414d1a70a94808038d2f92d611f1240fd6c9cd0cb1d63eb",
+        "fingerprint": "sha256:91334b65f6dabf33ca0fe2dde0cd921f28c996948ad0209409ed0fa32d218de3",
         "path": ".engine/tools/build_coordinator.py"
       },
       "status": "active",
@@ -9587,7 +9587,7 @@
       },
       "slug": "build_coordinator_core",
       "source": {
-        "fingerprint": "sha256:732a2a3a6001046af5e4240fa0a167207cb7efa46614b3ab9b99f10bbf7a847e",
+        "fingerprint": "sha256:d887383744461663f5e7e92b693bac4c259c33a58c7dbce943544efced2a8deb",
         "path": ".engine/tools/build_coordinator_core.py"
       },
       "status": "active",
@@ -9841,6 +9841,7 @@
         "imports": [
           "tool:build_coordinator_core",
           "tool:moment",
+          "tool:plan_lifecycle",
           "tool:plan_store"
         ],
         "provided_by": [
@@ -9849,7 +9850,7 @@
       },
       "slug": "build_state_store",
       "source": {
-        "fingerprint": "sha256:7594e33469bd368e2b385711f97db9cb4595e881a8b9f3d7bf0d32e5b80627aa",
+        "fingerprint": "sha256:9cceb92c79ebb5e2aed0cf98671dc5eb622344aaf81144e7721fbb2b7970e4c1",
         "path": ".engine/tools/build_state_store.py"
       },
       "status": "active",
@@ -11007,7 +11008,8 @@
         "imports": [
           "tool:build_coordinator_core",
           "tool:build_state_store",
-          "tool:plan_store"
+          "tool:plan_store",
+          "tool:test_plan_store"
         ],
         "provided_by": [
           "module:core"
@@ -11015,7 +11017,7 @@
       },
       "slug": "demo_build_resumes_after_a_kill",
       "source": {
-        "fingerprint": "sha256:a9f65147e5072815000d74d0bf97835b6a05cf6e22c7f38951a09e9c3aad7c11",
+        "fingerprint": "sha256:6b5dc904aa2bdf14635897390f4f13f42b4839124106a3e2622c229b34f3eb18",
         "path": ".engine/tools/demo_build_resumes_after_a_kill.py"
       },
       "status": "active",
@@ -11501,7 +11503,7 @@
       },
       "slug": "demo_plan_to_ready_pr",
       "source": {
-        "fingerprint": "sha256:3dc5ae28a90345298b092265277b17c09793c6f1f75c3ab9573571d2f557a586",
+        "fingerprint": "sha256:28ac022ec162df4ac91ae71c04bc2d44b3549e520efc2fd0f9b1f2410465ea63",
         "path": ".engine/tools/demo_plan_to_ready_pr.py"
       },
       "status": "active",
@@ -14169,7 +14171,7 @@
       },
       "slug": "plan_projection",
       "source": {
-        "fingerprint": "sha256:80d5e1d913d4156b62d5715f5617f62dab8567390138f92ebcbdca2501dd6969",
+        "fingerprint": "sha256:20659b052fa5b8ce73f06b0c8b05d8bb6fb5a29ef50db48d37c33398f09e6ef2",
         "path": ".engine/tools/plan_projection.py"
       },
       "status": "active",
@@ -14195,7 +14197,7 @@
       },
       "slug": "plan_store",
       "source": {
-        "fingerprint": "sha256:712f5bf558b1d62686ace777b7832ae2fb134440de4da5b06dc0b34533001ffa",
+        "fingerprint": "sha256:cffd3e4009f998be155e1a92da8f7a68c0039ecb9c21a1362db8f08803e7cf80",
         "path": ".engine/tools/plan_store.py"
       },
       "status": "active",
@@ -14357,6 +14359,8 @@
       "predicates": {
         "imports": [
           "tool:build_coordinator_core",
+          "tool:build_coordinator_github",
+          "tool:build_state_store",
           "tool:moment",
           "tool:plan_contract",
           "tool:plan_lifecycle",
@@ -14370,7 +14374,7 @@
       },
       "slug": "project_manager",
       "source": {
-        "fingerprint": "sha256:3cffa387f27e601b251f683e4bd1dfbd570398bc4059c49fbf4044db8bda8d4e",
+        "fingerprint": "sha256:51a7bb04ab9258d1942a93eef624315b3ae9b1f2f81dc500fa07e2a5cb6f62f8",
         "path": ".engine/tools/project_manager.py"
       },
       "status": "active",
@@ -16277,7 +16281,7 @@
       },
       "slug": "test_build_coordinator",
       "source": {
-        "fingerprint": "sha256:691814694e98bbce527217580cbf8b8a240dee07cc9db1964ece311a0db83273",
+        "fingerprint": "sha256:b0d5e2ce3b53f1d8796cfce0fb20d664b551dd69f3ab5cbf4cc2ec0a70bcba56",
         "path": ".engine/tools/test_build_coordinator.py"
       },
       "status": "active",
@@ -16455,12 +16459,13 @@
           "tool:build_coordinator_dag",
           "tool:build_coordinator_github",
           "tool:build_coordinator_work",
+          "tool:build_state_store",
           "tool:test_build_coordinator"
         ]
       },
       "slug": "test_build_coordinator_work",
       "source": {
-        "fingerprint": "sha256:c0983d8fc0bb04bb1008a9676fbc0bbe90b391078849d6378e2aed05742f1bea",
+        "fingerprint": "sha256:edd1ced4bcb4ee0354522d973bec6029596758d213336db9d97f48f2196f6575",
         "path": ".engine/tools/test_build_coordinator_work.py"
       },
       "status": "active",
@@ -16530,16 +16535,20 @@
         "tests": [
           "tool:build_coordinator",
           "tool:build_coordinator_core",
+          "tool:build_coordinator_github",
           "tool:build_state_store",
           "tool:demo_build_resumes_after_a_kill",
+          "tool:plan_contract",
           "tool:plan_store",
+          "tool:project_manager",
           "tool:quiet_call",
-          "tool:test_build_coordinator"
+          "tool:test_build_coordinator",
+          "tool:test_plan_store"
         ]
       },
       "slug": "test_build_state_store",
       "source": {
-        "fingerprint": "sha256:200a221a45cc9a6971e605b21757e39bb6b8d8a9f152d05c26252440fcd70dfc",
+        "fingerprint": "sha256:67a66ffa0dd5486f76bfa5a3c48fe37fd36518c02d459fd41cfe42e22cda7d02",
         "path": ".engine/tools/test_build_state_store.py"
       },
       "status": "active",
@@ -19454,7 +19463,7 @@
       },
       "slug": "test_program_manager",
       "source": {
-        "fingerprint": "sha256:dea9c38f6028177009a5870661cb827d5f85b6e2021f06fa19de6272b4b5f8b0",
+        "fingerprint": "sha256:494a0cd1ed97fea541ac474c9d73dd6c2f8e2276e85111a03126eedbcb96a305",
         "path": ".engine/tools/test_program_manager.py"
       },
       "status": "active",

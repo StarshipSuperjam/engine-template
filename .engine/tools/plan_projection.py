@@ -208,6 +208,14 @@ def render_plan(document: dict, record: dict) -> str:
     add(f"- **Last revised**: {document['revised_at']}")
     add(f"- **Plan digest**: `{record['current']['plan_digest']}`")
     add(f"- **Build payload digest**: `{record['current']['build_plan_digest']}`")
+    claim = (record.get('build_lease') or {}).get('current')
+    if claim:
+        add(f"- **Build ownership**: `{claim['build_id']}` · generation {claim['generation']} "
+            f"· {claim['state']} · {claim['repository']}#{claim['pull_request']}")
+        if claim['state'] != 'active':
+            verb = 'successor adoption' if claim.get('transfer') else 'transaction'
+            add(f'- **Recovery**: retry the original {verb} with the same identity, revision and inputs. '
+                'Use `state where` for its recovery address. A fresh bind cannot replace it.')
     if imported:
         add("- **Build payload**: none yet — imported verbatim and not decomposed")
     else:

@@ -587,6 +587,20 @@ class PlanLibrary:
             self._write_json(self._record_path(slug), record)
             return record
 
+    def write_build_record_locked(self, slug: str, record: dict) -> None:
+        """Commit a Build transaction while the caller holds `exclusive_lock_for`.
+
+        Plan locks precede snapshot locks; callers must never call update_record from inside
+        either lock. Unlike an ordinary projection update, activation requires the directory
+        barrier too. A failed barrier leaves a visible, recoverable transaction, not success.
+        """
+        if record['plan_id'] != self.read_record(slug)['plan_id']:
+            raise PlanStoreError('a Build transaction cannot change the plan identity')
+        core.validate(record, RECORD_SCHEMA)
+        core.atomic_write(self._record_path(slug),
+                          json.dumps(record, indent=2, sort_keys=True) + '\n',
+                          durable=True, mode=FILE_MODE, require_directory_flush=True)
+
     def redact_revision(self, slug: str, revision: int, *, reason: str) -> dict:
         """Excise one revision's BODY, leaving the chain honest and the excision visible.
 

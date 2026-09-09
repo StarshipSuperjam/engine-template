@@ -1393,17 +1393,41 @@ def cmd_close(args) -> int:
     library = _library(args)
     slug = _select(library, args.plan)
     record = library.read_record(slug)
-    if record.get("closure"):
+    if record.get("closure") and not record.get('build_lease'):
         raise ProjectManagerError(
             f"this plan is already {record['closure']['state']}; reopen it before closing it differently")
-    close_plan_record(library, slug, args.state, args.reason)
+    build_id = getattr(args, 'expect_build_id', None)
+    generation = getattr(args, 'expect_generation', None)
+    if bool(build_id) != (generation is not None):
+        raise ProjectManagerError('supply both --expect-build-id and --expect-generation')
+    identity = {'build_id': build_id, 'generation': generation} if build_id else None
+    evidence = core.json_file(Path(args.completion_evidence)) if getattr(args, 'completion_evidence', None) else None
+    if args.state == 'complete' and record.get('build_lease'):
+        import build_coordinator_github as github
+        if not isinstance(evidence, dict):
+            raise ProjectManagerError('completion requires --completion-evidence naming the observed Build identity')
+        import build_state_store
+        lease = record['build_lease']
+        claims = ([lease['current']] if lease['current'] else []) + lease['history']
+        claim = next((c for c in claims if build_state_store.claim_identity(c) == identity), None)
+        if not claim:
+            raise ProjectManagerError('completion identity is not recorded on this plan')
+        build_state_store._match_completion(claim, evidence)
+        # Remote observation precedes local locks. The exact tuple is compared again inside
+        # retirement, so a concurrent transfer cannot turn this observation into permission.
+        observed = github.pr_state(Path.cwd(), evidence.get('repository'), evidence.get('pull_request'))
+        if observed.get('state') != 'MERGED' or observed.get('number') != evidence.get('pull_request'):
+            raise ProjectManagerError('GitHub does not confirm this completion evidence as a merged pull request')
+    close_plan_record(library, slug, args.state, args.reason, identity=identity,
+                      expected_revision=getattr(args, 'expect_revision', None), completion=evidence)
     print(f"{record['plan_id']} is now {args.state}: {args.reason}")
     print("Nothing was deleted — the plan and every revision stay on the shelf.")
     return 0
 
 
 def close_plan_record(library, slug: str, state: str, reason: str, *,
-                      refuse_if_active: bool = False) -> None:
+                      refuse_if_active: bool = False, identity=None, expected_revision=None,
+                      completion=None) -> None:
     """Write a plan's closure and re-project the library. THE close path, and the only one.
 
     THE NAMED PUBLIC SEAM. `program supersede` — now at its own address in program_manager.py —
@@ -1421,6 +1445,22 @@ def close_plan_record(library, slug: str, state: str, reason: str, *,
     hides, because it reports the closure before it looks at the binding. The store's own discipline
     is that every gate re-asserts its precondition in the mutator; this is supersede honouring it.
     """
+    observed = library.read_record(slug)
+    lease = observed.get('build_lease')
+    if lease and (lease['current'] or observed.get('closure')):
+        import build_state_store
+        if refuse_if_active and lease['current']:
+            raise ProjectManagerError('an active Build must be abandoned or completed before program supersession')
+        if not identity or expected_revision is None:
+            raise ProjectManagerError('closing a Build requires --expect-build-id, --expect-generation and --expect-revision')
+        build_state_store.retire_build(library, slug, identity,
+            Path(__file__).resolve().parent.parent / 'schemas' / 'build-state.v2.json',
+            reason=reason, expected_revision=expected_revision,
+            terminal_state='complete' if state == 'complete' else 'abandoned',
+            completion=completion, close_state=state)
+        plan_projection.project_library(library)
+        return
+
     def close(current):
         if current.get("closure"):       # re-asserted inside the lock
             raise ProjectManagerError(
@@ -1433,6 +1473,10 @@ def close_plan_record(library, slug: str, state: str, reason: str, *,
                 "from it, and its completion could never be recorded. Nothing was written. ABANDON "
                 "that Build and supersede then works — or let it MERGE, after which merged history "
                 "is corrected by appended work (`program add --after`), never replaced.")
+        if current.get('build_binding'):
+            raise ProjectManagerError('a Build is still bound; migrate legacy evidence if necessary and close its exact identity')
+        if state == 'complete' and current.get('build_lease'):
+            raise ProjectManagerError('completion requires matching merged evidence for this plan\'s Build')
         current["closure"] = {"state": state, "at": _now(), "reason": reason}
 
     library.update_record(slug, close)
@@ -2204,6 +2248,10 @@ def build_parser() -> argparse.ArgumentParser:
         closer = sub.add_parser(state, help=helptext)
         closer.add_argument("plan")
         closer.add_argument("--reason", required=True)
+        closer.add_argument('--expect-build-id')
+        closer.add_argument('--expect-generation', type=int)
+        closer.add_argument('--expect-revision', type=int)
+        closer.add_argument('--completion-evidence', help='local JSON receipt from the merged-PR observation; matched against the complete Build identity')
         closer.set_defaults(func=cmd_close,
                             state={"retire": "retired", "abandon": "abandoned",
                                    "complete": "complete"}[state])
