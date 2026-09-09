@@ -2304,6 +2304,9 @@
   ".engine/tools/test_change_classification.py": [
    "core"
   ],
+  ".engine/tools/test_check_cli.py": [
+   "core"
+  ],
   ".engine/tools/test_checkout_auto_update.py": [
    "core"
   ],

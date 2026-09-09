@@ -74,6 +74,7 @@ import time
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))  # the sibling tools dir, for github_client
 from github_client import get_json, get_page, next_link  # noqa: E402 — sibling import after the path insert
+import validate  # noqa: E402  (shared CLI boundary and emitter from this protected-base checkout)
 
 ACK_LABEL = "guardrail-ack"
 # The acknowledgment is bound to the exact head it was granted for, not to the mere presence of the label.
@@ -1165,17 +1166,13 @@ _ACK_NOHEAD_NOTE = (
     "GUARDRAIL CHECK: the pull request event carried no head commit for this pull request; failing closed.")
 
 
-def emit(findings: list) -> int:
-    """Write the finding.v1 array to stdout (the custom/script machine channel) and return
-    0 — a successful evaluation, whatever it found. Each finding carries its own severity;
-    the dispatcher's custom/script kind decides where the teeth land. Human-readable prose
-    — including the deliberate guardrail-ack guidance — lives inside each finding's
-    `message`, so stdout stays pure JSON."""
-    print(json.dumps(findings))
-    return 0
+emit = validate.emit
+USAGE = ("Usage: weakening_guard.py [-h|--help]\n\n"
+         "Checks pull-request changes that weaken guardrails and emits a finding.v1 JSON array. "
+         "Environment: GITHUB_REPOSITORY, GITHUB_TOKEN, GITHUB_EVENT_PATH, ENGINE_RULE_TIER.")
 
 
-def main() -> int:
+def _main() -> int:
     tier = os.environ.get("ENGINE_RULE_TIER", "hard")  # the rule's tier, passed by the kind
     repo = os.environ.get("GITHUB_REPOSITORY", "")
     token = os.environ.get("GITHUB_TOKEN", "")
@@ -1424,5 +1421,10 @@ def main() -> int:
     return emit(findings)
 
 
+def main(argv: list | None = None) -> int:
+    argv = [] if argv is None else argv
+    return validate.cli_main(argv, usage=USAGE, run=lambda _argv: _main())
+
+
 if __name__ == "__main__":
-    sys.exit(main())
+    sys.exit(main(sys.argv[1:]))

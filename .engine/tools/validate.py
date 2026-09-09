@@ -76,6 +76,38 @@ import re
 import subprocess
 import sys
 
+
+VALIDATE_USAGE = """Usage: validate.py [--suite NAME] [--pr-body-file PATH] [--check RULE_ID]
+       validate.py hook | accept-hook | demo | demo-kinds | --files PATH [PATH ...]
+
+Run the CI suite by default.  Use --suite to select a suite, --check to run one
+rule, or --pr-body-file to provide a pull-request body.
+hook and accept-hook read hook-event JSON from standard input for pre-commit
+and touched-file advice.  --files runs an advisory subset of pre-commit checks
+for the supplied paths.  demo exercises validation; demo-kinds checks module
+check-kind discovery.  Pass --help or -h anywhere to show this help without
+running a check or hook.
+"""
+
+
+def cli_main(argv: list, *, usage: str, run) -> int:
+    """Give an additive help boundary to a lazy command dispatcher.
+
+    ``run`` receives the original non-help argument list untouched.  Keeping
+    dispatch outside this helper preserves each caller's existing parser and
+    lets help exit before imports, environment reads, or operational work.
+    """
+    if "--help" in argv or "-h" in argv:
+        print(usage)
+        return 0
+    return run(argv)
+
+
+def emit(findings: list) -> int:
+    """Write a finding.v1 array using the established script protocol."""
+    print(json.dumps(findings))
+    return 0
+
 # yaml + jsonschema are the third-party dependencies THIS module needs; they live in the
 # uv-managed tool-runtime (.engine/.venv/). They are bound LAZILY (PEP 562 module
 # __getattr__) rather than imported at module top, so `import validate` succeeds on the
@@ -2760,7 +2792,7 @@ def _demo_kinds(argv: list) -> int:
     return 0
 
 
-def main(argv: list) -> int:
+def _main(argv: list) -> int:
     if argv and argv[0] == "hook":            # the PreToolUse pre-commit nudge (settings.json wires this)
         import hooks
         return hooks.run_hook("PreToolUse", _precommit_handler)
@@ -2792,6 +2824,11 @@ def main(argv: list) -> int:
     if check_id is not None:
         return run_check(check_id, ctx)
     return run(suite, ctx)
+
+
+def main(argv: list) -> int:
+    """Run validate's established dispatcher behind the shared help boundary."""
+    return cli_main(argv, usage=VALIDATE_USAGE, run=_main)
 
 
 if __name__ == "__main__":

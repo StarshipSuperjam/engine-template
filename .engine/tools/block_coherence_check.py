@@ -53,10 +53,10 @@ def registrations() -> list:
     return module_coherence.block_eligible_registrations()
 
 
-def emit(findings: list) -> int:
-    """Write the finding.v1 array to stdout and return 0 — a successful evaluation, whatever it found."""
-    print(json.dumps(findings))
-    return 0
+emit = validate.emit
+USAGE = ("Usage: block_coherence_check.py [-h|--help] [demo]\n\n"
+         "Checks declared hard-block registrations and emits a finding.v1 JSON array. "
+         "Environment: ENGINE_RULE_TIER, ENGINE_BLOCK_FIXTURE.")
 
 
 def _demo() -> int:
@@ -95,11 +95,15 @@ def _demo() -> int:
     return 0
 
 
-def main(argv: list) -> int:
+def _main(argv: list) -> int:
     if argv and argv[0] == "demo":
         return _demo()
     tier = os.environ.get("ENGINE_RULE_TIER", "hard")
     return emit(validate.block_budget_findings(registrations(), tier, _MESSAGE, stances=modes.STANCES))
+
+
+def main(argv: list) -> int:
+    return validate.cli_main(argv, usage=USAGE, run=_main)
 
 
 if __name__ == "__main__":

@@ -30,6 +30,7 @@ import urllib.parse
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))  # the sibling tools dir, for github_client
 from github_client import get_json  # noqa: E402 — sibling import after the path insert
 import repo_identity  # noqa: E402  (resolve_default_branch — the shared, env-authoritative default-branch resolver)
+import validate  # noqa: E402  (shared CLI boundary and finding emitter from this candidate checkout)
 
 # Frozen required-check names this guard expects the ruleset to bind. These are
 # the literal job names of the seed's two required checks; renaming either one,
@@ -305,16 +306,13 @@ def missing_floor(rules: list, required_checks: list, *, tier: str = SOLO) -> li
     return missing
 
 
-def emit(findings: list) -> int:
-    """Write the finding.v1 array to stdout (the custom/script machine channel) and return
-    0 — a successful evaluation, whatever it found. Each finding carries its own severity;
-    the dispatcher's custom/script kind decides where the teeth land. Human-readable prose
-    lives inside each finding's `message`, so stdout stays pure JSON."""
-    print(json.dumps(findings))
-    return 0
+emit = validate.emit
+USAGE = ("Usage: protection_guard.py [-h|--help]\n\n"
+         "Checks protected-branch rules and emits a finding.v1 JSON array. "
+         "Environment: GITHUB_REPOSITORY, GITHUB_TOKEN, PROTECTED_BRANCH, ENGINE_RULE_TIER.")
 
 
-def main() -> int:
+def _main() -> int:
     repo = os.environ.get("GITHUB_REPOSITORY", "")
     # The branch this merge-gate verifies: the workflow sets PROTECTED_BRANCH from the repo's AUTHORITATIVE
     # live default (github.event.repository.default_branch), which the resolver reads first; recorded ->
@@ -395,5 +393,10 @@ def main() -> int:
     return emit([])  # protection is fully in force
 
 
+def main(argv: list | None = None) -> int:
+    argv = [] if argv is None else argv
+    return validate.cli_main(argv, usage=USAGE, run=lambda _argv: _main())
+
+
 if __name__ == "__main__":
-    sys.exit(main())
+    sys.exit(main(sys.argv[1:]))

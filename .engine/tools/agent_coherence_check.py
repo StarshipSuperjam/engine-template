@@ -199,10 +199,10 @@ def engine_agents(root: str | None = None, agents_dir: str | None = None) -> lis
     return agents
 
 
-def emit(findings: list) -> int:
-    """Write the finding.v1 array to stdout and return 0 — a successful evaluation, whatever it found."""
-    print(json.dumps(findings))
-    return 0
+emit = validate.emit
+USAGE = ("Usage: agent_coherence_check.py [-h|--help] [demo]\n\n"
+         "Checks personas and their git-safety declarations, emitting a finding.v1 JSON array. "
+         "Environment: ENGINE_RULE_TIER, ENGINE_AGENT_FIXTURE_DIR.")
 
 
 def _demo() -> int:
@@ -309,7 +309,7 @@ def _demo() -> int:
     return 0
 
 
-def main(argv: list) -> int:
+def _main(argv: list) -> int:
     if argv and argv[0] == "demo":
         return _demo()
     tier = os.environ.get("ENGINE_RULE_TIER", "hard")
@@ -321,6 +321,10 @@ def main(argv: list) -> int:
     findings = validate.agent_coherence_findings(agents, tier, _MESSAGE)
     findings += git_safety_findings(tier, agents_dir=fixture_dir)
     return emit(findings)
+
+
+def main(argv: list) -> int:
+    return validate.cli_main(argv, usage=USAGE, run=_main)
 
 
 if __name__ == "__main__":

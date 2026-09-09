@@ -74,9 +74,10 @@ def _fixture_state():
     return engine, mans
 
 
-def emit(fs: list) -> int:
-    print(json.dumps(fs))
-    return 0
+emit = validate.emit
+USAGE = ("Usage: release_integrity_check.py [-h|--help] [demo]\n\n"
+         "Checks engine and module release versions and emits a finding.v1 JSON array. "
+         "Environment: ENGINE_RULE_TIER, ENGINE_RELEASE_INTEGRITY_ENGINE, ENGINE_RELEASE_INTEGRITY_MODULES.")
 
 
 def _demo() -> int:
@@ -101,12 +102,16 @@ def _demo() -> int:
     return 0
 
 
-def main(argv: list) -> int:
+def _main(argv: list) -> int:
     if argv and argv[0] == "demo":
         return _demo()
     tier = os.environ.get("ENGINE_RULE_TIER", "hard")
     engine, mans = _fixture_state()
     return emit(findings(tier, engine=engine, manifests=mans))
+
+
+def main(argv: list) -> int:
+    return validate.cli_main(argv, usage=USAGE, run=_main)
 
 
 if __name__ == "__main__":
