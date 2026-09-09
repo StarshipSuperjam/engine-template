@@ -307,3 +307,11 @@ In this Desktop test, the reader definition was absent from the root's initial e
 and discoverable through `ALL_TOOLS`. Discovery returned one definition totaling 351 characters,
 including a 153-character TypeScript declaration. This measures catalog size and observed deferred
 exposure, not billed tokens or every runtime's initial context. Exact billing overhead was unavailable.
+
+Reusing that accepted child for a new packet was refused by the native PreToolUse hook and by
+Project Manager acceptance; the prior receipt and child transcript stayed unchanged. Fresh replacement
+`01a08888-517e-7691-8741-5389c3fee050` read the new packet. Two genuine source-access clarifications
+preserved its original assignment; partial stops earned no credit, and the eventual findings array
+was accepted once after both supplements were read and their deliveries observed. The fixture plan's
+architecture finding is test output, not a review of this implementation. Native fixture receipts
+must never be imported as the Build's independent deliverable review.
