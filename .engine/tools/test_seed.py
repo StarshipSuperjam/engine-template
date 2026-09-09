@@ -16,6 +16,7 @@ import re
 import sys
 import tempfile
 import unittest
+from unittest import mock
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import selftest_support  # noqa: E402  (the suite's single-homed guard helpers, #940)
@@ -2272,7 +2273,8 @@ class TestWeakeningReHome(unittest.TestCase):
     _AUTO = object()  # sentinel: derive expected from len(files) unless overridden
 
     def _main_json(self, event, files, expected=_AUTO, base_home=None, base_tier=None,
-                   base_product_build_target=None, head_ack=False, head_sha="headsha0"):
+                   base_product_build_target=None, head_ack=False, head_sha="headsha0",
+                   base_check_dir=None):
         """Drive main() with the network seams stubbed: the complete changed-file list, the authoritative
         changed_files count, the BASE manifest's recorded home (`base_home`, default None = no home
         recorded, so a home in the diff reads as a first recording), the BASE manifest's recorded identity
@@ -2299,6 +2301,7 @@ class TestWeakeningReHome(unittest.TestCase):
         orig_tier = weakening_guard._read_base_tier
         orig_target = weakening_guard._read_base_product_build_target
         orig_ack = weakening_guard._head_ack_success
+        orig_check_dir = weakening_guard._BASE_CHECK_DIR
         buf = io.StringIO()
         with tempfile.TemporaryDirectory() as d:
             ep = os.path.join(d, "event.json")
@@ -2311,6 +2314,8 @@ class TestWeakeningReHome(unittest.TestCase):
             weakening_guard._read_base_home = lambda: base_home
             weakening_guard._read_base_tier = lambda: base_tier
             weakening_guard._read_base_product_build_target = lambda: base_product_build_target
+            if base_check_dir is not None:
+                weakening_guard._BASE_CHECK_DIR = base_check_dir
             self._ack_calls = 0  # a clean/soft-only PR must never reach the head-ack read
             _outer = self
             if head_ack == "error":
@@ -2334,6 +2339,7 @@ class TestWeakeningReHome(unittest.TestCase):
                 weakening_guard._read_base_tier = orig_tier
                 weakening_guard._read_base_product_build_target = orig_target
                 weakening_guard._head_ack_success = orig_ack
+                weakening_guard._BASE_CHECK_DIR = orig_check_dir
         return rc, json.loads(buf.getvalue())
 
     def test_no_weakening_is_empty_and_exit_zero(self):
@@ -2355,6 +2361,98 @@ class TestWeakeningReHome(unittest.TestCase):
         self.assertIn("GUARDRAIL DISCLOSURE", out[0]["message"])
         self.assertIn("validate.py", out[0]["message"])
         self.assertIn("does not block", out[0]["message"])
+
+    def test_real_audit_digest_modification_is_disclosed_without_ack_lookup(self):
+        # audit_digest is a declared enforcement library of an active hard rule.  A normal edit is
+        # review-visible but keeps the established soft tier; it must not consult acknowledgement state.
+        rc, out = self._main_json(
+            {"pull_request": {"number": 1, "labels": []}},
+            [{"filename": ".engine/tools/audit_digest.py", "status": "modified"}], head_ack="error")
+        self.assertEqual(rc, 0)
+        self.assertEqual(len(out), 1)
+        self.assertEqual(out[0]["severity"], "soft")
+        self.assertIn("GUARDRAIL DISCLOSURE", out[0]["message"])
+        self.assertIn("audit_digest.py", out[0]["message"])
+        self.assertEqual(self._ack_calls, 0)
+
+    def test_real_audit_digest_removal_and_both_rename_directions_are_hard(self):
+        # A guarded library cannot be deleted or moved away from its old identity without the existing
+        # hard acknowledgement, whether it is the rename's old or new side.
+        cases = [
+            [{"filename": ".engine/tools/audit_digest.py", "status": "removed"}],
+            [{"filename": ".engine/tools/audit_digest.py", "previous_filename": ".engine/tools/x.py",
+              "status": "renamed"}],
+            [{"filename": ".engine/tools/x.py", "previous_filename": ".engine/tools/audit_digest.py",
+              "status": "renamed"}],
+        ]
+        for files in cases:
+            with self.subTest(files=files):
+                _rc, out = self._main_json({"pull_request": {"number": 1, "labels": []}}, files)
+                self.assertEqual(len(out), 1)
+                self.assertEqual(out[0]["severity"], "hard")
+                self.assertIn("guardrail-ack", out[0]["message"])
+
+    def test_base_rule_removal_cannot_hide_audit_library_and_env_cannot_repoint_base(self):
+        # The PR's deleted declaration is diff data only.  The default trusted base remains authoritative,
+        # and an environment value never participates in selecting it.
+        saved = os.environ.get("ENGINE_ENFORCEMENT_FILES_ROOT")
+        os.environ["ENGINE_ENFORCEMENT_FILES_ROOT"] = tempfile.gettempdir()
+        try:
+            _rc, out = self._main_json(
+                {"pull_request": {"number": 1, "labels": []}},
+                [{"filename": ".engine/check/audit-digest-fingerprint.json", "status": "removed"},
+                 {"filename": ".engine/tools/audit_digest.py", "status": "modified"}])
+        finally:
+            if saved is None:
+                os.environ.pop("ENGINE_ENFORCEMENT_FILES_ROOT", None)
+            else:
+                os.environ["ENGINE_ENFORCEMENT_FILES_ROOT"] = saved
+        self.assertTrue(any(f["severity"] == "hard" for f in out), out)
+        self.assertTrue(any("audit_digest.py" in f["message"] for f in out), out)
+
+    def test_trusted_base_miniature_keeps_a_deleted_rule_and_hostile_library_as_data(self):
+        # This is deliberately a separate base checkout seam: the PR's removed registry/rule is
+        # represented only as changed-file metadata.  Its old declaration and library body are read as
+        # data from the trusted base; neither can be selected by environment or executed by discovery.
+        with tempfile.TemporaryDirectory() as root:
+            check_dir = os.path.join(root, ".engine", "check")
+            tools_dir = os.path.join(root, ".engine", "tools")
+            os.makedirs(check_dir)
+            os.makedirs(tools_dir)
+            marker = os.path.join(root, "executed")
+            with open(os.path.join(check_dir, "audit.json"), "w", encoding="utf-8") as fh:
+                json.dump({"id": "engine/check/audit", "kind": "custom/script", "tier": "hard",
+                           "params": {"script": ".engine/tools/root.py"}}, fh)
+            with open(os.path.join(tools_dir, "root.py"), "w", encoding="utf-8") as fh:
+                fh.write("import audit_digest\n")
+            with open(os.path.join(tools_dir, "audit_digest.py"), "w", encoding="utf-8") as fh:
+                fh.write(f"open({marker!r}, 'w').write('executed')\n")
+            # The literal declarations are patched only for this miniature trusted base.  Real
+            # declaration-closure derivation follows root.py's declared dependency into audit_digest.py;
+            # it reads declaration data and never executes the library.
+            with mock.patch.object(weakening_guard, "_HARD_SCRIPT_ROOTS",
+                                   {"engine/check/audit": ".engine/tools/root.py"}), \
+                 mock.patch.object(weakening_guard, "ENFORCEMENT_SOURCE_INVENTORY", {
+                     ".engine/tools/root.py": {"dependencies": (".engine/tools/audit_digest.py",),
+                                                "exclusions": {}},
+                     ".engine/tools/audit_digest.py": {"dependencies": (), "exclusions": {}},
+                 }), \
+                 mock.patch.object(weakening_guard, "ENFORCEMENT_DYNAMIC_LOADERS", {}), \
+                 mock.patch.object(weakening_guard, "_BASE_CHECK_DIR", check_dir):
+                self.assertTrue(weakening_guard.is_guardrail(
+                    ".engine/tools/audit_digest.py",
+                    instance_guards=(frozenset(), ())),
+                                "the default base-check-dir derivation must retain the trusted declaration")
+                self.assertFalse(os.path.exists(marker), "guard derivation must never execute the base library")
+                _rc, out = self._main_json(
+                    {"pull_request": {"number": 1, "labels": []}},
+                     [{"filename": ".engine/check/audit.json", "status": "removed"},
+                     {"filename": ".engine/tools/weakening_guard.py", "status": "modified",
+                      "patch": '@@\n-    "engine/check/audit": ".engine/tools/root.py",\n'},
+                     {"filename": ".engine/tools/audit_digest.py", "status": "modified"}],
+                    base_check_dir=check_dir)
+        self.assertTrue(any(f["severity"] == "soft" and "audit_digest.py" in f["message"] for f in out), out)
+        self.assertTrue(any(f["severity"] == "hard" for f in out), out)
 
     def test_unacked_hard_floor_edit_is_one_hard_with_ack_guidance(self):
         # a hard-floor member (the suite declarations — a global killswitch) still blocks pending the ack.

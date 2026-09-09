@@ -8,6 +8,7 @@ import io
 import json
 import os
 from pathlib import Path
+import shutil
 import subprocess
 import sys
 import tempfile
@@ -17,6 +18,9 @@ from unittest import mock
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import enforcement_files_check
 import weakening_guard as guard
+import module_coherence
+import module_manager
+import validate
 
 
 class TestImportExtraction(unittest.TestCase):
@@ -250,6 +254,7 @@ class TestEntryPoints(unittest.TestCase):
         command = [sys.executable, str(root / '.engine/tools/enforcement_files_check.py')]
         environment = dict(os.environ)
         environment.pop('ENGINE_ENFORCEMENT_FILES_ROOT', None)
+        environment['ENGINE_RULE_TIER'] = 'hard'
         clean = subprocess.run(command, cwd=root, env=environment, capture_output=True, text=True, check=True)
         self.assertEqual(json.loads(clean.stdout), [])
         fixture = root / '.engine/_fixtures/enforcement-files'
@@ -259,6 +264,56 @@ class TestEntryPoints(unittest.TestCase):
         expectation = json.loads((fixture / 'expect.json').read_text())
         self.assertTrue(any(f['severity'] == expectation['severity'] and expectation['message_contains'] in f['message']
                             for f in json.loads(broken.stdout)), broken.stdout)
+
+    def _projected_tree(self, source_root: Path, destination_root: Path, manifests):
+        """Copy exactly the manager's delivered map into an otherwise empty deployment tree."""
+        by_id = {manifest['id']: manifest for _path, manifest in manifests}
+        for relative, source in module_manager.engine_synced_map(
+                str(source_root), by_id, project_retire=True).items():
+            destination = destination_root / relative
+            destination.parent.mkdir(parents=True, exist_ok=True)
+            shutil.copy2(source, destination)
+
+    def test_minimal_and_full_deliveries_run_wrapper_and_registered_fixture(self):
+        source_root = Path(__file__).resolve().parents[2]
+        source_manifests = module_coherence.discover_manifests(str(source_root))
+        variants = {
+            'minimal': [(path, manifest) for path, manifest in source_manifests
+                        if manifest.get('status') == 'required'],
+            'full': source_manifests,
+        }
+        for name, manifests in variants.items():
+            with self.subTest(delivery=name), tempfile.TemporaryDirectory() as raw:
+                projected = Path(raw)
+                self._projected_tree(source_root, projected, manifests)
+                fixture = projected / '.engine/_fixtures/enforcement-files'
+                self.assertTrue(fixture.is_dir(), 'the shipped negative fixture must be delivered')
+                wrapper = [sys.executable, str(projected / '.engine/tools/enforcement_files_check.py')]
+                environment = dict(os.environ, ENGINE_RULE_TIER='hard')
+                environment.pop('ENGINE_ENFORCEMENT_FILES_ROOT', None)
+                clean = subprocess.run(wrapper, cwd=projected, env=environment,
+                                       capture_output=True, text=True, check=True)
+                self.assertEqual(json.loads(clean.stdout), [], clean.stdout)
+
+                target = json.loads((fixture / 'target.json').read_text())
+                expectation = json.loads((fixture / 'expect.json').read_text())
+                environment.update(target['env'])
+                broken = subprocess.run(wrapper, cwd=projected, env=environment,
+                                        capture_output=True, text=True, check=True)
+                self.assertTrue(any(f['severity'] == expectation['severity']
+                                    and expectation['message_contains'] in f['message']
+                                    for f in json.loads(broken.stdout)), broken.stdout)
+
+                rule = json.loads((projected / '.engine/check/enforcement-files.json').read_text())
+                original_root = validate.ROOT
+                try:
+                    validate.ROOT = str(projected)
+                    passed, findings = validate.run_unit(rule, {'env': target['env']}, {})
+                finally:
+                    validate.ROOT = original_root
+                self.assertFalse(passed)
+                self.assertTrue(any(f['severity'] == 'hard'
+                                    and expectation['message_contains'] in f['message'] for f in findings), findings)
 
 
 if __name__ == '__main__':
