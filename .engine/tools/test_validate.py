@@ -63,6 +63,78 @@ class TestImportableWithoutRuntimeDeps(unittest.TestCase):
         self.assertEqual(proc.returncode, 0, proc.stderr)
 
 
+class TestCliBoundary(unittest.TestCase):
+    def test_help_dominates_and_callback_stays_lazy(self):
+        called = []
+
+        def run(argv):
+            called.append(argv)
+            return 17
+
+        for argv in (["--help"], ["-h"], ["demo", "--help"], ["--suite", "CI", "-h"]):
+            with self.subTest(argv=argv), contextlib.redirect_stdout(io.StringIO()) as out:
+                self.assertEqual(validate.cli_main(argv, usage="usage text", run=run), 0)
+                self.assertEqual(out.getvalue(), "usage text\n")
+        self.assertEqual(called, [])
+
+    def test_callback_receives_original_argv_and_return_value(self):
+        argv = ["--suite", "CI", "unrecognized"]
+        seen = []
+        self.assertEqual(validate.cli_main(argv, usage="unused", run=lambda got: seen.append(got) or 23), 23)
+        self.assertEqual(seen, [argv])
+        self.assertIs(seen[0], argv)
+
+    def test_callback_exception_propagates(self):
+        with self.assertRaisesRegex(RuntimeError, "dispatcher failed"):
+            validate.cli_main([], usage="unused", run=lambda _argv: (_ for _ in ()).throw(RuntimeError("dispatcher failed")))
+
+    def test_emit_preserves_json_protocol_and_failures(self):
+        payload = [{"severity": "soft", "message": "café", "location": {"file": "x.md", "line": 4}}]
+        for findings in ([], payload):
+            with self.subTest(findings=findings), contextlib.redirect_stdout(io.StringIO()) as out:
+                self.assertEqual(validate.emit(findings), 0)
+                self.assertEqual(out.getvalue(), json.dumps(findings) + "\n")
+        with self.assertRaises(TypeError):
+            validate.emit([object()])
+
+
+class TestValidateCliHelp(unittest.TestCase):
+    def test_help_bypasses_real_dispatch_before_hooks_or_ci_resolution(self):
+        for argv in (["--help"], ["demo", "--help"], ["--suite", "CI", "-h"], ["--check", "x", "--help"]):
+            with self.subTest(argv=argv), \
+                    mock.patch.object(validate, "_main", side_effect=AssertionError("help must not dispatch")) as dispatch, \
+                    contextlib.redirect_stdout(io.StringIO()) as out:
+                self.assertEqual(validate.main(argv), 0)
+                self.assertIn("--files", out.getvalue())
+                self.assertIn("--check", out.getvalue())
+                dispatch.assert_not_called()
+
+    def test_non_help_suite_route_keeps_parser_and_ci_context(self):
+        captured = {}
+        def run(suite, ctx):
+            captured.update(ctx)
+            return 19
+        with mock.patch.object(validate, "resolve_ci_pr_body", return_value=("body", "frozen")) as body, \
+                mock.patch.object(validate, "get_pr_author", return_value="author"), \
+                mock.patch.object(validate, "get_pr_labels", return_value=["label"]), \
+                mock.patch.object(validate, "run", run):
+            self.assertEqual(validate.main(["--suite", "pre-commit"]), 19)
+        body.assert_called_once_with(None)
+        self.assertEqual(captured, {"pr_body": "body", "pr_body_source": "frozen",
+                                    "pr_author": "author", "pr_labels": ["label"]})
+
+    def test_non_help_check_route_keeps_pr_body_file_resolution(self):
+        ctx = {}
+        with mock.patch.object(validate, "resolve_ci_pr_body", return_value=("explicit", "frozen")) as body, \
+                mock.patch.object(validate, "get_pr_author", return_value=None), \
+                mock.patch.object(validate, "get_pr_labels", return_value=[]), \
+                mock.patch.object(validate, "run_check", side_effect=lambda check, got: ctx.update(got) or 7) as check:
+            self.assertEqual(validate.main(["--pr-body-file", "body.md", "--check", "engine/check/x"]), 7)
+        body.assert_called_once_with("body.md")
+        check.assert_called_once()
+        self.assertEqual(ctx["pr_body"], "explicit")
+
+
 class TestLazySymbolsWhenPresent(unittest.TestCase):
     """With the packages present (this construction repo's runtime), the lazy binding must be invisible:
     every `validate.<symbol>` consumer and validate's own frontmatter/schema paths behave as a top-level
