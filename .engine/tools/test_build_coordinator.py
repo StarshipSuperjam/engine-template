@@ -190,6 +190,8 @@ def clarify_review_execution(store, assignment, root="fixture-root"):
 
 def _entry_observation_fixture(root, repository, number, pr):
     """Admission seam for tests about other coordinator behavior; real git cases live separately."""
+    # These unrelated subjects have a complete, empty structured PR issue observation.
+    pr.setdefault("closingIssuesReferences", [])
     return {"observed_at": "2026-09-08T00:00:00Z", "material": {
         "repository": repository, "pr": number, "head_repository": repository,
         "head_ref": pr.get("headRefName", "codex/fixture"), "head": pr["headRefOid"],
@@ -289,7 +291,10 @@ class CoordinatorCase(unittest.TestCase):
                 mock.patch.object(build_state_store, 'reserve_build', side_effect=reserve) as reservation, \
                 mock.patch.object(build_state_store, 'finish_binding', side_effect=finish), \
                 mock.patch.object(bc.entry, 'observe_fresh', side_effect=_entry_observation_fixture), \
-                mock.patch.object(bc.entry, 'verify_frozen'):
+                mock.patch.object(bc.entry, 'verify_frozen'), \
+                mock.patch.object(bc.entry, 'overlap_observation', return_value={
+                    "coverage": "complete", "matches": [], "errors": [], "local_digest": "fixture"}), \
+                mock.patch.object(bc.entry, 'verify_local_overlap'):
             self.reservation = reservation
             yield
 
@@ -378,6 +383,28 @@ class TestPlanAndSnapshot(CoordinatorCase):
                       "--operator-decision", "go"]):
             with self.assertRaises(SystemExit), contextlib.redirect_stderr(io.StringIO()):
                 parser.parse_args(argv)
+
+    def test_first_admission_excludes_only_its_verified_source_pr_and_refuses_a_competitor(self):
+        value = plan()
+        value["intent_source"] = {"kind": "issue", "issue": 12}
+        draft = {"headRefOid": HEAD_A, "baseRefOid": BASE, "headRefName": "codex/12-work",
+                 "closingIssuesReferences": []}
+        rows = [{"number": 7, "title": "Fix #12", "body": "", "head": {
+            "ref": "codex/12-work", "sha": HEAD_A, "repo": {"full_name": "owner/repo"}}}]
+        library = mock.Mock()
+        library.slugs.return_value = []
+        with mock.patch.object(bc.entry, "observe_fresh", side_effect=_entry_observation_fixture), \
+                mock.patch.object(bc.entry, "_open_prs", return_value=rows), \
+                mock.patch.object(bc.entry, "_git", return_value=HEAD_A + "\trefs/heads/codex/12-work"):
+            admission = bc._observe_admission(self.bind_args(), value, draft, library)
+            self.assertEqual(admission["material"]["issues"], [12])
+            self.assertEqual(admission["material"]["overlap"]["coverage"], "complete")
+            self.assertEqual(admission["material"]["overlap"]["matches"], [])
+            self.assertIsNone(admission["material"]["override"])
+            rows.append({"number": 8, "title": "Fix #12", "body": "", "head": {
+                "ref": "claude/12-work", "sha": HEAD_B, "repo": {"full_name": "owner/repo"}}})
+            with self.assertRaisesRegex(bc.CoordinatorError, "overlapping issue work"):
+                bc._observe_admission(self.bind_args(), value, draft, library)
 
     def test_failed_fresh_admission_never_reserves_a_build(self):
         with self.binding(), mock.patch.object(bc, "_head", return_value=HEAD_A), \
@@ -6249,6 +6276,9 @@ class TestFreshWorktreeBindIsIsolatedFromAPriorSubmittedBuild(unittest.TestCase)
                 mock.patch.object(bc, "_verify_draft", return_value=draft), \
                 mock.patch.object(bc.entry, "observe_fresh", side_effect=_entry_observation_fixture), \
                 mock.patch.object(bc.entry, "verify_frozen"), \
+                mock.patch.object(bc.entry, "overlap_observation", return_value={
+                    "coverage": "complete", "matches": [], "errors": [], "local_digest": "fixture"}), \
+                mock.patch.object(bc.entry, "verify_local_overlap"), \
                 mock.patch.object(bc, "_head", return_value=HEAD_A), \
                 mock.patch.object(bc.github, "tag_coordinator_owned", return_value=True), \
                 mock.patch.object(bc, "_record_session_binding"), \

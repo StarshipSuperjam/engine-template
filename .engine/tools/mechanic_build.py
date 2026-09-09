@@ -59,18 +59,26 @@ worktree. Neither verb ever writes to the shared checkout's working tree or move
 from __future__ import annotations
 
 import argparse
+import json
 import os
+from pathlib import Path
 import re
+import secrets
 import subprocess
 import sys
 import time
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import checkout_health  # noqa: E402  (the OFFLINE readers + fail-soft health probes; this module adds the gate)
+import build_entry_preflight as entry
+import build_coordinator_core as core
+import moment
+import plan_store
 
 
 # Plain-language refusal messages (operator-facing: name the cause AND the remedy, never the raw token).
 _REFUSALS = {
+    "issue-overlap": "Issue-work preflight refused; review the observations above. An override cannot bypass repository identity, freshness or Build ownership.",
     "not-a-mechanic": (
         "This engine has no product build target set, so there is nothing to build in another checkout. "
         "(That is the normal state for an engine that builds its own repository.)"),
@@ -300,7 +308,9 @@ def _fetch_origin_with_retry(product_path: str) -> bool:
     return False
 
 
-def create_worktree(name: str, cwd: str | None = None) -> tuple[str | None, str | None, str | None, str | None]:
+def create_worktree(name: str, cwd: str | None = None, *, issue: int | None = None,
+                    overlap_override: str | None = None, overlap_reason: str | None = None
+                    ) -> tuple[str | None, str | None, str | None, str | None]:
     """FAIL-CLOSED: cut a fresh, ISOLATED worktree of the verified product from `origin/<default>`, homed under
     the mechanic's own durable `.engine/mechanic/worktrees/<name>`. Returns `(worktree_path, product_slug,
     base_ref, refusal)` with either the first three populated (success; `base_ref` is `origin/<default>`, the
@@ -350,6 +360,28 @@ def create_worktree(name: str, cwd: str | None = None) -> tuple[str | None, str 
         return (None, None, None, "fetch-failed")
     if _git_origin_url(product_path) != origin_url:   # re-verify: a mid-operation repoint stops the write
         return (None, None, None, "origin-moved")
+    if issue is not None or overlap_override or overlap_reason:
+        try:
+            if not isinstance(issue, int) or isinstance(issue, bool) or issue <= 0:
+                raise core.CoordinatorError("select a positive --issue for an issue-work preflight")
+            library = plan_store.PlanLibrary(plan_store.library_root(cwd))
+            observed = entry.overlap_observation(product_path, library, target, [issue], worktree=dest)
+            decision = entry.accept_overlap(target, [issue], observed,
+                override=overlap_override, reason=overlap_reason)
+            local, errors = entry.local_overlap(library, target, [issue], worktree=dest)
+            if core.digest({'matches': local, 'errors': errors}) != observed['local_digest']:
+                raise core.CoordinatorError("local claims changed during mechanic preflight; repeat it")
+            receipt = {'observed_at': moment.utc_now(), 'repository': target, 'issues': [issue],
+                       'observation': observed, 'override': decision, 'worktree': dest}
+            folder = Path(root) / '.engine' / 'mechanic' / 'entry-preflights'
+            plan_store.ensure_dir(folder, within=Path(root) / '.engine')
+            core.write_private_path(folder / (name + '-' + secrets.token_hex(8) + '.json'),
+                                    json.dumps(receipt, indent=2) + '\n', replace=False)
+        except (core.CoordinatorError, OSError) as exc:
+            print(str(exc), file=sys.stderr)
+            return (None, None, None, "issue-overlap")
+        if _git_origin_url(product_path) != origin_url:
+            return (None, None, None, "origin-moved")
     os.makedirs(worktrees_dir, exist_ok=True)
     if _run(["git", "-C", product_path, "worktree", "add", dest, "-b", branch,
              f"origin/{default}"]) is None:
@@ -373,6 +405,9 @@ def main(argv: list | None = None) -> int:
     subs.add_parser("preflight", help="resolve+verify the product checkout; emit its env or refuse fail-closed")
     wt = subs.add_parser("worktree", help="verify, then cut an isolated build worktree; emit its env or refuse")
     wt.add_argument("name", help="a short slug (issue-number prefix only when one exists); becomes the worktree dir and claude/<name>")
+    wt.add_argument("--issue", type=int, help="explicit issue selector for overlap preflight; does not authorize or select a Build plan")
+    wt.add_argument("--overlap-override", help="the observed collision digest explicitly accepted by the operator")
+    wt.add_argument("--overlap-reason", help="why the operator accepted those exact observations")
     args = parser.parse_args(argv)
     if args.verb == "preflight":
         path, slug, refusal = resolve_build_target()
@@ -382,7 +417,8 @@ def main(argv: list | None = None) -> int:
         sys.stdout.write(f"ENGINE_PRODUCT_CHECKOUT={path}\nGITHUB_REPOSITORY={slug}\n")
         return 0
     if args.verb == "worktree":
-        path, slug, base, refusal = create_worktree(args.name)
+        path, slug, base, refusal = create_worktree(args.name, issue=args.issue,
+            overlap_override=args.overlap_override, overlap_reason=args.overlap_reason)
         if refusal:
             sys.stderr.write(_REFUSALS[refusal] + "\n")
             return 1

@@ -1132,6 +1132,22 @@ def _record_session_binding(state: dict, *, pr_number: int) -> None:
               f"{exc}", file=sys.stderr)
 
 
+def _observe_admission(args, plan, pr, library, identity=None):
+    admission = entry.observe_fresh(ROOT, args.repository, args.pr, pr)
+    material = admission['material']
+    material['issues'] = entry.issue_numbers(plan, args.issue, pr, args.repository)
+    material['overlap'] = entry.overlap_observation(ROOT, library, args.repository, material['issues'],
+        identity=identity, candidate=material, worktree=ROOT)
+    material['override'] = entry.accept_overlap(args.repository, material['issues'], material['overlap'],
+        override=getattr(args, 'overlap_override', None), reason=getattr(args, 'overlap_reason', None))
+    return admission
+
+
+def _verify_admission_local(library, admission, identity=None):
+    entry.verify_frozen(ROOT, admission)
+    entry.verify_local_overlap(library, admission['material'], identity=identity, worktree=ROOT)
+
+
 def cmd_plan_bind(args, store: Snapshot) -> None:
     mode = getattr(args, "mode", "same-session")
     plan_id, sealed_digest, plan = _sealed_plan(args.plan)
@@ -1199,7 +1215,8 @@ def cmd_plan_bind(args, store: Snapshot) -> None:
     pr = _verify_draft(args.repository, args.pr)
     if pr.get("headRefOid") != _head():
         raise CoordinatorError("the draft PR head does not match this worktree")
-    admission = entry.observe_fresh(ROOT, args.repository, args.pr, pr)
+    identity = build_state_store.claim_identity(existing) if existing else None
+    admission = _observe_admission(args, plan, pr, library, identity)
     state = _initial_state(args.repository, args.pr, pr.get("baseRefOid") or _base(), plan_id,
                            sealed_digest, plan, issue, mode)
     state['admission'] = admission
@@ -1208,15 +1225,16 @@ def cmd_plan_bind(args, store: Snapshot) -> None:
     # Build whose approval, receipts, findings and progress were reconstructed by hand.
     locator = getattr(args, 'state', None)
     claim = build_state_store.reserve_build(library, slug, state, consent=consent, locator=locator,
-        validate_entry=lambda: entry.verify_frozen(ROOT, admission))
+        validate_entry=lambda: _verify_admission_local(library, admission, identity))
     # Remote facts are refreshed outside the ownership lock. A changed observation cannot activate
     # the already-reserved snapshot; retirement, not a silent refresh, is its recovery route.
-    confirmed = entry.observe_fresh(ROOT, args.repository, args.pr, _verify_draft(args.repository, args.pr))
+    identity = build_state_store.claim_identity(claim)
+    confirmed = _observe_admission(args, plan, _verify_draft(args.repository, args.pr), library, identity)
     if entry.material_digest(confirmed) != entry.material_digest(admission):
         raise CoordinatorError('admission changed after reservation; preserve the preparing claim, explicitly retire it, then bind fresh')
     state = build_state_store.finish_binding(library, slug,
         build_state_store.claim_identity(claim), state, _state_schema_for,
-        validate_entry=lambda: entry.verify_frozen(ROOT, admission))
+        validate_entry=lambda: _verify_admission_local(library, admission, identity))
     # Tag the PR the coordinator just adopted, so it carries a durable "coordinator owns this workflow"
     # marker (StarshipSuperjam/engine-template#1014). Best-effort and non-fatal: a labeling failure is
     # disclosed on stderr and the Build proceeds — the stdout below stays a clean machine-readable line.
@@ -5851,6 +5869,8 @@ def parser() -> argparse.ArgumentParser:
     sub = p.add_subparsers(dest="command", required=True)
     plan = sub.add_parser("plan").add_subparsers(dest="plan_command", required=True)
     bind = plan.add_parser("bind"); bind.add_argument("--plan", required=True, help="a SEALED plan in the local library, by id or by name"); bind.add_argument("--mode", choices=["same-session", "unattended"], default="same-session"); bind.add_argument("--repository", required=True); bind.add_argument("--pr", type=int, required=True); bind.add_argument("--issue", type=int, help="the Issue that AUTHORIZES this work; never its plan"); bind.add_argument("--operator-decided", action="store_true", help="Record that the operator, asked, gave the go for this Build to begin. The record is the gate and the moment, never their words; the bind refuses without it."); bind.set_defaults(func=cmd_plan_bind)
+    bind.add_argument("--overlap-override", help="the current overlap observation digest explicitly accepted by the operator")
+    bind.add_argument("--overlap-reason", help="why the operator chose to proceed despite those exact observations")
     adopt = plan.add_parser("adopt", help="consume a SEALED successor plan without restarting the Build"); adopt.add_argument("--successor", required=True, help="a sealed plan in the library that names the bound plan as its predecessor"); adopt.add_argument("--input", required=True, help="the plan this Build is currently executing, for the node-by-node comparison"); adopt.add_argument("--operator-decided", action="store_true", help="Record that the operator, asked, authorised the Build to continue on the successor."); adopt.set_defaults(func=cmd_plan_adopt)
     revise = plan.add_parser("revise"); revise.add_argument("--input", required=True); revise.add_argument("--operator-change", help="The operator's decision authorizing execution of a plan that differs from the sealed one. The sealed plan is unchanged; the divergence is disclosed at merge."); revise.set_defaults(func=cmd_plan_revise)
     approve = sub.add_parser("approve"); approve.add_argument("--plan", required=True); approve.add_argument("--depth", choices=["quick", "standard", "thorough"], required=True); approve.set_defaults(func=cmd_approve)

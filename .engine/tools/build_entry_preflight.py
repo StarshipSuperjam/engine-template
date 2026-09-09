@@ -9,6 +9,7 @@ from pathlib import Path
 import os
 import re
 import subprocess
+import json
 
 import build_coordinator_core as core
 import moment
@@ -81,3 +82,164 @@ def observe_fresh(root, repository, number, pr):
 
 def material_digest(observation):
     return core.digest(observation["material"])
+
+
+def issue_numbers(plan, explicit_issue, pr, repository):
+    """Only structured issue authority selects the Build's issue set; prose is not plan authority."""
+    selected = {n for n in (explicit_issue, (plan.get("intent_source") or {}).get("issue"))
+                if isinstance(n, int) and not isinstance(n, bool) and n > 0}
+    references = pr.get("closingIssuesReferences")
+    if not isinstance(references, list):
+        raise core.CoordinatorError("the draft PR's structured closing issues could not be observed; refresh its metadata before admission")
+    for item in references:
+        if not isinstance(item, dict) or not isinstance(item.get('url'), str):
+            raise core.CoordinatorError("the draft PR's closing issue metadata is incomplete")
+        url = item.get("url", "")
+        match = re.fullmatch(r"https://github\.com/([^/]+/[^/]+)/issues/([1-9][0-9]*)", url)
+        if not match or (item.get('number') is not None and item['number'] != int(match[2])):
+            raise core.CoordinatorError("the draft PR's closing issue identity is incomplete or contradictory")
+        if repo_identity.slug_eq(match[1], repository):
+            selected.add(int(match[2]))
+    return sorted(selected)
+
+
+def mentioned_issues(text, repository):
+    """Read local, qualified and linked references without treating a foreign issue as local."""
+    found = set()
+    for repo, number in re.findall(r"https://github\.com/([\w.-]+/[\w.-]+)/issues/([1-9][0-9]*)", text):
+        if repo_identity.slug_eq(repo, repository):
+            found.add(int(number))
+    # A Markdown label belongs to its link target, not to the surrounding repository.
+    text = re.sub(r"\[[^\]]*\]\([^)]*\)", "", text)
+    text = re.sub(r"https?://\S+", "", text)
+    for repo, number in re.findall(r"(?<![\w/])([\w.-]+/[\w.-]+)#([1-9][0-9]*)", text):
+        if repo_identity.slug_eq(repo, repository):
+            found.add(int(number))
+    found.update(int(n) for n in re.findall(r"(?<![\w/])#([1-9][0-9]*)\b", text))
+    return found
+
+
+def _open_prs(root, repository):
+    try:
+        result = subprocess.run(["gh", "api", "--paginate", "--slurp",
+            f"repos/{repository}/pulls?state=open&per_page=100"], cwd=root, text=True,
+            capture_output=True, timeout=45, env=dict(os.environ, GH_PROMPT_DISABLED="1"))
+        if result.returncode:
+            raise ValueError("request failed")
+        pages = json.loads(result.stdout)
+        if not isinstance(pages, list) or any(not isinstance(page, list) for page in pages):
+            raise ValueError("unexpected pagination envelope")
+        rows = [row for page in pages for row in page]
+        if any(not isinstance(row, dict) or not isinstance(row.get("number"), int)
+               or not isinstance(row.get("head"), dict) or 'body' not in row or 'title' not in row for row in rows):
+            raise ValueError("incomplete PR observation")
+        return rows
+    except (OSError, subprocess.TimeoutExpired, ValueError) as exc:
+        raise core.CoordinatorError("open pull requests could not be completely observed") from exc
+
+
+def local_overlap(library, repository, issues, *, identity=None, candidate=None, worktree=None):
+    """Nonterminal leases count as occupied even before a snapshot exists."""
+    matches, errors = [], []
+    try:
+        slugs = library.slugs()
+    except Exception:
+        return [], ["local plan claims could not be enumerated"]
+    for slug in slugs:
+        try:
+            record = library.read_record(slug)
+            claim = (record.get("build_lease") or {}).get("current")
+            if not claim:
+                old = record.get("build_binding")
+                if old and not record.get("closure") and repo_identity.slug_eq(old.get("repository"), repository):
+                    errors.append(f"legacy ownership cannot be completely observed: {slug}")
+                continue
+            if claim["state"] not in ("preparing", "active", "transferring", "retiring"):
+                continue
+            if identity and {k: claim[k] for k in ("build_id", "generation")} == identity:
+                continue
+            if not repo_identity.slug_eq(claim.get("repository"), repository):
+                continue
+            if ((candidate and claim["pull_request"] == candidate["pr"])
+                    or (worktree and Path(claim["worktree"]).resolve() == Path(worktree).resolve())):
+                # A decision about overlapping issues is never permission to share ownership.
+                raise _OwnershipConflict(f"another Build claim owns this PR or worktree: {claim['build_id']}; resume or retire its owner")
+            if not issues:
+                continue
+            material = (claim.get("admission") or {}).get("material", {})
+            claimed = set(material.get("issues", []))
+            if claim.get("authorizing_issue"):
+                claimed.add(claim["authorizing_issue"])
+            source = ((library.head(slug).get("build_plan") or {}).get("intent_source") or {})
+            if source.get("kind") == "issue":
+                claimed.add(source["issue"])
+            for issue in sorted(set(issues) & claimed):
+                matches.append(f"local:{repository.lower()}#{issue}:{claim['build_id']}:g{claim['generation']}")
+        except _OwnershipConflict:
+            raise
+        except Exception:
+            errors.append(f"local claim could not be completely observed: {slug}")
+    return sorted(set(matches)), sorted(set(errors))
+
+
+class _OwnershipConflict(core.CoordinatorError):
+    pass
+
+
+def overlap_observation(root, library, repository, issues, *, identity=None, candidate=None, worktree=None):
+    local, errors = local_overlap(library, repository, issues, identity=identity,
+                                 candidate=candidate, worktree=worktree)
+    if not issues:
+        errors = []  # There is no issue-overlap question; known ownership conflicts already refused.
+    local_digest = core.digest({"matches": local, "errors": errors})
+    matches = list(local)
+    if issues:
+        try:
+            for pr in _open_prs(root, repository):
+                head = pr["head"]
+                if (candidate and pr["number"] == candidate["pr"]
+                        and head.get("ref") == candidate["head_ref"]
+                        and head.get("sha") == candidate["head"]
+                        and repo_identity.slug_eq((head.get("repo") or {}).get("full_name"), candidate["head_repository"])):
+                    continue
+                referenced = mentioned_issues((pr.get("title") or "") + "\n" + (pr.get("body") or ""), repository)
+                for issue in sorted(set(issues) & referenced):
+                    matches.append(f"pr:{repository.lower()}#{pr['number']}:issue#{issue}")
+        except core.CoordinatorError as exc:
+            errors.append(str(exc))
+        try:
+            for line in _git(root, "ls-remote", "--heads", "origin").splitlines():
+                fields = line.split()
+                if len(fields) != 2 or not fields[1].startswith("refs/heads/"):
+                    raise core.CoordinatorError("remote branch observation was incomplete")
+                branch = fields[1][len("refs/heads/"):]
+                if (candidate and branch == candidate["head_ref"] and fields[0] == candidate["head"]
+                        and repo_identity.slug_eq(candidate["head_repository"], repository)):
+                    continue
+                match = re.match(r"^(?:claude|codex)/(?:issue[-_/])?([1-9][0-9]*)(?:[-_/]|$)", branch)
+                if match and int(match[1]) in issues:
+                    matches.append(f"branch:{repository.lower()}:{branch}:issue#{match[1]}")
+        except core.CoordinatorError as exc:
+            errors.append(str(exc))
+    return {"coverage": "incomplete" if errors else "complete" if issues else "not-applicable",
+            "matches": sorted(set(matches)), "errors": sorted(set(errors)), "local_digest": local_digest}
+
+
+def accept_overlap(repository, issues, observed, *, override=None, reason=None):
+    scope = core.digest({"repository": repository.lower(), "issues": issues, "observation": observed})
+    blocked = observed["matches"] or observed["errors"]
+    if blocked and (override != scope or not reason or not reason.strip()):
+        detail = "; ".join(observed["matches"] + observed["errors"])
+        raise core.CoordinatorError(f"overlapping issue work or incomplete coverage: {detail}. Review these observations; an explicit decision may retry with --overlap-override {scope} --overlap-reason <reason>. Freshness and ownership cannot be overridden.")
+    if override and (not blocked or override != scope or not reason or not reason.strip()):
+        raise core.CoordinatorError("overlap override is stale or does not match current observations; review the new preflight")
+    return {"observation_digest": scope, "reason": reason.strip()} if override else None
+
+
+def verify_local_overlap(library, material, *, identity=None, worktree=None):
+    matches, errors = local_overlap(library, material["repository"], material["issues"],
+        identity=identity, candidate=material, worktree=worktree)
+    if not material['issues']:
+        errors = []
+    if core.digest({"matches": matches, "errors": errors}) != material["overlap"]["local_digest"]:
+        raise core.CoordinatorError("local issue claims changed during admission; preserve the preparation and repeat the preflight")

@@ -26,6 +26,8 @@ import shutil
 import subprocess
 import tempfile
 import unittest
+from pathlib import Path
+from unittest import mock
 
 import checkout_health
 import mechanic_build
@@ -300,6 +302,133 @@ class TestCreateWorktree(unittest.TestCase):
                 mechanic_build._run = orig_run
 
 
+class TestIssueWorktreePreflight(unittest.TestCase):
+    """Real fetch/worktree operations with only GitHub PR discovery replaced offline."""
+
+    def setUp(self):
+        self.tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(self.tmp.cleanup)
+        self.mechanic = _mechanic(self.tmp.name)
+        self.product = _fetchable_product(self.tmp.name)
+        self.library_root = Path(self.tmp.name) / "plans"
+        patches = [
+            mock.patch.object(mechanic_build, "_resolve_verified_identity",
+                              return_value=(self.product, _TARGET, None)),
+            mock.patch.object(mechanic_build.plan_store, "library_root", return_value=self.library_root),
+            mock.patch.object(mechanic_build.entry, "_open_prs", return_value=[]),
+        ]
+        self.remote_prs = None
+        for patch in patches:
+            self.remote_prs = patch.start()
+            self.addCleanup(patch.stop)
+        # Include staged and unstaged work so HEAD/index preservation is not vacuous.
+        _git(self.product, "checkout", "-q", "-b", "peer-wip")
+        peer = Path(self.product) / "peer.txt"
+        peer.write_text("staged work")
+        _git(self.product, "add", "peer.txt")
+        peer.write_text("unstaged work")
+        self.before = self.checkout_state()
+        self.addCleanup(lambda: self.assertEqual(self.checkout_state(), self.before))
+
+    def checkout_state(self):
+        return tuple(subprocess.run(["git", "-C", self.product, *args],
+                                    capture_output=True, check=True).stdout for args in
+                     [("rev-parse", "HEAD"), ("symbolic-ref", "HEAD"),
+                      ("status", "--porcelain"), ("diff", "--cached"), ("diff",)])
+
+    def collision(self):
+        self.remote_prs.return_value = [{"number": 77, "title": "Fix #42", "body": "",
+                                        "head": {"ref": "peer-work", "sha": "a" * 40}}]
+
+    def assert_no_worktree(self, name):
+        self.assertFalse((Path(self.mechanic) / ".engine/mechanic/worktrees" / name).exists())
+        self.assertFalse(mechanic_build._branch_exists(self.product, "claude/" + name))
+        listed = mechanic_build._run(["git", "-C", self.product, "worktree", "list", "--porcelain"])
+        self.assertNotIn("/worktrees/" + name, listed)
+
+    def observe(self, name):
+        return mechanic_build.entry.overlap_observation(
+            self.product, mechanic_build.plan_store.PlanLibrary(self.library_root), _TARGET, [42],
+            worktree=str(Path(self.mechanic) / ".engine/mechanic/worktrees" / name))
+
+    def test_collision_refuses_before_creating_worktree_or_branch(self):
+        self.collision()
+        with contextlib.redirect_stderr(io.StringIO()) as err:
+            result = mechanic_build.create_worktree("42-collision", cwd=self.mechanic, issue=42)
+        self.assertEqual(result, (None, None, None, "issue-overlap"))
+        self.assertIn("pr:acme/product#77:issue#42", err.getvalue())
+        self.assert_no_worktree("42-collision")
+
+    def test_incomplete_coverage_refuses_before_creating_worktree(self):
+        self.remote_prs.side_effect = mechanic_build.core.CoordinatorError("PR coverage unavailable")
+        with contextlib.redirect_stderr(io.StringIO()):
+            result = mechanic_build.create_worktree("42-incomplete", cwd=self.mechanic, issue=42)
+        self.assertEqual(result, (None, None, None, "issue-overlap"))
+        self.assert_no_worktree("42-incomplete")
+
+    def test_exact_override_creates_worktree_and_private_durable_receipt(self):
+        self.collision()
+        observed = self.observe("42-accepted")
+        scope = mechanic_build.core.digest(
+            {"repository": _TARGET, "issues": [42], "observation": observed})
+        path, slug, base, refusal = mechanic_build.create_worktree(
+            "42-accepted", cwd=self.mechanic, issue=42, overlap_override=scope,
+            overlap_reason=" Separate agreed scope ")
+        self.assertIsNone(refusal)
+        self.assertEqual(slug, _TARGET)
+        self.assertTrue(base.startswith("origin/"))
+        self.assertTrue(Path(path).is_dir())
+        receipts = list((Path(self.mechanic) / ".engine/mechanic/entry-preflights").glob("*.json"))
+        self.assertEqual(len(receipts), 1)
+        receipt = json.loads(receipts[0].read_text())
+        self.assertEqual(receipt["repository"], _TARGET)
+        self.assertEqual(receipt["issues"], [42])
+        self.assertEqual(receipt["observation"], observed)
+        self.assertEqual(receipt["override"],
+                         {"observation_digest": scope, "reason": "Separate agreed scope"})
+        self.assertEqual(receipt["worktree"], path)
+        self.assertTrue(receipt["observed_at"])
+        self.assertEqual(receipts[0].stat().st_mode & 0o777, 0o600)
+        self.assertFalse((Path(self.product) / ".engine/mechanic/entry-preflights").exists())
+
+    def test_stale_override_refuses_without_creating_worktree(self):
+        self.collision()
+        with contextlib.redirect_stderr(io.StringIO()):
+            result = mechanic_build.create_worktree("42-stale", cwd=self.mechanic, issue=42,
+                overlap_override="wrong-observation", overlap_reason="agreed scope")
+        self.assertEqual(result, (None, None, None, "issue-overlap"))
+        self.assert_no_worktree("42-stale")
+
+    def test_invalid_issue_selector_refuses_without_observing_or_creating(self):
+        for issue in (0, -1, True, "42", None):
+            with self.subTest(issue=issue), contextlib.redirect_stderr(io.StringIO()):
+                result = mechanic_build.create_worktree("invalid", cwd=self.mechanic,
+                    issue=issue, overlap_reason="explicit decision needs an issue")
+                self.assertEqual(result, (None, None, None, "issue-overlap"))
+                self.assert_no_worktree("invalid")
+        self.remote_prs.assert_not_called()
+
+    def test_no_issue_preserves_legacy_behavior_without_overlap_or_receipt(self):
+        self.remote_prs.side_effect = AssertionError("no issue must not query issue overlap")
+        path, _, _, refusal = mechanic_build.create_worktree("legacy", cwd=self.mechanic)
+        self.assertIsNone(refusal)
+        self.assertTrue(Path(path).is_dir())
+        self.remote_prs.assert_not_called()
+        self.assertFalse((Path(self.mechanic) / ".engine/mechanic/entry-preflights").exists())
+
+    def test_origin_move_during_overlap_observation_refuses_worktree_creation(self):
+        original_observe = mechanic_build.entry.overlap_observation
+        def move_after_observation(*args, **kwargs):
+            observed = original_observe(*args, **kwargs)
+            _git(self.product, "remote", "set-url", "origin", str(Path(self.tmp.name) / "moved.git"))
+            return observed
+        with mock.patch.object(mechanic_build.entry, "overlap_observation",
+                               side_effect=move_after_observation):
+            result = mechanic_build.create_worktree("42-moved", cwd=self.mechanic, issue=42)
+        self.assertEqual(result, (None, None, None, "origin-moved"))
+        self.assert_no_worktree("42-moved")
+
+
 class TestFetchRetry(unittest.TestCase):
     """The bounded fetch retry that absorbs the transient shared-.git lock two concurrent cuts can cause."""
 
@@ -332,7 +461,7 @@ class TestWorktreeCLI(unittest.TestCase):
 
     def _run_cli(self, monkeypatched_result):
         orig = mechanic_build.create_worktree
-        mechanic_build.create_worktree = lambda name, cwd=None: monkeypatched_result
+        mechanic_build.create_worktree = lambda name, cwd=None, **kwargs: monkeypatched_result
         out, err = io.StringIO(), io.StringIO()
         try:
             with contextlib.redirect_stdout(out), contextlib.redirect_stderr(err):
@@ -357,6 +486,18 @@ class TestWorktreeCLI(unittest.TestCase):
         self.assertEqual(out, "")
         self.assertIn("branch", err.lower())
         self.assertNotIn("branch-exists", err)             # prose, never the raw token
+
+    def test_explicit_issue_and_scoped_override_reach_worktree_verb(self):
+        out, err = io.StringIO(), io.StringIO()
+        with mock.patch.object(mechanic_build, "create_worktree",
+                return_value=("/tmp/accepted", _TARGET, "origin/main", None)) as create, \
+                contextlib.redirect_stdout(out), contextlib.redirect_stderr(err):
+            rc = mechanic_build.main(["worktree", "42-explicit", "--issue", "42",
+                "--overlap-override", "observed-digest", "--overlap-reason", "agreed scope"])
+        self.assertEqual(rc, 0)
+        create.assert_called_once_with("42-explicit", issue=42,
+            overlap_override="observed-digest", overlap_reason="agreed scope")
+        self.assertEqual(err.getvalue(), "")
 
     def test_bad_name_refuses_through_the_real_verb_end_to_end(self):
         out, err = io.StringIO(), io.StringIO()

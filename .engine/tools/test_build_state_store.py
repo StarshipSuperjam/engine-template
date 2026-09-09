@@ -464,6 +464,9 @@ class TheSeamAnOperatorActuallyCrosses(unittest.TestCase):
         library.read_record.return_value = {}
         with mock.patch.object(bc.entry, "observe_fresh", side_effect=_entry_observation_fixture), \
                 mock.patch.object(bc.entry, "verify_frozen"), \
+                mock.patch.object(bc.entry, "overlap_observation", return_value={
+                    "coverage": "complete", "matches": [], "errors": [], "local_digest": "fixture"}), \
+                mock.patch.object(bc.entry, "verify_local_overlap"), \
                 mock.patch.object(bc.build_state_store, "reserve_build", reserve), \
                 mock.patch.object(bc, "_sealed_plan",
                                   return_value=("pln_0123456789ab", "sha256:" + "f" * 64, PLAN)), \
@@ -592,9 +595,12 @@ def _competing_bind(library_root, slug, worktree, locator, pr, barrier, outcome)
         if first_observation:
             barrier.wait(timeout=10)
             first_observation = False
-        return {'headRefOid': 'e' * 40, 'baseRefOid': 'a' * 40}
+        return {'headRefOid': 'e' * 40, 'baseRefOid': 'a' * 40, 'closingIssuesReferences': []}
     with mock.patch.object(bc.entry, 'observe_fresh', side_effect=_entry_observation_fixture), \
             mock.patch.object(bc.entry, 'verify_frozen'), \
+            mock.patch.object(bc.entry, 'overlap_observation', return_value={
+                'coverage': 'complete', 'matches': [], 'errors': [], 'local_digest': 'fixture'}), \
+            mock.patch.object(bc.entry, 'verify_local_overlap'), \
             mock.patch.object(bc, '_library', return_value=library), \
             mock.patch.object(bc, 'ROOT', Path(worktree)), \
             mock.patch.object(bc, '_head', return_value='e' * 40), \
@@ -1380,10 +1386,13 @@ class TransactionalOwnership(unittest.TestCase):
         original = common + ['--mode', 'unattended', '--issue', '41']
         with mock.patch.object(bc.entry, 'observe_fresh', side_effect=_entry_observation_fixture), \
                 mock.patch.object(bc.entry, 'verify_frozen'), \
+                mock.patch.object(bc.entry, 'overlap_observation', return_value={
+                    'coverage': 'complete', 'matches': [], 'errors': [], 'local_digest': 'fixture'}), \
+                mock.patch.object(bc.entry, 'verify_local_overlap'), \
                 mock.patch.object(bc, '_library', return_value=self.lib), \
                 mock.patch.object(bc, 'ROOT', Path(self.state['build']['worktree'])), \
                 mock.patch.object(bc, '_head', return_value='e' * 40), \
-                mock.patch.object(bc, '_verify_draft', return_value={'headRefOid': 'e' * 40, 'baseRefOid': 'a' * 40}), \
+                mock.patch.object(bc, '_verify_draft', return_value={'headRefOid': 'e' * 40, 'baseRefOid': 'a' * 40, 'closingIssuesReferences': []}), \
                 mock.patch.object(bc, '_check_authorization'), \
                 mock.patch.object(bc, '_record_session_binding'), \
                 mock.patch.object(bc.github, 'tag_coordinator_owned', return_value=True), \
