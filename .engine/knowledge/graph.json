@@ -9543,7 +9543,7 @@
       },
       "slug": "build_coordinator",
       "source": {
-        "fingerprint": "sha256:0a8d9a731c7f2c4a8f7e557c7ac8f99e3978fef790f0f0fc23585ac018569af0",
+        "fingerprint": "sha256:23173bcfaca1c2e2d9ca305c116c0a7eaf851d009cf80bc1f83a62874f4c6d87",
         "path": ".engine/tools/build_coordinator.py"
       },
       "status": "active",
@@ -10288,13 +10288,16 @@
       "name": ".engine/tools/codex_qualification.py",
       "owner": "core",
       "predicates": {
+        "imports": [
+          "tool:moment"
+        ],
         "provided_by": [
           "module:core"
         ]
       },
       "slug": "codex_qualification",
       "source": {
-        "fingerprint": "sha256:5422463a39712d6523b1f7fea127d4c9d76b238ce8d7764090c56462291905ba",
+        "fingerprint": "sha256:c7b30c87de1076b007de689b52a92e3052aaddcfb54073dfaaa2546d7e26a307",
         "path": ".engine/tools/codex_qualification.py"
       },
       "status": "active",
@@ -16273,7 +16276,7 @@
       },
       "slug": "test_build_coordinator",
       "source": {
-        "fingerprint": "sha256:b4bae3e4403ad01ce357cefff7c71fffb3021b1e4eea06f5fe0da6b3c808d88f",
+        "fingerprint": "sha256:33fd31848db185c0879fccabbe6fbe37dad8b211eea42d53316f790e65d30f51",
         "path": ".engine/tools/test_build_coordinator.py"
       },
       "status": "active",
@@ -16865,7 +16868,7 @@
       },
       "slug": "test_codex_qualification",
       "source": {
-        "fingerprint": "sha256:a7945855dfbab726c029bd82c5a4cf4592f3cbd7f6ea98707f236919f99d6107",
+        "fingerprint": "sha256:248886ad47cd9353ad8953b23b155d94e9c03207a393c26ae1aeb7062cb06b2b",
         "path": ".engine/tools/test_codex_qualification.py"
       },
       "status": "active",
@@ -17764,7 +17767,7 @@
       },
       "slug": "test_hooks",
       "source": {
-        "fingerprint": "sha256:de70e11cfce9e8f7a377f2901fb229f2ad2383bf4154e96688791ac8075302f2",
+        "fingerprint": "sha256:21b0888ab6ca092ef14cfb8418f54d9bc2c564931f1b30e91ba56066743754e6",
         "path": ".engine/tools/test_hooks.py"
       },
       "status": "active",
@@ -19571,7 +19574,7 @@
       },
       "slug": "test_providers",
       "source": {
-        "fingerprint": "sha256:a9e7b2e35dd7cb47c00302843865c44ef5f6303bb7d6da1db4c61150900d3433",
+        "fingerprint": "sha256:6c1e33abeed196fb9087555857aaf5b8d139b92a0c864da1ea6131ebcc7e8196",
         "path": ".engine/tools/test_providers.py"
       },
       "status": "active",
