@@ -6010,6 +6010,31 @@ class TestPostCompactionRegrounding(CoordinatorCase):
         self.assertIn("different worktree", decision["context"])
         self.assertEqual(path.read_bytes(), before)
 
+    def test_nested_cwd_resolves_its_worktree_but_a_nested_repository_does_not(self):
+        root = Path(self.temp.name) / "project with spaces"
+        nested = root / "src/deeper"
+        nested.mkdir(parents=True)
+        env = {k: v for k, v in os.environ.items() if not k.startswith("GIT_")}
+        subprocess.run(["git", "init", "-q", str(root)], env=env, check=True,
+                       capture_output=True)
+        path = self.seeded_snapshot()
+        self.store.mutate(lambda s: s["build"].update(worktree=str(root)))
+        with mock.patch.object(bc, "ROOT", root):
+            before = path.read_bytes()
+            with self.resolve_to([("a-slug", path)]):
+                decision = bc.reground_handler({"source": "compact", "cwd": str(nested)})
+            self.assertIn(PLAN_ID, decision["context"])
+            self.assertIn("CX-01", decision["context"])
+            self.assertEqual(path.read_bytes(), before)
+            subprocess.run(["git", "init", "-q", str(nested)], env=env, check=True,
+                           capture_output=True)
+            with mock.patch.object(bc, "_library") as library, \
+                 mock.patch.dict(os.environ, {"GIT_DIR": str(root / ".git"),
+                                              "GIT_WORK_TREE": str(root)}):
+                decision = bc.reground_handler({"source": "compact", "cwd": str(nested)})
+            library.assert_not_called()
+            self.assertIn("No Build pointer is assumed", decision["context"])
+
     def test_several_bound_builds_disclose_the_ambiguity_and_assume_nothing(self):
         with self.resolve_to([("slug-one", Path("/a")), ("slug-two", Path("/b"))]):
             decision = bc.reground_handler({"source": "compact"})

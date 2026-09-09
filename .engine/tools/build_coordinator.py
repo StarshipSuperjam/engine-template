@@ -5730,9 +5730,26 @@ def reground_handler(payload: dict) -> dict:
     if (payload.get("source") or payload.get("matcher")) != "compact":
         return hooks.proceed()
     cwd = payload.get("cwd")
-    if cwd is not None and (not isinstance(cwd, str) or Path(cwd).resolve() != ROOT.resolve()):
-        return hooks.inject("Engine: this session was compacted, but the hook worktree does not match "
-                            "this Engine checkout. No Build pointer is assumed.")
+    if cwd is not None:
+        hook_root = None
+        if isinstance(cwd, str) and cwd:
+            try:
+                if Path(cwd).resolve() == ROOT.resolve():
+                    hook_root = ROOT.resolve()
+                else:
+                    # A nested cwd can belong to this worktree, but a nested repository cannot.
+                    # Inherited Git selectors must not make an unrelated cwd resolve as this one.
+                    result = subprocess.run(["git", "-C", cwd, "rev-parse", "--show-toplevel"],
+                                            capture_output=True, text=True, timeout=5,
+                                            env={k: v for k, v in os.environ.items()
+                                                 if not k.startswith("GIT_")})
+                    if result.returncode == 0 and result.stdout.strip():
+                        hook_root = Path(result.stdout.strip()).resolve()
+            except (OSError, subprocess.TimeoutExpired):
+                pass
+        if hook_root != ROOT.resolve():
+            return hooks.inject("Engine: this session was compacted, but the hook worktree does not match "
+                                "this Engine checkout. No Build pointer is assumed.")
     try:
         library = _library()
         found = build_state_store.bound_snapshots(ROOT, library=library)

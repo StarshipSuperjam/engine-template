@@ -8,10 +8,11 @@ from __future__ import annotations
 
 import argparse
 from collections import Counter
-from datetime import datetime
 import json
 from pathlib import Path
 import re
+
+import moment
 
 PARENT_MODES = ("read-only", "workspace-write")
 CAPABILITIES = (
@@ -38,11 +39,7 @@ def validate_record(record):
         return ["record must be an object"]
     if record.get("schema_version") != "codex-qualification.v1":
         errors.append("schema_version must be codex-qualification.v1")
-    try:
-        stamp = datetime.fromisoformat(record.get("recorded_at", ""))
-        if stamp.tzinfo is None:
-            raise ValueError("timezone required")
-    except (TypeError, ValueError):
+    if moment.parse_z(record.get("recorded_at")) is None:
         errors.append("recorded_at must be a timezone-qualified ISO timestamp")
     for field in ("base_commit", "head_commit"):
         if not isinstance(record.get(field), str) or not re.fullmatch(r"[0-9a-f]{40}", record[field]):

@@ -77,6 +77,16 @@ class TestQualificationRecord(unittest.TestCase):
             del record[field]
             self.assertTrue(qualification.validate_record(record), field)
 
+    def test_timestamps_require_a_real_explicit_zone(self):
+        for value in (None, [], "", "2026-09-08T15:00:00", "not-a-date"):
+            record = complete_record()
+            record["recorded_at"] = value
+            self.assertTrue(qualification.validate_record(record), repr(value))
+        for value in ("2026-09-08T15:00:00Z", "2026-09-08T08:00:00-07:00"):
+            record = complete_record()
+            record["recorded_at"] = value
+            self.assertEqual(qualification.validate_record(record), [])
+
     def test_cli_is_read_only_and_honest_about_unknowns(self):
         with tempfile.TemporaryDirectory() as directory:
             path = Path(directory) / "record.json"

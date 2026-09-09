@@ -1378,7 +1378,8 @@ class TestCodexLauncherExecution(unittest.TestCase):
             "import json,os,sys\nfrom pathlib import Path\n"
             "Path(os.environ['L49_TARGET_MARKER']).write_text('ran')\n"
             "print(json.dumps({'provider':os.environ.get('ENGINE_PROVIDER'),"
-            "'argv':sys.argv[1:],'cwd':os.getcwd()}))\n", encoding="utf-8")
+            "'argv':sys.argv[1:],'cwd':os.getcwd(),'stdin_hex':sys.stdin.buffer.read().hex()}))\n"
+            "sys.exit(int(os.environ.get('L49_TARGET_EXIT','0')))\n", encoding="utf-8")
         self.nested = self.root / "nested path/deeper"
         self.nested.mkdir(parents=True)
         self.env = {k: v for k, v in os.environ.items() if not k.startswith("GIT_")}
@@ -1388,7 +1389,7 @@ class TestCodexLauncherExecution(unittest.TestCase):
         subprocess.run(["git", "init", "-q", str(self.root)], env=self.env, check=True,
                        capture_output=True)
 
-    def launch(self, cwd, args=(), rendered=False):
+    def launch(self, cwd, args=(), rendered=False, stdin=""):
         if rendered:
             command = hooks.hook_command(".engine/tools/launcher_probe.py", provider="codex")
             command += " " + shlex.join(args)
@@ -1396,7 +1397,19 @@ class TestCodexLauncherExecution(unittest.TestCase):
         else:
             argv = ["sh", str(self.tools / "codex-hook-runner.sh"),
                     ".engine/tools/launcher_probe.py", *args]
-        return subprocess.run(argv, cwd=cwd, env=self.env, capture_output=True, text=True, timeout=10)
+        return subprocess.run(argv, cwd=cwd, env=self.env, input=stdin,
+                              capture_output=True, text=True, timeout=10)
+
+    def test_stdin_and_target_exit_status_survive_direct_and_rendered_launches(self):
+        payload = '{"session_id":"literal-session","text":"spaced value; $NAME"}\n\x00\r\n'
+        for cwd in (self.root, self.nested):
+            for rendered in (False, True):
+                for status in (0, 17):
+                    with self.subTest(cwd=cwd.name, rendered=rendered, status=status):
+                        self.env["L49_TARGET_EXIT"] = str(status)
+                        result = self.launch(cwd, rendered=rendered, stdin=payload)
+                        self.assertEqual(result.returncode, status, result.stderr)
+                        self.assertEqual(json.loads(result.stdout)["stdin_hex"], payload.encode().hex())
 
     def test_root_nested_and_rendered_paths_preserve_provider_and_argv(self):
         args = ["hook", "two words", "", '"quoted"', "$UNEXPANDED", "semi;colon"]
@@ -1429,13 +1442,17 @@ class TestCodexLauncherExecution(unittest.TestCase):
         self.assertFalse(self.marker.exists())
         self.assertFalse(system_marker.exists())
         self.interpreter.unlink()
-        for rendered in (False, True):
-            with self.subTest(rendered=rendered):
-                result = self.launch(self.nested, rendered=rendered)
-                self.assertEqual(result.returncode, 1, result.stderr)
-                self.assertIn("private Python runtime is not ready", result.stderr)
-                self.assertFalse(self.marker.exists())
-                self.assertFalse(system_marker.exists())
+        for runtime in ("absent", "non-executable"):
+            if runtime == "non-executable":
+                self.interpreter.write_text("#!/bin/sh\nexit 99\n")
+                self.interpreter.chmod(0o644)
+            for rendered in (False, True):
+                with self.subTest(runtime=runtime, rendered=rendered):
+                    result = self.launch(self.nested, rendered=rendered)
+                    self.assertEqual(result.returncode, 1, result.stderr)
+                    self.assertIn("private Python runtime is not ready", result.stderr)
+                    self.assertFalse(self.marker.exists())
+                    self.assertFalse(system_marker.exists())
 
 
 class TestAcceptedAutomaticHookDispatch(unittest.TestCase):
