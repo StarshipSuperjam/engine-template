@@ -5763,7 +5763,7 @@
       },
       "slug": "build-kickoff",
       "source": {
-        "fingerprint": "sha256:f1b69bbc4452e2c93e18786cd9d62dfedc22522841337d856326333be935e7ad",
+        "fingerprint": "sha256:9d9d04c3123a780565b6c61fadc835a56e74df146e40a378aacf8c63431396c3",
         "path": ".engine/operations/build-kickoff.md"
       },
       "status": "active",
