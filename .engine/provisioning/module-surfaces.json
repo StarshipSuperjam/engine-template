@@ -777,9 +777,6 @@
   ".engine/conduct/defaults.md": [
    "core"
   ],
-  ".engine/demos/scoped-native-agents.md": [
-   "core"
-  ],
   ".engine/docs/accepted-hook-qualification.md": [
    "core"
   ],
