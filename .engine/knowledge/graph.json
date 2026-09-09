@@ -5703,7 +5703,7 @@
       },
       "slug": "build-continuity",
       "source": {
-        "fingerprint": "sha256:4c88d544fc82538ec93303094e44877b6907bb4fb43956a7828aa411e24eed6f",
+        "fingerprint": "sha256:7e295f5e5384dd1cbe3e20fe871dba0713eef1d4690d54216281d0a1c38dcc37",
         "path": ".engine/operations/build-continuity.md"
       },
       "status": "active",
@@ -9543,7 +9543,7 @@
       },
       "slug": "build_coordinator",
       "source": {
-        "fingerprint": "sha256:1bb212b995956bcc05fedea2770f0d4da299c0b76e05214991e482b18ccba97a",
+        "fingerprint": "sha256:bcc737b1577c2f388c9f4630594c6fc099a03402ff5d4b969c666a7e4595aa16",
         "path": ".engine/tools/build_coordinator.py"
       },
       "status": "active",
@@ -9587,7 +9587,7 @@
       },
       "slug": "build_coordinator_core",
       "source": {
-        "fingerprint": "sha256:7897834382b156d33ff0ea44c85896e867dca4c09b16a1bc312c128196779644",
+        "fingerprint": "sha256:70f57efe84faf82bf50c165b77029ae3abeb57536e154bd8d557471a56befe93",
         "path": ".engine/tools/build_coordinator_core.py"
       },
       "status": "active",
@@ -9850,7 +9850,7 @@
       },
       "slug": "build_state_store",
       "source": {
-        "fingerprint": "sha256:0128114bd46f2fbbcdab51c32489f2bbee93349e64150514ca2de295f913e66a",
+        "fingerprint": "sha256:37e9ffae02d91bb4d0cbc028935faca8403d7df0f9c0d59de13ff78ae990aaaf",
         "path": ".engine/tools/build_state_store.py"
       },
       "status": "active",
@@ -16548,7 +16548,7 @@
       },
       "slug": "test_build_state_store",
       "source": {
-        "fingerprint": "sha256:91786616865a4ccef25c5d604b4fbbc020ef98d090670f80439416161f2a1288",
+        "fingerprint": "sha256:dc92c3f59be795cc2cdc25de0466b4ddbd3a7b0fef45fd0618089e88ef946c02",
         "path": ".engine/tools/test_build_state_store.py"
       },
       "status": "active",
