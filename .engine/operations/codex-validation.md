@@ -117,3 +117,6 @@ unverified. The operator's protected-branch merge remains the wall; hooks are fa
 
 Final candidate probes renewed cheap/strong explorer and compact witnesses after the gate repair.
 Five documented owner replays passed, including the real bound Build pointer and mismatched-worktree case.
+The nested-cwd reminder repair was followed by another real compact-pointer witness. Executable shim
+tests now round-trip stdin and target exit status. Provider tests retain a redacted Claude transcript
+launch projection with provenance, explicitly distinct from a newly observed hook envelope.
