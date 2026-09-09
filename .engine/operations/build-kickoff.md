@@ -48,7 +48,7 @@ Binding reserves ownership before evidence; matching retries preserve identity a
 live at `builds/<build-id>/snapshot.json`; external `--state` files are private locators. For interrupted
 preparations, verified continuation or explicit legacy migration, follow [Build continuity](build-continuity.md).
 
-**The seal hands back before Build**, as [Plan orchestration](plan-orchestration.md) describes.
+**The seal hands back before Build**: an offer, not a gate; [Plan orchestration](plan-orchestration.md) describes it.
 Binding records the operator's agreement to begin; it does not mechanically verify that hand-back or
 record what the session runs on.
 
@@ -76,9 +76,9 @@ The `trivial` profile is the one-entry fast path: its reduced plan needs raw int
 
 ### 3. The plan review already happened
 
-The plan-side seal requires every lens for the approved depth; Build has no separate plan-review gate
-or waiver. Approve, seal and bind each require a recorded operator decision and verify the previous gate's
-record. Those records attest that the operator was asked; they do not prove the decision was sound.
+The plan-side seal requires one cold plan review covering every lens at the approved depth.
+Build has no extra plan-review gate or waiver. Approve, seal and bind each require an operator decision
+and verify the previous gate's record; it attests that the operator was asked, not that the choice was sound.
 
 ## Done when
 
