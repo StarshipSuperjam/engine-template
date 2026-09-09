@@ -418,7 +418,7 @@ def write_json_artifact(prefix: str, value: Any) -> tuple[str, str]:
 
 def write_private_path(path: Path, rendered: str, *, replace: bool = True) -> None:
     """Write a caller-selected artifact atomically and owner-read/write only."""
-    path = path.resolve()
+    path = path.resolve() if replace else path.absolute()
     path.parent.mkdir(parents=True, exist_ok=True)
     fd, temporary = tempfile.mkstemp(prefix=path.name + ".", dir=path.parent)
     try:

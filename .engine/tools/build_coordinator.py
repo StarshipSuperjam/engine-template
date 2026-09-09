@@ -1232,6 +1232,7 @@ def cmd_state_where(args, store: "Snapshot | None") -> None:
             print(f"{slug}: interrupted binding; retry with these recorded inputs: " + json.dumps({
                 'action': 'state migrate' if claim.get('legacy_source') else 'plan bind',
                 'plan': record['plan_id'], 'repository': claim['repository'], 'pr': claim['pull_request'],
+                'mode': claim.get('mode'), 'issue': claim.get('authorizing_issue'),
                 'locator': claim['locator'], 'source': claim.get('legacy_source'),
                 'legacy_clients_stopped': bool(claim.get('legacy_source')),
                 'snapshot': claim['snapshot'], 'expect_build_id': claim['build_id'],
@@ -3861,7 +3862,7 @@ def cmd_handoff_export(args, store: Snapshot) -> None:
     if args.output == "-":
         print(rendered, end="")
     else:
-        destination = Path(args.output).resolve()
+        destination = Path(args.output).parent.resolve() / Path(args.output).name
         if (isinstance(store, build_state_store.ClaimedBuildStore)
                 and destination.is_relative_to(store.library.root.resolve())):
             raise CoordinatorError('handoff output must be a new file outside the plan library')

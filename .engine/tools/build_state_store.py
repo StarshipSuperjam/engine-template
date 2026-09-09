@@ -168,6 +168,8 @@ def _assert_snapshot_claim(record, claim, state):
             or state['plan']['sealed_digest'] != claim['sealed_digest']
             or state['build']['repository'] != claim['repository']
             or state['build']['pr'] != claim['pull_request']
+            or ('mode' in claim and state['build']['mode'] != claim['mode'])
+            or ('authorizing_issue' in claim and state['plan'].get('authorizing_issue') != claim['authorizing_issue'])
             or str(Path(state['build'].get('worktree', '')).resolve()) != claim['worktree']):
         raise BuildStateError('snapshot and plan claim disagree about Build ownership; preserve evidence and recover the transaction')
 
@@ -187,9 +189,14 @@ def _check_seal(record, state, *, legacy_revision=False) -> None:
         # The binding names the historical seal; only a connected chain of recorded
         # operator revisions can account for a different executed payload. Earlier adoption
         # entries may precede that seal, so begin at the current sealed payload.
+        started = False
         for change in state.get('plan_change_escalations', []):
-            if change['reviewed_plan_digest'] == executed and change['operator_change'].strip():
-                executed = change['plan_digest']
+            if not started and change['reviewed_plan_digest'] != executed:
+                continue
+            if change['reviewed_plan_digest'] != executed or not change['operator_change'].strip():
+                raise BuildStateError('operator revision chain is disconnected or lacks authority; preserve its evidence')
+            started = True
+            executed = change['plan_digest']
     if (record['plan_id'] != state['plan']['plan_id'] or
             seal.get('sealed_digest') != state['plan']['sealed_digest'] or
             executed != state['plan']['digest'] or
@@ -220,13 +227,14 @@ def reserve_build(library, slug, state, *, consent=None, locator=None,
         wanted = {'repository': state['build']['repository'], 'pull_request': state['build']['pr'],
                   'sealed_digest': state['plan']['sealed_digest'],
                   'build_plan_digest': state['plan']['digest'],
+                  'mode': state['build']['mode'], 'authorizing_issue': state['plan'].get('authorizing_issue'),
                   'worktree': str(Path(state['build']['worktree']).resolve()), 'locator': locator}
         lease = record.get('build_lease')
         if lease and lease['current']:
             claim = lease['current']
             if claim['state'] == 'preparing' and claim.get('legacy_source') and not legacy_source:
                 raise BuildStateError('legacy migration is preparing; retry state migrate with --legacy-clients-stopped')
-            if any(claim[k] != v for k, v in wanted.items()) or claim['state'] not in ('preparing', 'active'):
+            if any(claim.get(k) != v for k, v in wanted.items()) or claim['state'] not in ('preparing', 'active'):
                 raise BuildStateError('this plan already has a different Build claim; resume it or explicitly supersede it')
             if legacy_source and claim.get('legacy_source') != str(Path(legacy_source).resolve()):
                 raise BuildStateError('this migration is reserved for a different source')
@@ -784,6 +792,18 @@ def adoption_source(library, identity, schema):
     return slug, DurableBuildStore(path, schema, library_root=library.root)
 
 
+def _recover_adoption_locator(old_record, old_claim, new_record, new_claim):
+    if not new_claim['locator']:
+        return
+    locator = Path(new_claim['locator'])
+    with core.exclusive_lock(locator.with_name(locator.name + '.lock')):
+        if locator.exists() or locator.is_symlink():
+            allowed = (_locator_value(old_record, old_claim), _locator_value(new_record, new_claim))
+            if _private_locator(locator) not in allowed:
+                raise BuildStateError('adoption locator was replaced by another owner; recover its registered address')
+        _durable_json(locator, _locator_value(new_record, new_claim))
+
+
 def adopt_build(library, predecessor_slug, successor_slug, identity, expected_revision,
                 schema, *, change, consent):
     """Recoverable transfer across two plan records and one canonical successor snapshot.
@@ -834,6 +854,7 @@ def adopt_build(library, predecessor_slug, successor_slug, identity, expected_re
             if new_record.get('closure') or not seal or seal['sealed_digest'] != new_record['current']['plan_digest']:
                 raise BuildStateError('the successor is closed, unsealed or changed')
             new_claim = {k: old_claim[k] for k in ('build_id', 'repository', 'pull_request', 'worktree', 'locator')}
+            new_claim.update({k: old_claim[k] for k in ('mode', 'authorizing_issue') if k in old_claim})
             new_claim.update(generation=generation, state='preparing', at=moment.utc_now(),
                 sealed_digest=seal['sealed_digest'], build_plan_digest=seal['build_plan_digest'],
                 snapshot=str(builds_dir(library, successor_slug) / old_claim['build_id'] / SNAPSHOT_FILENAME))
@@ -870,6 +891,7 @@ def adopt_build(library, predecessor_slug, successor_slug, identity, expected_re
             core.validate(saved, schema(saved) if callable(schema) else schema)
             _assert_snapshot_claim(new_record, existing_target, saved)
             _check_seal(new_record, saved)
+            _recover_adoption_locator(old_record, old_claim, new_record, existing_target)
             library.write_build_record_locked(successor_slug, new_record)
             return saved
         source = old_path if old_path.is_file() else Path(old_claim.get('archive', ''))
@@ -921,15 +943,7 @@ def adopt_build(library, predecessor_slug, successor_slug, identity, expected_re
             old_record['build_binding'] = None
             old_record['closure'] = {'state': 'retired', 'at': old_claim['terminal_at'], 'reason': old_claim['reason']}
             library.write_build_record_locked(predecessor_slug, old_record)
-        if new_claim['locator']:
-            locator = Path(new_claim['locator'])
-            with core.exclusive_lock(locator.with_name(locator.name + '.lock')):
-                if locator.exists() or locator.is_symlink():
-                    current_locator = _private_locator(locator)
-                    allowed = (_locator_value(old_record, old_claim), _locator_value(new_record, new_claim))
-                    if current_locator not in allowed:
-                        raise BuildStateError('adoption locator was replaced by another owner; recover its registered address')
-                _durable_json(locator, _locator_value(new_record, new_claim))
+        _recover_adoption_locator(old_record, old_claim, new_record, new_claim)
         new_claim['state'] = 'active'
         library.write_build_record_locked(successor_slug, new_record)
         return desired

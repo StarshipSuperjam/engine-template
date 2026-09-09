@@ -1091,14 +1091,19 @@ class TransactionalOwnership(unittest.TestCase):
                 mock.patch.object(bc, '_read_now'), contextlib.redirect_stdout(io.StringIO()):
             bc.cmd_plan_revise(argparse.Namespace(input=str(payload), operator_change='Operator directed this revision'), legacy)
         revised = legacy.read(); original = source.read_bytes()
-        for defect in ('missing', 'unconnected', 'empty_authority', 'flag'):
+        for defect in ('missing', 'unconnected', 'empty_authority', 'flag', 'contradictory_tail', 'empty_tail'):
             bad = json.loads(json.dumps(revised))
             if defect == 'missing': bad['plan_change_escalations'] = []
             elif defect == 'unconnected': bad['plan_change_escalations'][0]['reviewed_plan_digest'] = 'sha256:' + 'f' * 64
             elif defect == 'empty_authority': bad['plan_change_escalations'][0]['operator_change'] = ''
-            else: bad['plan']['diverged_from_seal'] = False
+            elif defect == 'flag': bad['plan']['diverged_from_seal'] = False
+            else:
+                bad['plan_change_escalations'].append({
+                    'reviewed_plan_digest': 'sha256:' + 'f' * 64 if defect == 'contradictory_tail' else bad['plan']['digest'],
+                    'plan_digest': 'sha256:' + 'e' * 64,
+                    'operator_change': 'contradictory later entry' if defect == 'contradictory_tail' else ''})
             source.write_text(json.dumps(bad))
-            with self.subTest(defect=defect), self.assertRaisesRegex(core.CoordinatorError, 'sealed plan'):
+            with self.subTest(defect=defect), self.assertRaisesRegex(core.CoordinatorError, 'sealed plan|revision chain'):
                 build_state_store.reserve_build(self.lib, self.slug, bad,
                     legacy_source=source, legacy_clients_stopped=True)
             self.assertIsNone(self.lib.read_record(self.slug).get('build_lease'))
@@ -1131,6 +1136,86 @@ class TransactionalOwnership(unittest.TestCase):
         text = out.getvalue()
         for value in (claim['snapshot'], str(locator), '"expect_revision": 0', '"repository": "o/r"', '"pr": 1'):
             self.assertIn(value, text)
+
+    def test_export_refuses_existing_and_concurrently_created_dangling_symlinks(self):
+        import build_coordinator as bc
+        claim = self.reserve(); self.finish(claim)
+        store = build_state_store.ClaimedBuildStore(self.lib, self.slug, SCHEMA,
+            identity=build_state_store.claim_identity(claim))
+        target = Path(claim['snapshot']).parent / 'must-not-be-created.json'
+        output = self.root / 'export.json'
+        actual = core.write_private_path
+        def redirect(path, rendered, **kwargs):
+            output.symlink_to(target)
+            return actual(path, rendered, **kwargs)
+        with mock.patch.object(bc, '_sealed_plan', return_value=(self.state['plan']['plan_id'],
+                self.seal['sealed_digest'], self.lib.head(self.slug)['build_plan'])), \
+                mock.patch.object(bc, '_assert_spec_boundary'):
+            output.symlink_to(target)
+            with self.assertRaisesRegex(core.CoordinatorError, 'already exists'):
+                bc.cmd_handoff_export(argparse.Namespace(output=str(output)), store)
+            self.assertTrue(output.is_symlink()); self.assertFalse(target.exists())
+            output.unlink()
+            with mock.patch.object(core, 'write_private_path', side_effect=redirect):
+                with self.assertRaisesRegex(core.CoordinatorError, 'already exists'):
+                    bc.cmd_handoff_export(argparse.Namespace(output=str(output)), store)
+            self.assertTrue(output.is_symlink()); self.assertFalse(target.exists())
+
+    def test_completed_adoption_retry_repairs_missing_and_refuses_foreign_locator(self):
+        locator = self.root / 'locator.json'
+        claim = self.reserve(locator=locator); self.finish(claim)
+        slug, change = self.successor()
+        actual = self.lib.write_build_record_locked
+        def visible_activation(target, record):
+            actual(target, record)
+            current = (record.get('build_lease') or {}).get('current')
+            if target == slug and current and current['state'] == 'active':
+                raise OSError('visible activation before flush')
+        with mock.patch.object(self.lib, 'write_build_record_locked', side_effect=visible_activation):
+            with self.assertRaisesRegex(OSError, 'visible activation before flush'):
+                self.adopt(claim, slug, change)
+        locator.unlink()
+        saved = self.adopt(claim, slug, change)
+        self.assertEqual(core.json_file(locator)['ownership'], saved['ownership'])
+        before = Path(self.lib.read_record(slug)['build_lease']['current']['snapshot']).read_bytes()
+        foreign = core.json_file(locator); foreign['ownership']['build_id'] = 'bld_' + 'f' * 32
+        locator.write_text(json.dumps(foreign)); locator.chmod(0o600)
+        with self.assertRaisesRegex(core.CoordinatorError, 'another owner'):
+            self.adopt(claim, slug, change)
+        self.assertEqual(core.json_file(locator), foreign)
+        self.assertEqual(Path(self.lib.read_record(slug)['build_lease']['current']['snapshot']).read_bytes(), before)
+
+    def test_unattended_reservation_only_cli_retry_keeps_mode_and_issue(self):
+        import build_coordinator as bc
+        locator = self.root / 'locator.json'
+        common = ['--state', str(locator), 'plan', 'bind', '--plan', self.slug,
+                  '--repository', 'o/r', '--pr', '1', '--operator-decided']
+        original = common + ['--mode', 'unattended', '--issue', '41']
+        with mock.patch.object(bc, '_library', return_value=self.lib), \
+                mock.patch.object(bc, 'ROOT', Path(self.state['build']['worktree'])), \
+                mock.patch.object(bc, '_head', return_value='e' * 40), \
+                mock.patch.object(bc, '_verify_draft', return_value={'headRefOid': 'e' * 40, 'baseRefOid': 'a' * 40}), \
+                mock.patch.object(bc, '_check_authorization'), \
+                mock.patch.object(bc, '_record_session_binding'), \
+                mock.patch.object(bc.github, 'tag_coordinator_owned', return_value=True), \
+                contextlib.redirect_stdout(io.StringIO()), contextlib.redirect_stderr(io.StringIO()):
+            with mock.patch.object(build_state_store, 'finish_binding', side_effect=OSError('reservation only')):
+                self.assertEqual(bc.main(original), 2)
+            claim = self.lib.read_record(self.slug)['build_lease']['current']
+            self.assertFalse(Path(claim['snapshot']).exists())
+            self.assertEqual((claim['mode'], claim['authorizing_issue']), ('unattended', 41))
+            out = io.StringIO()
+            with contextlib.redirect_stdout(out): bc.cmd_state_where(argparse.Namespace(), None)
+            self.assertIn('"mode": "unattended"', out.getvalue())
+            self.assertIn('"issue": 41', out.getvalue())
+            self.assertEqual(bc.main(common), 2)
+            self.assertEqual(bc.main(common + ['--mode', 'unattended', '--issue', '42']), 2)
+            self.assertEqual(self.lib.read_record(self.slug)['build_lease']['current'], claim)
+            self.assertEqual(bc.main(original), 0)
+        saved = core.json_file(Path(claim['snapshot']))
+        self.assertEqual(saved['ownership'], build_state_store.claim_identity(claim))
+        self.assertEqual((saved['build']['mode'], saved['plan']['authorizing_issue']), ('unattended', 41))
+        self.assertEqual(sum(c['gate'] == 'bind' for c in self.lib.read_record(self.slug)['consent']), 1)
 
     def test_single_plan_operations_take_snapshot_locks_in_the_declared_path_order(self):
         claim = self.reserve()
