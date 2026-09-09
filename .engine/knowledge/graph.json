@@ -5703,7 +5703,7 @@
       },
       "slug": "build-continuity",
       "source": {
-        "fingerprint": "sha256:c8c321ef7b879db9c45a9ae9898036ae0aa2385a3acbde4f9ac7b96e873d4ffa",
+        "fingerprint": "sha256:a93cb5c22d4741640f6ed27c1b7f21c5cd6a0814f792e831ac664b7840547147",
         "path": ".engine/operations/build-continuity.md"
       },
       "status": "active",
@@ -6771,7 +6771,7 @@
       },
       "slug": "session-economy",
       "source": {
-        "fingerprint": "sha256:0abe5d8b71429e7e24f9d124d29c3600d7500293756161dcf6e1cf2d75f38ae2",
+        "fingerprint": "sha256:a2ec850a5b86d3b20ccb057c1194688e99e86a1c41c6b1af77aff058d92f4417",
         "path": ".engine/policies/session-economy.md"
       },
       "status": "active",
@@ -9411,7 +9411,7 @@
       },
       "slug": "boot",
       "source": {
-        "fingerprint": "sha256:fdca5c44fddcbbad86fc9f2805b298e3ef15871e88b8c9525b6f88345a5186f5",
+        "fingerprint": "sha256:1f5288a4d965a73d90d02790d61e0b34e3fd15ce11bee6cb5cb4dd2a3895895b",
         "path": ".engine/tools/boot.py"
       },
       "status": "active",
@@ -16150,7 +16150,7 @@
       },
       "slug": "test_boot",
       "source": {
-        "fingerprint": "sha256:6f64407ddb8249d70b1ea37320f9feabf5f52c7d9850848a7752256a5de9fbd5",
+        "fingerprint": "sha256:95a955ca41bac0cf22425a59bf4596f9366c0966740573954c11194bf7a53c0c",
         "path": ".engine/tools/test_boot.py"
       },
       "status": "active",
