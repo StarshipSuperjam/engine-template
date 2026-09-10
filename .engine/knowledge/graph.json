@@ -5706,7 +5706,7 @@
       },
       "slug": "build-continuity",
       "source": {
-        "fingerprint": "sha256:2e48cc7163e91134cfc6b42dfe513df9aec63f578b248ed82159a89e0677b3de",
+        "fingerprint": "sha256:5b137d23050ce7ec0f21e3251ffb461281003e224083a5bdc919f65c2cbd766c",
         "path": ".engine/operations/build-continuity.md"
       },
       "status": "active",
@@ -5766,7 +5766,7 @@
       },
       "slug": "build-kickoff",
       "source": {
-        "fingerprint": "sha256:c50a996e0e0a557a9cf8ad901a9517247913e5f8f1e427de58d3e0d8787cd6f6",
+        "fingerprint": "sha256:cca124645e7d5cbaff7745e7b3d5d7cd10957d937459ddd3437b490ace83a4fc",
         "path": ".engine/operations/build-kickoff.md"
       },
       "status": "active",
@@ -5866,7 +5866,7 @@
       },
       "slug": "build-validation-and-review",
       "source": {
-        "fingerprint": "sha256:79b2b6772a5c81632e44aaf1fb6b5f6edfb7eefe7c4a6fcf7c4547b480abf82c",
+        "fingerprint": "sha256:c03f535d54363fc56ad30325d3bce5d15245a0f6516ba6a29a65e262c30982ce",
         "path": ".engine/operations/build-validation-and-review.md"
       },
       "status": "active",
@@ -9586,7 +9586,7 @@
       },
       "slug": "build_coordinator",
       "source": {
-        "fingerprint": "sha256:bd117d0bae372618271fe3614c9cec418f942067283428f48fba8d5ced6fec21",
+        "fingerprint": "sha256:49b24013c84b961539016f690bbf7ef45683e20f96524bde999b9bdc6fef529d",
         "path": ".engine/tools/build_coordinator.py"
       },
       "status": "active",
@@ -9799,7 +9799,7 @@
       },
       "slug": "build_entry_preflight",
       "source": {
-        "fingerprint": "sha256:90c9f5b21539833f01fd027a9e596a72f4a969025e1b342aea85c2d4700dadf6",
+        "fingerprint": "sha256:9051c15746791286451c8ad1ac7e94a59a9e783a6d89afa1d23914ba902d9214",
         "path": ".engine/tools/build_entry_preflight.py"
       },
       "status": "active",
@@ -9892,7 +9892,7 @@
       },
       "slug": "build_review_range",
       "source": {
-        "fingerprint": "sha256:95dd48ad0948a13a829ac3199b142c9d85f95c5f01e1e34c17471f583702a6a2",
+        "fingerprint": "sha256:02d67b463b3de08b8da36bcc5f543a97bdeaca47fb7f8a1663b0eef0bc028563",
         "path": ".engine/tools/build_review_range.py"
       },
       "status": "active",
@@ -11573,7 +11573,7 @@
       },
       "slug": "demo_plan_to_ready_pr",
       "source": {
-        "fingerprint": "sha256:e4c76794bf35ba46abf59bfdcedb458962f708cdc2b804b09d37f9b781c362fd",
+        "fingerprint": "sha256:31c527b07a6736fbc2a2b5f41fe820c0038657b6948c298f474843a796a3365e",
         "path": ".engine/tools/demo_plan_to_ready_pr.py"
       },
       "status": "active",
@@ -16412,7 +16412,7 @@
       },
       "slug": "test_build_coordinator",
       "source": {
-        "fingerprint": "sha256:f8202bd928372baa051ee86043e76a826d4122d2104400315ae4eb815a7d2b08",
+        "fingerprint": "sha256:0f59492592ff15d5f2d8a494937f8cff7fd35c849706dc1ff8fd7d8cd8afd89d",
         "path": ".engine/tools/test_build_coordinator.py"
       },
       "status": "active",
@@ -16622,7 +16622,7 @@
       },
       "slug": "test_build_entry_preflight",
       "source": {
-        "fingerprint": "sha256:e0caa9045a9cbad374904e2bd3b6d3272b9515a68ae3f2d929726ff2f2d87306",
+        "fingerprint": "sha256:62d6fd2664cf6c5afd9e2247b298a955d309b7dc5946ada19524a61b95a0c28b",
         "path": ".engine/tools/test_build_entry_preflight.py"
       },
       "status": "active",
@@ -18750,7 +18750,7 @@
       },
       "slug": "test_mechanic_build",
       "source": {
-        "fingerprint": "sha256:cc33c350e30ccda257218d7492e8e7ec908b8cb222a1205a2828128e59d3e921",
+        "fingerprint": "sha256:70a04a1d8bff3b707a05b676d2d10a0161d39ed0e42b1cb5eda1e8588a44c90b",
         "path": ".engine/tools/test_mechanic_build.py"
       },
       "status": "active",
@@ -20293,7 +20293,7 @@
       },
       "slug": "test_review_economy",
       "source": {
-        "fingerprint": "sha256:5c704be58cf7fd94c1e3178ed3ff3b8a64095ea7469ffd656ce734137fad8083",
+        "fingerprint": "sha256:f77d52c6182d57af3624e053def1bb27b20539f0876a27676e47bb756eec70d1",
         "path": ".engine/tools/test_review_economy.py"
       },
       "status": "active",
