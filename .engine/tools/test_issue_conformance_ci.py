@@ -121,7 +121,9 @@ class TestSkeletonComment(unittest.TestCase):
             self.assertIn(marker, body)
 
     def test_leads_with_the_plain_no_chore_line(self):
-        self.assertIn("Nothing for you to do", icc.skeleton_comment())
+        self.assertIn("repair this existing issue", icc.skeleton_comment())
+        self.assertIn("triage repair", icc.skeleton_comment())
+        self.assertIn("do not close and refile", icc.skeleton_comment())
 
     def test_is_static_takes_no_issue_argument(self):
         import inspect

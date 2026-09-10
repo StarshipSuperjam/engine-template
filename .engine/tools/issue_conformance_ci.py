@@ -63,7 +63,7 @@ NEEDS_REAUTHORING_LABEL = "needs-reauthoring"
 # The label's colour + description are public so provisioning can mirror them into its one-place label set
 # (a drift-test in test_bootstrap holds the mirror equal to these). This module remains the canonical home.
 NEEDS_REAUTHORING_LABEL_COLOR = "d4c5f9"  # a calm lavender — distinct from the engine label's grey, never an alarm red
-NEEDS_REAUTHORING_LABEL_DESCRIPTION = "Engine Issue not yet in the engine's standard format — the engine will re-file it."
+NEEDS_REAUTHORING_LABEL_DESCRIPTION = "Engine-labelled issue needs its structure or assessment repaired on this issue."
 _LABEL_COLOR = NEEDS_REAUTHORING_LABEL_COLOR              # internal aliases (kept so existing call sites read unchanged)
 _LABEL_DESCRIPTION = NEEDS_REAUTHORING_LABEL_DESCRIPTION
 
@@ -127,13 +127,15 @@ def skeleton_comment() -> str:
     )
     return (
         f"{COMMENT_MARKER}\n"
-        "The engine filed this item in a format that isn't its standard shape, so it may read as raw text. "
-        f"**Nothing for you to do** — the engine will re-file it in its standard shape, and the "
+        "This engine-labelled item is missing the standard structure or a required impact assessment. "
+        f"An Engine session should repair this existing issue; the "
         f"`{NEEDS_REAUTHORING_LABEL}` label clears automatically once it does.\n\n"
         "<details><summary>For the engine — the standard shape to re-author this Issue into</summary>\n\n"
         f"{skeleton}\n"
-        f"Render it with `{issue_gate.HELPER}` (`render_engine_issue_body`), or write those three parts "
-        "directly, then re-file the body with `--body-file`.\n"
+        f"Use `{issue_gate.HELPER}` to repair the standard structure on this issue. "
+        "For missing or malformed assessment, use `issue_author.py triage show`, then `triage repair` "
+        "with the observed body digest and explicit assessment input. Preserve human text; do not "
+        "close and refile this issue just to repair its contract.\n"
         "</details>"
     )
 
