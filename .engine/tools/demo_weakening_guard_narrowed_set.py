@@ -1,12 +1,12 @@
 #!/usr/bin/env python3
-"""Demo — the safety guard now asks for your deliberate OK only when a real safety gate changes (#250).
+"""Demo — guard attention distinguishes disclosure from hard acknowledgement (#250).
 
-What this checks, in plain words: the engine has a guard that stops a merge and asks for your deliberate approval
-whenever a change could turn OFF one of your safety gates. It used to fire on ANY edit to a file in the engine's
-tools folder — including harmless ones (start-up, memory, status displays) — which trained clicking-through. This
-shows, on REAL guard logic and your REAL check definitions, that after the fix the guard:
-  - still fires on a genuine safety gate (a check's enforcement code, the file that wires the write-gate, or the
-    write-gate itself), and
+What this checks, in plain words: the engine has a guard that notices changes to its safety gates. Ordinary
+enforcement modifications get a soft disclosure for review; removals, renames, and hard-floor changes require a
+deliberate acknowledgement. It used to fire on ANY edit to a file in the engine's tools folder — including harmless
+ones (start-up, memory, status displays) — which trained clicking-through. This shows, on REAL guard logic and your
+REAL check definitions, that after the fix the guard:
+  - classifies a genuine safety-gate change at the correct disclosure or acknowledgement tier, and
   - stays quiet on a harmless helper file,
 so the deliberate approval stays rare and meaningful.
 
@@ -24,10 +24,10 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import weakening_guard  # noqa: E402
 
 
-def _flagged(filename: str, status: str = "modified") -> bool:
-    """True iff the REAL guard classifier would stop the merge for this one-file change (deriving the guarded
-    check-scripts from your live check definitions, exactly as it does in CI)."""
-    return bool(weakening_guard.flagged_changes([{"filename": filename, "status": status}]))
+def _tier(filename: str, status: str = "modified") -> str | None:
+    """The real guard tier: hard acknowledgement, soft disclosure, or no attention."""
+    flagged = weakening_guard.flagged_changes([{"filename": filename, "status": status}])
+    return weakening_guard.classify(filename, status) if flagged else None
 
 
 _BASE_HOME = "acme/engine-home"   # a stand-in "current home" so the demo needs no real manifest
@@ -60,33 +60,36 @@ _HOME_CASES = [
 ]
 
 
-# (label, filename, status, should_be_flagged, plain-language why)
+# (label, filename, status, expected tier (or None), plain-language why)
 CASES = [
-    ("a check's enforcement code", ".engine/tools/product_design/coverage.py", "modified", True,
-     "a safety check's own logic — guarded by being named in a check definition"),
-    ("the file that wires your gates", ".claude/settings.json", "modified", True,
-     "wires the write-gate and other enforcement hooks — was a blind spot before #250"),
-    ("the write-gate itself", ".engine/tools/modes.py", "modified", True,
-     "the Explore/Build write-gate enforcement hook"),
-    ("the branch-protection setup", ".engine/tools/bootstrap.py", "modified", True,
-     "applies your branch ruleset — the ruleset has no file of its own, so this is its stand-in"),
-    ("a validation gate's schema", ".engine/schemas/policy.v1.json", "modified", True,
-     "the shape a standing rule must match — the teeth of a hard merge check, so loosening it loosens that "
-     "gate; an internal report format checked only by a test stays quiet"),
-    ("a harmless helper (start-up)", ".engine/tools/boot.py", "modified", False,
+    ("an audit library modification", ".engine/tools/audit_digest.py", "modified", "soft",
+     "an active hard check's declared enforcement library — disclosed for review with no acknowledgement"),
+    ("an audit library removal", ".engine/tools/audit_digest.py", "removed", "hard",
+     "removing a guarded file is a hard weakening and requires acknowledgement"),
+    ("the file that wires your gates", ".claude/settings.json", "modified", "soft",
+     "wires the write-gate and other enforcement hooks, so an ordinary edit is disclosed"),
+    ("the write-gate itself", ".engine/tools/modes.py", "modified", "soft",
+     "the Explore/Build write-gate hook; its ordinary edits are disclosed"),
+    ("the hard gate configuration", ".engine/suites.json", "modified", "hard",
+     "the hard floor defining suites; changing it requires acknowledgement"),
+    ("the branch-protection setup", ".engine/tools/bootstrap.py", "modified", "soft",
+     "applies the branch ruleset, so an ordinary edit is disclosed"),
+    ("a validation gate's schema", ".engine/schemas/policy.v1.json", "modified", "soft",
+     "the shape a standing hard rule must match; its ordinary edit is disclosed"),
+    ("a harmless helper (start-up)", ".engine/tools/boot.py", "modified", None,
      "session start-up briefing — not a safety gate; used to fire before #250"),
-    ("a harmless helper (memory)", ".engine/tools/memory/compact.py", "modified", False,
+    ("a harmless helper (memory)", ".engine/tools/memory/compact.py", "modified", None,
      "memory housekeeping — not a safety gate"),
-    ("a harmless helper (status)", ".engine/tools/engine_status.py", "modified", False,
+    ("a harmless helper (status)", ".engine/tools/engine_status.py", "modified", None,
      "status dashboard — not a safety gate"),
-    ("a brand-new safety check", ".github/workflows/new-check.yml", "added", False,
-     "a pure addition strengthens protection, so it never asks for approval"),
+    ("a brand-new safety check", ".github/workflows/new-check.yml", "added", None,
+     "a pure addition strengthens protection, so it needs no guard attention"),
 ]
 
 
 def main(_argv=None) -> int:
-    print("What this checks: after #250, the guard asks for your deliberate approval only when a change could")
-    print("turn off a real safety gate — not for harmless helper edits. (issue #250)\n")
+    print("What this checks: the guard separates soft disclosure from hard acknowledgement, and leaves")
+    print("harmless helper edits alone. (issue #250)\n")
 
     # Sanity: the guarded check-scripts really are being DERIVED from your live check definitions (not hard-coded).
     derived = weakening_guard._derive_check_scripts()
@@ -100,9 +103,9 @@ def main(_argv=None) -> int:
 
     wrong = []
     for label, filename, status, expected, why in CASES:
-        got = _flagged(filename, status)
-        verb = {"modified": "changing", "added": "adding"}[status]
-        mark = "asks for approval" if got else "stays quiet"
+        got = _tier(filename, status)
+        verb = {"modified": "changing", "added": "adding", "removed": "removing"}[status]
+        mark = {"hard": "requires hard acknowledgement", "soft": "makes a soft disclosure", None: "stays quiet"}[got]
         ok = "OK" if got == expected else "WRONG"
         if got != expected:
             wrong.append((label, filename, expected, got))
@@ -126,16 +129,15 @@ def main(_argv=None) -> int:
 
     print()
     if not wrong:
-        print("In plain words: every real safety gate still triggers the deliberate approval, and every harmless")
-        print("helper is left alone — so the approval you give stays rare and worth reading. The four 'stays")
-        print("quiet' helpers above would ALL have demanded approval before #250; the home leg stays quiet only")
-        print("for a reformat that leaves the value unchanged, and asks whenever the home is repointed OR removed.\n")
+        print("In plain words: ordinary audit-library changes are disclosed, removals and hard floor changes")
+        print("require acknowledgement, and harmless helpers stay quiet. The home leg stays quiet only for a")
+        print("reformat that leaves the value unchanged, and requires acknowledgement when the home changes or is removed.\n")
         print("Vary it yourself: add a line to CASES with any file path and whether you expect it flagged, or a")
         print("line to _HOME_CASES with a manifest diff — then re-run.")
         return 0
     print("This run did NOT confirm the guard's behavior — these cases came out wrong:")
     for label, filename, expected, got in wrong:
-        print(f"  - {label} ({filename}): expected flagged={expected}, got flagged={got}")
+        print(f"  - {label} ({filename}): expected tier={expected}, got tier={got}")
     print("That is a real signal worth investigating, not a pass. Your project was not touched.")
     return 1
 

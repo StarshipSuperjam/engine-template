@@ -661,6 +661,11 @@ class TestPass4LiveEdges(ImmutableLiveDerivationFixture):
         self.assertTrue(self.by_id["tool:hook-runner"]["guarded"])    # a floored .sh launcher
         self.assertFalse(self.by_id["tool:boot"]["guarded"])
 
+    def test_declared_audit_library_is_guarded_but_boot_and_status_are_not(self):
+        self.assertTrue(self.by_id["tool:audit_digest"]["guarded"])
+        self.assertFalse(self.by_id["tool:boot"]["guarded"])
+        self.assertFalse(self.by_id["tool:engine_status"]["guarded"])
+
     def test_summary_and_entrypoint_are_py_tool_only(self):
         boot = self.by_id["tool:boot"]
         self.assertTrue(boot["summary"].startswith("boot:"))

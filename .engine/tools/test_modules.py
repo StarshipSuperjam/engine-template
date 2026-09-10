@@ -617,6 +617,7 @@ class TestModuleCoherenceConsumer(unittest.TestCase):
             ".engine/check/conduct-weakening-guard.json",
             ".engine/check/doc-frontmatter.json",
             ".engine/check/doc-shape.json",
+            ".engine/check/enforcement-files.json",
             ".engine/check/engine-manifest.json",
             ".engine/check/engine-todo-form.json",
             ".engine/check/execution-state.json",

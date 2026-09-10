@@ -28,6 +28,7 @@
     "engine/check/doc-shape": "code",
     "engine/check/engine-manifest": "code",
     "engine/check/engine-todo-form": "code",
+    "engine/check/enforcement-files": "code",
     "engine/check/execution-state": "code",
     "engine/check/executor-record": "code",
     "engine/check/first-run-assets": "code",
