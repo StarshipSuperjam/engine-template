@@ -38,8 +38,30 @@ class _Surface(unittest.TestCase):
         self.lib = plan_store.PlanLibrary(self.root)
         self.addCleanup(self._tmp.cleanup)
 
-    def run_command(self, *argv) -> tuple[int, str, str]:
+    def run_command(self, *argv, observe=True) -> tuple[int, str, str]:
         out, err = io.StringIO(), io.StringIO()
+        if observe and len(argv) > 2 and argv[:2] in (("review", "record"), ("review", "amend")):
+            import scoped_agents
+            from test_build_coordinator import observe_review_execution
+            parsed = project_manager.build_parser().parse_args(["--library", str(self.root), *argv])
+            try:
+                slug = self.lib.resolve(parsed.plan)
+                record = self.lib.read_record(slug)
+                if record.get("approval"):
+                    findings = project_manager.plan_lifecycle.translate_findings(
+                        json.loads(Path(parsed.findings).read_text()) if parsed.findings else [],
+                        lenses=list(parsed.lens or (record.get("plan_review") or {}).get("lenses", [])))
+                    for lens in parsed.lens or []:
+                        existing = scoped_agents.Store(self.lib, slug).read()["assignments"].values()
+                        if any(a["lens"] == lens and a["packet_digest"] == parsed.packet_digest for a in existing):
+                            continue
+                        output = [{"severity": f["severity"], "message": f["summary"], "location": None}
+                                  for f in findings if f["lens"] == lens]
+                        observe_review_execution(self.lib, slug, scoped_agents.plan_owner(record), lens,
+                                                 parsed.packet_digest, output)
+                    argv = (*argv, "--session", "fixture-root")
+            except (project_manager.ProjectManagerError, project_manager.core.CoordinatorError, ValueError):
+                pass  # invalid-input cases must reach the real command's own refusal
         with contextlib.redirect_stdout(out), contextlib.redirect_stderr(err):
             code = project_manager.main(["--library", str(self.root), *argv])
         return code, out.getvalue(), err.getvalue()
@@ -2532,6 +2554,168 @@ class ProjectionLink(_Governed):
         text = plan_md.read_text(encoding="utf-8")
         self.assertIn("review-recorded", text)
         self.assertIn(f"revision {self.lib.read_record(slug)['current']['revision']}", text)
+
+
+
+
+
+class ObservedPlanReview(_Governed):
+    def prepared(self):
+        slug, document = self._plan()
+        self.run_command("preview", slug)
+        self.assertEqual(self.run_command("approve", slug, "--depth", "standard", "--operator-decided")[0], 0)
+        return slug
+
+    def test_empty_findings_cannot_replace_missing_execution(self):
+        slug = self.prepared()
+        code, _, err = self.run_command("review", "record", slug, "--lens", "architecture",
+            "--packet-digest", self._packet_digest(slug), "--session", "fixture-root", observe=False)
+        self.assertEqual(code, 2)
+        self.assertIn("unverified", err)
+        self.assertIsNone(self.lib.read_record(slug).get("plan_review"))
+
+    def test_observed_receipt_survives_disposition_without_fabricating_freshness(self):
+        import scoped_agents
+        slug, _ = self._to_reviewed(findings=[{"id": "A1", "lens": "architecture", "severity": "nit",
+            "summary": "A concern", "location": "the plan as a whole"}], lenses=["architecture"])
+        record = self.lib.read_record(slug)
+        companion = scoped_agents.Store(self.lib, slug)
+        receipt = record["plan_review"]
+        owner = scoped_agents.plan_owner(record, receipt)
+        self.assertTrue(companion.receipt_verified(receipt, owner))
+        edited = json.loads(json.dumps(receipt))
+        edited["findings"][0].update(disposition="rejected", rationale="Evidence")
+        self.assertTrue(companion.receipt_verified(edited, owner))
+        companion.path.unlink()
+        self.assertFalse(companion.receipt_verified(receipt, owner))
+        self.assertIn("unverified", self.run_command("show", slug)[1])
+
+
+    def test_new_seal_refuses_lost_or_damaged_execution_but_keeps_history_readable(self):
+        import scoped_agents
+        for loss in ("missing", "damaged", "packet"):
+            with self.subTest(loss=loss):
+                slug, _ = self._to_reviewed()
+                companion = scoped_agents.Store(self.lib, slug)
+                before = self.lib.read_record(slug)
+                if loss == "missing":
+                    companion.path.unlink()
+                elif loss == "damaged":
+                    companion.path.write_text("{}")
+                else:
+                    assignment = next(iter(companion.read()["assignments"].values()))
+                    Path(assignment["packet_path"]).write_text("changed packet")
+                code, _, err = self.run_command("seal", slug, "--operator-decided", observe=False)
+                self.assertEqual(code, 1, err)
+                self.assertIn("no verified execution evidence", err)
+                self.assertEqual(self.lib.read_record(slug), before)
+                self.assertEqual(self.run_command("show", slug)[0], 0)
+                # Each case owns its own real library and canonical plan identity.
+                self.lib = plan_store.PlanLibrary(self.root / loss)
+                self.root = self.lib.root
+
+    def test_imported_unsealed_review_does_not_gain_seal_authority(self):
+        slug, _ = self._to_reviewed()
+        bundle = Path(self._tmp.name) / "reviewed-bundle.json"
+        self.assertEqual(self.run_command("export", slug, "--output", str(bundle))[0], 0)
+        self.root = Path(self._tmp.name) / "arrival"
+        self.lib = plan_store.PlanLibrary(self.root)
+        code, _, err = self.run_command("import", "--bundle", str(bundle))
+        self.assertEqual(code, 0, err)
+        before = self.lib.read_record(slug)
+        code, _, err = self.run_command("seal", slug, "--operator-decided", observe=False)
+        self.assertEqual(code, 1, err)
+        self.assertIn("no verified execution evidence", err)
+        self.assertEqual(self.lib.read_record(slug), before)
+
+    def test_seal_rechecks_execution_under_the_plan_transaction_lock(self):
+        import scoped_agents
+        slug, _ = self._to_reviewed()
+        companion = scoped_agents.Store(self.lib, slug)
+        before = self.lib.read_record(slug)
+        original_update = self.lib.update_record
+        def lose_evidence_before_lock(*args, **kwargs):
+            companion.path.unlink()
+            return original_update(*args, **kwargs)
+        with mock.patch.object(plan_store.PlanLibrary, "update_record", side_effect=lose_evidence_before_lock):
+            code, _, err = self.run_command("seal", slug, "--operator-decided", observe=False)
+        self.assertEqual(code, 2, err)
+        self.assertIn("became unverified", err)
+        self.assertEqual(self.lib.read_record(slug), before)
+
+    def test_clarification_completes_plan_review_without_a_second_child(self):
+        import scoped_agents
+        from test_build_coordinator import observe_review_execution, clarify_review_execution
+        slug = self.prepared()
+        digest = self._packet_digest(slug)
+        record = self.lib.read_record(slug)
+        companion, assignment = observe_review_execution(self.lib, slug, scoped_agents.plan_owner(record),
+            "architecture", digest, {"status": "needs_clarification"})
+        argv = ("review", "record", slug, "--lens", "architecture", "--packet-digest", digest,
+                "--session", "fixture-root")
+        self.assertEqual(self.run_command(*argv, observe=False)[0], 2)
+        final = clarify_review_execution(companion, assignment)
+        code, _, err = self.run_command(*argv, observe=False)
+        self.assertEqual(code, 0, err)
+        saved = self.lib.read_record(slug)["plan_review"]
+        self.assertTrue(companion.receipt_verified(saved, scoped_agents.plan_owner(record)))
+        self.assertEqual(len(final["continuations"]), 1)
+        self.assertEqual(len(companion.read()["assignments"]), 1)
+
+
+    def test_interrupted_plan_receipt_preserves_unaccepted_history_and_retries_once(self):
+        import scoped_agents
+        from test_build_coordinator import observe_review_execution
+        slug = self.prepared()
+        record = self.lib.read_record(slug)
+        digest = self._packet_digest(slug)
+        companion, assignment = observe_review_execution(self.lib, slug,
+            scoped_agents.plan_owner(record), "architecture", digest, [])
+        original_write = plan_store.PlanLibrary._write_json
+        def interrupted(library, path, value):
+            if path == self.lib._record_path(slug):
+                raise OSError("simulated interruption before plan receipt publication")
+            return original_write(library, path, value)
+        argv = ("review", "record", slug, "--lens", "architecture", "--packet-digest", digest,
+                "--session", "fixture-root")
+        with mock.patch.object(plan_store.PlanLibrary, "_write_json", new=interrupted):
+            # The interruption propagates; it must not publish a successful review.
+            with self.assertRaisesRegex(OSError, "simulated interruption"):
+                self.run_command(*argv, observe=False)
+        self.assertEqual(self.lib.read_record(slug), record)
+        self.assertIsNone(record.get("plan_review"))
+        self.assertEqual(len(companion.read()["acceptances"]), 1)
+        code, _, err = self.run_command(*argv, observe=False)
+        self.assertEqual(code, 0, err)
+        saved = self.lib.read_record(slug)["plan_review"]
+        self.assertTrue(companion.receipt_verified(saved, scoped_agents.plan_owner(record)))
+        self.assertEqual(len(companion.read()["assignments"]), 1)
+        self.assertEqual(len(companion.read()["acceptances"]), 1)
+
+    def test_concurrent_plan_receipts_cannot_overwrite_or_combine_coverage(self):
+        import concurrent.futures
+        import scoped_agents
+        from test_build_coordinator import observe_review_execution
+        slug = self.prepared()
+        digest = self._packet_digest(slug)
+        record = self.lib.read_record(slug)
+        owner = scoped_agents.plan_owner(record)
+        for lens in ("architecture", "feasibility"):
+            observe_review_execution(self.lib, slug, owner, lens, digest, [])
+        def record_lens(lens):
+            args = project_manager.build_parser().parse_args(["--library", str(self.root),
+                "review", "record", slug, "--lens", lens, "--packet-digest", digest,
+                "--session", "fixture-root"])
+            try:
+                project_manager.cmd_review_record(args)
+                return True
+            except project_manager.ProjectManagerError:
+                return False
+        with concurrent.futures.ThreadPoolExecutor(max_workers=2) as pool:
+            results = list(pool.map(record_lens, ("architecture", "feasibility")))
+        self.assertEqual(sorted(results), [False, True])
+        self.assertEqual(len(self.lib.read_record(slug)["plan_review"]["lenses"]), 1)
+        self.assertEqual(len(scoped_agents.Store(self.lib, slug).read()["acceptances"]), 1)
 
 
 if __name__ == "__main__":

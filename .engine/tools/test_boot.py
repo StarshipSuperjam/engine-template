@@ -7387,15 +7387,16 @@ class TestHooksHealthLineTrustPaths(unittest.TestCase):
     screen — not just the CLI one (StarshipSuperjam/engine-template#805). The rule test in test_codex_trust_surfaces enforces the
     both-paths invariant across every surface; this pins the wording at the source boot owns."""
 
-    def test_line_names_both_the_cli_and_the_desktop_hooks_screen(self):
+    def test_line_names_cli_approval_without_inventing_a_desktop_screen(self):
         # Force the line: it is produced only when NO recent live-session marker is found.
         with mock.patch.object(boot.providers, "read_live_session", return_value=None):
             line = boot.hooks_health_line()
         self.assertIsNotNone(line, "with no live-session marker the health line must render")
         self.assertIn("/hooks", line, "the CLI approval path must be named")
         self.assertIn("Desktop", line, "the Desktop app must be named")
-        self.assertIn("Hooks screen under Settings", line,
-                      "the Desktop Hooks screen must be named so a Desktop operator can approve too")
+        self.assertNotIn("Hooks screen under Settings", line)
+        self.assertIn("do not assume Desktop", line)
+        self.assertIn("actual hook event", line)
 
     def test_line_is_silent_when_a_fresh_marker_exists(self):
         with mock.patch.object(boot.providers, "read_live_session", return_value={"ts": "now"}):

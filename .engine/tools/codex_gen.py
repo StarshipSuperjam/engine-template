@@ -145,6 +145,9 @@ def _routing_lines(fm: dict) -> str:
              "push, open pull requests, or resolve your own findings."]
     if "Bash" in disallowed:
         lines.append("Do not run shell commands; work from reading alone.")
+    if fm.get("role") == "plan-review":
+        lines.append("Read review packets, clarification supplements and repository files with "
+                     "the engine-review-reader read_file tool.")
     return "\n".join(lines)
 
 

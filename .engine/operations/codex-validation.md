@@ -12,8 +12,10 @@ host and version actually tested. Enter after adapter changes or when hooks stop
 
 1. Record `codex --version`, OS, host kind and host version (or why unavailable). Hooks require a
    supported build (around v0.114 or later). CLI evidence never certifies Desktop or Windows.
-2. Approve Engine hooks with `/hooks` in CLI or Settings → Hooks in Desktop. New or changed entries in
-   `.codex/hooks.json` are skipped until re-approved. Preserve saved trust during isolated qualification.
+2. Approve Engine hooks with the CLI's `/hooks` browser. Do not direct a Desktop user to type that
+   command in Desktop or assume their build has a Hooks settings screen. Project-folder trust and
+   approval of each hook's current hash are separate. New or changed entries in `.codex/hooks.json`
+   require approval. Preserve saved trust during isolated qualification; verify actual events afterward.
 3. Start fresh: verify `AGENTS.md` and the opening **Project status** block. If the briefing is absent,
    disclose that automation is off and ground manually with
    `uv run --directory .engine --frozen -- python tools/engine_status.py` before continuing.
@@ -100,23 +102,24 @@ Routine/audit migration and Desktop acceptance remain separate gates where those
 
 ## Notes
 
-**2026-09-08, macOS / CLI 0.153.4:** the same child retained configured `gpt-5.6-luna`/low effort under
-both parent modes, while inheriting the parent's effective sandbox. Read Only permitted shell invocation
-but prevented the fixture write; Workspace Write permitted it despite the child's read-only default.
-No per-tool shell prohibition or mechanical child isolation from Workspace Write was established.
-The live spawn spelling was `collaborationspawn_agent`; `^Agent$` missed it and the exact matcher saw it.
-Inputs included agent_type/task_name/fork_turns/message; the custom child's configured model was absent,
-while the common hook model identified the parent. Start/stop and child hooks retained the parent's exact
-session_id and separate agent_id. Both parent modes delivered a compact-only witness to the next response.
-H1 then exercised the candidate gate: cheap explorer completed; strong/missing model was denied before
-child creation. The real reminder resolved the isolated library and delivered `pln_L49_COMPACT_POINTER`
-and `H1_DEMO` during actual compaction; the next response repeated both. An absent fixture was disclosed.
-The record retains commands, fixture sources and bounded observations. Invocation-scoped fixture trust
-was used only after an exact inventory check; saved trust was unchanged. Desktop and Windows remain
-unverified. The operator's protected-branch merge remains the wall; hooks are fallible guardrails.
+September 9 qualification used macOS Desktop 26.901.51231 (8109) and Codex 0.153.4. Native
+completion reclaimed capacity; queue-only child mail reproduced allocation pressure, and useful
+continuation restored it. Candidate hooks denied that mail both during work and after a partial stop.
+Six fresh workers ran across two batches of three; one relative-read attribution failed and stayed
+unverified, then a fresh case passed after repair. Full stdout with exit 7 earned no read credit;
+a later successful read recovered the same assignment without erasing the failed attempt.
 
-Final candidate probes renewed cheap/strong explorer and compact witnesses after the gate repair.
-Five documented owner replays passed, including the real bound Build pointer and mismatched-worktree case.
-The nested-cwd reminder repair was followed by another real compact-pointer witness. Executable shim
-tests now round-trip stdin and target exit status. Provider tests retain a redacted Claude transcript
-launch projection with provenance, explicitly distinct from a newly observed hook envelope.
+Planning reviewers initially lacked a usable reader. Codex rust-v0.153.4 `agent/role.rs` ignores
+role-local MCP configuration, despite current documentation. The operator approved project-level
+registration of one mechanically read-only reader, preserving no-shell instructions. The same stuck
+child then read its original packet and supplement, completed without shell use, and earned PM
+acceptance. Reuse for a different packet was refused; a fresh replacement completed after two useful
+clarifications. Actual Build fixture acceptance also passed. Partial results earned no coverage.
+
+The reader was absent from the test root's initial explicit tool list; discovery returned one
+351-character definition including a 153-character declaration. Exact billed-token overhead remains
+unknown. Fourteen reader tests and 232 reader/generator/wiring/provider tests passed. Failed witnesses
+remain retained; fixture receipts cannot satisfy the actual Build's independent deliverable review.
+See [Scoped native agents](scoped-agent-orchestration.md) for the operator-run demonstration. The CLI
+fixture is optional validation, not setup every Engine adopter must repeat. Claude documented-contract
+and real hook-runner tests passed; live Claude remains the operator-approved September 12 follow-up.

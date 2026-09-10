@@ -39,7 +39,7 @@
       "role": "plan-review",
       "slug": "engine-design-review-architecture",
       "source": {
-        "fingerprint": "sha256:b0f15efa91831be25a87f8a95213bc6df4d9094c0569dffe22d6d22979064195",
+        "fingerprint": "sha256:2fe7bc6d7a2f0a96b52302a87c9d91d03ecd4bf33c2f6a645fda4a70a74b81fb",
         "path": ".claude/agents/engine-design-review-architecture.md"
       },
       "status": "active",
@@ -62,7 +62,7 @@
       "role": "plan-review",
       "slug": "engine-design-review-feasibility",
       "source": {
-        "fingerprint": "sha256:c8aef10cf637c29b887ddb1b6490940f8337681ea4ba9ef5f34066ac3f7d83bb",
+        "fingerprint": "sha256:f6ec0c6e21ca8a3b7fbb57ee80b2dd04d6e66b10232015bd8bd0e46bffe1cb62",
         "path": ".claude/agents/engine-design-review-feasibility.md"
       },
       "status": "active",
@@ -85,7 +85,7 @@
       "role": "plan-review",
       "slug": "engine-design-review-product-intent",
       "source": {
-        "fingerprint": "sha256:7f0792f43bc44c04f8c8038469f6e19e77552d02cca26f70e8fa748458a5dd28",
+        "fingerprint": "sha256:ade07dfbff74da167d3c0b71f95aae06ac3fc0072c594c525dcfa701e2656e64",
         "path": ".claude/agents/engine-design-review-product-intent.md"
       },
       "status": "active",
@@ -108,7 +108,7 @@
       "role": "plan-review",
       "slug": "engine-design-review-risk-governance",
       "source": {
-        "fingerprint": "sha256:29c0a0c09c138a50e166d463a5aee5c8e7291cbf60d0994b7f00821ea1823e91",
+        "fingerprint": "sha256:4d0ff9aa1cd84069427f9bf45125381ccd23b6c427e6268cd7c11cab2c04ed09",
         "path": ".claude/agents/engine-design-review-risk-governance.md"
       },
       "status": "active",
@@ -130,7 +130,7 @@
       "role": "scout",
       "slug": "engine-grounding-scout",
       "source": {
-        "fingerprint": "sha256:7f4c0aadab49070975902e42686ce3f49843ecf9ded1d2cc824d902479e2aae1",
+        "fingerprint": "sha256:90865f67aef85ecd3179d903947fb461fd50a1bcf39d34d0ee9b97666bf8e5a0",
         "path": ".claude/agents/engine-grounding-scout.md"
       },
       "status": "active",
@@ -153,7 +153,7 @@
       "role": "pre-submission-review",
       "slug": "engine-qa-review-divergence-hunter",
       "source": {
-        "fingerprint": "sha256:d55ecdda0f9e6f2642044fbad4581726ce9bebdc3050b6dd7cfb6eb0b415e5c8",
+        "fingerprint": "sha256:74985b8f5d40aad9a0281c1ad635d71119b52e7fd562c8c59cffe4662212240c",
         "path": ".claude/agents/engine-qa-review-divergence-hunter.md"
       },
       "status": "active",
@@ -176,7 +176,7 @@
       "role": "pre-submission-review",
       "slug": "engine-qa-review-security-governance",
       "source": {
-        "fingerprint": "sha256:0f8c0ed6d856ba27dbd8ce7b6ec7a21e14616a47e76e17a5cae933982d11336a",
+        "fingerprint": "sha256:b75e1e8fd386a3104d6571820220253d113f4ebc348f9a5db6f79345e4c9dd6a",
         "path": ".claude/agents/engine-qa-review-security-governance.md"
       },
       "status": "active",
@@ -199,7 +199,7 @@
       "role": "pre-submission-review",
       "slug": "engine-qa-review-spec-conformance",
       "source": {
-        "fingerprint": "sha256:e75592a0b730d424c7f749ba9c7fc2da068730a8ac446307d65d83a2d11f64dc",
+        "fingerprint": "sha256:a5126b403d7bde1b1ccce1cfd9a5ec3d955df6b26de3962761d2aad06b1aaee5",
         "path": ".claude/agents/engine-qa-review-spec-conformance.md"
       },
       "status": "active",
@@ -222,7 +222,7 @@
       "role": "pre-submission-review",
       "slug": "engine-qa-review-technical-integrity",
       "source": {
-        "fingerprint": "sha256:487da44439292f3ab446b2ac6e2d84af0e918fcef78a5c94d745843563b127c6",
+        "fingerprint": "sha256:8bb709ce9103bc8b5b2696b41f58c3d14facd3550903725204884da6c0610f3f",
         "path": ".claude/agents/engine-qa-review-technical-integrity.md"
       },
       "status": "active",
@@ -245,7 +245,7 @@
       "role": "pre-submission-review",
       "slug": "engine-qa-review-usability",
       "source": {
-        "fingerprint": "sha256:e5559fb3b1312863b1fd972cd6a5477cc93f9097da3ac80584e2899704169765",
+        "fingerprint": "sha256:855e3dbf9934111f737ad3f6356467431f7bee77b1ef1bb9b78ca9ae42394e1f",
         "path": ".claude/agents/engine-qa-review-usability.md"
       },
       "status": "active",
@@ -267,7 +267,7 @@
       "role": "scout",
       "slug": "engine-validation-runner",
       "source": {
-        "fingerprint": "sha256:b23d03a166beb257a0cfbc2fc62215fc73b74b0d5883205f80e3408abdad7b74",
+        "fingerprint": "sha256:6a3e90abb8fc244d01fa39cad03ecb6eced70a36366df54b0b6a68de46210782",
         "path": ".claude/agents/engine-validation-runner.md"
       },
       "status": "active",
@@ -288,7 +288,7 @@
       "role": "worker",
       "slug": "engine-worker-bounded",
       "source": {
-        "fingerprint": "sha256:cb5f76f7a63d69311ebed01ac5ef5ad3583dfc13d14aba4b103e34af745a7552",
+        "fingerprint": "sha256:2812189cdb36c5e8d02a64fd6822ca34be27b79c25952889e14b27438f58dd07",
         "path": ".claude/agents/engine-worker-bounded.md"
       },
       "status": "active",
@@ -309,7 +309,7 @@
       "role": "worker",
       "slug": "engine-worker-builder",
       "source": {
-        "fingerprint": "sha256:ac9bd90ca0e857ce1f6783c5962efeaaecbda1bdb939e980b00e0dd8367184d0",
+        "fingerprint": "sha256:ff516f176b71deddbdeca13c4e79324981d1ddddedfe1897b388c803d65c69db",
         "path": ".claude/agents/engine-worker-builder.md"
       },
       "status": "active",
@@ -1907,6 +1907,7 @@
           "operation:projects-release-advance",
           "operation:projects-sync-setup",
           "operation:routine-entry",
+          "operation:scoped-agent-orchestration",
           "operation:serialized-integration",
           "operation:tune-policy"
         ]
@@ -1977,6 +1978,7 @@
           "operation:projects-release-advance",
           "operation:projects-sync-setup",
           "operation:routine-entry",
+          "operation:scoped-agent-orchestration",
           "operation:serialized-integration",
           "operation:tune-policy"
         ]
@@ -3071,7 +3073,7 @@
       },
       "slug": "engine-design-review-architecture",
       "source": {
-        "fingerprint": "sha256:d58cf003a4bb3a27c595ed87cf8b1ee9204ee7ce43e8b95afc7e6e6f7d738f21",
+        "fingerprint": "sha256:325b840e843fbac0c6ca36568e11d99fc013dad7416b9b655403aa61ed0dc661",
         "path": ".codex/agents/engine-design-review-architecture.toml"
       },
       "status": "active",
@@ -3091,7 +3093,7 @@
       },
       "slug": "engine-design-review-feasibility",
       "source": {
-        "fingerprint": "sha256:4c61bea6b33348e34357e2c4ca66ba9cef094d712c9cce8cc83fb1ead55bef4a",
+        "fingerprint": "sha256:1884ce3fd4296297c14c6494e9fdb1908bce9fa4dbac4511fadc14d62eff6c9f",
         "path": ".codex/agents/engine-design-review-feasibility.toml"
       },
       "status": "active",
@@ -3111,7 +3113,7 @@
       },
       "slug": "engine-design-review-product-intent",
       "source": {
-        "fingerprint": "sha256:e37596d61f2852be58bf7f1c983ea3eaf53df13080d0208b81f763b0fd7362ee",
+        "fingerprint": "sha256:fcb6b48b588626be6b5873cedc75f2d0d003dd10b2ab4b23d691183de891dc05",
         "path": ".codex/agents/engine-design-review-product-intent.toml"
       },
       "status": "active",
@@ -3131,7 +3133,7 @@
       },
       "slug": "engine-design-review-risk-governance",
       "source": {
-        "fingerprint": "sha256:8338942fc3f672b22341c6fde32d00773ef4dd1413c2f4114c41a08d288820b5",
+        "fingerprint": "sha256:72e13526341190659e4d0cbb5f6b09697ffc7f43fc799a048bc73ca2efbcf5af",
         "path": ".codex/agents/engine-design-review-risk-governance.toml"
       },
       "status": "active",
@@ -3151,7 +3153,7 @@
       },
       "slug": "engine-qa-review-divergence-hunter",
       "source": {
-        "fingerprint": "sha256:c593260014ab09e3ab02f44c7854442cc408f4eb90c25baf60ec945e010b205e",
+        "fingerprint": "sha256:f909e9c49d985a8b8df968dd556c06b4edf2eaab538a60c23a25f036967cf3dc",
         "path": ".codex/agents/engine-qa-review-divergence-hunter.toml"
       },
       "status": "active",
@@ -3171,7 +3173,7 @@
       },
       "slug": "engine-qa-review-security-governance",
       "source": {
-        "fingerprint": "sha256:332c5148ab424a76f4ea09006ca1426ae0db1f95e978e14a432ce8eaed5fbd91",
+        "fingerprint": "sha256:006123d331c885f4db9eaa92e2fb9427b57f016812a31548e5e9df11da1ffc1a",
         "path": ".codex/agents/engine-qa-review-security-governance.toml"
       },
       "status": "active",
@@ -3191,7 +3193,7 @@
       },
       "slug": "engine-qa-review-spec-conformance",
       "source": {
-        "fingerprint": "sha256:7a500a8877fe5ffbf4246e836b62f24ee5052cfaa16c8cc3043636efe910f24d",
+        "fingerprint": "sha256:a3dc36c2fb23f58fb83ce81688a72840a3925cf95d21c428cad1751da224c2a3",
         "path": ".codex/agents/engine-qa-review-spec-conformance.toml"
       },
       "status": "active",
@@ -3211,7 +3213,7 @@
       },
       "slug": "engine-qa-review-technical-integrity",
       "source": {
-        "fingerprint": "sha256:4074e6b4b3f7a44e2c3304911f3f8487ee0a4a3280c305f9a0ec8d9b4819c890",
+        "fingerprint": "sha256:4401fc198306a84940b19e702394eedaadfb2310b69eaf550f20afd3ec7d5e2f",
         "path": ".codex/agents/engine-qa-review-technical-integrity.toml"
       },
       "status": "active",
@@ -3231,7 +3233,7 @@
       },
       "slug": "engine-qa-review-usability",
       "source": {
-        "fingerprint": "sha256:491606b49dd4d95baffacce7446da9f309bda2337f8f3832e8b61d01433e32e8",
+        "fingerprint": "sha256:05c6c1227974b2aa9541cbb4122c9afd0c2f4a9701302790a1b5121083ce43ac",
         "path": ".codex/agents/engine-qa-review-usability.toml"
       },
       "status": "active",
@@ -3251,7 +3253,7 @@
       },
       "slug": "engine-worker-bounded",
       "source": {
-        "fingerprint": "sha256:da58e6063b05a341803c1d83300a23ece7137a88463494f40efe14b9ebd0efcc",
+        "fingerprint": "sha256:106de19a59144a364999707b415d7b7f27baba19c5a285d1bda0e5c165b341ba",
         "path": ".codex/agents/engine-worker-bounded.toml"
       },
       "status": "active",
@@ -3271,7 +3273,7 @@
       },
       "slug": "engine-worker-builder",
       "source": {
-        "fingerprint": "sha256:c626f6e8e044d3f168ed1e2c855a3b882b0fa64478ea86a81f0a51aea036c780",
+        "fingerprint": "sha256:273d2bbb1eaff3386c97b6995f15d453a84737c80ea8166b3d38eab0204bf23d",
         "path": ".codex/agents/engine-worker-builder.toml"
       },
       "status": "active",
@@ -5211,7 +5213,7 @@
       },
       "slug": "ci-assurance",
       "source": {
-        "fingerprint": "sha256:2577e899982d5482e80c646eea2738a10187ae520ec5b4960e4d347925fad08c",
+        "fingerprint": "sha256:fb84aeb8df09aec5c791285cd715c6368608e98e078824c8f75fd8212c68e17d",
         "path": ".engine/docs/ci-assurance.md"
       },
       "status": "active",
@@ -5444,6 +5446,7 @@
           "tool:knowledge_gen",
           "tool:modes",
           "tool:scent",
+          "tool:scoped_agents",
           "tool:self_map",
           "tool:session_economy",
           "tool:telemetry",
@@ -5452,7 +5455,7 @@
       },
       "slug": "core",
       "source": {
-        "fingerprint": "sha256:305752d170d73f400b23a7bae0a65795b5c633fa225f72e169bb765c5b496206",
+        "fingerprint": "sha256:a38e6b300fae713eb615200e133d5d5436868cee5a781581f9ec9272284991da",
         "path": ".engine/modules/core/manifest.json"
       },
       "status": "required",
@@ -5863,7 +5866,7 @@
       },
       "slug": "build-validation-and-review",
       "source": {
-        "fingerprint": "sha256:5aaa004dd6082bb4423dc68aa016de21d821c2e41bdd2a447304002bb183ea7e",
+        "fingerprint": "sha256:2c82061d8c9512240e5dcbdf7d2c663b06450d54ebb7fcb974d7af6faedf3097",
         "path": ".engine/operations/build-validation-and-review.md"
       },
       "status": "active",
@@ -5963,7 +5966,7 @@
       },
       "slug": "codex-settings",
       "source": {
-        "fingerprint": "sha256:fd666ca6d7e573485b9778402477501f19353951088517df6ebd19eeb0217b49",
+        "fingerprint": "sha256:536a8fe79441a521c235affb18f254ae5a85043690580362f5c0af547fb32926",
         "path": ".engine/operations/codex-settings.md"
       },
       "status": "active",
@@ -5983,7 +5986,7 @@
       },
       "slug": "codex-validation",
       "source": {
-        "fingerprint": "sha256:e031eee641faec778b965a51ec0cd061b8575f73e1a5bc2de972f35a45bda01c",
+        "fingerprint": "sha256:12f2892c5987a937538315ea7f2808f6acf882bc618d49579fd1eba5d221f16f",
         "path": ".engine/operations/codex-validation.md"
       },
       "status": "active",
@@ -6383,7 +6386,7 @@
       },
       "slug": "plan-orchestration",
       "source": {
-        "fingerprint": "sha256:96d715e5a6ac4747a09346837c83729cb1a8e2a8c74a21f24e92f4983bbdbe5f",
+        "fingerprint": "sha256:dff26ed91c191da25d16159977ff5ff89d0bdd511fb64bc40374628d24196a88",
         "path": ".engine/operations/plan-orchestration.md"
       },
       "status": "active",
@@ -6485,6 +6488,26 @@
       "source": {
         "fingerprint": "sha256:b5a64dfa19dfb1232f3449f873558b7542f4c8a44c18a3fec9bd3a953984f091",
         "path": ".engine/operations/routine-entry.md"
+      },
+      "status": "active",
+      "type": "operation"
+    },
+    {
+      "id": "operation:scoped-agent-orchestration",
+      "name": ".engine/operations/scoped-agent-orchestration.md",
+      "owner": "core",
+      "predicates": {
+        "governed_by": [
+          "schema:operation.v1"
+        ],
+        "provided_by": [
+          "module:core"
+        ]
+      },
+      "slug": "scoped-agent-orchestration",
+      "source": {
+        "fingerprint": "sha256:b0d01c77bf86d7decc91939583efd5c5cd6e1629ce44ff49f0de35c4c5fd2a84",
+        "path": ".engine/operations/scoped-agent-orchestration.md"
       },
       "status": "active",
       "type": "operation"
@@ -6751,7 +6774,7 @@
       },
       "slug": "provider-exceptions",
       "source": {
-        "fingerprint": "sha256:f59422da57be214f20267bc1811af6a7101eaf03f8af5f786d63c62b4122f78c",
+        "fingerprint": "sha256:87bb097d3645064926356c54b5880b5d8dec1c0b82c904107cc9060699e9663f",
         "path": ".engine/policies/provider-exceptions.json"
       },
       "status": "active",
@@ -7670,6 +7693,23 @@
       "source": {
         "fingerprint": "sha256:d1f8026d48fd942e840be321c08abbda1d64a62de733a19a2e7de4df07ae789f",
         "path": ".engine/schemas/provisioning-catalog.v1.json"
+      },
+      "status": "active",
+      "type": "schema"
+    },
+    {
+      "id": "schema:scoped-agent-evidence.v1",
+      "name": ".engine/schemas/scoped-agent-evidence.v1.json",
+      "owner": "core",
+      "predicates": {
+        "provided_by": [
+          "module:core"
+        ]
+      },
+      "slug": "scoped-agent-evidence.v1",
+      "source": {
+        "fingerprint": "sha256:5e08c6a99743cf8ca38088dec5d8170a3f98fe654959c2894c6ba01c4027380a",
+        "path": ".engine/schemas/scoped-agent-evidence.v1.json"
       },
       "status": "active",
       "type": "schema"
@@ -9411,7 +9451,7 @@
       },
       "slug": "boot",
       "source": {
-        "fingerprint": "sha256:1f5288a4d965a73d90d02790d61e0b34e3fd15ce11bee6cb5cb4dd2a3895895b",
+        "fingerprint": "sha256:c735ac1635b58bfaa3708d5836b7e36b90c818612e8fe8ab2670769068f6286e",
         "path": ".engine/tools/boot.py"
       },
       "status": "active",
@@ -9529,9 +9569,11 @@
           "tool:plan_contract",
           "tool:plan_lifecycle",
           "tool:plan_store",
+          "tool:providers",
           "tool:repair_divergence",
           "tool:repo_identity",
           "tool:review_integrity",
+          "tool:scoped_agents",
           "tool:session_relay",
           "tool:spec_referent",
           "tool:validate",
@@ -9543,7 +9585,7 @@
       },
       "slug": "build_coordinator",
       "source": {
-        "fingerprint": "sha256:91334b65f6dabf33ca0fe2dde0cd921f28c996948ad0209409ed0fa32d218de3",
+        "fingerprint": "sha256:e2d7db02d98f124e7740a359fc93136ecd96d2012be33b86110052b3178e78f0",
         "path": ".engine/tools/build_coordinator.py"
       },
       "status": "active",
@@ -10275,7 +10317,7 @@
       },
       "slug": "codex_gen",
       "source": {
-        "fingerprint": "sha256:9eaccb942bfd3f397bf5cd092185c1aeb7f0b63ea334f5c3e917146519356cb6",
+        "fingerprint": "sha256:1ec5ffd859f1fb61986073f2ff6d573d1c0b8e9bf3533f3b6889fd28525b32cd",
         "path": ".engine/tools/codex_gen.py"
       },
       "status": "active",
@@ -11503,7 +11545,7 @@
       },
       "slug": "demo_plan_to_ready_pr",
       "source": {
-        "fingerprint": "sha256:28ac022ec162df4ac91ae71c04bc2d44b3549e520efc2fd0f9b1f2410465ea63",
+        "fingerprint": "sha256:847ba61092f26578db1b8d944120f816f3c8044fa380d9731769c8caedf1bfa3",
         "path": ".engine/tools/demo_plan_to_ready_pr.py"
       },
       "status": "active",
@@ -12633,7 +12675,7 @@
       },
       "slug": "hooks",
       "source": {
-        "fingerprint": "sha256:450bc4ca0bfd4792de2d6a18ae598e8514c977adc38f84e33c66d96bf2b073bd",
+        "fingerprint": "sha256:6651cdb8d0ad85dddcd9bb8d8f63568c1db98ed7095411864ce6d4877b75fc94",
         "path": ".engine/tools/hooks.py"
       },
       "status": "active",
@@ -12656,7 +12698,7 @@
       },
       "slug": "hooks_path_health",
       "source": {
-        "fingerprint": "sha256:775c4e62950e9116cbd2e6bc6370fbd4e035ec7e7257af796bddd95bc9891b3d",
+        "fingerprint": "sha256:6d3f870f4a7099fe432fea7df0e3855ffd815b5f553821252833bd550be8d6bd",
         "path": ".engine/tools/hooks_path_health.py"
       },
       "status": "active",
@@ -12744,7 +12786,7 @@
       },
       "slug": "instantiator",
       "source": {
-        "fingerprint": "sha256:162c9daafc9043792510a626f5a0bf882f5b424d0908b64c5b2564c4d66f8472",
+        "fingerprint": "sha256:4b24aee42a729bf8792062ebe5115efabb765c383f5bf8d6f2d267b09e74befe",
         "path": ".engine/tools/instantiator.py"
       },
       "status": "active",
@@ -13677,6 +13719,7 @@
           "tool:hooks",
           "tool:modes",
           "tool:repo_identity",
+          "tool:scoped_agents",
           "tool:session_economy",
           "tool:validate",
           "tool:wiring"
@@ -13687,7 +13730,7 @@
       },
       "slug": "module_coherence",
       "source": {
-        "fingerprint": "sha256:aa3518da76d8bf82b748d69bd452374f4b74ea2cdb1dcfb46f29ff6e29b07bdd",
+        "fingerprint": "sha256:ecaa040ce05044c946f350643791f75685f54231abb0efbe2d2cbb6fa2e20b45",
         "path": ".engine/tools/module_coherence.py"
       },
       "status": "active",
@@ -14366,7 +14409,9 @@
           "tool:plan_lifecycle",
           "tool:plan_program",
           "tool:plan_projection",
-          "tool:plan_store"
+          "tool:plan_store",
+          "tool:providers",
+          "tool:scoped_agents"
         ],
         "provided_by": [
           "module:core"
@@ -14374,7 +14419,7 @@
       },
       "slug": "project_manager",
       "source": {
-        "fingerprint": "sha256:51a7bb04ab9258d1942a93eef624315b3ae9b1f2f81dc500fa07e2a5cb6f62f8",
+        "fingerprint": "sha256:f550d95f9ba972ead323567bb3a8e77aca39d61f215d8a34c41077fe7099c456",
         "path": ".engine/tools/project_manager.py"
       },
       "status": "active",
@@ -14516,7 +14561,7 @@
       },
       "slug": "providers",
       "source": {
-        "fingerprint": "sha256:14bea1a9afe0c3b5174d8966c32092ee6b028004e5898747d6ae673e3258666b",
+        "fingerprint": "sha256:62e0539d3ddc74d328e7af3515dbc2559c424eec138286f8df4c5ecb3e0f347f",
         "path": ".engine/tools/providers.py"
       },
       "status": "active",
@@ -15031,6 +15076,30 @@
       "type": "tool"
     },
     {
+      "entrypoint": "cli",
+      "guarded": false,
+      "id": "tool:review_reader",
+      "name": ".engine/tools/review_reader.py",
+      "owner": "core",
+      "predicates": {
+        "imports": [
+          "tool:plan_store",
+          "tool:providers"
+        ],
+        "provided_by": [
+          "module:core"
+        ]
+      },
+      "slug": "review_reader",
+      "source": {
+        "fingerprint": "sha256:b27ac550a8fbe8c4d0d9823bf22f06c8d063ca3d84f9f328c04463564d3213de",
+        "path": ".engine/tools/review_reader.py"
+      },
+      "status": "active",
+      "summary": "Compact stdio MCP reader for reviews; no command or write tool is exposed.",
+      "type": "tool"
+    },
+    {
       "entrypoint": "ci",
       "guarded": true,
       "id": "tool:rollback",
@@ -15171,6 +15240,34 @@
       },
       "status": "active",
       "summary": "Render a plain-language change-profile for a pull request.",
+      "type": "tool"
+    },
+    {
+      "entrypoint": "hook",
+      "guarded": true,
+      "id": "tool:scoped_agents",
+      "name": ".engine/tools/scoped_agents.py",
+      "owner": "core",
+      "predicates": {
+        "imports": [
+          "tool:build_coordinator_core",
+          "tool:build_state_store",
+          "tool:hooks",
+          "tool:moment",
+          "tool:plan_store",
+          "tool:providers"
+        ],
+        "provided_by": [
+          "module:core"
+        ]
+      },
+      "slug": "scoped_agents",
+      "source": {
+        "fingerprint": "sha256:5d968f7983f04e402b6f548758dd95d4079f8068267b78f7baa38f331ffa207c",
+        "path": ".engine/tools/scoped_agents.py"
+      },
+      "status": "active",
+      "summary": "Scoped native assignments and private observed execution companions.",
       "type": "tool"
     },
     {
@@ -16119,7 +16216,7 @@
       },
       "slug": "test_block_coherence",
       "source": {
-        "fingerprint": "sha256:052442c2e0862023ce34fbb438cceedd7c08dd546092191c17ff207305ffa23a",
+        "fingerprint": "sha256:f6d6bdc71d33515c1ec92969d2839bc149c3a93dbb9ac6c4dce7b299ec3ef090",
         "path": ".engine/tools/test_block_coherence.py"
       },
       "status": "active",
@@ -16155,7 +16252,7 @@
       },
       "slug": "test_boot",
       "source": {
-        "fingerprint": "sha256:95a955ca41bac0cf22425a59bf4596f9366c0966740573954c11194bf7a53c0c",
+        "fingerprint": "sha256:d44dd7e808b46b1e383ff33ab676baa7268f2f88ad38b031afd850018b477fd5",
         "path": ".engine/tools/test_boot.py"
       },
       "status": "active",
@@ -16271,7 +16368,9 @@
           "tool:plan_lifecycle",
           "tool:plan_store",
           "tool:project_manager",
+          "tool:providers",
           "tool:repair_divergence",
+          "tool:scoped_agents",
           "tool:selftest_support",
           "tool:spec_referent",
           "tool:test_build_coordinator_contract",
@@ -16281,7 +16380,7 @@
       },
       "slug": "test_build_coordinator",
       "source": {
-        "fingerprint": "sha256:b0d5e2ce3b53f1d8796cfce0fb20d664b551dd69f3ab5cbf4cc2ec0a70bcba56",
+        "fingerprint": "sha256:7ea23b8eb2f73b2e313c922d8c7621cb2856a9bf4fbbdf6505220b84dd5ec5d1",
         "path": ".engine/tools/test_build_coordinator.py"
       },
       "status": "active",
@@ -16431,13 +16530,14 @@
           "tool:build_coordinator_review",
           "tool:close_linkage_preflight",
           "tool:project_manager",
+          "tool:scoped_agents",
           "tool:selftest_support",
           "tool:test_build_coordinator"
         ]
       },
       "slug": "test_build_coordinator_review",
       "source": {
-        "fingerprint": "sha256:4a6ba7f3efd6d881bf354a8f5a82a8c69ae2ef2de8c5ca05181eae6d8995ac48",
+        "fingerprint": "sha256:c6c0cb1ad3c922ddd4a9b3238ed5b7dd59212179cd3e6e5637174a6dfecdc00e",
         "path": ".engine/tools/test_build_coordinator_review.py"
       },
       "status": "active",
@@ -16875,7 +16975,7 @@
       },
       "slug": "test_codex_gen",
       "source": {
-        "fingerprint": "sha256:badf038a615ed8a096496e667967ee42fc4b1093c1f92eb25739d521f1e1bd2d",
+        "fingerprint": "sha256:9a481866fdd636633adc0f3d61aae737ff5545bf8ff827b681a8d78a5fdc10f4",
         "path": ".engine/tools/test_codex_gen.py"
       },
       "status": "active",
@@ -16946,11 +17046,11 @@
       },
       "slug": "test_codex_trust_surfaces",
       "source": {
-        "fingerprint": "sha256:93430da7916dbe8a9b55c463f8d83b1d65f703a6c244cc2ac9cdd5300b8d0519",
+        "fingerprint": "sha256:a0800724e21954cf0adcbcb65ca21367c6778fa4e6277bc600ad08cb971e5031",
         "path": ".engine/tools/test_codex_trust_surfaces.py"
       },
       "status": "active",
-      "summary": "One rule across every operator-facing surface that tells the operator how to trust the engine's Codex",
+      "summary": "Codex trust guidance must identify /hooks as a CLI command and must not promise an unverified",
       "type": "tool"
     },
     {
@@ -17797,7 +17897,7 @@
       },
       "slug": "test_hooks",
       "source": {
-        "fingerprint": "sha256:21b0888ab6ca092ef14cfb8418f54d9bc2c564931f1b30e91ba56066743754e6",
+        "fingerprint": "sha256:28d8d19c3a3997cb98579f8937667fdd2651a6b80fb944dce2d9945e522c490c",
         "path": ".engine/tools/test_hooks.py"
       },
       "status": "active",
@@ -17904,7 +18004,7 @@
       },
       "slug": "test_instantiator",
       "source": {
-        "fingerprint": "sha256:3fc6a243dbb0e655597835be8b88ef1de7182b722dc360fb9844b8f8e3845326",
+        "fingerprint": "sha256:41c1f81a741dbecda156f3177f7507aa73a14bf01392013b86b4607a0bfc7333",
         "path": ".engine/tools/test_instantiator.py"
       },
       "status": "active",
@@ -19225,12 +19325,14 @@
           "tool:plan_program",
           "tool:plan_projection",
           "tool:plan_store",
-          "tool:project_manager"
+          "tool:project_manager",
+          "tool:scoped_agents",
+          "tool:test_build_coordinator"
         ]
       },
       "slug": "test_plan_dogfood",
       "source": {
-        "fingerprint": "sha256:650969f25f6f169b9b636ed5ddefe285fe2bcad4fa933380893211b05147712e",
+        "fingerprint": "sha256:bf694dde60703fa35dc4fc5dedafbcec2a911e64e285c7e9ff051c0f347098fd",
         "path": ".engine/tools/test_plan_dogfood.py"
       },
       "status": "active",
@@ -19255,12 +19357,14 @@
           "tool:plan_store",
           "tool:program_manager",
           "tool:project_manager",
+          "tool:scoped_agents",
+          "tool:test_build_coordinator",
           "tool:test_plan_store"
         ]
       },
       "slug": "test_plan_lifecycle",
       "source": {
-        "fingerprint": "sha256:8f23b2c2340693d739bca75cfd1bd5c80b7cddf452c329d81ba2bce4be392280",
+        "fingerprint": "sha256:d264414e490eb456047be8c9e98119e375054e6fd5d533bd00afc1dba302c180",
         "path": ".engine/tools/test_plan_lifecycle.py"
       },
       "status": "active",
@@ -19518,13 +19622,15 @@
           "tool:plan_projection",
           "tool:plan_store",
           "tool:project_manager",
+          "tool:scoped_agents",
+          "tool:test_build_coordinator",
           "tool:test_plan_store",
           "tool:validate"
         ]
       },
       "slug": "test_project_manager",
       "source": {
-        "fingerprint": "sha256:a981ca5fd32696a5f8c3b9b19565ef90bb60b03d5ed4fedc0c3f466ca9fc2f7d",
+        "fingerprint": "sha256:99abc8e9b66b1e9cf8d06d027e386301bbbe390428ef99f633a6f4e4a519a9ee",
         "path": ".engine/tools/test_project_manager.py"
       },
       "status": "active",
@@ -19604,7 +19710,7 @@
       },
       "slug": "test_providers",
       "source": {
-        "fingerprint": "sha256:6c1e33abeed196fb9087555857aaf5b8d139b92a0c864da1ea6131ebcc7e8196",
+        "fingerprint": "sha256:17e1d40b43bf28777b4ae16d789f59402969a0d763fe68e10f7e19651d760a4c",
         "path": ".engine/tools/test_providers.py"
       },
       "status": "active",
@@ -20161,6 +20267,30 @@
     {
       "entrypoint": "test",
       "guarded": false,
+      "id": "tool:test_review_reader",
+      "name": ".engine/tools/test_review_reader.py",
+      "owner": "core",
+      "predicates": {
+        "provided_by": [
+          "module:core"
+        ],
+        "tests": [
+          "tool:mcp_test_support",
+          "tool:review_reader"
+        ]
+      },
+      "slug": "test_review_reader",
+      "source": {
+        "fingerprint": "sha256:940bc567849756666a68c61b12e5287879d58855615116a059e332321cbf5bbc",
+        "path": ".engine/tools/test_review_reader.py"
+      },
+      "status": "active",
+      "summary": "Protocol-level tests of the reviewer-only reader, with private disposable roots.",
+      "type": "tool"
+    },
+    {
+      "entrypoint": "test",
+      "guarded": false,
       "id": "tool:test_review_recipe_equivalence",
       "name": ".engine/tools/test_review_recipe_equivalence.py",
       "owner": "core",
@@ -20333,6 +20463,32 @@
       },
       "status": "active",
       "summary": "The change-profile tool renders a plain-language, report-only account of a pull request's shape, and",
+      "type": "tool"
+    },
+    {
+      "entrypoint": "test",
+      "guarded": false,
+      "id": "tool:test_scoped_agents",
+      "name": ".engine/tools/test_scoped_agents.py",
+      "owner": "core",
+      "predicates": {
+        "provided_by": [
+          "module:core"
+        ],
+        "tests": [
+          "tool:build_coordinator_core",
+          "tool:plan_store",
+          "tool:providers",
+          "tool:scoped_agents"
+        ]
+      },
+      "slug": "test_scoped_agents",
+      "source": {
+        "fingerprint": "sha256:3302844a064d2e6b2197286fb53226f1982b66b4a58aa15a58fb31d9a22f47a8",
+        "path": ".engine/tools/test_scoped_agents.py"
+      },
+      "status": "active",
+      "summary": "Native assignment regressions. Synthetic transport payloads, never claimed as live host proof.",
       "type": "tool"
     },
     {
@@ -21413,7 +21569,7 @@
       },
       "slug": "test_wiring",
       "source": {
-        "fingerprint": "sha256:3729baf84553a853bccd275216aa1138dbdc3d9885daebee5574336bf0fb5c9a",
+        "fingerprint": "sha256:3caa419fa308bd5dce685bdac03395b1c7aa3692ea2186eb3d72f0e3b5aaeb73",
         "path": ".engine/tools/test_wiring.py"
       },
       "status": "active",
@@ -21826,7 +21982,7 @@
       },
       "slug": "weakening_guard",
       "source": {
-        "fingerprint": "sha256:335ec5ceecd05eed82e7fb0f46a495e9f36e74ec8a3442cd4a1fafa326dc0678",
+        "fingerprint": "sha256:6b5b58699736a4397790c4100bb2201aa74016a2a161bee978984ebad0d76dd3",
         "path": ".engine/tools/weakening_guard.py"
       },
       "status": "active",
@@ -21849,7 +22005,7 @@
       },
       "slug": "wiring",
       "source": {
-        "fingerprint": "sha256:fdbaf2a4423b75651cde6019e152778a89866294ea945c7553d3a518df8a5265",
+        "fingerprint": "sha256:143f44a3884f3c7071c868b04913eb1da316e41588dc59b1c594110c0d7deb0e",
         "path": ".engine/tools/wiring.py"
       },
       "status": "active",

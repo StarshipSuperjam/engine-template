@@ -41,6 +41,22 @@ class _Ceremony(unittest.TestCase):
         # every plan verb to project_manager — the routing a caller does by choosing a tool name.
         tool = program_manager if argv and argv[0] == "program" else project_manager
         out, err = io.StringIO(), io.StringIO()
+        # Historical fixtures must earn review coverage through the observed execution path.
+        if tool is project_manager and len(argv) > 2 and argv[:2] in (("review", "record"), ("review", "amend")):
+            import scoped_agents
+            from test_build_coordinator import observe_review_execution
+            parsed = project_manager.build_parser().parse_args(["--library", str(self.root), *argv])
+            slug = self.lib.resolve(parsed.plan)
+            record = self.lib.read_record(slug)
+            findings = plan_lifecycle.translate_findings(
+                json.loads(Path(parsed.findings).read_text()) if parsed.findings else [],
+                lenses=list(parsed.lens or (record.get("plan_review") or {}).get("lenses", [])))
+            for lens in parsed.lens or []:
+                digest = parsed.packet_digest
+                output = [{"severity": f["severity"], "message": f["summary"], "location": None}
+                          for f in findings if f["lens"] == lens]
+                observe_review_execution(self.lib, slug, scoped_agents.plan_owner(record), lens, digest, output)
+            argv = (*argv, "--session", "fixture-root")
         with contextlib.redirect_stdout(out), contextlib.redirect_stderr(err):
             code = tool.main(["--library", str(self.root), *argv])
         return code, out.getvalue(), err.getvalue()

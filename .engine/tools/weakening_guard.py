@@ -160,12 +160,13 @@ _FLOOR_RULESET_PROXY = (".engine/tools/bootstrap.py", ".engine/tools/team_switch
 # files). Hand-listed because they are not check-scripts and CANNOT be derived from settings.json: it wires gate
 # hooks (modes.py, close.py) and non-gate hooks (boot/memory/telemetry) IDENTICALLY, so deriving all of them would
 # re-guard the non-gate hooks and reintroduce the over-firing already fixed. Both block-budget members are here:
-# modes.py (PreToolUse write-gate) and close.py (Stop finding-disposition gate) — the only two hooks that can emit
-# a merge-relevant deny. A drift-detector test (test_seed.py) fails CI if a NEW PreToolUse/Stop hook whose code
+# modes.py (PreToolUse write-gate), close.py (Stop finding-disposition gate), and the scoped-assignment and
+# spend gates. A drift-detector test (test_seed.py) fails CI if a NEW PreToolUse/Stop hook whose code
 # can emit a block (via hooks.block or hooks.decide) is wired in settings.json but not floored here — the
 # gate-vs-non-gate call is DERIVED from the hook's own code, not a hand-maintained allowlist that could rot.
 _FLOOR_ENFORCEMENT_HOOKS = (
     ".engine/tools/modes.py",          # the Explore/Build write-gate (PreToolUse block-budget member)
+    ".engine/tools/scoped_agents.py",  # fresh-assignment and pending-message gates (PreToolUse)
     ".engine/tools/session_economy.py",  # the subagent-model / self-scheduling spend gate (PreToolUse
     #                                    block-budget member); weakening it silently un-gates fan-out
     ".engine/tools/close.py",          # the finding-disposition gate (Stop block-budget member; HARD-BLOCKS the turn)

@@ -10,3 +10,10 @@ command = "uv"
 args = ["run", "--directory", ".engine", "--frozen", "--", "python", "tools/accepted_hook_dispatch.py", "attended", "--root", "..", "--script", ".engine/tools/memory/mcp_server.py", "--operation", "attended-memory-mcp", "--"]
 default_tools_approval_mode = "auto"
 # END engine-managed block: engine-memory
+# BEGIN engine-managed block: engine-review-reader - do not edit inside
+[mcp_servers.engine-review-reader]
+command = "uv"
+args = ["run", "--directory", ".engine", "--frozen", "--", "python", "tools/review_reader.py"]
+default_tools_approval_mode = "auto"
+enabled_tools = ["read_file"]
+# END engine-managed block: engine-review-reader

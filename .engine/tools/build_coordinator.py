@@ -39,6 +39,8 @@ import moment
 import repo_identity
 import review_integrity
 import session_relay
+import providers
+import scoped_agents
 
 ROOT = Path(__file__).resolve().parents[2]
 PROTOCOL_PATH = ROOT / ".engine" / "build-protocol.json"
@@ -737,6 +739,13 @@ def _status(state: dict, plan: dict | None = None) -> dict:
         required_evidence.append("deliverable-review packet")
     else:
         required_evidence.extend(f"deliverable-review receipt: {x}" for x in _missing_receipts(delivery))
+    live_receipts = [receipt for _, receipt in review.live_receipts(state)]
+    if live_receipts:
+        try:
+            unverified = scoped_agents.missing_build_evidence(_library(), state, live_receipts)
+        except (OSError, ValueError, core.CoordinatorError):
+            unverified = sorted({receipt["lens"] for receipt in live_receipts})
+        required_evidence.extend(f"verified fresh review execution: {lens}" for lens in unverified)
     rewritten = _history_was_rewritten(state, head)
     if delivery["reviewed_commit"] and delivery["reviewed_commit"] != head:
         repair = state["repair"]
@@ -1914,6 +1923,21 @@ def _packet(args, store: Snapshot | None) -> None:
         # fan-out, so refresh the checkout baseline to now (the documented "re-captured at the next review
         # packet"); otherwise the preflight would compare against a stale, arbitrarily-old baseline.
         store.mutate(lambda s: s.update({"checkout_snapshot": checkout_baseline}), from_revision=revision)
+    if getattr(args, "session", None):
+        library = _library()
+        slug = library.resolve(state["plan"]["plan_id"])
+        source = library.plan_dir(slug) / "scoped-build-review-source.json"
+        packet_content = json.dumps(packet, indent=2, sort_keys=True) + "\n"
+        core.write_private_path(source, packet_content)
+        assignments = scoped_agents.prepare_packets(
+            library, slug, scoped_agents.build_owner(state), args.session, source,
+            {c["lens"]: c["lens_packet_digest"] for c in contracts},
+            {c["lens"]: Path(c["path"]).stem for c in contracts},
+            expected_file_digest=core.digest(packet_content.encode("utf-8")))
+        print("Scoped assignments: " + json.dumps(assignments, sort_keys=True), file=sys.stderr)
+    else:
+        print("Execution freshness is unverified: prepare scoped assignments with --session before dispatch.",
+              file=sys.stderr)
     _emit_packet(packet, args)
     if store is not None:
         _read_now(store)
@@ -2071,6 +2095,8 @@ def cmd_review_record(args, store: Snapshot) -> None:
                        "code_execution": args.code_execution,
                        "reviewed_range": {"base": target["base_commit"], "tip": target["reviewed_commit"]}}
             target["receipts"] = [r for r in target["receipts"] if r["lens"] != args.lens] + [receipt]
+        scoped_agents.accept_build(_library(), state, receipt,
+            providers.resolve_session(explicit=getattr(args, "session", None)))
     store.mutate(change)
     print(f"recorded {args.stage} review from {args.lens} with {len(finding_ids)} finding(s)")
     _read_now(store)
@@ -3858,6 +3884,9 @@ def cmd_handoff_export(args, store: Snapshot) -> None:
             _assert_plan(state, sealed)
             value = _handoff(state)
             value['snapshot'] = str(store.path)
+    print("Private execution companions remain in the canonical plan library; they are not in this "
+          "redacted handoff. Restore retains existing companions. Missing evidence stays unverified "
+          "and cannot support new acceptance.", file=sys.stderr)
     rendered = json.dumps(value, indent=2, sort_keys=True) + "\n"
     if args.output == "-":
         print(rendered, end="")
@@ -5568,6 +5597,8 @@ def parser() -> argparse.ArgumentParser:
     packet = review.add_parser("packet"); packet.add_argument("--stage", choices=["deliverable", "repair"], required=True); packet.add_argument("--plan", required=True); packet.add_argument("--impact"); packet.add_argument("--output"); packet.add_argument("--json", action="store_true"); packet.add_argument("--standalone", action="store_true"); packet.add_argument("--repository"); packet.add_argument("--commit"); packet.add_argument("--base"); packet.add_argument("--depth", choices=["quick", "standard", "thorough"]); packet.set_defaults(func=_packet)
     record = review.add_parser("record"); record.add_argument("--stage", choices=["deliverable", "repair"], required=True); record.add_argument("--lens", required=True); record.add_argument("--packet-digest", required=True); record.add_argument("--lens-packet-digest", required=True); record.add_argument("--finding", action="append"); record.add_argument("--findings-from-file", help="A build-findings-batch.v1 file (or -) whose ids this receipt demands. The SAME file `finding record --from-file` reads, so a receipt and its findings cannot disagree; mutually exclusive with --finding."); record.add_argument("--code-execution", choices=["none", "discarded-copy", "in-place"], required=True); record.set_defaults(func=cmd_review_record)
     finding = sub.add_parser("finding").add_subparsers(dest="finding_command", required=True)
+    packet.add_argument("--session", help="Owning root session for observed review assignments")
+    record.add_argument("--session", help="Owning root session whose review execution was observed")
     frecord = finding.add_parser("record"); frecord.add_argument("--id"); frecord.add_argument("--stage", choices=["deliverable", "repair"], required=True); frecord.add_argument("--lens"); frecord.add_argument("--severity", choices=["blocking", "serious", "nit"]); frecord.add_argument("--summary"); frecord.add_argument("--disposition", choices=["accepted-fixed", "accepted-tracked", "partially-accepted", "rejected", "escalated"]); frecord.add_argument("--rationale"); frecord.add_argument("--escalation-kind", choices=["design", "law", "authority", "capability-boundary", "guardrail-ack", "operator-only"]); block = frecord.add_mutually_exclusive_group(); block.add_argument("--blocks-this-pr", action="store_const", const=True, dest="blocks_this_pr_stated"); block.add_argument("--does-not-block-this-pr", action="store_const", const=False, dest="blocks_this_pr_stated"); frecord.add_argument("--handoff-summary"); frecord.add_argument("--operator-summary"); frecord.add_argument("--private-reference", help="Local-only reviewer note; kept in build-state, never published to the PR body and not read back by any verb."); frecord.add_argument("--findings-from-file", "--from-file", dest="from_file", help="A build-findings-batch.v1 file (or -) carrying a whole round's dispositions. The SAME flag name and the SAME file `review record` takes, so one cut file feeds both verbs and their ids cannot drift; --from-file remains as an alias. Validated entirely before anything is written, then recorded in one mutation: a malformed entry records nothing."); frecord.set_defaults(func=cmd_finding_record)
     assumption = sub.add_parser("assumption").add_subparsers(dest="assumption_command", required=True)
     adispose = assumption.add_parser("dispose"); adispose.add_argument("--plan", required=True); adispose.add_argument("--claim", required=True); adispose.add_argument("--as", dest="resolved_as", choices=["verified", "accepted-risk"], required=True); adispose.add_argument("--basis", required=True); adispose.set_defaults(func=cmd_assumption_dispose)

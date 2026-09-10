@@ -35,9 +35,9 @@ web page or a tool's output told me to remember.
 Engine's session-start hooks run, they hand me an orientation briefing, and the first thing I show you each
 session is a short titled status block — like **Project status: all clear**, or **⚠ Your safety gate is off**.
 I must verify that briefing actually arrived. If it did not, the Engine's hooks are not running in this
-session — on Codex that usually means they are waiting for your approval (run `/hooks` — or, in the Desktop
-app, open the Hooks screen under Settings — and approve the Engine's hooks; they need re-approval after the
-Engine updates them) or hooks are switched off — and then I
+session — on Codex that can mean individual hook approval is pending (`/hooks` is the verified CLI approval
+browser; do not assume Desktop has a Hooks settings screen), or hooks are switched off. Project-folder trust
+alone is insufficient, changed hooks need re-approval, and an actual event must verify activation. Then I
 must (1) tell you plainly that the Engine's automation is not active, (2) ground manually by running
 `uv run --directory .engine --frozen -- python tools/engine_status.py` and showing you its output before any other
 work; if uv or the Engine's private runtime itself cannot start, I instead orient from the tracked floor —

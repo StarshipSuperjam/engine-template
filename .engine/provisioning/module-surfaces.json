@@ -975,6 +975,9 @@
   ".engine/operations/routine-entry.md": [
    "routine-mode"
   ],
+  ".engine/operations/scoped-agent-orchestration.md": [
+   "core"
+  ],
   ".engine/operations/serialized-integration.md": [
    "core"
   ],
@@ -1183,6 +1186,9 @@
    "core"
   ],
   ".engine/schemas/provisioning-catalog.v1.json": [
+   "core"
+  ],
+  ".engine/schemas/scoped-agent-evidence.v1.json": [
    "core"
   ],
   ".engine/schemas/selftest-run-record.v1.json": [
@@ -2151,6 +2157,9 @@
   ".engine/tools/review_integrity.py": [
    "core"
   ],
+  ".engine/tools/review_reader.py": [
+   "core"
+  ],
   ".engine/tools/route_budget_check.py": [
    "core"
   ],
@@ -2164,6 +2173,9 @@
    "core"
   ],
   ".engine/tools/scope_profile.py": [
+   "core"
+  ],
+  ".engine/tools/scoped_agents.py": [
    "core"
   ],
   ".engine/tools/security_floor.py": [
@@ -2622,6 +2634,9 @@
   ".engine/tools/test_review_integrity.py": [
    "core"
   ],
+  ".engine/tools/test_review_reader.py": [
+   "core"
+  ],
   ".engine/tools/test_review_recipe_equivalence.py": [
    "core"
   ],
@@ -2635,6 +2650,9 @@
    "core"
   ],
   ".engine/tools/test_scope_profile.py": [
+   "core"
+  ],
+  ".engine/tools/test_scoped_agents.py": [
    "core"
   ],
   ".engine/tools/test_secret_scan.py": [

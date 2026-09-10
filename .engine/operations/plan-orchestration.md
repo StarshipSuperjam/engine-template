@@ -1,16 +1,13 @@
 ---
 title: Plan orchestration — the judgment upstream of a Build
 ---
-
 ## Purpose
-
 Every Build begins as a plan authored, reviewed and sealed through the Project Manager. That tool owns the
 sequence — it shows the one next move, names what still blocks a seal, and refuses an out-of-order move while
 naming the way forward. What it cannot supply is judgment: whether the issue in front of you is the real
 problem, what a good fix would even look like, and when to stop and ask the operator rather than push on.
 This runbook is that half. Enter it when agreed work needs to become a plan a later Build can pick up, or
 when a plan already on the shelf is being picked back up.
-
 ## Steps
 
 ### 1. Ground yourself before you have an opinion
@@ -150,3 +147,5 @@ Two ways this goes wrong, both observed:
 
 Both are the same failure: treating the lifecycle as a sequence to complete rather than a conversation to
 have. The mechanics cannot catch it — a rushed plan and a considered one reach the seal by identical moves.
+
+Before any scoped agent dispatch or review acceptance, follow [Scoped native agents](scoped-agent-orchestration.md). Prepare an immutable assignment packet, use a fresh context for each new assignment, and permit recorded same-assignment clarification. Missing observed execution cannot earn independent review coverage.

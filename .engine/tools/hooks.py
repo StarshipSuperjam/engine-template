@@ -78,14 +78,15 @@ import validate  # noqa: E402
 #             gap with a narrow Build pointer; it cannot contend with boot because they fire on
 #             disjoint matchers. PreCompact stays memory-only: it cannot inject, so it could never
 #             have carried the re-grounding, and its single-fire housekeeping is unchanged.
-#             PreToolUse has SIX owners — the systems whose commands are actually bound there: modes'
+#             PreToolUse has seven owners: scoped-agent dispatch plus modes'
 #             explore write-gate (the block-eligible invariant, plus the engine-Issue reroute and the
 #             protected-merge nudge), the knowledge-graph and self-map commit-boundary regens, the
 #             optional product-design obligation-matrix regen, validation's local pre-commit nudge, and
 #             session-economy's subagent-spend gate (Claude-only, a recorded provider exception). The
-#             row used to name a placeholder, "invariant-owner", which under-reported all six.
-#             PostToolUse has THREE owners (validation's local nudge + telemetry's ambient capture,
-#             delegated + modes' Claude native-plan intake adapter); it MAY inject — modes' adapter
+#             row used to name a placeholder, "invariant-owner", which under-reported its owners.
+#             PostToolUse has four owners: scoped-agent reads and dispatch results, validation's local
+#             nudge, telemetry's delegated ambient capture, and modes' Claude native-plan intake adapter.
+#             It MAY inject — modes' adapter
 #             injects the arrival report (additionalContext) after importing an accepted plan — while
 #             staying non-blocking.
 #             Stop has TWO owners: close's finding-disposition gate and ambient-capture trigger, and
@@ -99,6 +100,7 @@ import validate  # noqa: E402
 #             the prompt's content, modes reads the prompt and acts only on an acceptance envelope at
 #             byte zero, and modes writes no stance signal and no file the scent touches. The adapter
 #             lives on this event only on Codex, which has no plan-exit signal to key on.
+# SubagentStart/SubagentStop observe scoped child identity and results. They never block or inject.
 # The table is kept true MECHANICALLY by the two-direction drift checkers below
 # (inventory_forward_failures / inventory_reverse_failures), which test_hooks runs over both runtimes'
 # live registration files: an engine command bound on an uninventoried event, or whose script maps to
@@ -108,8 +110,10 @@ import validate  # noqa: E402
 # checkers honour, never something they can detect.
 EVENT_INVENTORY = {
     "SessionStart":     {"owners": ("boot", "memory", "github-projects-sync", "telemetry", "build-coordinator"), "blocks": False, "injects": True},
-    "PreToolUse":       {"owners": ("modes", "knowledge", "self-map", "validation", "product-design", "session-economy"), "blocks": True, "injects": True},
-    "PostToolUse":      {"owners": ("validation", "telemetry", "modes"), "blocks": False, "injects": True},
+    "PreToolUse":       {"owners": ("modes", "knowledge", "self-map", "validation", "product-design", "session-economy", "scoped-agents"), "blocks": True, "injects": True},
+    "PostToolUse":      {"owners": ("validation", "telemetry", "modes", "scoped-agents"), "blocks": False, "injects": True},
+    "SubagentStart":    {"owners": ("scoped-agents",), "blocks": False, "injects": False},
+    "SubagentStop":     {"owners": ("scoped-agents",), "blocks": False, "injects": False},
     "PreCompact":       {"owners": ("memory",),                  "blocks": False, "injects": False},
     "Stop":             {"owners": ("close", "telemetry"),      "blocks": True,  "injects": False},
     "UserPromptSubmit": {"owners": ("boot", "modes"),            "blocks": False, "injects": True},
@@ -144,6 +148,7 @@ OWNER_BY_SCRIPT = (
     (".engine/tools/validate.py", "validation"),
     (".engine/tools/session_economy.py", "session-economy"),
     (".engine/tools/close.py", "close"),
+    (".engine/tools/scoped_agents.py", "scoped-agents"),
 )
 # Owners that belong to an OPTIONAL module: absent from a deployment that declined the module, so the
 # reverse checker skips them when that module is not installed rather than reddening a required self-test.

@@ -566,5 +566,224 @@ class TestLaunchNormalization(unittest.TestCase):
             self.assertIsNone(providers.launch_record(payload, "codex"))
 
 
+class TestScopedAgentBaseline(unittest.TestCase):
+    """Sanitized September 9 Desktop envelopes, distinct from Claude documentation fixtures.
+
+    These exercise the real normalization boundary, not a simulated native allocator. Replaced
+    identities and paths preserve the observed parent/child split; no private task bodies are kept.
+    The local probe's packets/witness flags were instrumentation, not native payload fields.
+    """
+
+    def test_desktop_launch_preserves_correlation_fields_on_both_tool_events(self):
+        for event in ("PreToolUse", "PostToolUse"):
+            payload = {"hook_event_name": event, "session_id": "parent", "turn_id": "turn",
+                       "tool_use_id": "call-launch", "tool_name": "collaborationspawn_agent",
+                       "tool_input": {"agent_type": "default", "task_name": "review_a",
+                                      "fork_turns": "none", "message": "synthetic packet path"}}
+            result = providers.normalize(event, payload)
+            self.assertEqual(result["tool_name"], "Agent")
+            self.assertEqual(result["session_id"], "parent")
+            self.assertEqual(result["tool_use_id"], "call-launch")
+            self.assertEqual(result["provider_launch"]["fork_context"], "none")
+            self.assertNotIn("agent_id", result)  # a request does not establish the actual child
+
+    def test_desktop_child_read_does_not_replace_parent_session_with_child_id(self):
+        payload = {"session_id": "parent", "agent_id": "child-a", "agent_type": "default",
+                   "turn_id": "child-turn", "tool_name": "Bash", "tool_use_id": "exec-read",
+                   "tool_input": {"command": "cat /fixture/packets/A.json"},
+                   "tool_response": "synthetic packet content"}
+        result = providers.normalize("PostToolUse", payload)
+        self.assertEqual((result["session_id"], result["agent_id"]), ("parent", "child-a"))
+        self.assertEqual(result["tool_response"], "synthetic packet content")
+        self.assertEqual(result["tool_use_id"], "exec-read")
+
+    def test_desktop_control_tools_are_distinct_from_launches(self):
+        for tool in ("collaborationsend_message", "collaborationfollowup_task"):
+            payload = {"turn_id": "turn", "session_id": "parent", "tool_name": tool,
+                       "tool_input": {"target": "review_a", "message": "synthetic"}}
+            self.assertEqual(providers.detect(payload), "codex")
+            self.assertIsNone(providers.launch_record(payload, "codex"))
+            result = providers.normalize("PreToolUse", payload)
+            self.assertEqual(result["tool_input"]["target"], "review_a")
+
+    def test_claude_documented_child_fields_remain_identity_without_codex_turn_id(self):
+        # Official hooks reference: common session_id plus agent_id/agent_type on child tools.
+        # Documentation contract only; no live Claude run is represented by this fixture.
+        with mock.patch.dict(os.environ, {providers.PROVIDER_ENV: "claude"}):
+            for event in ("PreToolUse", "PostToolUse", "SubagentStart", "SubagentStop"):
+                payload = {"hook_event_name": event, "session_id": "parent", "agent_id": "child",
+                           "agent_type": "engine-design-review-architecture"}
+                self.assertIs(providers.normalize(event, payload), payload)
+                self.assertEqual(providers.detect(payload), "claude")
+            message = {"tool_name": "SendMessage", "tool_input": {
+                "type": "message", "recipient": "child", "content": "synthetic clarification"}}
+            self.assertIs(providers.normalize("PreToolUse", message), message)
+            self.assertIsNone(providers.launch_record(message))
+
+
+class TestReviewReaderEvidence(unittest.TestCase):
+    def test_only_exact_complete_successful_reader_output_counts(self):
+        import copy
+        import hashlib
+        text = "frozen packet\n"
+        result = {"file_path": "/packets/a.md", "content": text, "complete": True,
+                  "offset": 0, "sha256": "sha256:" + hashlib.sha256(text.encode()).hexdigest()}
+        payload = {"tool_name": "mcp__engine-review-reader__read_file",
+                   "tool_input": {"path": "/packets/a.md"},
+                   "tool_response": {"content": [{"type": "text", "text": json.dumps(result)}],
+                                     "isError": False}}
+        self.assertTrue(providers.scoped_reads_path(payload, "/packets/a.md"))
+        self.assertTrue(providers.scoped_read_succeeded(payload, text))
+        for key, value in (("file_path", "/other"), ("complete", False), ("offset", 1),
+                           ("sha256", "wrong"), ("content", "partial")):
+            bad = copy.deepcopy(payload)
+            bad["tool_response"]["content"][0]["text"] = json.dumps({**result, key: value})
+            self.assertFalse(providers.scoped_read_succeeded(bad, text), key)
+        bad = copy.deepcopy(payload)
+        bad["tool_response"]["isError"] = True
+        self.assertFalse(providers.scoped_read_succeeded(bad, text))
+        bad = copy.deepcopy(payload)
+        bad["tool_name"] = "mcp__unrelated__read_file"
+        self.assertFalse(providers.scoped_read_succeeded(bad, text))
+        self.assertFalse(providers.scoped_reads_path(payload, "/packets/b.md"))
+
+
+class ScopedControlReconciliation(unittest.TestCase):
+    def setUp(self):
+        self.initial = self.envelope("initial opaque")
+        self.transcript = {"child": "child", "root": "root", "name": "/root/assignment", "messages": [self.initial]}
+        self.continuation = {"sender": "root", "recipient": "child", "content": "opaque", "dispatched": True}
+        self.message = self.envelope("opaque")
+
+    @staticmethod
+    def envelope(content):
+        return {"author": "/root", "recipient": "/root/assignment", "content": [
+            {"type": "input_text", "text": "Same native header for initial and continuation"},
+            {"type": "encrypted_content", "encrypted_content": content}]}
+
+    def verified(self, continuations=()):
+        return providers.scoped_control_verified(self.transcript, root="root", child="child",
+            name="assignment", launch_digest=providers.scoped_control_digest("initial opaque"),
+            continuations=list(continuations))
+
+    def test_initial_launch_and_one_exact_continuation(self):
+        self.assertTrue(self.verified())
+        self.transcript["messages"] = [self.initial, self.message]
+        self.assertTrue(self.verified([self.continuation]))
+        self.assertFalse(self.verified())
+        self.transcript["messages"] = [self.initial]
+        self.assertFalse(self.verified([self.continuation]))
+        self.transcript["messages"] = []
+        self.assertFalse(self.verified())
+        self.transcript["messages"] = [self.message]
+        self.assertFalse(self.verified())  # arbitrary first message cannot stand in for launch
+
+    def test_duplicate_unknown_wrong_actor_and_missing_send_fail(self):
+        import copy
+        for change in (lambda m: m.update(author="/root/peer"),
+                       lambda m: m.update(recipient="/root/other"),
+                       lambda m: m.update(content=[]),
+                       lambda m: m.update(content=[{"type": "unknown", "text": "opaque"}]),
+                       lambda m: m.update(content=[*m["content"], *m["content"]])):
+            message = copy.deepcopy(self.message)
+            change(message)
+            self.transcript["messages"] = [self.initial, message]
+            self.assertFalse(self.verified([self.continuation]))
+        self.transcript["messages"] = [self.initial, self.message, self.message]
+        self.assertFalse(self.verified([self.continuation, self.continuation]))
+        self.transcript["messages"] = [self.message, self.initial]
+        self.assertFalse(self.verified([self.continuation]))
+        self.transcript["messages"] = [self.initial, self.message]
+        self.assertFalse(self.verified([{**self.continuation, "dispatched": False}]))
+        self.assertFalse(self.verified([{**self.continuation, "sender": "other"}]))
+        self.transcript["child"] = "wrong"
+        self.assertFalse(self.verified([self.continuation]))
+
+    def test_parser_refuses_duplicate_actor_metadata_and_malformed_payload(self):
+        import tempfile
+        from pathlib import Path
+        meta = {"type": "session_meta", "payload": {"id": "child", "source": {"subagent": {
+            "thread_spawn": {"parent_thread_id": "root", "agent_path": "/root/assignment"}}}}}
+        with tempfile.TemporaryDirectory() as temp:
+            path = Path(temp) / "child.jsonl"
+            for rows in ([meta, meta], [meta, {"type": "response_item", "payload": []}],
+                         [{"type": "session_meta", "payload": {"source": {"subagent": "bad"}}}]):
+                path.write_text("\n".join(json.dumps(row) for row in rows))
+                self.assertEqual(providers.scoped_transcript({"transcript_path": str(path)}, providers.CODEX), {})
+
+    def test_metadata_only_reads_bounded_first_header(self):
+        import tempfile
+        from pathlib import Path
+        meta = {"type": "session_meta", "payload": {"id": "child", "source": {"subagent": {
+            "thread_spawn": {"parent_thread_id": "root", "agent_path": "/root/assignment"}}}}}
+        with tempfile.TemporaryDirectory() as temp:
+            path = Path(temp) / "huge.jsonl"
+            path.write_text(json.dumps(meta) + "\n" + "not json\n" + ("x" * (4 * 1024 * 1024)))
+            self.assertEqual(providers.scoped_transcript({"transcript_path": str(path)}, providers.CODEX,
+                             metadata_only=True)["name"], "/root/assignment")
+            path.write_bytes(json.dumps(meta).encode() + b'\n\xff\xfe')
+            self.assertEqual(providers.scoped_transcript({"transcript_path": str(path)}, providers.CODEX,
+                             metadata_only=True)["child"], "child")
+            self.assertEqual(providers.scoped_transcript({"transcript_path": str(path)}, providers.CLAUDE,
+                             metadata_only=True), {})
+            meta['payload']['id'] = ' '
+            path.write_text(json.dumps(meta) + '\n')
+            self.assertEqual(providers.scoped_transcript({"transcript_path": str(path)}, providers.CODEX,
+                             metadata_only=True), {})
+
+    def test_metadata_only_rejects_oversized_or_malformed_header_and_full_rejects_contradiction(self):
+        import tempfile
+        from pathlib import Path
+        with tempfile.TemporaryDirectory() as temp:
+            path = Path(temp) / "bad.jsonl"
+            path.write_text("{" + "x" * (64 * 1024) + "\n")
+            self.assertEqual(providers.scoped_transcript({"transcript_path": str(path)}, providers.CODEX,
+                             metadata_only=True), {})
+            path.write_text(json.dumps({'padding': 'é' * 40000}, ensure_ascii=False) + '\n')
+            self.assertEqual(providers.scoped_transcript({"transcript_path": str(path)}, providers.CODEX,
+                             metadata_only=True), {})
+            meta = {"type": "session_meta", "payload": {"id": "child", "source": {"subagent": {
+                "thread_spawn": {"parent_thread_id": "root", "agent_path": "/root/assignment"}}}}}
+            other = {"type": "session_meta", "payload": {"id": "other", "source": {"subagent": {
+                "thread_spawn": {"parent_thread_id": "root", "agent_path": "/root/other"}}}}}
+            path.write_text("\n".join(json.dumps(x) for x in (meta, other)))
+            self.assertEqual(providers.scoped_transcript({"transcript_path": str(path)}, providers.CODEX), {})
+
+    def test_full_transcript_stream_closes_on_early_refusal(self):
+        import io
+        from pathlib import Path
+        from unittest import mock
+        stream = io.StringIO('[]\n')
+        with mock.patch.object(Path, 'open', return_value=stream):
+            self.assertEqual(providers.scoped_transcript({'transcript_path':'unused'}, providers.CODEX), {})
+        self.assertTrue(stream.closed)
+
+    def test_capacity_error_requires_exact_native_parent_call_and_result(self):
+        import tempfile
+        from pathlib import Path
+        import copy
+        args = {'task_name':'assignment', 'message':'opaque', 'agent_type':'role', 'fork_turns':'none'}
+        rows = [
+            {'type':'session_meta','payload':{'id':'root'}},
+            {'type':'response_item','payload':{'type':'function_call','name':'spawn_agent',
+                'namespace':'collaboration','call_id':'failed','arguments':json.dumps(args)}},
+            {'type':'response_item','payload':{'type':'function_call_output','call_id':'failed',
+                'output':'collab spawn failed: agent thread limit reached'}}]
+        with tempfile.TemporaryDirectory() as temp:
+            path = Path(temp)/'parent.jsonl'
+            payload = {'session_id':'root','transcript_path':str(path)}
+            def check(values):
+                path.write_text('\n'.join(json.dumps(r) for r in values)+'\n')
+                return providers.scoped_capacity_rejection_from_transcript(payload,'failed')
+            self.assertEqual(check(rows)['input'],args)
+            self.assertEqual(check(rows)['response'],rows[-1]['payload']['output'])
+            for index,key,value in ((0,'id','other'),(1,'name','send_message'),(1,'namespace','other'),
+                                    (2,'output','transport failed'),(2,'call_id','other')):
+                bad=copy.deepcopy(rows);bad[index]['payload'][key]=value
+                self.assertEqual(check(bad),{})
+            for bad in (rows[:-1], rows+[rows[-1]], [rows[0],rows[2],rows[1]], rows+[rows[1]]):
+                self.assertEqual(check(bad),{})
+
+
 if __name__ == "__main__":
     unittest.main()

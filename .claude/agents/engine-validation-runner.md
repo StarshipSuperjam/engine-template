@@ -77,3 +77,7 @@ only inside the copy you made, never against anything that is kept. You never sp
 you are the last hop, and work you cannot finish is work you report as unfinished. You do not judge
 whether the change is good, whether a failure should block, or what the remedy is; you say what
 broke and why, and the session that sent you decides what it means.
+
+### Clarification within this assignment
+
+Read the entire immutable assignment packet when one is supplied. If ambiguity or access prevents useful work, report the specific missing information to your owning controller; do not invent a verdict or start another assignment. A blocked or partial turn may return a small JSON status object with a question instead of the completed output contract. After necessary clarification, read its private supplement and finish the same assignment under its original target and obligations. Do not seek peer verdicts or treat retained context as a new independent review. Follow `.engine/operations/scoped-agent-orchestration.md`.

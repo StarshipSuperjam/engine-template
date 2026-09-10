@@ -1,0 +1,345 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "Private observed scoped-agent execution companions",
+  "description": "Versioned facts beside legacy plan and Build records. An acceptance alone is staged/orphaned until a matching legacy receipt is published; no history is backfilled.",
+  "type": "object",
+  "required": [
+    "schema_version",
+    "assignments",
+    "acceptances",
+    "starts"
+  ],
+  "additionalProperties": false,
+  "properties": {
+    "schema_version": {
+      "const": "scoped-agent-evidence.v1"
+    },
+    "starts": {
+      "type": "object",
+      "additionalProperties": {
+        "type": "object",
+        "required": [
+          "root",
+          "child",
+          "role"
+        ]
+      }
+    },
+    "assignments": {
+      "type": "object",
+      "additionalProperties": {
+        "$ref": "#/$defs/assignment"
+      }
+    },
+    "acceptances": {
+      "type": "object",
+      "additionalProperties": {
+        "type": "object",
+        "required": [
+          "owner",
+          "assignments",
+          "outputs"
+        ],
+        "additionalProperties": false,
+        "properties": {
+          "owner": {
+            "type": "object"
+          },
+          "assignments": {
+            "type": "array",
+            "minItems": 1,
+            "uniqueItems": true,
+            "items": {
+              "type": "string"
+            }
+          },
+          "outputs": {
+            "type": "object",
+            "additionalProperties": {
+              "type": "string"
+            }
+          }
+        }
+      }
+    }
+  },
+  "$defs": {
+    "assignment": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "id",
+        "owner",
+        "root",
+        "purpose",
+        "lens",
+        "role",
+        "packet_path",
+        "packet_digest",
+        "file_digest",
+        "created_at",
+        "launch",
+        "child",
+        "start",
+        "read",
+        "continuations",
+        "supplements",
+        "stops",
+        "faults",
+        "accepted"
+      ],
+      "properties": {
+        "id": {
+          "type": "string",
+          "pattern": "^sa_[0-9a-f]{32}$"
+        },
+        "owner": {
+          "type": "object"
+        },
+        "root": {
+          "type": "string",
+          "minLength": 1
+        },
+        "purpose": {
+          "enum": [
+            "review",
+            "worker",
+            "scout"
+          ]
+        },
+        "lens": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "role": {
+          "type": "string",
+          "minLength": 1
+        },
+        "packet_path": {
+          "type": "string"
+        },
+        "packet_digest": {
+          "type": "string",
+          "pattern": "^sha256:[0-9a-f]{64}$"
+        },
+        "file_digest": {
+          "type": "string",
+          "pattern": "^sha256:[0-9a-f]{64}$"
+        },
+        "created_at": {
+          "type": "string"
+        },
+        "launch": {
+          "type": [
+            "object",
+            "null"
+          ],
+          "required": [
+            "call_id",
+            "provider",
+            "role",
+            "fresh",
+            "successful",
+            "input_digest"
+          ],
+          "properties": {
+            "call_id": {
+              "type": "string",
+              "minLength": 1
+            },
+            "provider": {
+              "enum": [
+                "codex",
+                "claude"
+              ]
+            },
+            "role": {
+              "type": "string",
+              "minLength": 1
+            },
+            "fresh": {
+              "type": "boolean"
+            },
+            "successful": {
+              "type": "boolean"
+            },
+            "input_digest": {
+              "type": "string"
+            }
+          }
+        },
+        "child": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "start": {
+          "type": [
+            "object",
+            "null"
+          ]
+        },
+        "read": {
+          "type": [
+            "object",
+            "null"
+          ]
+        },
+        "continuations": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "required": [
+              "call_id",
+              "sender",
+              "recipient",
+              "content",
+              "input_digest",
+              "dispatched",
+              "delivered"
+            ],
+            "properties": {
+              "dispatched": {
+                "type": "boolean"
+              },
+              "delivered": {
+                "type": "boolean"
+              },
+              "call_id": {
+                "type": "string",
+                "minLength": 1
+              },
+              "sender": {
+                "type": "string",
+                "minLength": 1
+              },
+              "recipient": {
+                "type": "string",
+                "minLength": 1
+              },
+              "content": {
+                "type": "string",
+                "minLength": 1
+              },
+              "input_digest": {
+                "type": "string",
+                "minLength": 1
+              }
+            }
+          }
+        },
+        "supplements": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "required": [
+              "path",
+              "digest",
+              "call_id"
+            ]
+          }
+        },
+        "stops": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "required": [
+              "child",
+              "output",
+              "digest",
+              "continuations",
+              "delivered"
+            ],
+            "properties": {
+              "child": {
+                "type": "string",
+                "minLength": 1
+              },
+              "output": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "digest": {
+                "type": "string"
+              },
+              "continuations": {
+                "type": "integer",
+                "minimum": 0
+              },
+              "delivered": {
+                "type": "boolean"
+              }
+            }
+          }
+        },
+        "faults": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "accepted": {
+          "type": "boolean"
+        },
+        "read_failures": {
+          "description": "Failed or incomplete packet-read attempts; retained without granting read credit. Older absent fields mean no recorded attempts, not success.",
+          "type": "array",
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "call_id",
+              "child",
+              "response_digest"
+            ],
+            "properties": {
+              "call_id": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "child": {
+                "type": "string"
+              },
+              "response_digest": {
+                "type": "string"
+              }
+            }
+          }
+        },
+        "failed_launches": {
+          "description": "Observed definite capacity-rejected launches retained when permitting one bounded fresh retry; absent historical facts are never inferred.",
+          "type": "array",
+          "maxItems": 1,
+          "items": {
+            "type": "object",
+            "required": [
+              "call_id",
+              "provider",
+              "role",
+              "fresh",
+              "successful",
+              "input_digest",
+              "capacity_rejected",
+              "response"
+            ],
+            "properties": {
+              "capacity_rejected": {
+                "const": true
+              },
+              "successful": {
+                "const": false
+              }
+            }
+          }
+        }
+      }
+    }
+  }
+}
