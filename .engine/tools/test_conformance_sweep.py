@@ -83,6 +83,27 @@ def _block(items, kind="product-conformance") -> str:
     return "prose\n\n<!-- conformance-verdicts.v1\n" + json.dumps({"kind": kind, "items": items}) + "\n-->\n"
 
 
+# These fixtures replace trusted configuration and only the remote journal service. The
+# production helper, rendering, identity lifecycle, assessment and issue transport all run.
+def setUpModule():
+    from unittest.mock import patch
+    import issue_recovery
+    global _producer_fixtures
+    store_type = issue_recovery.GitStore
+    def store(client, activation):
+        return client._transport.__self__.recovery_store
+    _producer_fixtures = [patch('issue_author.resolve_issue_repositories', return_value=['you/proj', 'you/your-project', 'o/r', 'ambient/repo']),
+                          patch('issue_recovery.load_activation', return_value={'repository_id': 42, 'genesis': '0' * 40}),
+                          patch('issue_recovery.GitStore', side_effect=store)]
+    for fixture in _producer_fixtures:
+        fixture.start()
+
+
+def tearDownModule():
+    for fixture in reversed(_producer_fixtures):
+        fixture.stop()
+
+
 class TestLockedDocsAndState(unittest.TestCase):
     def test_locked_docs_enumerates_only_locked(self):
         root = _seed({"docs/spec/a.md": _cap("locked"), "docs/spec/b.md": _cap("draft"),

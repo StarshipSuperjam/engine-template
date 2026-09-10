@@ -473,6 +473,129 @@ def preview_submission(data: dict, repository_slugs: list) -> str:
             + json.dumps(request, indent=2))
 
 
+def contract_parts(body):
+    """Adapt an older helper-rendered core by recovering and revalidating its structured parts."""
+    prefix = _FRAMING + '\n\n**What this is.** '
+    if not isinstance(body, str) or not body.startswith(prefix):
+        raise IssueInputError('A producer must supply structured body parts, not an arbitrary rendered body.')
+    what, separator, next_part = body[len(prefix):].partition('\n\n**What happens next.** ')
+    if not separator:
+        raise IssueInputError('Producer body is missing its required next action.')
+    next_text, references_marker, references_text = next_part.partition('\n\n**More detail.**\n')
+    references = []
+    if references_marker:
+        for line in references_text.strip().splitlines():
+            match = re.fullmatch(r'- \[(.+)\]\((.+)\)', line)
+            if not match:
+                raise IssueInputError('Producer references must retain explicit labels and links.')
+            references.append((match[1], match[2]))
+    parts = {'what_this_is': what, 'whats_next': next_text.strip(), 'references': references or None}
+    if render_engine_issue_body(**parts) != body:
+        raise IssueInputError('Producer core does not round-trip through the shared body contract.')
+    return parts
+
+
+def create_producer_result(producer, data, client, *, root=None, env=None, recovery_store=None):
+    """The complete structured automatic submission operation, shared with manual create."""
+    import copy
+    import issue_recovery
+    import issue_triage
+    import telemetry
+    targets = resolve_issue_repositories(env=env, root=root)
+    if _matched_target(getattr(client, 'repo', ''), targets) is None:
+        raise IssueInputError('Automatic report target does not match the trusted repository configuration.')
+    if not getattr(client, 'token', None):
+        raise IssueInputError('Automatic reporting requires the existing bound GitHub credential.')
+    if not isinstance(data, dict) or not isinstance(data.get('now'), str) or not data['now']:
+        raise IssueInputError('An automatic report requires an explicit observation identity.')
+    if producer == 'telemetry':
+        source = data.get('record')
+        if not isinstance(source, dict) or not isinstance(source.get('message'), str) or not isinstance(data.get('first_seen'), str):
+            raise IssueInputError('A telemetry report requires structured evidence and its first observation.')
+        if not telemetry.source_id_is_marker_safe(source.get('source_id')):
+            raise IssueInputError('The producer source key is not marker-safe.')
+        if source.get('severity') not in (telemetry.TRUST_CRITICAL, telemetry.PERSISTENT_BENIGN):
+            raise IssueInputError('Unknown report severity.')
+        record = {key: copy.deepcopy(source[key]) for key in
+                  ('source_id', 'severity', 'message', 'location', 'title', 'references') if key in source}
+        if source.get('body_parts') is not None:
+            parts = source['body_parts']
+            record['body_core'] = render_engine_issue_body(**parts)
+        elif source.get('body_core') is not None:
+            parts = contract_parts(source['body_core'])
+            record['body_core'] = render_engine_issue_body(**parts)
+        intent = {'record': record, 'first_seen': data['first_seen'], 'now': data['now']}
+        source_key = telemetry.derive_source_key(record)
+        title = telemetry.issue_title(record)
+        raw = lambda: telemetry.issue_body(record, intent['first_seen'], intent['now'])
+        evidence = telemetry._semantic_finding(record)
+        final_marker = None
+        matches_source = lambda issue: telemetry.parse_source_id(issue.get('body') or '') == source_key
+    elif producer == 'nightly':
+        import nightly_demo_report as nightly
+        result = data.get('result')
+        if not isinstance(result, dict) or result.get('ok') is not False or not isinstance(result.get('failures'), list):
+            raise IssueInputError('A nightly report requires an explicit failed corpus result.')
+        if any(not isinstance(f, dict) or not isinstance(f.get('demo'), str)
+               or (f.get('exit_code') is not None and type(f['exit_code']) is not int) for f in result['failures']):
+            raise IssueInputError('Each nightly failure requires a demo and an integer or unavailable exit code.')
+        failures = [{'demo': f['demo'], 'exit_code': f.get('exit_code'), 'output': str(f.get('output') or '')}
+                    for f in result.get('failures', [])]
+        intent = {'result': {'ok': False, 'ran': list(result.get('ran') or []), 'failures': failures},
+                  'run_url': data.get('run_url'), 'now': data['now']}
+        source_key = 'engine-nightly-demos:v1'
+        title = f'{nightly.KIND}: {nightly.TITLE}'
+        raw = lambda: nightly.render(intent['result'], client.repo, intent['run_url'])
+        evidence = nightly._failure_evidence(intent['result'])
+        final_marker = nightly.MARKER
+        matches_source = lambda issue: nightly._is_report(issue.get('body') or '')
+    else:
+        raise IssueInputError('Unknown automatic producer.')
+    configuration_error = None
+    try:
+        config = issue_triage.load_config(root)
+    except issue_triage.TriageError as exc:
+        config = None
+        configuration_error = str(exc)
+    def with_diagnostic(result):
+        if configuration_error:
+            result['configuration_error'] = configuration_error
+        return result
+    def prepare(sid):
+        body = telemetry.producer_body(raw(), evidence, intent['now'], final_marker=final_marker, submission_id=sid)
+        return issue_triage.prepare_request(client, title, body, config=config)
+    try:
+        store = recovery_store or getattr(client, 'recovery_store', None) or issue_recovery.GitStore(
+            client, issue_recovery.load_activation(client.repo, root))
+        tip, snapshot = issue_recovery._load(store)
+        group = issue_recovery.operation_key(producer, source_key)
+        if not any(key.startswith(group + ':') for key in snapshot['records']):
+            legacy = [issue for issue in issue_triage.pages(client, f'/repos/{client.repo}/issues?state=all&labels=engine')
+                      if issue_triage.scoped(issue) and matches_source(issue)]
+            if len(legacy) > 1:
+                raise IssueInputError('Multiple historical reports match this source; inspect and adopt explicitly before creating another.')
+            if legacy:
+                prior = legacy[0]
+                triage = issue_triage.observed_record(prior)
+                if triage is None:
+                    raise IssueInputError('A historical report needs explicit triage repair before durable adoption; no new report was filed.')
+                request = {'title': prior['title'], 'body': prior['body'], 'labels': ['engine']}
+                milestone = issue_triage.milestone_number(prior)
+                if milestone is not None:
+                    request['milestone'] = milestone
+                key = group + ':1'
+                record = {'producer': producer, 'source_key': source_key, 'generation': 1, 'previous': None,
+                          'submission_id': triage['submission_id'], 'intent': intent, 'request': request,
+                          'request_digest': issue_recovery.digest(request), 'state': 'prepared', 'send_nonce': None,
+                          'issue': None, 'decision': None, 'observation': intent['now'], 'closed_observation': None}
+                tip, snapshot = issue_recovery._save(store, tip, snapshot, key, record)
+                return with_diagnostic(issue_recovery._confirm(client, store, tip, snapshot, key, record, prior['number'], intent['now']))
+        return with_diagnostic(issue_recovery.submit(client, intent, prepare, producer=producer, source_key=source_key,
+                                     observation=intent['now'], root=root, store=store))
+    except issue_recovery.RecoveryError as exc:
+        raise IssueInputError(str(exc)) from exc
+
+
 def create_issue(data: dict, **kwargs) -> str:
     """Compatibility URL wrapper; typed callers use create_issue_result for assignment outcomes."""
     result = create_issue_result(data, **kwargs)

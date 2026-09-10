@@ -42,9 +42,25 @@ class _Issues:
     unprovable in a world containing only its own."""
 
     def __init__(self, existing=()):
+        import telemetry
+        self.repo, self.token = 'o/r', 'test-only'
+        self.recovery_store = telemetry._DemoRecoveryStore()
         self.issues = [dict(i) for i in existing]
         self.opened, self.updated, self.closed = [], [], []
         self._next = 900
+
+    def _transport(self, method, path, body=None):
+        if method == 'POST':
+            issue = self.open_issue(body['title'], body['body'])
+            issue.update(id=issue['number'] + 1000, labels=body['labels'],
+                         html_url=f'https://github.com/{self.repo}/issues/{issue["number"]}')
+            return 201, dict(issue)
+        if '/issues?' in path:
+            return 200, [dict(i) for i in self.issues]
+        if '/issues/' in path:
+            number = int(path.rsplit('/', 1)[-1])
+            return next(((200, dict(i)) for i in self.issues if i['number'] == number), (404, None))
+        return 404, None
 
     def list_open_engine_issues(self):
         return [dict(i) for i in self.issues if i.get("state", "open") == "open"]
@@ -83,6 +99,28 @@ def _red(*names) -> dict:
 def _green() -> dict:
     return {"ok": True, "ran": ["a.py", "b.py", "c.py"], "failures": [],
             "duration_seconds": 11.1, "python": "3.12.0"}
+
+
+
+# These fixtures replace trusted configuration and only the remote journal service. The
+# production helper, rendering, identity lifecycle, assessment and issue transport all run.
+def setUpModule():
+    from unittest.mock import patch
+    import issue_recovery
+    global _producer_fixtures
+    store_type = issue_recovery.GitStore
+    def store(client, activation):
+        return client._transport.__self__.recovery_store
+    _producer_fixtures = [patch('issue_author.resolve_issue_repositories', return_value=['you/proj', 'you/your-project', 'o/r', 'ambient/repo']),
+                          patch('issue_recovery.load_activation', return_value={'repository_id': 42, 'genesis': '0' * 40}),
+                          patch('issue_recovery.GitStore', side_effect=store)]
+    for fixture in _producer_fixtures:
+        fixture.start()
+
+
+def tearDownModule():
+    for fixture in reversed(_producer_fixtures):
+        fixture.stop()
 
 
 class OneIssueAtMost(unittest.TestCase):

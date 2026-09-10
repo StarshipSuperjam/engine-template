@@ -105,6 +105,8 @@ def _save(store, tip, snapshot, key, record):
     updated['revision'] += 1
     updated['records'][key] = copy.deepcopy(record)
     validate(updated)
+    from issue_recovery_store import GitStore as StoreContract
+    StoreContract._history_transition(snapshot, updated)
     return store.compare_and_swap(tip, updated), updated
 
 
@@ -144,8 +146,10 @@ def _confirm(client, store, tip, snapshot, key, record, number, observation):
         updated['closed_observation'] = observation
     if updated != record:
         _save(store, tip, snapshot, key, updated)
-    return issue_triage.filing_result(client.repo, record['submission_id'], 'created', triage,
+    result = issue_triage.filing_result(client.repo, record['submission_id'], 'created', triage,
                                      issue=live, reason='Existing submission confirmed; no replay.')
+    result['newly_created'] = False
+    return result
 
 
 def reconcile(client, store, tip, snapshot, key, *, observation=None):
@@ -239,7 +243,9 @@ def submit(client, intent, prepare, *, producer='manual', source_key=None, obser
                                     frozen_request=claimed['request'], send=permit)
     if result['filing'] == 'created' and result.get('number'):
         try:
-            return _confirm(client, store, tip, snapshot, key, claimed, result['number'], observation)
+            confirmed = _confirm(client, store, tip, snapshot, key, claimed, result['number'], observation)
+            confirmed['newly_created'] = permit._used
+            return confirmed
         except Exception:
             return _held(client, claimed, 'Issue or journal confirmation is incomplete; recover the same submission.')
     held = copy.deepcopy(claimed)

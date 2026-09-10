@@ -168,6 +168,14 @@ def report(result: dict, issues_api, repository: str, run_url: str | None = None
             issues_api.close_issue(open_report["number"])
             return {"action": "closed", "issue": open_report["number"]}
         return {"action": "none"}
+    if not open_report:
+        issues_api.ensure_label()
+        outcome = issue_author.create_producer_result('nightly',
+            {'result': result, 'run_url': run_url, 'now': moment.utc_now()}, issues_api)
+        if outcome['filing'] != 'created':
+            return {'action': 'held', 'issue': None, 'triage': outcome}
+        return {'action': 'filed' if outcome.get('newly_created') else 'recovered',
+                'issue': outcome['number'], 'triage': outcome}
     body = render(result, repository, run_url)
     evidence = _failure_evidence(result)
     body = telemetry.producer_body(body, evidence, moment.utc_now(),
@@ -176,9 +184,7 @@ def report(result: dict, issues_api, repository: str, run_url: str | None = None
     if open_report:
         issues_api.update_issue(open_report["number"], body)
         return {"action": "updated", "issue": open_report["number"]}
-    issues_api.ensure_label()
-    opened = issues_api.open_issue(f"{KIND}: {TITLE}", body)
-    return {"action": "filed", "issue": opened.get("number"), "triage": opened.get("triage")}
+    raise AssertionError("Unreachable: all new reports use the complete helper operation.")
 
 
 def main(argv: list | None = None) -> int:
@@ -212,7 +218,7 @@ def main(argv: list | None = None) -> int:
         return 2
     try:
         outcome = report(result, telemetry.GitHubIssues(args.repository, token), args.repository, args.run_url)
-    except ReportAmbiguous as exc:
+    except (ReportAmbiguous, issue_author.IssueInputError, telemetry.DegradedReadError) as exc:
         # The refusal already carries the operator's remedy; letting it out as a traceback threw that
         # remedy away and bypassed this tool's own exit convention. It stays a refusal — picking one of
         # two candidate reports is the failure mode the marker rule exists to prevent — but it refuses
@@ -220,7 +226,7 @@ def main(argv: list | None = None) -> int:
         print(f"nightly-demo-report: {exc}", file=sys.stderr)
         return 2
     print(json.dumps(outcome, indent=2, sort_keys=True))
-    return 0
+    return 1 if outcome.get('action') == 'held' else 0
 
 
 if __name__ == "__main__":
