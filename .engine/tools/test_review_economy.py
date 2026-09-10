@@ -646,6 +646,11 @@ class TheBindingsStopAssertingWhatTheClaudeArmCannotDo(unittest.TestCase):
         reviewer does not (its depth arrives through the spawning session), a mechanical worker does."""
         for name, override in (self.bindings.get("overrides") or {}).items():
             persona = Path(self.root) / ".claude" / "agents" / f"{name}.md"
+            from selftest_support import installed_module_ids
+            from test_agent import TestShippedRosterDelegationPosture
+            if (not persona.is_file() and "qa-review" not in installed_module_ids()
+                    and name in TestShippedRosterDelegationPosture.QA_REVIEW):
+                continue
             self.assertTrue(persona.is_file(), f"{name} is overridden but has no persona file")
             frontmatter = persona.read_text(encoding="utf-8").split("---")[1]
             stamped = any(line.strip().startswith("effort:") for line in frontmatter.splitlines())
@@ -657,6 +662,8 @@ class TheBindingsStopAssertingWhatTheClaudeArmCannotDo(unittest.TestCase):
 
     def test_the_reviewer_personas_still_carry_no_effort_of_their_own(self):
         """The other half, kept explicit: the reason the reviewer overrides dropped their effort pins."""
+        from selftest_support import needs_modules
+        needs_modules(self, "qa-review")
         reviewers = [name for name in (self.bindings.get("overrides") or {}) if "-qa-review-" in name]
         self.assertTrue(reviewers, "the reviewer overrides are the subject; an empty set proves nothing")
         for name in reviewers:

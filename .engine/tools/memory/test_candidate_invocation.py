@@ -601,7 +601,8 @@ class DisposableClone:
             "HOME": self.home, "TMPDIR": self.tmp, "CLAUDE_PROJECT_DIR": self.root,
             "UV_CACHE_DIR": self.uv_cache,
             "UV_PYTHON_INSTALL_DIR": self.uv_python,
-            "UV_PROJECT_ENVIRONMENT": os.path.realpath(os.path.join(self.source, ".engine", ".venv")),
+            # A gate projection borrows the already-running private environment; it has no .venv.
+            "UV_PROJECT_ENVIRONMENT": sys.prefix,
             "UV_NO_SYNC": "1", "UV_OFFLINE": "1", "PYTHONNOUSERSITE": "1",
         })
         return kept

@@ -219,6 +219,8 @@ class TestProductIntakeRoutesWritesThroughBuild(unittest.TestCase):
     entry verb or a named bound leaves the file; whether the runbook reads right is the reviewer's cold read."""
 
     def _text(self):
+        from selftest_support import needs_modules
+        needs_modules(self, "product-design")
         path = os.path.join(validate.ENGINE_DIR, "operations", "product-intake.md")
         with open(path, encoding="utf-8") as fh:
             return " ".join(fh.read().split())

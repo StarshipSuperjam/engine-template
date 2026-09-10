@@ -1206,7 +1206,8 @@ class _AcceptedDispatchRepo:
                      "hook-runner.sh", "codex-hook-runner.sh", "providers.py", "hooks_path_health.py"):
             self._put(f".engine/tools/{name}", (_ACCEPTED_TOOLS / name).read_text(encoding="utf-8"))
         for rel in (".claude/settings.json", ".codex/hooks.json"):
-            self._put(rel, (_ACCEPTED_TOOLS.parents[1] / rel).read_text(encoding="utf-8"))
+            from selftest_support import accepted_hook_fixture_bytes
+            self._put(rel, accepted_hook_fixture_bytes(_ACCEPTED_TOOLS.parents[1], rel).decode())
         self._put(".engine/tools/validate.py",
                   "from pathlib import Path\nROOT = str(Path(__file__).resolve().parents[2])\n")
         self._put(".engine/tools/helper.py",

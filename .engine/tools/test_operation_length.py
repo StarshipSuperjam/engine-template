@@ -145,7 +145,9 @@ class TestEveryOperationWithinBudget(unittest.TestCase):
 class TestCeilings(unittest.TestCase):
     def test_no_override_names_a_non_core_module_operation(self):
         non_core = non_core_module_operations()
-        self.assertTrue(non_core, "expected at least one optional module to provide an operation")
+        from selftest_support import CONSTRUCTION
+        if CONSTRUCTION:
+            self.assertTrue(non_core, "the construction catalogue must include optional operations")
         offending = {rel: non_core[rel] for rel in overrides() if rel in non_core}
         self.assertEqual(offending, {}, f"a non-core module's runbook carries a ceiling instead of a trim: {offending}")
 
