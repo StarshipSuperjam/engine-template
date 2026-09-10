@@ -406,6 +406,8 @@ def update_triage(client, number: int, *, expected: dict, assessment=None, defer
         raise TriageError('Investigate and assess, or record a specific evidence gap; assignment alone cannot classify a pending issue.')
     if assessment is not None:
         updated['assessment']=copy.deepcopy(validate(assessment,'assessment'))
+        if updated['assessment']['state'] != 'assessed':
+            raise TriageError('assess requires an assessed impact; use defer for a pending evidence gap.')
     if defer is not None:
         for key in ('evidence','missing','next_action'):
             if not isinstance(defer.get(key),str) or not defer[key].strip():

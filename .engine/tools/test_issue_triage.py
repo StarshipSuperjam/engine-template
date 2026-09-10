@@ -338,6 +338,27 @@ class Qualification(unittest.TestCase):
 
 
 class ReviewRegressions(unittest.TestCase):
+    def test_resubmitting_pending_input_never_earns_an_assignment_attempt(self):
+        import tempfile
+        from unittest.mock import patch
+        client = FakeGitHub()
+        pending = triage.pending('No remedy known.', 'Investigate the failing test.')
+        Filing().file(client, pending)
+        with tempfile.TemporaryDirectory() as directory:
+            with patch.object(triage, '_session_path', side_effect=lambda sid, repo: Path(directory) / sid):
+                for index in (1, 2):
+                    session = f'pending-session-{index}'
+                    triage.start_session(client, session, Filing.config)
+                    before = copy.deepcopy(client.issues)
+                    client.calls.clear()
+                    with self.assertRaisesRegex(triage.TriageError, 'use defer'):
+                        triage.update_triage(client, 1, expected=triage.observed_record(client.issues[0]),
+                                             assessment=pending, config=Filing.config,
+                                             now=f'2026-09-12T0{index}:00:00Z')
+                    self.assertEqual(client.issues, before)
+                    self.assertFalse(any(row[0] == 'PATCH' or '/milestones/' in row[1] for row in client.calls))
+                    self.assertEqual(triage.session_progress(client, session)['state'], 'pending')
+
     def test_repeated_failed_lookup_counts_but_timestamp_edit_does_not(self):
         import tempfile
         from unittest.mock import patch
