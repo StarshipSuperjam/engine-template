@@ -695,7 +695,7 @@ class GitHubIssues:
                     candidate['revision'] = current['revision'] + 1
                     candidate['superseded'] = {'assessment': current['assessment'], 'evidence': current['evidence']}
                 body = issue_triage.with_record(_replace_report(live['body'], body), candidate)
-            elif any(marker in (live.get('body') or '') for marker in (issue_triage.START, issue_triage.END)):
+            elif issue_triage.has_record_markers(live.get('body') or ''):
                 raise DegradedReadError('Refresh would remove current assessment state; rediscover or repair before refreshing.')
             if issue_triage.read_api(self, path) != live:
                 raise DegradedReadError('Issue changed before refresh; no write.')

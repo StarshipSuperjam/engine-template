@@ -102,8 +102,12 @@ def render(record: dict) -> str:
         '<!-- engine-issue-triage-data: ' + data + ' -->\n' + END
 
 
+def has_record_markers(body: str) -> bool:
+    return any(marker in body for marker in (START, END, 'engine-issue-triage-data:'))
+
+
 def parse(body: str) -> dict | None:
-    if START not in body and END not in body and 'engine-issue-triage-data:' not in body:
+    if not has_record_markers(body):
         return None
     if body.count(START) != 1 or body.count(END) != 1 or body.index(END) < body.index(START):
         raise TriageError('missing, duplicated or out-of-order assessment section')
@@ -248,7 +252,7 @@ def enrollment(issue: dict, settings: dict | None, events=None) -> str:
     """Current scope plus recoverable enrollment; body absence alone never grants legacy status."""
     if not scoped(issue):
         return 'out-of-scope'
-    if any(marker in (issue.get('body') or '') for marker in (START, END)):
+    if has_record_markers(issue.get('body') or ''):
         return 'required'
     if settings is None:
         return 'unknown'

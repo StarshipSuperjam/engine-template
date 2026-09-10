@@ -2228,11 +2228,11 @@ class TestProducerAssessment(unittest.TestCase):
                                      {'title':'Fix: legacy','body':'Legacy report','labels':['engine']})
         number = created['number']
         candidate = telemetry.producer_body('Refreshed legacy report', {}, T[1], previous='Legacy report')
-        for damaged in (False, True):
+        for damaged in ((), (issue_triage.START,), (issue_triage.START, issue_triage.END)):
             with self.subTest(damaged=damaged):
                 repaired = 'Human prefix\n' + telemetry.producer_body('Repaired report', {}, T[1]) + '\nHuman tail'
-                if damaged:
-                    repaired = repaired.replace(issue_triage.START, '<!-- damaged -->')
+                for marker in damaged:
+                    repaired = repaired.replace(marker, '<!-- damaged -->')
                 fake.issues[number]['body'] = repaired
                 fake.calls.clear()
                 with self.assertRaisesRegex(telemetry.DegradedReadError, 'remove current assessment'):

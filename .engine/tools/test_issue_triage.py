@@ -105,19 +105,20 @@ class Discovery(unittest.TestCase):
         result=triage.discover(Client(),None)
         self.assertFalse(result['complete']);self.assertIn('403',result['error'])
 
-    def test_pre_activation_damaged_opening_marker_remains_visible(self):
-        issue = self.issue(triage.render(record()).replace(triage.START, '<!-- damaged -->'),
-                           created='2026-09-01T00:00:00Z')
-        self.assertEqual(triage.enrollment(issue, self.settings, []), 'required')
-        class Client:
-            repo = 'o/r'
-            def _transport(self, *args):
-                return 200, [issue]
-        config = {'schema_version':'operator-issue-triage.v1','repositories':{'o/r':self.settings}}
-        result = triage.discover(Client(), config)
-        self.assertTrue(result['complete'])
-        self.assertEqual(result['items'][0]['number'], 1)
-        self.assertIsNotNone(result['items'][0]['error'])
+    def test_pre_activation_record_with_any_surviving_marker_remains_visible(self):
+        for retained in (triage.START, triage.END, 'engine-issue-triage-data: {}'):
+            with self.subTest(retained=retained):
+                issue = self.issue('Human text\n' + retained, created='2026-09-01T00:00:00Z')
+                self.assertEqual(triage.enrollment(issue, self.settings, []), 'required')
+                class Client:
+                    repo = 'o/r'
+                    def _transport(self, *args):
+                        return 200, [issue]
+                config = {'schema_version':'operator-issue-triage.v1','repositories':{'o/r':self.settings}}
+                result = triage.discover(Client(), config)
+                self.assertTrue(result['complete'])
+                self.assertEqual(result['items'][0]['number'], 1)
+                self.assertIsNotNone(result['items'][0]['error'])
 
     def test_slow_read_cannot_hold_discovery_past_budget_or_continue_pagination(self):
         import threading
