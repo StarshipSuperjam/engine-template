@@ -12,7 +12,6 @@ import json
 from pathlib import Path
 import sys
 
-from jsonschema import Draft202012Validator
 
 ROOT = Path(__file__).resolve().parents[2]
 LIMITS = {"bytes": 1048576, "depth": 64, "values": 10000,
@@ -243,6 +242,7 @@ def resolve(contract, *, role=None, root=ROOT):
     result = {"id": contract, "mode": entry["mode"], "enforcement": entry["enforcement"],
               "limits": dict(LIMITS), "schema": None, "schema_digest": None}
     if entry["mode"] == "structured":
+        from jsonschema import Draft202012Validator
         schema = _schema(entry["schema"], root)
         if entry.get("array"):
             schema = {"type": "array", "maxItems": LIMITS["array_items"], "items": schema}
@@ -258,7 +258,11 @@ def validate_binding(binding, *, contract=None, role=None, root=ROOT):
     if not isinstance(binding, dict):
         reject("missing_binding", category="authority", contract=contract)
     expected = resolve(contract or binding.get("id"), role=role, root=root)
-    if binding != expected:
+    try:
+        matches = digest(binding) == digest(expected)
+    except (TypeError, ValueError, RecursionError):
+        matches = False
+    if not matches:
         reject("changed_binding", category="authority", contract=expected["id"])
     return expected
 
@@ -268,6 +272,7 @@ def ingest(raw, binding, *, contract=None, role=None, root=ROOT):
     if bound["mode"] != "structured":
         reject("prose_is_not_evidence", category="authority", contract=bound["id"])
     value = parse(raw, contract=bound["id"])
+    from jsonschema import Draft202012Validator
     error = next(Draft202012Validator(bound["schema"]).iter_errors(value), None)
     if error is not None:
         reject(str(error.validator), contract=bound["id"], path=_pointer(error.absolute_path))

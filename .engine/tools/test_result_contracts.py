@@ -5,6 +5,11 @@ import json
 from pathlib import Path
 import tempfile
 import unittest
+import os
+import sys
+
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+import quiet_call
 
 from jsonschema import Draft202012Validator
 import result_contracts as rc
@@ -15,8 +20,8 @@ class ResultContracts(unittest.TestCase):
         import contextlib
         import demo_result_contracts
         with contextlib.redirect_stdout(io.StringIO()):
-            self.assertEqual(demo_result_contracts.main([]), 0)
-            self.assertEqual(demo_result_contracts.main(["--break-ingress"]), 1)
+            self.assertEqual(quiet_call.run(demo_result_contracts.main, []), 0)
+            self.assertEqual(quiet_call.run(demo_result_contracts.main, ["--break-ingress"]), 1)
 
     def setUp(self):
         self.review = rc.resolve("plan-review-finding.v1", role="plan-review")
@@ -75,6 +80,15 @@ class ResultContracts(unittest.TestCase):
                 rc.ingest("[]", bad)
         with self.assertRaises(rc.Rejection):
             rc.resolve("plan-review-finding.v1", role="worker")
+
+    def test_binding_comparison_preserves_json_types(self):
+        bad = copy.deepcopy(self.review)
+        self.assertIs(bad["schema"]["items"]["additionalProperties"], False)
+        bad["schema"]["items"]["additionalProperties"] = 0
+        self.assertEqual(bad, self.review)  # Python equality masks this schema tampering.
+        with self.assertRaises(rc.Rejection) as caught:
+            rc.ingest("[]", bad)
+        self.assertEqual(caught.exception.envelope["rule"], "changed_binding")
 
     def test_bounded_bytes_depth_values_arrays_and_strings(self):
         self.refusal(" " * (rc.LIMITS["bytes"] + 1), "maxBytes")
