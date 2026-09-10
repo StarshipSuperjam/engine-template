@@ -6280,7 +6280,7 @@
       },
       "slug": "issue-recovery",
       "source": {
-        "fingerprint": "sha256:6d29d0742d767ea3bccd397ee68faa8c5023229407c2340f4ef6f187283feb27",
+        "fingerprint": "sha256:940f0a51b5f7a78de393187b7f165daf49ac360b0528de4c2f5dbe7ad5aedb7f",
         "path": ".engine/operations/issue-recovery.md"
       },
       "status": "active",
@@ -10458,7 +10458,7 @@
       },
       "slug": "close",
       "source": {
-        "fingerprint": "sha256:c605128a444600f1d451547cc9a6e77161928ed59168a210a94e695b8468542c",
+        "fingerprint": "sha256:e720f3e469d8ea4a22959d114813cd9f44281fb3ee4dec51d538c8e057dcde26",
         "path": ".engine/tools/close.py"
       },
       "status": "active",
@@ -12955,7 +12955,7 @@
       },
       "slug": "hooks",
       "source": {
-        "fingerprint": "sha256:6651cdb8d0ad85dddcd9bb8d8f63568c1db98ed7095411864ce6d4877b75fc94",
+        "fingerprint": "sha256:19708d72b0d8f7861e15bd5f0cafefba374da9a70a62a3bc7572cd42577dee71",
         "path": ".engine/tools/hooks.py"
       },
       "status": "active",
@@ -13388,7 +13388,7 @@
       },
       "slug": "issue_recovery_store",
       "source": {
-        "fingerprint": "sha256:b3a63153339df0ce8f3264252636394d08799ce0b31c5279a4e5fa994d7fe12f",
+        "fingerprint": "sha256:3f80d7906a7a3eab71a15e376c172f3a940193a65e39eca82c6a018cfcff5f13",
         "path": ".engine/tools/issue_recovery_store.py"
       },
       "status": "active",
@@ -17356,7 +17356,7 @@
       },
       "slug": "test_close",
       "source": {
-        "fingerprint": "sha256:8b1ec29c8877a7c10310c98e46bb634b0bdea255c610a2cb174b4268c32c002c",
+        "fingerprint": "sha256:f9f7c844ddc9388895a0c6923eff9f6168eaed24d3b94624546963e5ead017c4",
         "path": ".engine/tools/test_close.py"
       },
       "status": "active",
@@ -17644,7 +17644,7 @@
       },
       "slug": "test_contribute_issue",
       "source": {
-        "fingerprint": "sha256:6a520e166a29911e809165e90163086c18b77e5da9e16718e8bb0987ff280c96",
+        "fingerprint": "sha256:cfe9e55f1c098944bc87d7f43c10714e87e98bcbeedec6b0135269ef3d534835",
         "path": ".engine/tools/external_contribution/test_contribute_issue.py"
       },
       "status": "active",
@@ -18586,7 +18586,7 @@
       },
       "slug": "test_issue_author",
       "source": {
-        "fingerprint": "sha256:1187ab948f12405784073ecaaca70bb45579c7d2e8c2c8913e8c54b1be5ced89",
+        "fingerprint": "sha256:6a9750693ca2616847e36199bfe5be56144ead840c2a1eafd27934841a309b68",
         "path": ".engine/tools/test_issue_author.py"
       },
       "status": "active",
@@ -18772,7 +18772,7 @@
       },
       "slug": "test_issue_recovery",
       "source": {
-        "fingerprint": "sha256:3b06fa40530b4271ad81cb24d3c98100967e22e7d66ddb7aa36367ab9e0a8667",
+        "fingerprint": "sha256:8c6ee5ab23b18256529e5bc1c5d609f93ccd644d39fb6b266a306c5c4481db01",
         "path": ".engine/tools/test_issue_recovery.py"
       },
       "status": "active",
@@ -18797,7 +18797,7 @@
       },
       "slug": "test_issue_triage",
       "source": {
-        "fingerprint": "sha256:c90aebd509799cf975212a5d0a148502d022fc9829635ee5f611259499ae60f7",
+        "fingerprint": "sha256:c2fabe2ea6234e6d89b74bedbe720b2fc016b69cd8646513601780f0b0486f0b",
         "path": ".engine/tools/test_issue_triage.py"
       },
       "status": "active",
@@ -19377,7 +19377,7 @@
       },
       "slug": "test_module_manager",
       "source": {
-        "fingerprint": "sha256:3c165b6c01b28782ce4c058838a881f7f337cc5b16a1b706de5dc8bda47ccca7",
+        "fingerprint": "sha256:f121f8e3676036a9c3bdd2647d95aeb163e0503c041ecc1eb16631836ee206f3",
         "path": ".engine/tools/test_module_manager.py"
       },
       "status": "active",
@@ -19584,7 +19584,7 @@
       },
       "slug": "test_nightly_demos",
       "source": {
-        "fingerprint": "sha256:579f6e2c26113e33881dc2d270037963e14fac98e917d43c9737f0c093fcbe38",
+        "fingerprint": "sha256:d92aaddc47849f9bdd53ae949d9170d0a8acde473a20bb1ec18a03fb75bf4eb5",
         "path": ".engine/tools/test_nightly_demos.py"
       },
       "status": "active",
@@ -21744,7 +21744,7 @@
       },
       "slug": "test_submit",
       "source": {
-        "fingerprint": "sha256:1fa93851dee0782fdcb9434a20a6d3c16259d2b940d9836b92852558d3137c8c",
+        "fingerprint": "sha256:80c89903214105864bb8aeb163ef8e52b16fe015007c4205303ccabeb8c859a3",
         "path": ".engine/tools/external_contribution/test_submit.py"
       },
       "status": "active",
