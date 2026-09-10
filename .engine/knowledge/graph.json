@@ -5243,7 +5243,7 @@
       },
       "slug": "ci-assurance",
       "source": {
-        "fingerprint": "sha256:cb578d0a025e31ccec08ca5285cb145ed87924b7ed5ef8db60e3284af3f8e2fb",
+        "fingerprint": "sha256:dc244677a434955f6834277eb0aada6694f85216fe269df1ebe1331c9b8c8b53",
         "path": ".engine/docs/ci-assurance.md"
       },
       "status": "active",
