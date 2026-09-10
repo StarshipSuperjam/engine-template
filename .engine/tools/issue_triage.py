@@ -213,9 +213,29 @@ def read_api(client, path: str):
 def pages(client, path: str, *, budget=None):
     page = 1
     while True:
-        if budget is not None:
+        page_path = path + ('&' if '?' in path else '?') + f'per_page=100&page={page}'
+        if budget is None:
+            data = read_api(client, page_path)
+        else:
+            # Only read calls run here. A timed-out read may finish in the background,
+            # but cannot mutate GitHub or the session checklist, or launch another page.
+            import queue
+            import threading
+            remaining = budget()
+            result = queue.Queue(maxsize=1)
+            def read_page():
+                try:
+                    result.put((True, read_api(client, page_path)))
+                except Exception as exc:
+                    result.put((False, exc))
+            threading.Thread(target=read_page, daemon=True).start()
+            try:
+                ok, data = result.get(timeout=remaining)
+            except queue.Empty as exc:
+                raise TriageError('issue discovery budget exhausted; list is incomplete') from exc
             budget()
-        data = read_api(client, path + ('&' if '?' in path else '?') + f'per_page=100&page={page}')
+            if not ok:
+                raise data
         if not isinstance(data, list):
             raise TriageError('GitHub list response has an unexpected shape')
         yield from data
@@ -228,7 +248,7 @@ def enrollment(issue: dict, settings: dict | None, events=None) -> str:
     """Current scope plus recoverable enrollment; body absence alone never grants legacy status."""
     if not scoped(issue):
         return 'out-of-scope'
-    if START in (issue.get('body') or ''):
+    if any(marker in (issue.get('body') or '') for marker in (START, END)):
         return 'required'
     if settings is None:
         return 'unknown'
@@ -255,8 +275,10 @@ def discover(client, config: dict | None, *, max_seconds=10) -> dict:
     import time
     deadline = time.monotonic() + max_seconds
     def budget():
-        if time.monotonic() >= deadline:
+        remaining = deadline - time.monotonic()
+        if remaining <= 0:
             raise TriageError('issue discovery budget exhausted; list is incomplete')
+        return remaining
     items = []
     settings = repo_config(config, client.repo)
     try:
@@ -628,7 +650,7 @@ def _read_session(session_id, repository=None):
 
 def has_session_obligation(session_id):
     value = _read_session(session_id)
-    return bool(value and value.get('selected'))
+    return bool(value and (value.get('selected') or value.get('complete') is False))
 
 
 def _write_session(session_id, repository, value):
@@ -672,8 +694,9 @@ def start_session(client, session_id, config):
     selected = select_pending(discovery, config, client.repo)
     existing = _read_session(session_id, client.repo)
     # A resume cannot erase the original baseline just by displaying the list again.
-    if existing is None:
-        existing = {'repository': client.repo, 'selected': selected, 'complete': discovery['complete']}
+    if existing is None or (not existing.get('selected') and existing.get('complete') is False):
+        existing = {**(existing or {}), 'repository': client.repo,
+                    'selected': selected, 'complete': discovery['complete']}
         _write_session(session_id, client.repo, existing)
     selected = existing.get('selected')
     return {'state': 'available' if discovery['complete'] else 'unavailable',
@@ -684,10 +707,12 @@ def start_session(client, session_id, config):
 def session_progress(client, session_id):
     """Credit only live, substantive state changes, never generic checklist disposition."""
     obligation = _read_session(session_id, client.repo)
-    if not obligation or not obligation.get('selected'):
+    if not obligation:
         return {'state': 'none'}
     if obligation.get('operator_exception'):
         return {'state': 'paused'}
+    if not obligation.get('selected'):
+        return {'state': 'unavailable' if obligation.get('complete') is False else 'none'}
     selected = obligation['selected']
     number = selected['number']
     try:

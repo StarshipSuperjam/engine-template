@@ -2221,6 +2221,50 @@ class TestCaptureRecoveryResolve(unittest.TestCase):
 
 
 class TestProducerAssessment(unittest.TestCase):
+    def test_stale_legacy_refresh_cannot_erase_repaired_assessment(self):
+        import issue_triage
+        fake = FakeGH(); client = gh(fake)
+        _, created = fake.transport('POST', '/repos/o/r/issues',
+                                     {'title':'Fix: legacy','body':'Legacy report','labels':['engine']})
+        number = created['number']
+        candidate = telemetry.producer_body('Refreshed legacy report', {}, T[1], previous='Legacy report')
+        for damaged in (False, True):
+            with self.subTest(damaged=damaged):
+                repaired = 'Human prefix\n' + telemetry.producer_body('Repaired report', {}, T[1]) + '\nHuman tail'
+                if damaged:
+                    repaired = repaired.replace(issue_triage.START, '<!-- damaged -->')
+                fake.issues[number]['body'] = repaired
+                fake.calls.clear()
+                with self.assertRaisesRegex(telemetry.DegradedReadError, 'remove current assessment'):
+                    client.update_issue(number, candidate)
+                self.assertEqual(fake.issues[number]['body'], repaired)
+                self.assertFalse(any(method == 'PATCH' for method, _ in fake.calls))
+
+    def test_cached_source_recovery_preserves_assessment_and_human_text(self):
+        import issue_triage
+        with tempfile.TemporaryDirectory() as directory:
+            fake = FakeGH(); client = gh(fake)
+            cache = telemetry.Cache(os.path.join(directory, 'cache.json'))
+            source = rec('checks/recovered', severity='trust-critical')
+            first = telemetry.run(client, [source], cache, TH, T[0], authoritative=set())
+            self.assertEqual(first.opened, 1)
+            number = next(iter(fake.issues))
+            live = fake.issues[number]['body']
+            assessment = issue_triage.parse(live)
+            assessment['assessment'] = {'state':'assessed','impact':'patch','remedy':'Restore behavior',
+                                        'rationale':'Existing behavior only','evidence':['verified test']}
+            live = issue_triage.with_record(live, assessment)
+            live = live.replace('<!-- engine-signal: checks/recovered -->', '')
+            fake.issues[number]['body'] = 'Human prefix\n' + live + '\nHuman tail'
+            second = telemetry.run(client, [source], cache, TH, T[1], authoritative=set())
+            self.assertFalse(second.degraded)
+            self.assertEqual(second.updated, 1)
+            final = fake.issues[number]['body']
+            self.assertEqual(issue_triage.parse(final), assessment)
+            self.assertTrue(final.startswith('Human prefix\n'))
+            self.assertTrue(final.endswith('\nHuman tail'))
+            self.assertEqual(telemetry.parse_source_id(final), 'checks/recovered')
+
     def test_refresh_preserves_assessed_state_and_human_text_then_invalidates_new_evidence(self):
         import issue_triage
         now='2026-09-10T00:00:00Z'

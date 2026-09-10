@@ -105,6 +105,45 @@ class Discovery(unittest.TestCase):
         result=triage.discover(Client(),None)
         self.assertFalse(result['complete']);self.assertIn('403',result['error'])
 
+    def test_pre_activation_damaged_opening_marker_remains_visible(self):
+        issue = self.issue(triage.render(record()).replace(triage.START, '<!-- damaged -->'),
+                           created='2026-09-01T00:00:00Z')
+        self.assertEqual(triage.enrollment(issue, self.settings, []), 'required')
+        class Client:
+            repo = 'o/r'
+            def _transport(self, *args):
+                return 200, [issue]
+        config = {'schema_version':'operator-issue-triage.v1','repositories':{'o/r':self.settings}}
+        result = triage.discover(Client(), config)
+        self.assertTrue(result['complete'])
+        self.assertEqual(result['items'][0]['number'], 1)
+        self.assertIsNotNone(result['items'][0]['error'])
+
+    def test_slow_read_cannot_hold_discovery_past_budget_or_continue_pagination(self):
+        import threading
+        import time
+        release = threading.Event()
+        finished = threading.Event()
+        calls = []
+        class Client:
+            repo = 'o/r'
+            def _transport(self, *args):
+                calls.append(args)
+                release.wait(5)
+                finished.set()
+                return 200, [{}] * 100
+        try:
+            started = time.monotonic()
+            result = triage.discover(Client(), None, max_seconds=0.05)
+            self.assertLess(time.monotonic() - started, 2)
+            self.assertFalse(result['complete'])
+            self.assertIn('budget', result['error'])
+        finally:
+            release.set()
+            self.assertTrue(finished.wait(2))
+        self.assertEqual(len(calls), 1)
+        self.assertEqual(result['items'], [])
+
     def test_configuration_distinguishes_disabled_from_missing_and_is_preserved(self):
         import module_coherence
         config={'schema_version':'operator-issue-triage.v1','repositories':{'o/r':self.settings}}

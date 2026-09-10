@@ -414,6 +414,24 @@ class IssueTriageFollowThrough(unittest.TestCase):
         self.initial = record(issue_triage.pending('The remedy is unknown.', 'Inspect the failing test.'))
         issue_triage.file_issue(self.client, 'Fix: report', issue_triage.render(self.initial), config=self.config)
 
+    def test_discovery_outage_without_selection_reaches_bounded_stop_then_recovers(self):
+        with unittest.mock.patch.object(self.client, '_transport', return_value=(503, None)):
+            relay = self.triage.start_session(self.client, self.sid, self.config)
+        self.assertEqual(relay['state'], 'unavailable')
+        self.assertIsNone(relay['selected_issue'])
+        self.assertTrue(self.triage.has_session_obligation(self.sid))
+        self.assertEqual(self.triage.session_progress(self.client, self.sid)['state'], 'unavailable')
+        with unittest.mock.patch.object(close, '_github', return_value=self.client), \
+             unittest.mock.patch.object(close, '_trigger_ambient_capture'), \
+             unittest.mock.patch.object(close, '_run_preclose_advisory'), \
+             unittest.mock.patch.object(close, '_promote') as promote:
+            self.assertEqual(close.handler({'session_id':self.sid})['action'], 'block')
+            self.assertNotEqual(close.handler({'session_id':self.sid, 'stop_hook_active':True}).get('action'), 'block')
+            promote.assert_not_called()
+        relay = self.triage.start_session(self.client, self.sid, self.config)
+        self.assertEqual(relay['selected_issue'], 1)
+        self.assertEqual(self.triage.session_progress(self.client, self.sid)['state'], 'pending')
+
     def test_background_to_fresh_session_to_verified_assignment(self):
         from test_issue_triage import assessed
         relay = self.triage.start_session(self.client, self.sid, self.config)

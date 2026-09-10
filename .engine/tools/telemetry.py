@@ -695,6 +695,8 @@ class GitHubIssues:
                     candidate['revision'] = current['revision'] + 1
                     candidate['superseded'] = {'assessment': current['assessment'], 'evidence': current['evidence']}
                 body = issue_triage.with_record(_replace_report(live['body'], body), candidate)
+            elif any(marker in (live.get('body') or '') for marker in (issue_triage.START, issue_triage.END)):
+                raise DegradedReadError('Refresh would remove current assessment state; rediscover or repair before refreshing.')
             if issue_triage.read_api(self, path) != live:
                 raise DegradedReadError('Issue changed before refresh; no write.')
             status, data = self._transport('PATCH', f'/repos/{self.repo}/issues/{number}', {'body': body})
@@ -958,7 +960,7 @@ def run(github: GitHubIssues, records: list, cache: Cache, thresholds: dict, now
             opened += 1
         for number, body in plan.to_update:
             previous = previous_by_number.get(number, {})
-            source = record_by_source.get(previous.get('source_id'))
+            source = record_by_source.get(previous.get('source_id') or parse_source_id(body))
             if source is not None and not body.startswith(('*Consolidated', '**Resolved')):
                 body = producer_body(body, _semantic_finding(source), now, previous=previous.get('body') or '')
             github.update_issue(number, body)
