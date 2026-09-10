@@ -367,7 +367,7 @@ def observed_record(issue: dict) -> dict | None:
     return record
 
 
-def file_issue(client, title: str, body: str, *, config=None, retry=False) -> dict:
+def file_issue(client, title: str, body: str, *, config=None, retry=False, send=None) -> dict:
     """Typed filing boundary. Ambiguous responses never cause an automatic second POST.
 
     The caller retains the submission id in its input; use retry=True after any uncertain attempt.
@@ -394,7 +394,7 @@ def file_issue(client, title: str, body: str, *, config=None, retry=False) -> di
     if record['assignment']['state'] == 'assigned':
         request['milestone'] = record['assignment']['milestone']
     try:
-        status, issue = client._transport('POST',f'/repos/{client.repo}/issues',request)
+        status, issue = (send or (lambda payload: client._transport('POST', f'/repos/{client.repo}/issues', payload)))(request)
     except Exception as exc:
         return filing_result(client.repo,sid,'creation-uncertain',record,reason=f'Create response unknown: {exc}. Keep the same input; retry reconciliation only.')
     # No fallback on generic 422: GitHub also uses it for spam and unrelated validation, and

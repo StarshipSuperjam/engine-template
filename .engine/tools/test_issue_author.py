@@ -428,3 +428,51 @@ class TestKindAtFiling(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class TestSubmissionEnvelope(unittest.TestCase):
+    def envelope(self, **request):
+        return {'schema_version': 'issue-submission-input.v1', 'scope': 'product',
+                'request': {'repository': _TRUSTED_ENV['GITHUB_REPOSITORY'], 'title': 'Ordinary title',
+                            'body': 'Ordinary body', **request}}
+
+    def test_product_preserves_fields_and_never_retries(self):
+        calls = []
+        class Client:
+            repo = _TRUSTED_ENV['GITHUB_REPOSITORY']
+            def _transport(self, method, path, payload):
+                calls.append((method, path, payload))
+                return 201, {'number': 8, 'html_url': 'https://github.com/' + self.repo + '/issues/8'}
+        data = self.envelope(labels=['bug'], assignees=['alice'], milestone=4)
+        result = issue_author.create_issue_result(data, env=_TRUSTED_ENV, issues_factory=lambda *_: Client())
+        self.assertEqual(result['filing'], 'created')
+        self.assertEqual(calls[0][2], {k: v for k,v in data['request'].items() if k != 'repository'})
+        issue_author.create_issue_result(data, env=_TRUSTED_ENV, issues_factory=lambda *_: Client(), retry=True)
+        self.assertEqual(len(calls), 1)
+
+    def test_envelope_refuses_missing_scope_unknown_fields_and_engine_label(self):
+        for mutate in (lambda d: d.pop('scope'), lambda d: d.update(scope='other'),
+                       lambda d: d.update(extra=True), lambda d: d['request'].update(labels=['Engine'])):
+            data = self.envelope()
+            mutate(data)
+            with self.assertRaises(issue_author.IssueInputError):
+                issue_author.submission_input(data)
+
+    def test_wrong_bound_client_refused(self):
+        class Client:
+            repo = 'wrong/repo'
+        with self.assertRaises(issue_author.IssueInputError):
+            issue_author.create_issue_result(self.envelope(), env=_TRUSTED_ENV, issues_factory=lambda *_: Client())
+
+    def test_product_uncertainty_is_not_success(self):
+        class Client:
+            repo = _TRUSTED_ENV['GITHUB_REPOSITORY']
+            def _transport(self, *_):
+                raise TimeoutError('lost response')
+        result = issue_author.create_issue_result(self.envelope(), env=_TRUSTED_ENV, issues_factory=lambda *_: Client())
+        self.assertEqual(result['filing'], 'creation-uncertain')
+
+    def test_engine_envelope_uses_existing_validation_and_preview(self):
+        data = {'schema_version': 'issue-submission-input.v1', 'scope': 'engine', 'request': dict(_GOOD)}
+        self.assertEqual(issue_author.preview_submission(data, [_GOOD['repository']]),
+                         issue_author.preview_text(_GOOD, [_GOOD['repository']]))

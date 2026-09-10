@@ -268,6 +268,31 @@ def validate_input(data: dict) -> dict:
     return data
 
 
+def validate_submission(data: dict) -> dict:
+    """Closed, explicitly classified envelope; the original Engine input remains supported."""
+    from jsonschema import Draft202012Validator
+    path = os.path.join(os.path.dirname(_INPUT_SCHEMA_REL), 'issue-submission-input.v1.json')
+    with open(path, encoding='utf-8') as stream:
+        schema = json.load(stream)
+    errors = list(Draft202012Validator(schema).iter_errors(data))
+    if errors:
+        raise IssueInputError('Invalid issue-submission-input.v1: ' + errors[0].message)
+    request = data['request']
+    if data['scope'] == 'engine':
+        validate_input(request)
+    elif any(label.casefold() == 'engine' for label in request.get('labels', [])):
+        raise IssueInputError('The engine label requires Engine scope and an assessment.')
+    return data
+
+
+def submission_input(data: dict) -> dict:
+    """Compatibility is explicit: only a valid original Engine request omits the envelope."""
+    if 'scope' in data or 'schema_version' in data or 'request' in data:
+        return validate_submission(data)
+    return {'schema_version': 'issue-submission-input.v1', 'scope': 'engine',
+            'request': validate_input(data)}
+
+
 def resolve_issue_repositories(*, env=None, root: "str | None" = None) -> list:
     """The repositories this engine may file its OWN engine Issues into, resolved from TRUSTED config only —
     never from the input. Always the engine's own checkout: `GITHUB_REPOSITORY` (the CI-provided identity) when
@@ -375,7 +400,8 @@ def create_issue_result(data: dict, *, env=None, root: "str | None" = None, issu
     the trusted target the input MATCHED (never a repository named only by the input). The `engine` label is
     applied by construction (telemetry.GitHubIssues' default). `issues_factory(repo, token)` is injectable so
     offline tests exercise the whole path without a network; production uses telemetry.GitHubIssues."""
-    validate_input(data)
+    envelope = submission_input(data)
+    data = envelope['request']
     environ = os.environ if env is None else env
     repository_slugs = resolve_issue_repositories(env=environ, root=root)
     if not repository_slugs:
@@ -396,6 +422,10 @@ def create_issue_result(data: dict, *, env=None, root: "str | None" = None, issu
         import telemetry  # lazy
         issues_factory = telemetry.GitHubIssues
     issues = issues_factory(matched, token.strip())
+    if _matched_target(getattr(issues, 'repo', ''), [matched]) is None:
+        raise IssueInputError('The injected client does not match the trusted repository.')
+    if envelope['scope'] == 'product':
+        return _create_product(issues, data, retry=retry)
     import issue_triage
     configuration_error = None
     try:
@@ -409,6 +439,35 @@ def create_issue_result(data: dict, *, env=None, root: "str | None" = None, issu
     return result
 
 
+def _create_product(client, data: dict, *, retry=False) -> dict:
+    """Ordinary issue fields, one POST, and no manufactured Engine identity."""
+    result = {'repository': client.repo, 'scope': 'product', 'filing': 'creation-uncertain',
+              'number': None, 'url': None, 'reason': 'Inspect GitHub; ambiguous product submissions cannot be replayed.'}
+    if retry:
+        return result
+    request = {key: value for key, value in data.items() if key != 'repository'}
+    try:
+        status, issue = client._transport('POST', f'/repos/{client.repo}/issues', request)
+    except Exception:
+        return result
+    if status == 201 and isinstance(issue, dict) and type(issue.get('number')) is int and issue['number'] > 0:
+        result.update(filing='created', number=issue['number'], url=issue.get('html_url'), reason='Issue created.')
+    elif 400 <= status < 500:
+        result.update(filing='failed', reason=f'Create rejected ({status}); no automatic retry.')
+    return result
+
+
+def preview_submission(data: dict, repository_slugs: list) -> str:
+    envelope = submission_input(data)
+    if envelope['scope'] == 'engine':
+        return preview_text(envelope['request'], repository_slugs)
+    request = envelope['request']
+    matched = _matched_target(request['repository'], repository_slugs)
+    return ('PRODUCT ISSUE — PREVIEW (nothing has been filed)\n'
+            + ('Trusted repository matches.\n' if matched else 'Target cannot be verified; create will refuse.\n')
+            + json.dumps(request, indent=2))
+
+
 def create_issue(data: dict, **kwargs) -> str:
     """Compatibility URL wrapper; typed callers use create_issue_result for assignment outcomes."""
     result = create_issue_result(data, **kwargs)
@@ -419,11 +478,11 @@ def create_issue(data: dict, **kwargs) -> str:
 
 def _cli_preview(source: str) -> int:
     try:
-        data = validate_input(load_input(source))
+        data = submission_input(load_input(source))
     except IssueInputError as exc:
         print(f"Refused — {exc}", file=sys.stderr)
         return 2
-    print(preview_text(data, resolve_issue_repositories()))
+    print(preview_submission(data, resolve_issue_repositories()))
     return 0
 
 
@@ -433,7 +492,7 @@ def _cli_create(source: str, confirm: bool, *, retry=False) -> int:
               "`--confirm` (use `preview` first to see exactly what will be filed).", file=sys.stderr)
         return 2
     try:
-        data = validate_input(load_input(source))
+        data = submission_input(load_input(source))
         result = create_issue_result(data, retry=retry)
     except IssueInputError as exc:
         print(f"Refused — {exc}", file=sys.stderr)

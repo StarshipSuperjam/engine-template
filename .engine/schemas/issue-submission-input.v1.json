@@ -1,0 +1,84 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "issue-submission-input.v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_version",
+    "scope",
+    "request"
+  ],
+  "properties": {
+    "schema_version": {
+      "const": "issue-submission-input.v1"
+    },
+    "scope": {
+      "enum": [
+        "engine",
+        "product"
+      ]
+    },
+    "request": {
+      "type": "object"
+    }
+  },
+  "allOf": [
+    {
+      "if": {
+        "properties": {
+          "scope": {
+            "const": "product"
+          }
+        }
+      },
+      "then": {
+        "properties": {
+          "request": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "repository",
+              "title",
+              "body"
+            ],
+            "properties": {
+              "repository": {
+                "description": "The intended target repository as owner/name (for example StarshipSuperjam/engine-template). Validated by the create path against the trusted-config-resolved target; a mismatch is refused rather than filed, so this value can never steer the filing to a repository chosen by observed content.",
+                "type": "string",
+                "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]*/[A-Za-z0-9][A-Za-z0-9._-]*$"
+              },
+              "title": {
+                "type": "string",
+                "minLength": 1
+              },
+              "body": {
+                "type": "string"
+              },
+              "labels": {
+                "type": "array",
+                "items": {
+                  "type": "string",
+                  "minLength": 1
+                }
+              },
+              "assignees": {
+                "type": "array",
+                "items": {
+                  "type": "string",
+                  "minLength": 1
+                }
+              },
+              "milestone": {
+                "type": [
+                  "integer",
+                  "null"
+                ],
+                "minimum": 1
+              }
+            }
+          }
+        }
+      }
+    }
+  ]
+}
