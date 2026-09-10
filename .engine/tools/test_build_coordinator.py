@@ -6480,6 +6480,92 @@ class ScrubbedGitRepo:
         return self.git("rev-parse", "HEAD")
 
 
+class TestCleanTargetMergeReceiptRetention(CoordinatorCase):
+    """#1218: a validated automatic target merge retains a completed repair's receipts."""
+
+    def setUp(self):
+        super().setUp()
+        self.repo = ScrubbedGitRepo(Path(self.temp.name) / "merge-checkout")
+        self.base = self.repo.commit_file("seed.py", "seed\n", "base")
+        self.repo.git("checkout", "-q", "-b", "codex/build")
+        self.reviewed = self.repo.commit_file("src.py", "deliverable\n", "deliverable")
+        self.repaired = self.repo.commit_file("src.py", "repair\n", "repair")
+        patched = mock.patch.object(bc, "ROOT", Path(self.repo.path))
+        patched.start(); self.addCleanup(patched.stop)
+        self.seed()
+        def bind(state):
+            state["build"].update(base_at_bind=self.base, worktree=str(Path(self.repo.path).resolve()))
+            state["plan"]["bound_head"] = self.reviewed
+            state["reviews"]["deliverable"].update(reviewed_commit=self.reviewed, base_commit=self.base)
+        self.store.mutate(bind)
+        self.assess("scoped", ["usability", "spec-conformance"])
+        self.receipts = [{"lens": lens, "packet_digest": "sha256:" + "1" * 64, "commit": self.repaired,
+            "finding_ids": [], "code_execution": "none",
+            "reviewed_range": {"base": self.reviewed, "tip": self.repaired}}
+            for lens in ("usability", "spec-conformance")]
+        self.store.mutate(lambda state: state["repair"].update(receipts=self.receipts))
+        self.repo.git("checkout", "-q", "main")
+        self.target = self.repo.commit_file("upstream.py", "target work\n", "target advance")
+        self.repo.git("checkout", "-q", "codex/build")
+        self.repo.git("merge", "--no-ff", "--no-edit", "main")
+        self.merged = self.repo.git("rev-parse", "HEAD")
+
+    def assess(self, judgment="none", lenses=None):
+        args = argparse.Namespace(judgment=judgment, rationale="Only a verified target catch-up changed the tree",
+                                  lens=lenses, guidance=None)
+        # No accept_receipt_loss argument: receipt preservation must be earned by the proof.
+        with contextlib.redirect_stdout(io.StringIO()), contextlib.redirect_stderr(io.StringIO()):
+            bc.cmd_repair_assess(args, self.store)
+
+    @contextlib.contextmanager
+    def verified_target(self):
+        observation = {"observed_at": "2026-09-09T00:00:00Z", "material": {
+            "target_repository": "owner/repo", "target_ref": "main", "target_tip": self.target}}
+        with mock.patch.object(bc.github, "pr_state", return_value={"number": 7}), \
+                mock.patch.object(bc.entry, "observe_fresh", return_value=observation):
+            yield
+
+    def candidate(self, head, passed=True):
+        self.store.mutate(lambda state: state.update(validation={"commit": head, "results": [
+            {"id": "candidate", "commit": head, "passed": passed, "summary": "focused candidate validation"}]}))
+
+    def test_green_merged_head_retains_receipts_and_does_not_spend_another_panel(self):
+        self.candidate(self.merged)
+        before = self.state()
+        original_receipts = json.dumps(before["repair"]["receipts"], sort_keys=True)
+        with self.verified_target():
+            self.assess()
+        after = self.state()
+        self.assertEqual(json.dumps(after["repair"]["receipts"], sort_keys=True), original_receipts)
+        self.assertEqual(len(after["repair_rounds"]), len(before["repair_rounds"]))
+        self.assertEqual(sum(bc._round_counted(row) for row in after["repair_rounds"]),
+                         sum(bc._round_counted(row) for row in before["repair_rounds"]))
+        self.assertEqual(after["repair"]["base_advances"], after["base_advances"])
+        self.assertEqual(after["base_advances"][0]["validated_head"], self.merged)
+        self.assertEqual(after["base_advances"][0]["target_tip"], self.target)
+        disclosure = "\n".join(bc._base_advance_lines(after))
+        self.assertIn(self.merged, disclosure)
+        self.assertIn(self.target, disclosure)
+        self.assertIn("without restamping receipts or read ranges", disclosure)
+
+    def test_stale_or_failed_candidate_never_grants_merge_receipt_preservation(self):
+        for head, passed in ((self.repaired, True), (self.merged, False)):
+            self.candidate(head, passed)
+            before = self.store.path.read_bytes()
+            with self.subTest(head=head, passed=passed), self.verified_target(), \
+                    self.assertRaisesRegex(bc.CoordinatorError, "actual merged HEAD"):
+                self.assess()
+            self.assertEqual(self.store.path.read_bytes(), before)
+
+    def test_unavailable_target_observation_cannot_silently_drop_prior_receipts(self):
+        self.candidate(self.merged)
+        before = self.store.path.read_bytes()
+        with mock.patch.object(bc.github, "pr_state", side_effect=bc.CoordinatorError("offline")), \
+                self.assertRaisesRegex(bc.CoordinatorError, "would discard.*receipt"):
+            self.assess()
+        self.assertEqual(self.store.path.read_bytes(), before)
+
+
 class TestPreparedUnreviewedRewrite(unittest.TestCase):
     """N1: real rebase provenance, evidence preservation and ordinary resume after recovery.
 

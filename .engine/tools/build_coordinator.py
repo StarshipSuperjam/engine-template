@@ -474,7 +474,7 @@ def _coverage(stage: dict, kind: str):
     authored commit this stage asks about? Built here because it needs git and ROOT; consumed by the pure
     `build_coordinator_review` through injection, so that module keeps no repository knowledge."""
     base, tip = _stage_range(stage, kind)
-    return lambda receipt: ranges.receipt_covers(ROOT, receipt, base, tip)
+    return lambda receipt: ranges.receipt_covers(ROOT, receipt, base, tip, stage.get("base_advances", []))
 
 
 def _missing_receipts(stage: dict, kind: str = "deliverable") -> list[str]:
@@ -1934,7 +1934,7 @@ def _packet(args, store: Snapshot | None) -> None:
     # re-cut instead of being thrown away and re-run for nothing.
     new_base = (state["repair"]["reviewed_commit"] if stage == "repair" else packet["base_commit"])
     new_tip = commit
-    covers = lambda receipt: ranges.receipt_covers(ROOT, receipt, new_base, new_tip)   # noqa: E731
+    covers = lambda receipt: ranges.receipt_covers(ROOT, receipt, new_base, new_tip, current.get("base_advances", []))   # noqa: E731
 
     def change(s):
         old = s["repair"] if stage == "repair" else s["reviews"][stage]
@@ -3625,6 +3625,45 @@ def _trajectory(rounds: list) -> str:
     return "\n".join(lines)
 
 
+def _observe_base_advances(state: dict, reviewed: str, head: str) -> list[dict]:
+    """Remote identity is observed outside the state lock; unreadable proof buys no coverage.
+
+    Push the current draft head before assessing a clean catch-up merge. Reuse the same
+    verified default-target observation as fresh admission, without creating a new admission.
+    """
+    prior = (state.get("repair") or {}).get("base_advances", [])
+    try:
+        merges = ranges._git(ROOT, ["rev-list", "--first-parent", "--merges", f"{reviewed}..{head}"]).splitlines()
+    except ranges.RangeUnreadable:
+        return list(prior)
+    if not merges:
+        return list(prior)
+    try:
+        repo, number = state["build"]["repository"], state["build"]["pr"]
+        observed = entry.observe_fresh(ROOT, repo, number, github.pr_state(ROOT, repo, number))
+    except CoordinatorError:
+        # Ordinary proportional review still applies; an unavailable remote is never a proof.
+        return list(prior)
+    proofs = [proof for merge in merges
+              if (proof := ranges.prove_base_advance(ROOT, merge, observed["material"]))]
+    if proofs and not _candidate_ok(state, head):
+        raise CoordinatorError("clean target-merge receipt preservation requires green candidate validation "
+                               "of the actual merged HEAD; run validate --plan <payload>, then retry repair assess")
+    known = {p["merge_commit"]: p for p in prior}
+    for proof in proofs:
+        known.setdefault(proof["merge_commit"], proof | {
+            "observed_at": observed["observed_at"], "validated_head": head})
+    return list(known.values())
+
+
+def _base_advance_lines(state: dict) -> list[str]:
+    return [f"Clean target merge: `{p['target_repository']}` `{p['target_ref']}` at "
+            f"`{p['target_tip']}` entered through `{p['merge_commit']}`; its tree matched the automatic "
+            f"merge result `{p['merge_tree']}`. Candidate validation passed at `{p['validated_head']}`; "
+            "target ancestry was exempted from unread work without restamping receipts or read ranges."
+            for p in state.get("base_advances", [])]
+
+
 def cmd_repair_assess(args, store: Snapshot) -> None:
     head = _head()
     state = store.read()
@@ -3655,6 +3694,7 @@ def cmd_repair_assess(args, store: Snapshot) -> None:
                 "deliverable review against the current head rather than recording a judgment on a span "
                 "that cannot be computed.") from exc
         raise
+    base_advances = _observe_base_advances(state, reviewed, head)
     # Re-assessing the SAME divergence (upgrading a scoped judgment to full, say) replaces its entry in
     # place rather than counting twice.
     rounds = list(state.get("repair_rounds", []))
@@ -3663,7 +3703,7 @@ def cmd_repair_assess(args, store: Snapshot) -> None:
         machine output the engine generated itself, and no reviewer would read it. An unmeasurable range
         answers yes: never a free pass (StarshipSuperjam/engine-template#1065)."""
         try:
-            return bool(ranges.authored_between(ROOT, base, tip))
+            return bool(ranges.authored_between(ROOT, base, tip, base_advances))
         except ranges.RangeUnreadable:
             return True
 
@@ -3795,7 +3835,7 @@ def cmd_repair_assess(args, store: Snapshot) -> None:
     # all-or-nothing wall that cost two true receipts in StarshipSuperjam/engine-template#1063.
     carried, dropped = [], []
     for receipt in (prior or {}).get("receipts", []):
-        (carried if ranges.receipt_covers(ROOT, receipt, reviewed, head) else dropped).append(receipt)
+        (carried if ranges.receipt_covers(ROOT, receipt, reviewed, head, base_advances) else dropped).append(receipt)
     # A dropped receipt is always NAMED. It is only REFUSED on a `none` judgment, and the difference is
     # what each path costs. A scoped or full round drops a receipt and then asks that lens to read the new
     # range, so the evidence is replaced rather than lost — naming it is enough, and walling every ordinary
@@ -3803,7 +3843,7 @@ def cmd_repair_assess(args, store: Snapshot) -> None:
     # one StarshipSuperjam/engine-template#1012 named: it discards the receipt AND ends the repair loop
     # with no re-review, mid-stream, prompted by a status line that used to read like a step to take.
     if dropped:
-        detail = "; ".join(ranges.coverage_report(ROOT, r, reviewed, head) for r in dropped)
+        detail = "; ".join(ranges.coverage_report(ROOT, r, reviewed, head, base_advances) for r in dropped)
         also = f" {len(carried)} receipt(s) DO still cover it and are kept." if carried else ""
         if args.judgment == "none" and not getattr(args, "accept_receipt_loss", False):
             raise CoordinatorError(
@@ -3847,13 +3887,19 @@ def cmd_repair_assess(args, store: Snapshot) -> None:
               "rationale": args.rationale, "lenses": lenses, "packet_digest": None,
               "referent_digest": None, "reviewer_contracts": [], "receipts": carried,
               "anchor": anchor, "counted": counted, "classification": classification,
-              "roster_provenance": roster_provenance}
-    store.mutate(lambda s: s.update({"repair": repair, "repair_rounds": rounds}), from_revision=revision)
+              "roster_provenance": roster_provenance, "base_advances": base_advances}
+    def record(s):
+        if _head() != head:
+            raise CoordinatorError("HEAD changed during repair assessment; retry on the validated candidate")
+        ledger = {p["merge_commit"]: p for p in s.get("base_advances", [])}
+        ledger.update({p["merge_commit"]: p for p in base_advances})
+        s.update({"repair": repair, "repair_rounds": rounds, "base_advances": list(ledger.values())})
+    store.mutate(record, from_revision=revision)
     print(json.dumps(repair, indent=2, sort_keys=True))
     print("\nHow the rounds have gone:\n" + _trajectory(rounds))
     if carried:
         print(f"carried {len(carried)} repair receipt(s) forward — "
-              + "; ".join(ranges.coverage_report(ROOT, r, reviewed, head) for r in carried), file=sys.stderr)
+              + "; ".join(ranges.coverage_report(ROOT, r, reviewed, head, base_advances) for r in carried), file=sys.stderr)
     if same:
         print("this re-points the repair round already recorded at "
               f"{reviewed[:12]} rather than opening a new one against the escalation gate", file=sys.stderr)
@@ -3894,7 +3940,7 @@ def _compute_preflight_legs(state: dict, head: str, pr_data: dict, body: str) ->
     # while dropping the "worth a look before you merge" line the headline is standing in front of. The
     # recorded operator guidance is required with them: the headline asserts that guidance was disclosed,
     # so the assertion and the thing it asserts have to be gated together.
-    missing_rounds = [line for line in _repair_round_lines(state) + _round_guidance_lines(state)
+    missing_rounds = [line for line in _repair_round_lines(state) + _round_guidance_lines(state) + _base_advance_lines(state)
                       if line not in body]
     if missing_rounds:
         contract_passed = False
@@ -5419,6 +5465,10 @@ def _plan_disagreement_lines(state: dict) -> list[str]:
 
 
 def _drift_line(state: dict, head: str) -> str:
+    return " ".join([_review_drift_line(state, head), *_base_advance_lines(state)])
+
+
+def _review_drift_line(state: dict, head: str) -> str:
     """The PR body's "Reviewed vs submitted" disclosure, composed from recorded state.
 
     Pure and single-homed so it can be driven end to end by a test: the operator's consent surface is the
