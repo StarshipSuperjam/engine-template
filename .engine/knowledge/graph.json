@@ -6280,7 +6280,7 @@
       },
       "slug": "issue-recovery",
       "source": {
-        "fingerprint": "sha256:b407dcd6c41cbfff218922996f260d0a33823a39b3564b6147f9805372b41305",
+        "fingerprint": "sha256:40944c00d4da45aaef9eeadc9ea0b81f37fe9439425ae39d924495230b01db19",
         "path": ".engine/operations/issue-recovery.md"
       },
       "status": "active",
