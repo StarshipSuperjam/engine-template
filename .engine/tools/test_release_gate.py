@@ -649,9 +649,12 @@ class TestTransitionComposition(unittest.TestCase):
              mock.patch.object(rg, "_project_to_deployed", return_value=[]), \
              mock.patch.object(rg, "_assert_isolated", return_value=None), \
              mock.patch.object(rg, "_candidate_ref", return_value="v9.9.9"), \
+             mock.patch.object(rg, "_suite_in_committed_snapshot",
+                               return_value={"passed": True, "detail": ""}) as suite, \
              mock.patch.object(rg, "_run", side_effect=_record):
             res = rg._upgrade_from("v9.9.9", "/tmp/candidate")
         self.assertTrue(res["passed"])
+        suite.assert_called_once_with("/tmp/proj", "upgrade/v9.9.9")
         drivers = [" ".join(c) for c in calls if "-c" in c]
         self.assertIn("module_manager.upgrade(", drivers[0])   # first driver spawn = the upgrade
         self.assertIn("cp.repair_owned", drivers[1])            # second driver spawn = owned-only repair
