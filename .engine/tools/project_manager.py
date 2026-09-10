@@ -778,6 +778,41 @@ def cmd_review_packet(args) -> int:
     return 0
 
 
+def ingest_review_report(raw, binding, *, lens):
+    """Canonical plan-review boundary; controller fields never enter a model report."""
+    import result_contracts
+    try:
+        report = result_contracts.ingest(raw, binding, contract="plan-review-finding.v1", role="plan-review")
+        return result_contracts.compile_review(report, lens=lens)
+    except result_contracts.Rejection as exc:
+        raise ProjectManagerError(str(exc)) from exc
+
+
+def _review_input(source, lenses, *, controller=False):
+    import result_contracts
+    try:
+        if not source:
+            return None, None  # derive from a completed observed report inside the transaction
+        raw = result_contracts.read_input(source)
+        parsed = result_contracts.parse(raw)
+        if controller:
+            if not isinstance(parsed, list) or any(not isinstance(f, dict) or
+                    set(f) - {"id", "lens", "severity", "summary", "location"} for f in parsed):
+                result_contracts.reject("controller_projection", category="authority")
+            _validate_findings(parsed)
+            return None, parsed
+        # A panel uses an explicit lens -> report envelope; each report is validated whole.
+        reports = ({lens: [] for lens in lenses} if parsed == [] else
+                   {lenses[0]: parsed} if len(lenses) == 1 and isinstance(parsed, list) else parsed)
+        if not isinstance(reports, dict) or set(reports) != set(lenses):
+            result_contracts.reject("exact_lens_reports", category="semantic")
+        binding = result_contracts.resolve("plan-review-finding.v1", role="plan-review")
+        return reports, [finding for lens in lenses for finding in ingest_review_report(
+            json.dumps(reports[lens]), binding, lens=lens)["findings"]]
+    except result_contracts.Rejection as exc:
+        raise ProjectManagerError(str(exc)) from exc
+
+
 def cmd_review_record(args) -> int:
     """Record the ONE cold review for this approved revision.
 
@@ -817,8 +852,8 @@ def cmd_review_record(args) -> int:
     # Either shape the ceremony actually produces. The four personas emit plan-review-finding.v1,
     # which carries no id and no lens; mapping it here is what stopped a panel's whole output from
     # dying on a schema refusal at the end of the run that produced it.
-    findings = plan_lifecycle.translate_findings(
-        json.loads(core.input_text(args.findings)) if args.findings else [], lenses=list(args.lens))
+    reports, findings = _review_input(args.findings, list(args.lens),
+        controller=getattr(args, "controller_findings", False))
     # Record-time verification of the packet digest, moved from the Build side with the panel. A receipt
     # that names a digest nobody can reproduce vouches for nothing; this re-renders the packet for the
     # APPROVED revision and refuses a receipt that does not match it, so the digest in the record is a
@@ -850,7 +885,8 @@ def cmd_review_record(args) -> int:
     # The findings fail on their own terms, here, before any ceremony gate: a mistyped severity should
     # be reported as a mistyped severity, not survive to the write and surface as a complaint about the
     # enclosing record — and not be pre-empted by a flag the author has not reached yet.
-    _validate_findings(findings)
+    if findings is not None:
+        _validate_findings(findings)
     review = {
         "revision": approval["revision"],
         "plan_digest": approval["plan_digest"],
@@ -872,10 +908,11 @@ def cmd_review_record(args) -> int:
                 "another session recorded a plan review while this one was being prepared, and there "
                 "is exactly one per plan. Re-read the plan before deciding what to do next.")
         scoped_agents.accept_plan(library, slug, current, review, list(args.lens),
-                                  providers.resolve_session(explicit=getattr(args, "session", None)))
+                                  providers.resolve_session(explicit=getattr(args, "session", None)), supplied_reports=reports)
         current["plan_review"] = review
 
     library.update_record(slug, record_review)
+    findings = review["findings"]
     plan_projection.project_library(library)   # the projection follows every record write
     blocking = [f for f in findings if f["severity"] == "blocking"]
     print(f"recorded a {len(args.lens)}-lens review of revision {approval['revision']}: "
@@ -914,9 +951,10 @@ def cmd_review_amend(args) -> int:
             "plan, and folding it in here would put two referents behind one receipt. Re-run it "
             f"against the recorded packet, or `review packet {args.plan}` again and check they match.")
     added_lenses = [lens for lens in (args.lens or []) if lens not in review["lenses"]]
-    added = plan_lifecycle.translate_findings(
-        json.loads(core.input_text(args.findings)) if args.findings else [],
-        lenses=list(args.lens or review["lenses"]))
+    reports, added = _review_input(args.findings, list(args.lens or review["lenses"]),
+        controller=getattr(args, "controller_findings", False))
+    if added is None:
+        raise ProjectManagerError("review amendments require an explicit report file")
     _validate_findings(added)
     existing_ids = {f["id"] for f in review.get("findings", [])}
     collisions = sorted({f["id"] for f in added} & existing_ids)
@@ -937,7 +975,8 @@ def cmd_review_amend(args) -> int:
         current["plan_review"]["lenses"] = current["plan_review"]["lenses"] + added_lenses
         current["plan_review"].setdefault("findings", []).extend(added)
         scoped_agents.accept_plan(library, slug, current, current["plan_review"],
-            list(args.lens or []), providers.resolve_session(explicit=getattr(args, "session", None)), prior)
+            list(args.lens or []), providers.resolve_session(explicit=getattr(args, "session", None)), prior,
+            supplied_reports=reports)
         current.setdefault("amendments", []).append(amendment)
 
     library.update_record(slug, amend)
@@ -2228,10 +2267,8 @@ def build_parser() -> argparse.ArgumentParser:
     record_review.add_argument("--session", help="actual owning root session")
     record_review.add_argument("--lens", action="append", required=True)
     record_review.add_argument("--packet-digest", required=True)
-    record_review.add_argument("--findings", help="a JSON array of findings, in either accepted shape: "
-                                                  "the record shape (id, lens, severity, summary) or "
-                                                  "plan-review-finding.v1 (severity, message, location), "
-                                                  "which the reviewer personas emit and which is mapped")
+    record_review.add_argument("--findings", help="Strict raw plan-review-finding.v1 array for one lens, or an exact lens-to-array object for a panel. Must match each observed child report.")
+    record_review.add_argument("--controller-findings", action="store_true", help="Explicit controller projection with ids; observed raw findings remain authoritative and immutable.")
     record_review.set_defaults(func=cmd_review_record)
     amend_review = review.add_parser(
         "amend", help="complete or correct the recorded review, until its first finding is dispositioned")
@@ -2244,6 +2281,7 @@ def build_parser() -> argparse.ArgumentParser:
                                    "different packet did not review the same plan")
     amend_review.add_argument("--findings", help="a JSON array of findings to ADD (never to replace)")
     amend_review.add_argument("--reason", required=True, help="why this review is being completed now")
+    amend_review.add_argument("--controller-findings", action="store_true", help="Explicit controller projection; cannot substitute observed findings.")
     amend_review.set_defaults(func=cmd_review_amend)
 
     finding = sub.add_parser("finding", help="adjudicate review findings").add_subparsers(

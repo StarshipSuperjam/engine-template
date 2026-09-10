@@ -314,6 +314,24 @@ class TestObservedExecutionIngress(CoordinatorCase):
         with self.assertRaises(bc.CoordinatorError):
             self.record()
 
+    def test_raw_report_copy_cannot_substitute_for_observed_output(self):
+        report = [{"severity": "blocking", "message": "first", "location": {"file": "a", "line": None}},
+                  {"severity": "serious", "message": "second", "location": None}]
+        companion, assignment = self.observe(report)
+        source = companion.path.parent / "raw-report.json"
+        self.args.report = str(source)
+        before = self.store.path.read_bytes(), companion.path.read_bytes()
+        for value in [[], report[:1], report[::-1], [{**report[0], "message": "replacement"}, report[1]],
+                      [{**report[0], "location": {"file": "a"}}, report[1]], None]:
+            source.write_text(json.dumps(value))
+            with self.assertRaises(bc.CoordinatorError):
+                self.record()
+            self.assertEqual((self.store.path.read_bytes(), companion.path.read_bytes()), before)
+        source.write_text(json.dumps(report, indent=2, sort_keys=True))
+        self.record()
+        accepted = next(iter(companion.read()["acceptances"].values()))
+        self.assertEqual(accepted["reports"][assignment["id"]], report)
+
 
     def test_clarification_completes_the_same_assignment_once(self):
         import scoped_agents

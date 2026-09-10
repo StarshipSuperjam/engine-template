@@ -2060,7 +2060,8 @@ def _findings_batch(source: str, stage: str, lens: str | None = None) -> list[di
     entry anywhere records nothing, so a half-applied batch is not a state a session can land in.
     """
     try:
-        document = json.loads(_input(source))
+        import result_contracts
+        document = result_contracts.parse(result_contracts.read_input(source))
     except ValueError as exc:
         raise CoordinatorError(f"findings batch is not JSON: {exc}") from exc
     _validate(document, FINDINGS_BATCH_SCHEMA)
@@ -2123,7 +2124,24 @@ def _receipt_finding_ids(args) -> list[str]:
 
 
 def cmd_review_record(args, store: Snapshot) -> None:
-    finding_ids = sorted(set(_receipt_finding_ids(args)))
+    finding_ids = _receipt_finding_ids(args)
+    if len(finding_ids) != len(set(finding_ids)):
+        raise CoordinatorError("review finding ids must be unique")
+    reports = None
+    source = getattr(args, "findings_from_file", None)
+    controller_entries = _findings_batch(source, args.stage, args.lens) if source else None
+    if getattr(args, "report", None):
+        import result_contracts
+        try:
+            compiled = review.ingest_review_report(result_contracts.read_input(args.report),
+                result_contracts.resolve("pre-submission-review-finding.v1"), lens=args.lens)
+            reports = {args.lens: compiled["report"]}
+            expected_ids = [f["id"] for f in compiled["findings"]]
+            if finding_ids and finding_ids != expected_ids:
+                result_contracts.reject("observed_report_mismatch", category="authority")
+            finding_ids = expected_ids
+        except result_contracts.Rejection as exc:
+            raise CoordinatorError(str(exc)) from exc
 
     def change(state):
         if args.stage == "repair":
@@ -2182,7 +2200,8 @@ def cmd_review_record(args, store: Snapshot) -> None:
                        "reviewed_range": {"base": target["base_commit"], "tip": target["reviewed_commit"]}}
             target["receipts"] = [r for r in target["receipts"] if r["lens"] != args.lens] + [receipt]
         scoped_agents.accept_build(_library(), state, receipt,
-            providers.resolve_session(explicit=getattr(args, "session", None)))
+            providers.resolve_session(explicit=getattr(args, "session", None)), supplied_reports=reports,
+            controller_entries=controller_entries)
     store.mutate(change)
     print(f"recorded {args.stage} review from {args.lens} with {len(finding_ids)} finding(s)")
     _read_now(store)
@@ -5968,7 +5987,7 @@ def parser() -> argparse.ArgumentParser:
     depths = sub.add_parser("depths"); depths.add_argument("--json", action="store_true"); depths.set_defaults(func=cmd_depths)
     review = sub.add_parser("review").add_subparsers(dest="review_command", required=True)
     packet = review.add_parser("packet"); packet.add_argument("--stage", choices=["deliverable", "repair"], required=True); packet.add_argument("--plan", required=True); packet.add_argument("--impact"); packet.add_argument("--output"); packet.add_argument("--json", action="store_true"); packet.add_argument("--standalone", action="store_true"); packet.add_argument("--repository"); packet.add_argument("--commit"); packet.add_argument("--base"); packet.add_argument("--depth", choices=["quick", "standard", "thorough"]); packet.set_defaults(func=_packet)
-    record = review.add_parser("record"); record.add_argument("--stage", choices=["deliverable", "repair"], required=True); record.add_argument("--lens", required=True); record.add_argument("--packet-digest", required=True); record.add_argument("--lens-packet-digest", required=True); record.add_argument("--finding", action="append"); record.add_argument("--findings-from-file", help="A build-findings-batch.v1 file (or -) whose ids this receipt demands. The SAME file `finding record --from-file` reads, so a receipt and its findings cannot disagree; mutually exclusive with --finding."); record.add_argument("--code-execution", choices=["none", "discarded-copy", "in-place"], required=True); record.set_defaults(func=cmd_review_record)
+    record = review.add_parser("record"); record.add_argument("--stage", choices=["deliverable", "repair"], required=True); record.add_argument("--lens", required=True); record.add_argument("--packet-digest", required=True); record.add_argument("--lens-packet-digest", required=True); record.add_argument("--finding", action="append"); record.add_argument("--findings-from-file", help="A build-findings-batch.v1 file (or -) whose ids this receipt demands. The SAME file `finding record --from-file` reads, so a receipt and its findings cannot disagree; mutually exclusive with --finding."); record.add_argument("--code-execution", choices=["none", "discarded-copy", "in-place"], required=True); record.add_argument("--report", help="Strict raw reviewer JSON; must equal the observed child report. Compiles Engine finding ids."); record.set_defaults(func=cmd_review_record)
     finding = sub.add_parser("finding").add_subparsers(dest="finding_command", required=True)
     packet.add_argument("--session", help="Owning root session for observed review assignments")
     record.add_argument("--session", help="Owning root session whose review execution was observed")

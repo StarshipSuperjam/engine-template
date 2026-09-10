@@ -8,6 +8,16 @@ import close_linkage_preflight
 import result_contracts
 
 
+def ingest_review_report(raw, binding, *, lens):
+    """Canonical deliverable/repair report ingress, before controller adjudication."""
+    try:
+        report = result_contracts.ingest(raw, binding,
+            contract="pre-submission-review-finding.v1", role="pre-submission-review")
+        return result_contracts.compile_review(report, lens=lens)
+    except result_contracts.Rejection as exc:
+        raise core.CoordinatorError(str(exc)) from exc
+
+
 def installed(root: Path) -> list[dict]:
     """The deliverable reviewers installed here. There is no stage parameter any more: the Build
     Coordinator runs exactly one review, and the plan panel lives on the plan side with the plan."""

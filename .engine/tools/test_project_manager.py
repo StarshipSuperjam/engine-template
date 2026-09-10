@@ -48,15 +48,22 @@ class _Surface(unittest.TestCase):
                 slug = self.lib.resolve(parsed.plan)
                 record = self.lib.read_record(slug)
                 if record.get("approval"):
+                    raw = json.loads(Path(parsed.findings).read_text()) if parsed.findings else []
+                    controller = isinstance(raw, list) and any(isinstance(f, dict) and "summary" in f for f in raw)
+                    if controller:
+                        argv = (*argv, "--controller-findings")
                     findings = project_manager.plan_lifecycle.translate_findings(
-                        json.loads(Path(parsed.findings).read_text()) if parsed.findings else [],
+                        raw,
                         lenses=list(parsed.lens or (record.get("plan_review") or {}).get("lenses", [])))
                     for lens in parsed.lens or []:
                         existing = scoped_agents.Store(self.lib, slug).read()["assignments"].values()
                         if any(a["lens"] == lens and a["packet_digest"] == parsed.packet_digest for a in existing):
                             continue
-                        output = [{"severity": f["severity"], "message": f["summary"], "location": None}
+                        output = [{"severity": f["severity"], "message": f["summary"],
+                                   "location": {"file": f["location"]} if f.get("location") else None}
                                   for f in findings if f["lens"] == lens]
+                        if not controller and len(parsed.lens or []) == 1:
+                            output = raw
                         observe_review_execution(self.lib, slug, scoped_agents.plan_owner(record), lens,
                                                  parsed.packet_digest, output)
                     argv = (*argv, "--session", "fixture-root")
@@ -2560,6 +2567,34 @@ class ProjectionLink(_Governed):
 
 
 class ObservedPlanReview(_Governed):
+    def test_raw_report_substitution_refuses_without_mutating_either_store(self):
+        import scoped_agents
+        from test_build_coordinator import observe_review_execution
+        slug = self.prepared()
+        digest = self._packet_digest(slug)
+        report = [{"severity": "blocking", "message": "first", "location": {"file": "a", "line": None}},
+                  {"severity": "serious", "message": "second", "location": None}]
+        companion, assignment = observe_review_execution(self.lib, slug,
+            scoped_agents.plan_owner(self.lib.read_record(slug)), "architecture", digest, report)
+        source = Path(self._tmp.name) / "raw-report.json"
+        record_path = self.lib.plan_dir(slug) / "record.json"
+        before = record_path.read_bytes(), companion.path.read_bytes()
+        variants = [[], report[:1], report[::-1], [{**report[0], "location": {"file": "a"}}, report[1]],
+                    [{**report[0], "message": "replacement"}, report[1]], None,
+                    [{**report[0], "disposition": "rejected"}, report[1]]]
+        for value in variants:
+            source.write_text(json.dumps(value))
+            code, _, err = self.run_command("review", "record", slug, "--lens", "architecture",
+                "--packet-digest", digest, "--session", "fixture-root", "--findings", str(source), observe=False)
+            self.assertEqual(code, 2, err)
+            self.assertEqual((record_path.read_bytes(), companion.path.read_bytes()), before)
+        source.write_text(json.dumps(report, indent=4, sort_keys=True))
+        code, _, err = self.run_command("review", "record", slug, "--lens", "architecture",
+            "--packet-digest", digest, "--session", "fixture-root", "--findings", str(source), observe=False)
+        self.assertEqual(code, 0, err)
+        accepted = next(iter(companion.read()["acceptances"].values()))
+        self.assertEqual(accepted["reports"][assignment["id"]], report)
+
     def prepared(self):
         slug, document = self._plan()
         self.run_command("preview", slug)

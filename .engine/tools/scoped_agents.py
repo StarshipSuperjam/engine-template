@@ -428,7 +428,7 @@ class Store:
                 continue
             if a["purpose"] == "review":
                 try:
-                    output = json.loads(a["stops"][-1]["output"])
+                    output = result_contracts.parse(a["stops"][-1]["output"])
                 except (TypeError, ValueError):
                     continue
                 # Existing finding-array contract. A partial/blocked object or prose is not coverage.
@@ -457,12 +457,16 @@ class Store:
             stop = assignment["stops"][-1]
             if stop["digest"] != core.digest(stop["output"]):
                 result_contracts.reject("observed_digest", category="authority")
-            return result_contracts.ingest(stop["output"], assignment.get("result_contract"),
-                contract="plan-review-finding.v1" if owner["kind"] == "plan" else "pre-submission-review-finding.v1")
-        except result_contracts.Rejection as exc:
+            if owner["kind"] == "plan":
+                from project_manager import ingest_review_report
+            else:
+                from build_coordinator_review import ingest_review_report
+            return ingest_review_report(stop["output"], assignment.get("result_contract"), lens=assignment["lens"])
+        except (result_contracts.Rejection, core.CoordinatorError) as exc:
             raise EvidenceError(str(exc)) from exc
 
-    def accept_locked(self, *, owner, root, receipt, lenses, packet_digests, prior_receipt=None):
+    def accept_locked(self, *, owner, root, receipt, lenses, packet_digests, prior_receipt=None,
+                      supplied_reports=None, controller_entries=None):
         """Called inside the existing plan/Build transaction, before publishing its receipt.
 
         Persisting this first can leave an orphan after a crash. An orphan is never coverage:
@@ -484,14 +488,40 @@ class Store:
             raise EvidenceError("observed assignments do not match the exact claimed lens coverage")
         if len({a["child"] for a in assignments}) != len(assignments):
             raise EvidenceError("one child cannot satisfy several independent lenses")
-        for a in assignments:
-            self.review_report(a, owner)
+        compiled = {a["id"]: self.review_report(a, owner) for a in assignments}
+        if supplied_reports is not None:
+            observed = {a["lens"]: compiled[a["id"]]["report"] for a in assignments if a["lens"] in lenses}
+            if result_contracts.digest(observed) != result_contracts.digest(supplied_reports):
+                raise EvidenceError(str(result_contracts.Rejection("authority", "observed_report_mismatch")))
+        # Initial findings come from the observed report; the caller cannot omit, reorder or
+        # replace them. Previously accepted findings may have explicit controller corrections.
+        expected = [f for a in assignments if a["lens"] in lenses for f in compiled[a["id"]]["findings"]]
+        if owner["kind"] == "plan":
+            if receipt["findings"] is None:
+                receipt["findings"] = expected
+            supplied = [f for f in receipt["findings"] if f["lens"] in lenses]
+            # IDs are controller-owned. An explicit controller projection may choose them,
+            # but cannot change the observed finding count, order, severity or message.
+            matches = len(supplied) == len(expected) and all(
+                all(s[key] == e[key] for key in ("lens", "severity", "summary")) and
+                ("location" not in s or s["location"] == e["location"])
+                for s, e in zip(supplied, expected))
+            if not matches:
+                raise EvidenceError(str(result_contracts.Rejection("authority", "observed_report_mismatch")))
+        else:
+            if len(receipt["finding_ids"]) != len(expected) or len(set(receipt["finding_ids"])) != len(expected):
+                raise EvidenceError(str(result_contracts.Rejection("authority", "observed_report_mismatch")))
+            if controller_entries is not None and (len(controller_entries) != len(expected) or any(
+                    any(s[k] != e[k] for k in ("lens", "severity", "summary"))
+                    for s, e in zip(controller_entries, expected))):
+                raise EvidenceError(str(result_contracts.Rejection("authority", "observed_report_mismatch")))
         data = self.read()
         key = receipt_key(receipt)
         for a in assignments:
             data["assignments"][a["id"]]["accepted"] = True
         data["acceptances"][key] = {"owner": owner, "assignments": [a["id"] for a in assignments],
                                      "result_contracts": {a["id"]: a["result_contract"] for a in assignments},
+                                     "reports": {a["id"]: compiled[a["id"]]["report"] for a in assignments},
                                      "outputs": {a["id"]: a["stops"][-1]["digest"] for a in assignments}}
         self.write_locked(data)
 
@@ -518,6 +548,8 @@ class Store:
                 binding = a.get("result_contract")
                 result_contracts.validate_binding(binding)
                 if accepted.get("result_contracts", {}).get(assignment_id) != binding:
+                    return False
+                if accepted.get("reports", {}).get(assignment_id) != self.review_report(a, recorded)["report"]:
                     return False
                 if a["owner"] != recorded or not a["accepted"] or a["faults"] or not a["stops"]:
                     return False
@@ -547,16 +579,17 @@ def prepare_packets(library, slug, owner, root, packet, digest_by_lens, roles, *
             for lens, digest in digest_by_lens.items()]
 
 
-def accept_plan(library, slug, record, receipt, lenses, root, prior_receipt=None):
+def accept_plan(library, slug, record, receipt, lenses, root, prior_receipt=None, *, supplied_reports=None):
     Store(library, slug).accept_locked(owner=plan_owner(record), root=root, receipt=receipt,
         lenses=lenses, packet_digests={lens: receipt["packet_digest"] for lens in lenses},
-        prior_receipt=prior_receipt)
+        prior_receipt=prior_receipt, supplied_reports=supplied_reports)
 
 
-def accept_build(library, state, receipt, root):
+def accept_build(library, state, receipt, root, *, supplied_reports=None, controller_entries=None):
     slug = library.resolve(state["plan"]["plan_id"])
     Store(library, slug).accept_locked(owner=build_owner(state), root=root, receipt=receipt,
-        lenses=[receipt["lens"]], packet_digests={receipt["lens"]: receipt["lens_packet_digest"]})
+        lenses=[receipt["lens"]], packet_digests={receipt["lens"]: receipt["lens_packet_digest"]},
+        supplied_reports=supplied_reports, controller_entries=controller_entries)
 
 
 def missing_build_evidence(library, state, receipts):

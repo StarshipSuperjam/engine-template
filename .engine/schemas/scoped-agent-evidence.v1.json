@@ -64,6 +64,15 @@
             "additionalProperties": {
               "$ref": "#/$defs/result_binding"
             }
+          },
+          "reports": {
+            "type": "object",
+            "additionalProperties": {
+              "type": "array",
+              "items": {
+                "type": "object"
+              }
+            }
           }
         }
       }
