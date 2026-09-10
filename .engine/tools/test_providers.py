@@ -758,6 +758,32 @@ class ScopedControlReconciliation(unittest.TestCase):
             self.assertEqual(providers.scoped_transcript({'transcript_path':'unused'}, providers.CODEX), {})
         self.assertTrue(stream.closed)
 
+    def test_capacity_error_requires_exact_native_parent_call_and_result(self):
+        import tempfile
+        from pathlib import Path
+        import copy
+        args = {'task_name':'assignment', 'message':'opaque', 'agent_type':'role', 'fork_turns':'none'}
+        rows = [
+            {'type':'session_meta','payload':{'id':'root'}},
+            {'type':'response_item','payload':{'type':'function_call','name':'spawn_agent',
+                'namespace':'collaboration','call_id':'failed','arguments':json.dumps(args)}},
+            {'type':'response_item','payload':{'type':'function_call_output','call_id':'failed',
+                'output':'collab spawn failed: agent thread limit reached'}}]
+        with tempfile.TemporaryDirectory() as temp:
+            path = Path(temp)/'parent.jsonl'
+            payload = {'session_id':'root','transcript_path':str(path)}
+            def check(values):
+                path.write_text('\n'.join(json.dumps(r) for r in values)+'\n')
+                return providers.scoped_capacity_rejection_from_transcript(payload,'failed')
+            self.assertEqual(check(rows)['input'],args)
+            self.assertEqual(check(rows)['response'],rows[-1]['payload']['output'])
+            for index,key,value in ((0,'id','other'),(1,'name','send_message'),(1,'namespace','other'),
+                                    (2,'output','transport failed'),(2,'call_id','other')):
+                bad=copy.deepcopy(rows);bad[index]['payload'][key]=value
+                self.assertEqual(check(bad),{})
+            for bad in (rows[:-1], rows+[rows[-1]], [rows[0],rows[2],rows[1]], rows+[rows[1]]):
+                self.assertEqual(check(bad),{})
+
 
 if __name__ == "__main__":
     unittest.main()

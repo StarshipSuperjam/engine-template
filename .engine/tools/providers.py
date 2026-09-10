@@ -310,6 +310,56 @@ def scoped_launch_capacity_rejected(payload: dict) -> bool:
             payload.get("tool_response") == "collab spawn failed: agent thread limit reached")
 
 
+def scoped_capacity_rejection_from_transcript(payload: dict, call_id: str) -> dict:
+    """Qualify the native failed call when Codex omits PostToolUse for tool errors.
+
+    Only one exact call/result pair in this root's bounded native tail is usable. This records
+    an observed rejection, never a fabricated hook or inferred successful execution.
+    """
+    from pathlib import Path
+    path, root = payload.get("transcript_path"), payload.get("session_id")
+    if not all(isinstance(x, str) and x for x in (path, root, call_id)):
+        return {}
+    try:
+        with Path(path).open("rb") as stream:
+            header = stream.readline(65537)
+            if len(header) > 65536:
+                return {}
+            meta = json.loads(header.decode("utf-8"))
+            if meta.get("type") != "session_meta" or meta.get("payload", {}).get("id") != root:
+                return {}
+            stream.seek(0, 2)
+            offset = max(0, stream.tell() - 4 * 1024 * 1024)
+            stream.seek(offset)
+            tail = stream.read(4 * 1024 * 1024)
+        if offset:
+            tail = tail.split(b"\n", 1)[-1]
+        calls, outputs = [], []
+        for index, line in enumerate(tail.splitlines()):
+            row = json.loads(line.decode("utf-8"))
+            data = row.get("payload", {})
+            if row.get("type") != "response_item" or data.get("call_id") != call_id:
+                continue
+            if data.get("type") == "function_call":
+                calls.append((index, data))
+            elif data.get("type") == "function_call_output":
+                outputs.append((index, data))
+        if len(calls) != 1 or len(outputs) != 1 or calls[0][0] >= outputs[0][0]:
+            return {}
+        call, output = calls[0][1], outputs[0][1]
+        if (call.get("name") not in ("spawn_agent", "collaborationspawn_agent") or
+                call.get("namespace", "collaboration") != "collaboration" or
+                output.get("output") != "collab spawn failed: agent thread limit reached"):
+            return {}
+        arguments = json.loads(call["arguments"])
+        if not isinstance(arguments, dict):
+            return {}
+        return {"input": arguments, "response": output["output"], "path": path,
+                "tail_digest": "sha256:" + hashlib.sha256(tail).hexdigest()}
+    except (OSError, ValueError, TypeError, AttributeError, KeyError):
+        return {}
+
+
 def scoped_control_digest(content) -> str | None:
     """Digest the exact observed opaque native message, never its interpreted meaning."""
     return "sha256:" + hashlib.sha256(content.encode("utf-8")).hexdigest() if isinstance(content, str) and content else None

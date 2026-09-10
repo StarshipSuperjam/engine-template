@@ -155,6 +155,29 @@ class ScopedAssignments(unittest.TestCase):
         with self.assertRaises(scoped.EvidenceError):
             self.verified()
 
+    def test_native_error_without_post_hook_can_qualify_one_retry(self):
+        args = {"task_name":self.a['id'],"agent_type":self.a['role'],"fork_turns":"none","message":"opaque launch"}
+        self.observe('PreToolUse','spawn_agent',args,tool_use_id='failed')
+        path=self.root/'parent.jsonl'
+        rows=[{'type':'session_meta','payload':{'id':'root-id'}},
+              {'type':'response_item','payload':{'type':'function_call','name':'spawn_agent','namespace':'collaboration',
+                'call_id':'failed','arguments':json.dumps(args)}},
+              {'type':'response_item','payload':{'type':'function_call_output','call_id':'failed',
+                'output':'collab spawn failed: agent thread limit reached'}}]
+        retry={**args,'message':'opaque retry'}
+        rows[1]['payload']['arguments']=json.dumps({**args,'message':'wrong original input'})
+        path.write_text('\n'.join(json.dumps(r) for r in rows)+'\n')
+        self.assertEqual(self.observe('PreToolUse','spawn_agent',retry,tool_use_id='retry',transcript_path=str(path))['action'],'block')
+        rows[1]['payload']['arguments']=json.dumps(args)
+        path.write_text('\n'.join(json.dumps(r) for r in rows)+'\n')
+        self.assertEqual(self.observe('PreToolUse','spawn_agent',retry,tool_use_id='retry',transcript_path=str(path))['action'],'proceed')
+        self.observe('PostToolUse','spawn_agent',retry,tool_use_id='retry',response={'task_name':'/root/'+self.a['id']})
+        self.child_read()
+        self.stop(launch_message='opaque retry')
+        result=self.verified()
+        self.assertEqual(result['failed_launches'][0]['rejection_observation']['path'],str(path))
+        self.assertEqual(result['failed_launches'][0]['call_id'],'failed')
+
     def test_duplicate_clarification_is_refused_before_dispatch(self):
         self.launch()
         self.child_read()

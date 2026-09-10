@@ -211,6 +211,13 @@ class Store:
                 if event == "PreToolUse":
                     if a["launch"] and a["launch"]["call_id"] == call.get("call_id") and a["launch"]["input_digest"] == core.digest(call["input"]):
                         return hooks.proceed()  # repeat observation of the same native call
+                    if (a["launch"] and call["provider"] == providers.CODEX and
+                            not a["launch"].get("successful") and not a["launch"].get("capacity_rejected") and
+                            a["child"] is None and not a.get("failed_launches")):
+                        rejected = providers.scoped_capacity_rejection_from_transcript(payload, a["launch"]["call_id"])
+                        if rejected and core.digest(rejected["input"]) == a["launch"]["input_digest"]:
+                            a["launch"].update(capacity_rejected=True, response=rejected["response"],
+                                rejection_observation={"path": rejected["path"], "tail_digest": rejected["tail_digest"]})
                     retry = (a["launch"] and a["launch"].get("capacity_rejected") is True
                              and call.get("call_id") != a["launch"]["call_id"]
                              and not a.get("failed_launches") and a["child"] is None and a["read"] is None
