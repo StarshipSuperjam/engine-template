@@ -14017,7 +14017,7 @@
       },
       "slug": "module_manager",
       "source": {
-        "fingerprint": "sha256:50b938944d73c6b529f3622d323adc80f8738a50c879b3cbd84eff06e85adeb2",
+        "fingerprint": "sha256:82a8e7b4235b9edd7c427264214c5f9fbe02d8d6285bc786f5c480102db738a2",
         "path": ".engine/tools/module_manager.py"
       },
       "status": "active",
@@ -19222,7 +19222,7 @@
       },
       "slug": "test_module_manager",
       "source": {
-        "fingerprint": "sha256:8764f8c23ec1f5700eccef7008be70c241568348855664ad0f04b36ea6d40e2e",
+        "fingerprint": "sha256:d09eb0a7a68ab66af2109eebe7312fad9fd6a117c17e5dd58f6b0c2d8f7bcc79",
         "path": ".engine/tools/test_module_manager.py"
       },
       "status": "active",
