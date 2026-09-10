@@ -36,6 +36,50 @@ import validate  # noqa: E402
 import wiring  # noqa: E402
 
 
+class TestObsoleteSetupRoutes(unittest.TestCase):
+    def test_only_the_tracked_exact_obsolete_generated_route_is_retired(self):
+        from pathlib import Path
+        import setup_route_gen
+        mid = "former-addon"
+        rel = f".claude/skills/engine-setup-{mid}/SKILL.md"
+        old = {"id": mid, "status": "default-on", "presentation": {"setup_trigger": "enable the fixture"}}
+        for shape in ("generated", "authored", "untracked", "still-offerable", "symlink"):
+            with self.subTest(shape=shape), tempfile.TemporaryDirectory() as directory:
+                root, release = Path(directory) / "live", Path(directory) / "release"
+                release.mkdir()
+                target = root / rel
+                target.parent.mkdir(parents=True)
+                body = setup_route_gen._render(mid, old["presentation"])
+                target.write_text(body + ("\nOperator notes.\n" if shape == "authored" else ""))
+                adjacent = target.parent / "operator.md"
+                adjacent.write_text("Keep my notes.\n")
+                if shape == "symlink":
+                    outside = Path(directory) / "outside.md"
+                    outside.write_text(body)
+                    target.unlink()
+                    target.symlink_to(outside)
+                candidates = {mid: {"id": mid, "status": "optional" if shape == "still-offerable" else "required"}}
+                tracked = set() if shape == "untracked" else {rel}
+                # Exercise the whole deletion leg, including a route named by old_owned: preserving
+                # authored content in the route helper must not let the generic deletion loop take it.
+                synced = {rel: str(target)} if shape == "still-offerable" else {}
+                with module_manager._redirect_root(str(root)), \
+                     mock.patch.object(module_manager, "retire_set", return_value=([], [])), \
+                     mock.patch.object(module_manager, "engine_synced_map", return_value=synced), \
+                     mock.patch.object(module_manager, "_copy_synced", return_value=[]):
+                    _, removed = module_manager._reconcile_surface(
+                        str(release), candidates, [rel], {mid: old}, tracked=tracked)
+                self.assertEqual(target.exists(), shape != "generated")
+                self.assertEqual(rel in removed["engine"], shape == "generated")
+                self.assertEqual(adjacent.read_text(), "Keep my notes.\n")
+                if shape == "authored":
+                    self.assertEqual(target.read_text(), body + "\nOperator notes.\n")
+                if shape in ("authored", "untracked", "symlink"):
+                    self.assertTrue(removed["left_in_place"])
+                if shape == "symlink":
+                    self.assertEqual(outside.read_text(), body)
+
+
 def _m(mid, status="optional", depends=None, version="0.0.0"):
     return (f".engine/modules/{mid}/manifest.json",
             {"id": mid, "version": version, "status": status, "provides": {},

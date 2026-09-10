@@ -369,6 +369,26 @@ def paths(**kw) -> tuple[str, ...]:
     return tuple(o.path for m in members(**kw) for o in m.outputs)
 
 
+def obsolete_setup_routes(previous: dict, current: dict) -> dict[str, str]:
+    """Exact old generated content for routes whose installed module stopped being offerable.
+
+    The upgrade's file reconciler checks tracking and authored changes before removal. This layer
+    supplies the dynamic member's owner-derived path and content, never a prefix grant.
+    """
+    import re
+    import setup_route_gen
+    retired = {}
+    for mid, old in sorted(previous.items()):
+        if not re.fullmatch(r"[a-z0-9][a-z0-9-]*", mid):
+            continue
+        if old.get("status") not in setup_route_gen._OFFERABLE or not old.get("presentation"):
+            continue
+        if (current.get(mid) or {}).get("status") in setup_route_gen._OFFERABLE:
+            continue
+        retired[f".claude/skills/engine-setup-{mid}/SKILL.md"] = setup_route_gen._render(mid, old["presentation"])
+    return retired
+
+
 def fork_guard_core_paths() -> tuple[str, ...]:
     """The always-present files that mark a tree as an engine tree at all — the fork-main / external-
     contribution guard set. Derived from the `fork_guard_core` flag (never a hand-maintained literal), so it

@@ -2971,6 +2971,39 @@ def _glob_namespace_prefixes(old_by_id: dict) -> tuple:
     return tuple(sorted(prefixes))
 
 
+def _retire_obsolete_setup_routes(release_tree, candidates, old_by_id, tracked, removed):
+    """Retire a former add-on's exact generated route after it stops being offerable.
+
+    These core-owned dynamic files are not in the old module's provides. Delete only tracked,
+    byte-identical generated content, leaving authored edits and adjacent files recoverable.
+    """
+    handled = set()
+    for rel, generated in derived_state.obsolete_setup_routes(old_by_id, candidates).items():
+        target = os.path.join(validate.ROOT, rel)
+        if os.path.exists(os.path.join(release_tree, rel)) or not os.path.isfile(target):
+            continue
+        handled.add(rel)
+        if not _within_root(rel) or os.path.islink(target):
+            removed["left_in_place"].append(f"{rel} — left in place: the route is not a contained regular file.")
+            continue
+        try:
+            with open(target, encoding="utf-8") as handle:
+                unchanged = handle.read() == generated
+            if tracked is None or rel not in tracked or not unchanged:
+                removed["left_in_place"].append(
+                    f"{rel} — left in place: the obsolete setup route is untracked or has authored changes.")
+                continue
+            os.remove(target)
+            removed["engine"].append(rel)
+            try:
+                os.rmdir(os.path.dirname(target))
+            except OSError:
+                pass  # Adjacent authored files remain in their directory.
+        except (OSError, ValueError) as exc:
+            removed["left_in_place"].append(f"{rel} — left in place: {exc}")
+    return handled
+
+
 def _reconcile_surface(release_tree: str, candidates: dict, old_owned: list, old_by_id: dict,
                        dropped_ids=(), tracked=None) -> tuple:
     """The StarshipSuperjam/engine-template#599 reconcile: drive the deployed FILE surface to `provision(release)`. ADD — deliver every
@@ -3029,7 +3062,10 @@ def _reconcile_surface(release_tree: str, candidates: dict, old_owned: list, old
     dropped_owned = set(module_coherence.provides_claims(
         [(f".engine/modules/{mid}/manifest.json", old_by_id.get(mid) or {}) for mid in (dropped_ids or ())]))
     removed = {"engine": [], "suspect": [], "left_in_place": []}
+    handled_routes = _retire_obsolete_setup_routes(release_tree, candidates, old_by_id, tracked, removed)
     for rel in to_delete:
+        if rel in handled_routes:
+            continue
         # A known first-run (retire-set) file is engine; otherwise a file under a GLOB provides namespace could
         # be one the operator added — surface it — while a literal-named file is engine.
         suspect = rel not in r_files and bool(glob_prefixes) and rel.startswith(glob_prefixes)
