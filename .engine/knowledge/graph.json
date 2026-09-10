@@ -6278,7 +6278,7 @@
       },
       "slug": "issue-triage",
       "source": {
-        "fingerprint": "sha256:68280b77f39072c272fdd3c3f14c95a2245f6c1ccc76eeccb34f1742535129ec",
+        "fingerprint": "sha256:d323945916a0f80158264a12c9312d747517b354b06a543a01ee0b0e6f250ce2",
         "path": ".engine/operations/issue-triage.md"
       },
       "status": "active",
@@ -10225,7 +10225,7 @@
       },
       "slug": "checkout_health",
       "source": {
-        "fingerprint": "sha256:ef81880ffc73d0786cd48f62030b60137c5bf5879ae1fca1c5f684f5fb0cf6e1",
+        "fingerprint": "sha256:7fbc759fa1c17de0e3c575339728e235934da2b46a9dc1ebea0a0b7fdffe17b2",
         "path": ".engine/tools/checkout_health.py"
       },
       "status": "active",
@@ -17116,7 +17116,7 @@
       },
       "slug": "test_checkout_health",
       "source": {
-        "fingerprint": "sha256:d16aa3dd5c0328c9f75dbc598aa6b369c199648e4d4f86b1313e714369f64b0e",
+        "fingerprint": "sha256:41ed344acdc26db27582a0f89030a387d0f1b75587250097ddf2a28854509f14",
         "path": ".engine/tools/test_checkout_health.py"
       },
       "status": "active",
