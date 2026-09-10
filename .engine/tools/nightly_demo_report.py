@@ -36,6 +36,7 @@ from pathlib import Path
 import sys
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+import moment
 import issue_author                     # noqa: E402  (the one body contract)
 import telemetry                        # noqa: E402  (the supported GitHub boundary)
 
@@ -150,6 +151,11 @@ def report(result: dict, issues_api, repository: str, run_url: str | None = None
             return {"action": "closed", "issue": open_report["number"]}
         return {"action": "none"}
     body = render(result, repository, run_url)
+    evidence = {'failures': sorted(({'demo': f.get('demo'), 'output': f.get('output')}
+                                   for f in result.get('failures', [])), key=lambda f: str(f['demo']))}
+    body = telemetry.producer_body(body, evidence, moment.utc_now(),
+                                   previous=(open_report.get('body') or '') if open_report else None,
+                                   final_marker=MARKER)
     if open_report:
         issues_api.update_issue(open_report["number"], body)
         return {"action": "updated", "issue": open_report["number"]}

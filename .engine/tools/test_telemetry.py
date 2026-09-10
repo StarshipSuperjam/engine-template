@@ -94,6 +94,10 @@ class FakeGH:
             self.issues[num] = {"number": num, "title": body["title"], "body": body["body"],
                                 "labels": body.get("labels", []), "state": "open"}
             return 201, self.issues[num]
+        if base.split('/')[-1].isdigit() and method == 'GET':
+            import copy
+            issue = self.issues.get(int(base.split('/')[-1]))
+            return (200, copy.deepcopy(issue)) if issue else (404, None)
         if base.split("/")[-1].isdigit() and method == "PATCH":
             num = int(base.split("/")[-1])
             self.issues[num].update(body)
@@ -1071,7 +1075,7 @@ class TestPromoteFindingBodyOverride(unittest.TestCase):
                                   title="A lane-aware title", body_core="Lane-aware prose.")
         created = next(iter(f.issues.values()))
         self.assertEqual(created["title"], "A lane-aware title")
-        self.assertTrue(created["body"].startswith("Lane-aware prose."))
+        self.assertIn("Lane-aware prose.", created["body"])
         self.assertNotIn("health framing would say", created["body"])   # NOT the default body
 
     def test_appends_exactly_one_recoverable_signal_marker(self):
@@ -2102,7 +2106,7 @@ class TestCaptureRecoveryResolve(unittest.TestCase):
     def _stuck(self, gh):
         body = ("The engine keeps failing to save session conversations to this project's memory.\n\n"
                 f"<!-- engine-signal: {self._SID} -->")
-        return gh.open_issue("Engine health: capture keeps failing", body)["number"]
+        return gh.open_issue("Engine health: capture keeps failing", telemetry.producer_body(body, {"source": "capture"}, "2026-09-10T00:00:00Z"))["number"]
 
     def test_recovered_everywhere_closes_with_a_plain_note(self):
         wt = self._worktree("wt-a")
@@ -2158,7 +2162,7 @@ class TestCaptureRecoveryResolve(unittest.TestCase):
         fake, gh = self._gh()
         num = self._stuck(gh)
         other = gh.open_issue("Engine health: something else",
-                              "body\n\n<!-- engine-signal: ambient/other-signal -->")["number"]
+                              telemetry.producer_body("body\n\n<!-- engine-signal: ambient/other-signal -->", {"source":"other"}, "2026-09-10T00:00:00Z"))["number"]
         self.assertTrue(telemetry.resolve_capture_marker(gh, root=self.repo, cache_path=self.cachep))
         self.assertEqual(fake.issues[num]["state"], "closed")
         self.assertEqual(fake.issues[other]["state"], "open")
@@ -2216,3 +2220,27 @@ class TestCaptureRecoveryResolve(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class TestProducerAssessment(unittest.TestCase):
+    def test_refresh_preserves_assessed_state_and_human_text_then_invalidates_new_evidence(self):
+        import issue_triage
+        now='2026-09-10T00:00:00Z'
+        body=telemetry.producer_body('Reported failure',{'failure':'a'},now)
+        record=issue_triage.parse(body)
+        record['assessment']={'state':'assessed','impact':'patch','remedy':'Restore behavior',
+                              'rationale':'Existing behavior only','evidence':['verified test']}
+        body='Human note\n'+issue_triage.with_record(body,record)+'\nHuman tail'
+        same=telemetry.producer_body('Updated display only',{'failure':'a'},now,previous=body)
+        self.assertEqual(issue_triage.parse(same)['assessment']['state'],'assessed')
+        self.assertTrue(same.startswith('Human note\n'));self.assertTrue(same.endswith('Human tail'))
+        changed=telemetry.producer_body('Different failure',{'failure':'b'},now,previous=same)
+        self.assertEqual(issue_triage.parse(changed)['assessment']['state'],'pending')
+        self.assertEqual(issue_triage.parse(changed)['superseded']['assessment']['impact'],'patch')
+
+    def test_final_nightly_marker_stays_final_and_legacy_is_not_bulk_adopted(self):
+        marker='<!-- final-nightly -->'
+        body=telemetry.producer_body('failure\n'+marker+'\n',{'failure':'a'},'2026-09-10T00:00:00Z',final_marker=marker)
+        again=telemetry.producer_body('new\n'+marker+'\n',{'failure':'b'},'2026-09-11T00:00:00Z',previous=body,final_marker=marker)
+        self.assertTrue(again.endswith(marker+'\n'))
+        self.assertEqual(telemetry.producer_body('new legacy report',{},'2026-09-10T00:00:00Z',previous='legacy'),'new legacy report')
