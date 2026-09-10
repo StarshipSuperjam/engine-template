@@ -109,7 +109,8 @@
     "doc": [
       ".engine/docs/accepted-hook-qualification.md",
       ".engine/docs/ci-assurance.md",
-      ".engine/docs/getting-started.md"
+      ".engine/docs/getting-started.md",
+      ".engine/docs/result-contracts.md"
     ],
     "state": [
       ".engine/state/*.json"

@@ -61,6 +61,16 @@ class WorkCase(unittest.TestCase):
         # now owes a commit id as its identity. Inject a valid default where a case does not speak to
         # identity; a case that tests identity's ABSENCE sets artifact_ref explicitly (even to None).
         payload = dict(payload)
+        evidence = payload.get("evidence")
+        if isinstance(evidence, dict):
+            evidence = dict(evidence)
+            evidence.setdefault("assumptions", [])
+            evidence.setdefault("unresolved_concerns", [])
+            if isinstance(evidence.get("verification_results"), list):
+                evidence["verification_results"] = [
+                    {"command": "fixture-check", "outcome": "passed", "detail": v} if isinstance(v, str) else v
+                    for v in evidence["verification_results"]]
+            payload["evidence"] = evidence
         if payload.get("outcome") == "returned" and "artifact_ref" not in payload:
             payload["artifact_ref"] = HEAD_A
         path = Path(self.temp.name) / "result.json"
@@ -74,6 +84,99 @@ class WorkCase(unittest.TestCase):
 
 
 class TestWorkClaims(WorkCase):
+    def test_legacy_claim_is_readable_but_cannot_receive_verified_result(self):
+        packet = self.claim("shared")
+        state = self.state()
+        del state["work"]["shared"]["claim"]["result_contract"]
+        self.store.path.write_text(json.dumps(state))
+        self.assertEqual(self.state()["work"]["shared"]["claim"]["attempt_id"], packet["attempt_id"])
+        before = self.store.path.read_bytes()
+        with self.assertRaisesRegex(bc.CoordinatorError, "missing_binding"):
+            self.result("shared", packet["attempt_id"], {"outcome": "returned", "evidence": {
+                "changed_paths": [], "verification_results": [], "assumptions": [], "unresolved_concerns": []}})
+        self.assertEqual(before, self.store.path.read_bytes())
+
+    def test_canonical_raw_ingress_rejects_without_state_or_retry_changes(self):
+        packet = self.claim("shared")
+        source = Path(self.temp.name) / "raw.json"
+        report = {"outcome": "failed", "reason": "Cannot complete", "evidence": {
+            "changed_paths": [], "verification_results": [
+                {"command": "focused", "outcome": "passed", "detail": "3 passed"},
+                {"command": "full", "outcome": "failed", "detail": "13 failures, 3 errors", "exit_code": 1}],
+            "assumptions": [], "unresolved_concerns": ["Full verification failed"]}}
+        args = argparse.Namespace(item="shared", attempt=packet["attempt_id"],
+                                  plan=str(self.plan_path), input=str(source))
+        before = self.store.path.read_bytes()
+        raw_variants = [b"null", b"[]", b"7", b"{", b' {"a":1,"a":2}', b"NaN", b"\xff",
+                        b" " * (1048576 + 1), b"[" * 65 + b"]" * 65]
+        raw_variants += [json.dumps({**report, key: "forged"}).encode()
+                         for key in ("attempt_id", "base_sha", "artifact_digest", "receipt", "class")]
+        for raw in raw_variants:
+            source.write_bytes(raw)
+            with self.assertRaises(bc.CoordinatorError):
+                bc.cmd_work_result(args, self.store)
+            self.assertEqual(before, self.store.path.read_bytes())
+        source.write_text(json.dumps(report))
+        with contextlib.redirect_stdout(io.StringIO()):
+            bc.cmd_work_result(args, self.store)
+        node = self.state()["work"]["shared"]
+        self.assertEqual(node["latest_result"]["report"], report)
+        self.assertEqual(node["latest_result"]["evidence"], report["evidence"])
+        self.assertEqual(node["attempt_count"], 1)
+        self.assertIsNone(node["integration"])
+        self.assertEqual(node["latest_failure"]["reason"], report["reason"])
+
+    def test_exact_wire_byte_limit_survives_result_binding(self):
+        import result_contracts
+        packet = self.claim("shared")
+        report = {"outcome": "failed", "reason": "bounded", "evidence": {
+            "changed_paths": [], "verification_results": [], "unresolved_concerns": [],
+            "assumptions": ["a" * 65536] * 15 + [""]}}
+        wire = lambda: json.dumps(report, separators=(",", ":"))
+        report["evidence"]["assumptions"][-1] = "b" * (result_contracts.LIMITS["bytes"] - len(wire()))
+        source = Path(self.temp.name) / "exact-limit.json"
+        source.write_text(wire())
+        self.assertEqual(source.stat().st_size, result_contracts.LIMITS["bytes"])
+        args = argparse.Namespace(item="shared", attempt=packet["attempt_id"],
+                                  plan=str(self.plan_path), input=str(source))
+        with contextlib.redirect_stdout(io.StringIO()):
+            bc.cmd_work_result(args, self.store)
+        self.assertEqual(self.state()["work"]["shared"]["latest_result"]["report"], report)
+
+    def test_valid_unicode_report_keeps_its_byte_budget_at_binding(self):
+        packet = self.claim("shared")
+        report = {"outcome": "failed", "reason": "Cannot complete", "evidence": {
+            "changed_paths": [], "verification_results": [], "unresolved_concerns": [],
+            "assumptions": ["é" * 32768 for _ in range(8)]}}
+        source = Path(self.temp.name) / "unicode-report.json"
+        source.write_text(json.dumps(report, ensure_ascii=False))
+        args = argparse.Namespace(item="shared", attempt=packet["attempt_id"],
+                                  plan=str(self.plan_path), input=str(source))
+        with contextlib.redirect_stdout(io.StringIO()):
+            bc.cmd_work_result(args, self.store)
+        self.assertEqual(self.state()["work"]["shared"]["latest_result"]["report"], report)
+
+    def test_inline_result_identity_is_observed_by_engine(self):
+        value = plan_v2()
+        value["work_items"][0]["executor_class"] = "integrator"
+        self.write_plan(value)
+        # Keep plan attestation aligned in this disposable fixture.
+        state = self.state(); state["plan"]["digest"] = bc._digest(value)
+        self.store.path.write_text(json.dumps(state))
+        packet = self.claim(value["work_items"][0]["id"])
+        source = Path(self.temp.name) / "inline.json"
+        source.write_text(json.dumps({"outcome": "returned", "evidence": {
+            "changed_paths": [], "verification_results": [], "assumptions": [], "unresolved_concerns": []}}))
+        args = argparse.Namespace(item=packet["node"]["id"], attempt=packet["attempt_id"],
+                                  plan=str(self.plan_path), input=str(source))
+        with mock.patch.object(bc, "_staged_tree_digest", return_value="sha256:" + "c" * 64) as observed, \
+                contextlib.redirect_stdout(io.StringIO()):
+            bc.cmd_work_result(args, self.store)
+        observed.assert_called_once()
+        result = self.state()["work"][args.item]["latest_result"]
+        self.assertEqual(result["artifact_digest"], "sha256:" + "c" * 64)
+        self.assertNotIn("artifact_digest", result["report"])
+
     def test_claim_emits_bounded_packet_and_records_the_attempt(self):
         packet = self.claim("shared")
         self.assertEqual(packet["node"]["id"], "shared")
@@ -83,6 +186,9 @@ class TestWorkClaims(WorkCase):
         nw = self.state()["work"]["shared"]
         self.assertEqual(nw["attempt_count"], 1)
         self.assertEqual(nw["claim"]["attempt_id"], packet["attempt_id"])
+        import result_contracts
+        self.assertEqual(packet["result_contract"], result_contracts.resolve("worker-result.v1"))
+        self.assertEqual(nw["claim"]["result_contract"], packet["result_contract"])
 
     def test_claim_of_a_blocked_node_is_refused(self):
         with self.assertRaisesRegex(bc.CoordinatorError, "not claimable"):
@@ -102,23 +208,23 @@ class TestWorkClaims(WorkCase):
         packet = self.claim("shared")
         attempt = packet["attempt_id"]
         evidence = {"changed_paths": [".engine/tools/shared.py"], "verification_results": ["ok"]}
-        self.result("shared", attempt, {"outcome": "returned", "base_sha": HEAD_A, "evidence": evidence})
+        self.result("shared", attempt, {"outcome": "returned", "evidence": evidence})
         self.assertEqual(self.state()["work"]["shared"]["latest_result"]["outcome"], "returned")
-        with self.assertRaisesRegex(bc.CoordinatorError, "does not match the active claim"):
-            self.result("shared", "f" * 32, {"outcome": "returned", "base_sha": HEAD_A, "evidence": evidence})
+        with self.assertRaisesRegex(bc.CoordinatorError, "attempt_mismatch"):
+            self.result("shared", "f" * 32, {"outcome": "returned", "evidence": evidence})
 
     def test_result_from_the_wrong_base_is_rejected(self):
         packet = self.claim("shared")
-        with self.assertRaisesRegex(bc.CoordinatorError, "does not match the claimed base"):
+        with self.assertRaisesRegex(bc.CoordinatorError, "additionalProperties"):
             self.result("shared", packet["attempt_id"],
                         {"outcome": "returned", "base_sha": "b" * 40,
                          "evidence": {"changed_paths": ["x"], "verification_results": ["ok"]}})
 
     def test_returned_result_missing_contract_evidence_is_rejected(self):
         packet = self.claim("shared")
-        with self.assertRaisesRegex(bc.CoordinatorError, "missing output-contract evidence"):
+        with self.assertRaisesRegex(bc.CoordinatorError, "schema"):
             self.result("shared", packet["attempt_id"],
-                        {"outcome": "returned", "base_sha": HEAD_A, "evidence": {"changed_paths": ["x"]}})
+                        {"outcome": "returned", "evidence": {"changed_paths": ["x"]}})
 
     def test_claim_refusal_names_the_cause(self):
         # The refusal now carries the typed deferral kind and its detail, read out of the same
@@ -141,7 +247,7 @@ class TestWorkClaims(WorkCase):
     def test_result_verb_guards_with_compare_and_swap(self):
         packet = self.claim("shared")   # revision advances to 2
         path = Path(self.temp.name) / "r.json"
-        path.write_text(json.dumps({"outcome": "returned", "base_sha": HEAD_A, "artifact_ref": HEAD_A,
+        path.write_text(json.dumps({"outcome": "returned", "artifact_ref": HEAD_A,
                                     "evidence": {"changed_paths": [".engine/tools/shared.py"], "verification_results": ["ok"]}}))
         stale = bc.StateStore(self.state_path, expected_revision=1)
         args = argparse.Namespace(item="shared", attempt=packet["attempt_id"], plan=str(self.plan_path), input=str(path))
@@ -292,15 +398,15 @@ class TestResultEdges(WorkCase):
     def test_worker_failed_report_records_failure_and_derives_failed(self):
         packet = self.claim("shared")
         self.result("shared", packet["attempt_id"],
-                    {"outcome": "failed", "base_sha": HEAD_A, "class": "worker", "reason": "boom", "evidence": {}})
+                    {"outcome": "failed", "reason": "boom", "evidence": {"changed_paths": [], "verification_results": [], "assumptions": [], "unresolved_concerns": []}})
         nw = self.state()["work"]["shared"]
         self.assertEqual(nw["latest_failure"]["disposition"], "open")
         self.assertEqual(dag.derive_lifecycle(self.plan_value, self.state())["shared"]["state"], dag.FAILED)
 
     def test_returned_after_failed_clears_the_stale_failure(self):
         packet = self.claim("shared"); a = packet["attempt_id"]
-        self.result("shared", a, {"outcome": "failed", "base_sha": HEAD_A, "reason": "x", "evidence": {}})
-        self.result("shared", a, {"outcome": "returned", "base_sha": HEAD_A,
+        self.result("shared", a, {"outcome": "failed", "reason": "x", "evidence": {"changed_paths": [], "verification_results": [], "assumptions": [], "unresolved_concerns": []}})
+        self.result("shared", a, {"outcome": "returned",
                     "evidence": {"changed_paths": [".engine/tools/shared.py"], "verification_results": ["ok"]}})
         nw = self.state()["work"]["shared"]
         self.assertIsNone(nw["latest_failure"])
@@ -308,22 +414,22 @@ class TestResultEdges(WorkCase):
 
     def test_non_object_payload_fails_closed_not_crashes(self):
         # A JSON array (or any non-object) at the top level must refuse, never AttributeError.
-        with self.assertRaisesRegex(bc.CoordinatorError, "payload must be a JSON object"):
+        with self.assertRaisesRegex(bc.CoordinatorError, "missing_binding"):
             work.bind_result({"claim": {"attempt_id": "a", "base_sha": "s"}},
                              {"id": "n", "paths": [], "output_contract": {"required_evidence": []}},
                              "a", "s", ["not", "a", "dict"])
 
     def test_malformed_evidence_fails_closed_not_crashes(self):
         packet = self.claim("shared")
-        with self.assertRaisesRegex(bc.CoordinatorError, "evidence must be an object"):
+        with self.assertRaisesRegex(bc.CoordinatorError, "schema"):
             self.result("shared", packet["attempt_id"],
-                        {"outcome": "failed", "base_sha": HEAD_A, "evidence": ["not-a-dict"]})
+                        {"outcome": "failed", "evidence": ["not-a-dict"]})
 
     def test_returned_paths_outside_declared_scope_are_rejected(self):
         packet = self.claim("shared")
         with self.assertRaisesRegex(bc.CoordinatorError, "outside the node's declared scope"):
             self.result("shared", packet["attempt_id"],
-                        {"outcome": "returned", "base_sha": HEAD_A,
+                        {"outcome": "returned",
                          "evidence": {"changed_paths": ["etc/passwd"], "verification_results": ["ok"]}})
 
     def test_null_or_nonstring_evidence_entries_fail_closed_not_crash(self):
@@ -336,35 +442,35 @@ class TestResultEdges(WorkCase):
                           "assumptions": "no concerns"},
                          {"changed_paths": [".engine/tools/shared.py"], "verification_results": ["ok"],
                           "unresolved_concerns": {"nested": True}}):
-            with self.assertRaisesRegex(bc.CoordinatorError, "must be a list of strings"):
+            with self.assertRaisesRegex(bc.CoordinatorError, "schema"):
                 self.result("shared", packet["attempt_id"],
-                            {"outcome": "returned", "base_sha": HEAD_A, "evidence": evidence})
+                            {"outcome": "returned", "evidence": evidence})
 
     def test_null_on_a_required_evidence_key_is_missing_not_empty(self):
         # Repair-review regression: an explicit null must not satisfy a REQUIRED evidence kind by
         # silently laundering into [] — the contract completeness check treats it as missing.
         packet = self.claim("shared")
-        with self.assertRaisesRegex(bc.CoordinatorError, "missing output-contract evidence"):
+        with self.assertRaisesRegex(bc.CoordinatorError, "schema"):
             self.result("shared", packet["attempt_id"],
-                        {"outcome": "returned", "base_sha": HEAD_A,
+                        {"outcome": "returned",
                          "evidence": {"changed_paths": [".engine/tools/shared.py"],
                                       "verification_results": None}})
 
-    def test_explicit_null_evidence_field_reads_as_empty(self):
-        # null for a NON-required key is an ordinary way to say "nothing here" and must not crash.
+    def test_explicit_null_evidence_is_not_silently_defaulted(self):
         packet = self.claim("shared")
-        self.result("shared", packet["attempt_id"],
-                    {"outcome": "returned", "base_sha": HEAD_A,
-                     "evidence": {"changed_paths": [".engine/tools/shared.py"],
-                                  "verification_results": ["ok"], "assumptions": None}})
-        self.assertEqual(self.state()["work"]["shared"]["latest_result"]["evidence"]["assumptions"], [])
+        before = self.store.path.read_bytes()
+        with self.assertRaisesRegex(bc.CoordinatorError, '"rule": "type"'):
+            self.result("shared", packet["attempt_id"],
+                {"outcome": "returned", "evidence": {"changed_paths": [],
+                 "verification_results": [], "assumptions": None}})
+        self.assertEqual(before, self.store.path.read_bytes())
 
     def test_returned_paths_using_traversal_are_rejected(self):
         # a self-reported changed path that escapes declared scope via ../ must be refused
         packet = self.claim("shared")
         with self.assertRaisesRegex(bc.CoordinatorError, "outside the node's declared scope"):
             self.result("shared", packet["attempt_id"],
-                        {"outcome": "returned", "base_sha": HEAD_A,
+                        {"outcome": "returned",
                          "evidence": {"changed_paths": [".engine/tools/../../../.github/workflows/ci.yml"],
                                       "verification_results": ["ok"]}})
 
@@ -373,7 +479,7 @@ class TestWorkDispositions(WorkCase):
     def _return(self, item):
         packet = self.claim(item)
         self.result(item, packet["attempt_id"],
-                    {"outcome": "returned", "base_sha": HEAD_A,
+                    {"outcome": "returned",
                      "evidence": {"changed_paths": [f".engine/tools/{item}.py"], "verification_results": ["ok"]}})
         return packet["attempt_id"]
 
@@ -494,8 +600,8 @@ class TestWorkDispositions(WorkCase):
         with contextlib.redirect_stdout(io.StringIO()):
             bc.cmd_work_retry(argparse.Namespace(item="shared", strategy="redispatch", reason="again"), self.store)
         self.claim("shared")  # a fresh attempt supersedes the old one
-        with self.assertRaisesRegex(bc.CoordinatorError, "does not match the active claim"):
-            self.result("shared", old, {"outcome": "returned", "base_sha": HEAD_A,
+        with self.assertRaisesRegex(bc.CoordinatorError, "attempt_mismatch"):
+            self.result("shared", old, {"outcome": "returned",
                         "evidence": {"changed_paths": [".engine/tools/shared.py"], "verification_results": ["ok"]}})
 
 
@@ -529,8 +635,8 @@ class TestStatusV2(WorkCase):
     def test_status_surfaces_the_failure_reason(self):
         packet = self.claim("shared")
         path = Path(self.temp.name) / "f.json"
-        path.write_text(json.dumps({"outcome": "failed", "base_sha": HEAD_A, "class": "worker",
-                                    "reason": "hit a permission error on X", "evidence": {}}))
+        path.write_text(json.dumps({"outcome": "failed",
+                                    "reason": "hit a permission error on X", "evidence": {"changed_paths": [], "verification_results": [], "assumptions": [], "unresolved_concerns": []}}))
         with contextlib.redirect_stdout(io.StringIO()):
             bc.cmd_work_result(argparse.Namespace(item="shared", attempt=packet["attempt_id"],
                                                   plan=str(self.plan_path), input=str(path)), self.store)
@@ -568,7 +674,7 @@ class TestStatusV2(WorkCase):
                            "nodes": {"shared": {"state": "failed", "reasons": [], "attempt_count": 1,
                                      "route": None, "integration_commit": None,
                                      "focused_verification": None, "artifact_digest": None,
-                                     "failure": {"class": "worker", "disposition": "open",
+                                     "failure": {"disposition": "open",
                                                  "reason": "Traceback (most recent call last):\n  File x\n" + "x" * 300}}}}}
         with mock.patch.object(bc, "_status", return_value=canned),                 contextlib.redirect_stdout(io.StringIO()) as out:
             bc.cmd_status(argparse.Namespace(plan=None, json=False), self.store)
@@ -620,7 +726,7 @@ class TestHandoffV2(WorkCase):
         # A worker-commit attempt's artifact_ref is its commit id; the bounded projection redacts it
         # anyway (the receipt's own integration_commit is the published fact), which this pins.
         self.result("shared", packet["attempt_id"],
-                    {"outcome": "returned", "base_sha": HEAD_A, "artifact_ref": HEAD_B,
+                    {"outcome": "returned", "artifact_ref": HEAD_B,
                      "evidence": {"changed_paths": [".engine/tools/shared.py"],
                                   "verification_results": ["ran the suite: 3 passed"],
                                   "assumptions": ["assumed the flag stays default"]}})
@@ -628,6 +734,9 @@ class TestHandoffV2(WorkCase):
         state["plan"]["authorizing_issue"] = 11
         value = bc._handoff(state)
         nw = value["work"]["shared"]
+        self.assertNotIn("report", nw["latest_result"])
+        self.assertIn("report", self.state()["work"]["shared"]["latest_result"])
+        self.assertNotIn("assumed the flag stays default", json.dumps(value))
         self.assertEqual(nw["claim"]["worktree"], "redacted from durable handoff")
         self.assertEqual(nw["latest_result"]["artifact_ref"], "redacted from durable handoff")
         self.assertEqual(nw["latest_result"]["evidence"]["verification_results"], ["redacted from durable handoff"])
@@ -646,12 +755,12 @@ class TestHandoffV2(WorkCase):
         # A restored claim whose attempt already returned is not uncertain: it derives returned
         # (awaiting integrator inspection), never recovery_required masking complete evidence.
         work_map = {"shared": {"attempt_count": 1, "integration": None, "latest_failure": None,
-                               "latest_result": {"attempt_id": "0" * 32, "base_sha": HEAD_A,
+                               "latest_result": {"attempt_id": "0" * 32,
                                                  "outcome": "returned", "artifact_ref": None,
                                                  "artifact_digest": None,
                                                  "evidence": {"changed_paths": [], "verification_results": [],
                                                               "assumptions": [], "unresolved_concerns": []}},
-                               "claim": {"attempt_id": "0" * 32, "base_sha": HEAD_A, "worktree": "/tmp/wt",
+                               "claim": {"attempt_id": "0" * 32, "worktree": "/tmp/wt",
                                          "acquired_resources": [], "restored": False, "worker_ref": None,
                                          "requested_route": {"executor_class": "builder", "provider": "claude",
                                                              "model": "sonnet", "effort": "medium", "inline": False}}}}
@@ -663,7 +772,7 @@ class TestHandoffV2(WorkCase):
     def test_restore_marks_an_unfinished_claim_recovery_required(self):
         work_map = {"shared": {"attempt_count": 1, "latest_result": None, "integration": None,
                                "latest_failure": None,
-                               "claim": {"attempt_id": "0" * 32, "base_sha": HEAD_A, "worktree": "/tmp/wt",
+                               "claim": {"attempt_id": "0" * 32, "worktree": "/tmp/wt",
                                          "acquired_resources": [], "restored": False, "worker_ref": None,
                                          "requested_route": {"executor_class": "builder", "provider": "claude",
                                                              "model": "sonnet", "effort": "medium", "inline": False}}}}
@@ -917,11 +1026,11 @@ class TestGoverningContextPacket(WorkCase):
         self.assertEqual(self._packet_for(self._rich_plan(), route=self.INLINE)
                          ["required_result"]["identity"]["mode"], "accepted-candidate")
 
-    def test_accepted_candidate_duty_names_the_stage_digest_sequence(self):
+    def test_accepted_candidate_duty_explains_engine_observation(self):
         # The inline session sees the sequence it must run at the point of use, not only in a demo.
         duty = self._packet_for(self._rich_plan(), route=self.INLINE)["required_result"]["identity"]["duty"]
-        self.assertIn("stage-digest", duty)
-        self.assertIn("artifact_digest", duty)
+        self.assertIn("before work result", duty)
+        self.assertIn("Do not supply artifact_digest", duty)
 
     # -- profile defaults and refusals --
 
@@ -969,11 +1078,12 @@ class TestIdentityBinding(unittest.TestCase):
         route = {"executor_class": "builder", "provider": "claude",
                  "model": "inherit" if inline else "sonnet",
                  "effort": "inherit" if inline else "medium", "inline": inline}
-        return {"claim": {"attempt_id": "a" * 32, "base_sha": "0" * 40, "requested_route": route}}
+        return {"claim": {"attempt_id": "a" * 32, "base_sha": "0" * 40, "requested_route": route,
+                          "result_contract": work.result_contracts.resolve("worker-result.v1")}}
 
     def _payload(self, **over):
         payload = {"outcome": "returned",
-                   "evidence": {"changed_paths": [".engine/tools/n.py"], "verification_results": ["ok"]}}
+                   "evidence": {"changed_paths": [".engine/tools/n.py"], "verification_results": [], "assumptions": [], "unresolved_concerns": []}}
         payload.update(over)
         return payload
 
@@ -989,7 +1099,7 @@ class TestIdentityBinding(unittest.TestCase):
             self._bind(self._nw(False), self._payload())
 
     def test_worker_commit_rejects_a_non_commit_ref(self):
-        with self.assertRaisesRegex(bc.CoordinatorError, "worker-commit identity"):
+        with self.assertRaisesRegex(bc.CoordinatorError, "schema"):
             self._bind(self._nw(False), self._payload(artifact_ref="/tmp/bundle.git"))
 
     def test_worker_commit_accepts_a_commit_id(self):
@@ -997,12 +1107,12 @@ class TestIdentityBinding(unittest.TestCase):
         self.assertEqual(result["artifact_ref"], "b" * 40)
 
     def test_accepted_candidate_requires_the_staged_digest(self):
-        with self.assertRaisesRegex(bc.CoordinatorError, "accepted-candidate identity requires artifact_digest"):
+        with self.assertRaisesRegex(bc.CoordinatorError, "observed_artifact"):
             self._bind(self._nw(True), self._payload())
 
     def test_accepted_candidate_accepts_a_staged_digest(self):
         digest = "sha256:" + "c" * 64
-        result = self._bind(self._nw(True), self._payload(artifact_digest=digest))
+        result = work.bind_result(self._nw(True), self.ITEM, "a" * 32, "0" * 40, self._payload(), observed_digest=digest)
         self.assertEqual(result["artifact_digest"], digest)
 
 
@@ -1137,7 +1247,7 @@ class MidBuildRevision(WorkCase):
     def _through_integration(self, item):
         claim = self.claim(item)
         self.result(item, claim["attempt_id"], {
-            "outcome": "returned", "base_sha": claim["base_sha"],
+            "outcome": "returned",
             "evidence": {"changed_paths": [f".engine/tools/{item}.py"],
                          "verification_results": ["green"]}})
         args = argparse.Namespace(item=item, attempt=claim["attempt_id"], commit=HEAD_A,

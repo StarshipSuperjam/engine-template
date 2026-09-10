@@ -473,7 +473,13 @@ _HARD_SCRIPT_ROOTS = {
 # with a reason at the edge. These are reviewed expectations, never auto-populated
 # from candidate imports at runtime; changing them changes this hard-floor file.
 ENFORCEMENT_SOURCE_INVENTORY = {'.engine/tools/agent_bindings.py': {'dependencies': ('.engine/tools/repo_identity.py',), 'exclusions': {}},
- '.engine/tools/agent_coherence_check.py': {'dependencies': ('.engine/tools/validate.py',), 'exclusions': {}},
+ '.engine/tools/agent_coherence_check.py': {'dependencies': ('.engine/tools/build_coordinator_review.py',
+                  '.engine/tools/build_coordinator_work.py',
+                  '.engine/tools/conformance_sweep.py',
+                  '.engine/tools/project_manager.py',
+                  '.engine/tools/result_contracts.py',
+                  '.engine/tools/validate.py'),
+ 'exclusions': {}},
  '.engine/tools/attention_rank.py': {'dependencies': ('.engine/tools/moment.py',), 'exclusions': {}},
  '.engine/tools/audit_digest.py': {'dependencies': ('.engine/tools/validate.py',),
                                    'exclusions': {'.engine/tools/engine_write.py': 'Only '
@@ -599,9 +605,10 @@ ENFORCEMENT_SOURCE_INVENTORY = {'.engine/tools/agent_bindings.py': {'dependencie
                                                                    '.engine/tools/validate.py'),
                                                   'exclusions': {}},
  '.engine/tools/codex_gen.py': {'dependencies': ('.engine/tools/agent_bindings.py',
-                                                 '.engine/tools/skill_discovery.py',
-                                                 '.engine/tools/validate.py'),
-                                'exclusions': {}},
+                  '.engine/tools/result_contracts.py',
+                  '.engine/tools/skill_discovery.py',
+                  '.engine/tools/validate.py'),
+ 'exclusions': {}},
  '.engine/tools/codex_skill_coherence_check.py': {'dependencies': ('.engine/tools/validate.py',),
                                                   'exclusions': {}},
  '.engine/tools/conduct_shape_check.py': {'dependencies': ('.engine/tools/validate.py',), 'exclusions': {}},
@@ -1208,86 +1215,45 @@ ENFORCEMENT_SOURCE_INVENTORY = {'.engine/tools/agent_bindings.py': {'dependencie
                                                                                                 'comparison.'}},
  '.engine/tools/product_design/spec_form.py': {'dependencies': ('.engine/tools/validate.py',),
                                                'exclusions': {}},
- '.engine/tools/project_manager.py': {'dependencies': (),
-                                      'exclusions': {'.engine/tools/providers.py': 'The hard-check path reads PLAN_REVIEW_LENSES only; session identity resolution belongs to plan lifecycle operations outside that path.',
-                                                     '.engine/tools/scoped_agents.py': 'The hard-check path reads PLAN_REVIEW_LENSES only; scoped review acceptance and receipt verification are not invoked by that path.',
-                                                     '.engine/tools/build_coordinator_core.py': 'build_protocol.roster_lenses '
-                                                                                                'reads the '
-                                                                                                'literal '
-                                                                                                'PLAN_REVIEW_LENSES '
-                                                                                                'table; plan '
-                                                                                                'storage, '
-                                                                                                'lifecycle '
-                                                                                                'and GitHub '
-                                                                                                'operations '
-                                                                                                'are not '
-                                                                                                'called.',
-                                                     '.engine/tools/build_coordinator_github.py': 'build_protocol.roster_lenses '
-                                                                                                  'reads the '
-                                                                                                  'literal '
-                                                                                                  'PLAN_REVIEW_LENSES '
-                                                                                                  'table; '
-                                                                                                  'plan '
-                                                                                                  'storage, '
-                                                                                                  'lifecycle '
-                                                                                                  'and '
-                                                                                                  'GitHub '
-                                                                                                  'operations '
-                                                                                                  'are not '
-                                                                                                  'called.',
-                                                     '.engine/tools/build_state_store.py': 'build_protocol.roster_lenses '
-                                                                                           'reads the '
-                                                                                           'literal '
-                                                                                           'PLAN_REVIEW_LENSES '
-                                                                                           'table; plan '
-                                                                                           'storage, '
-                                                                                           'lifecycle and '
-                                                                                           'GitHub '
-                                                                                           'operations are '
-                                                                                           'not called.',
-                                                     '.engine/tools/moment.py': 'build_protocol.roster_lenses '
-                                                                                'reads the literal '
-                                                                                'PLAN_REVIEW_LENSES table; '
-                                                                                'plan storage, lifecycle and '
-                                                                                'GitHub operations are not '
-                                                                                'called.',
-                                                     '.engine/tools/plan_contract.py': 'build_protocol.roster_lenses '
-                                                                                       'reads the literal '
-                                                                                       'PLAN_REVIEW_LENSES '
-                                                                                       'table; plan storage, '
-                                                                                       'lifecycle and GitHub '
-                                                                                       'operations are not '
-                                                                                       'called.',
-                                                     '.engine/tools/plan_lifecycle.py': 'build_protocol.roster_lenses '
-                                                                                        'reads the literal '
-                                                                                        'PLAN_REVIEW_LENSES '
-                                                                                        'table; plan '
-                                                                                        'storage, lifecycle '
-                                                                                        'and GitHub '
-                                                                                        'operations are not '
-                                                                                        'called.',
-                                                     '.engine/tools/plan_program.py': 'build_protocol.roster_lenses '
-                                                                                      'reads the literal '
-                                                                                      'PLAN_REVIEW_LENSES '
-                                                                                      'table; plan storage, '
-                                                                                      'lifecycle and GitHub '
-                                                                                      'operations are not '
-                                                                                      'called.',
-                                                     '.engine/tools/plan_projection.py': 'build_protocol.roster_lenses '
-                                                                                         'reads the literal '
-                                                                                         'PLAN_REVIEW_LENSES '
-                                                                                         'table; plan '
-                                                                                         'storage, lifecycle '
-                                                                                         'and GitHub '
-                                                                                         'operations are not '
-                                                                                         'called.',
-                                                     '.engine/tools/plan_store.py': 'build_protocol.roster_lenses '
-                                                                                    'reads the literal '
-                                                                                    'PLAN_REVIEW_LENSES '
-                                                                                    'table; plan storage, '
-                                                                                    'lifecycle and GitHub '
-                                                                                    'operations are not '
-                                                                                    'called.'}},
+ '.engine/tools/project_manager.py': {'dependencies': ('.engine/tools/plan_store.py', '.engine/tools/result_contracts.py'),
+ 'exclusions': {'.engine/tools/providers.py': 'Hard-check paths read PLAN_REVIEW_LENSES and call pure '
+                                              'ingest_review_report; plan lifecycle, persistence, '
+                                              'provider and GitHub operations are not invoked.',
+                '.engine/tools/scoped_agents.py': 'Hard-check paths read PLAN_REVIEW_LENSES and call '
+                                                  'pure ingest_review_report; plan lifecycle, '
+                                                  'persistence, provider and GitHub operations are not '
+                                                  'invoked.',
+                '.engine/tools/build_coordinator_core.py': 'Hard-check paths read PLAN_REVIEW_LENSES '
+                                                           'and call pure ingest_review_report; plan '
+                                                           'lifecycle, persistence, provider and GitHub '
+                                                           'operations are not invoked.',
+                '.engine/tools/build_coordinator_github.py': 'Hard-check paths read PLAN_REVIEW_LENSES '
+                                                             'and call pure ingest_review_report; plan '
+                                                             'lifecycle, persistence, provider and '
+                                                             'GitHub operations are not invoked.',
+                '.engine/tools/build_state_store.py': 'Hard-check paths read PLAN_REVIEW_LENSES and '
+                                                      'call pure ingest_review_report; plan lifecycle, '
+                                                      'persistence, provider and GitHub operations are '
+                                                      'not invoked.',
+                '.engine/tools/moment.py': 'Hard-check paths read PLAN_REVIEW_LENSES and call pure '
+                                           'ingest_review_report; plan lifecycle, persistence, provider '
+                                           'and GitHub operations are not invoked.',
+                '.engine/tools/plan_contract.py': 'Hard-check paths read PLAN_REVIEW_LENSES and call '
+                                                  'pure ingest_review_report; plan lifecycle, '
+                                                  'persistence, provider and GitHub operations are not '
+                                                  'invoked.',
+                '.engine/tools/plan_lifecycle.py': 'Hard-check paths read PLAN_REVIEW_LENSES and call '
+                                                   'pure ingest_review_report; plan lifecycle, '
+                                                   'persistence, provider and GitHub operations are not '
+                                                   'invoked.',
+                '.engine/tools/plan_program.py': 'Hard-check paths read PLAN_REVIEW_LENSES and call '
+                                                 'pure ingest_review_report; plan lifecycle, '
+                                                 'persistence, provider and GitHub operations are not '
+                                                 'invoked.',
+                '.engine/tools/plan_projection.py': 'Hard-check paths read PLAN_REVIEW_LENSES and call '
+                                                    'pure ingest_review_report; plan lifecycle, '
+                                                    'persistence, provider and GitHub operations are '
+                                                    'not invoked.'}},
  '.engine/tools/protection_guard.py': {'dependencies': ('.engine/tools/github_client.py',
                                                         '.engine/tools/repo_identity.py',
                                                         '.engine/tools/validate.py'),
@@ -1324,14 +1290,41 @@ ENFORCEMENT_SOURCE_INVENTORY = {'.engine/tools/agent_bindings.py': {'dependencie
                                                       '.engine/tools/validate.py'),
                                      'exclusions': {}},
  '.engine/tools/scoped_agents.py': {'dependencies': (),
-                                    'exclusions': {
-                                        '.engine/tools/build_coordinator_core.py': 'module_coherence reads the literal BLOCK_INVARIANT only; assignment storage, runtime hooks and receipt validation are outside that hard-check path.',
-                                        '.engine/tools/hooks.py': 'module_coherence reads the literal BLOCK_INVARIANT only; assignment storage, runtime hooks and receipt validation are outside that hard-check path.',
-                                        '.engine/tools/moment.py': 'module_coherence reads the literal BLOCK_INVARIANT only; assignment storage, runtime hooks and receipt validation are outside that hard-check path.',
-                                        '.engine/tools/plan_store.py': 'module_coherence reads the literal BLOCK_INVARIANT only; assignment storage, runtime hooks and receipt validation are outside that hard-check path.',
-                                        '.engine/tools/providers.py': 'module_coherence reads the literal BLOCK_INVARIANT only; assignment storage, runtime hooks and receipt validation are outside that hard-check path.',
-                                        '.engine/tools/build_state_store.py': 'module_coherence reads the literal BLOCK_INVARIANT only; assignment storage, runtime hooks and receipt validation are outside that hard-check path.',
-                                    }},
+ 'exclusions': {'.engine/tools/build_coordinator_core.py': 'module_coherence reads the literal '
+                                                           'BLOCK_INVARIANT only; assignment storage, '
+                                                           'runtime hooks and receipt validation are '
+                                                           'outside that hard-check path.',
+                '.engine/tools/hooks.py': 'module_coherence reads the literal BLOCK_INVARIANT only; '
+                                          'assignment storage, runtime hooks and receipt validation are '
+                                          'outside that hard-check path.',
+                '.engine/tools/moment.py': 'module_coherence reads the literal BLOCK_INVARIANT only; '
+                                           'assignment storage, runtime hooks and receipt validation '
+                                           'are outside that hard-check path.',
+                '.engine/tools/plan_store.py': 'module_coherence reads the literal BLOCK_INVARIANT '
+                                               'only; assignment storage, runtime hooks and receipt '
+                                               'validation are outside that hard-check path.',
+                '.engine/tools/providers.py': 'module_coherence reads the literal BLOCK_INVARIANT only; '
+                                              'assignment storage, runtime hooks and receipt validation '
+                                              'are outside that hard-check path.',
+                '.engine/tools/build_state_store.py': 'module_coherence reads the literal '
+                                                      'BLOCK_INVARIANT only; assignment storage, '
+                                                      'runtime hooks and receipt validation are outside '
+                                                      'that hard-check path.',
+                '.engine/tools/build_coordinator_review.py': 'module_coherence reads the literal '
+                                                             'BLOCK_INVARIANT only; scoped assignment '
+                                                             'preparation and report acceptance are not '
+                                                             'invoked by that hard-check path.',
+                '.engine/tools/project_manager.py': 'module_coherence reads the literal BLOCK_INVARIANT '
+                                                    'only; scoped assignment preparation and report '
+                                                    'acceptance are not invoked by that hard-check '
+                                                    'path.',
+                '.engine/tools/result_contracts.py': 'module_coherence reads the literal '
+                                                     'BLOCK_INVARIANT only; scoped assignment '
+                                                     'preparation and report acceptance are not invoked '
+                                                     'by that hard-check path.',
+                '.engine/tools/validate.py': 'module_coherence reads the literal BLOCK_INVARIANT only; '
+                                             'scoped assignment preparation and report acceptance are '
+                                             'not invoked by that hard-check path.'}},
  '.engine/tools/session_economy.py': {'dependencies': (),
                                       'exclusions': {'.engine/tools/hooks.py': 'Block-coherence reads the '
                                                                                'literal BLOCK_INVARIANT; '
@@ -1387,7 +1380,151 @@ ENFORCEMENT_SOURCE_INVENTORY = {'.engine/tools/agent_bindings.py': {'dependencie
  '.engine/tools/weakening_guard.py': {'dependencies': ('.engine/tools/github_client.py',
                                                        '.engine/tools/validate.py'),
                                       'exclusions': {}},
- '.engine/tools/wiring.py': {'dependencies': ('.engine/tools/validate.py',), 'exclusions': {}}}
+ '.engine/tools/wiring.py': {'dependencies': ('.engine/tools/validate.py',), 'exclusions': {}},
+ '.engine/tools/build_coordinator_core.py': {'dependencies': (), 'exclusions': {}},
+ '.engine/tools/build_coordinator_review.py': {'dependencies': ('.engine/tools/build_coordinator_core.py',
+                                                                '.engine/tools/result_contracts.py'),
+                                               'exclusions': {'.engine/tools/close_linkage_preflight.py': 'agent_coherence '
+                                                                                                          'invokes '
+                                                                                                          'pure '
+                                                                                                          'ingest_review_report '
+                                                                                                          'only; '
+                                                                                                          'close-linkage '
+                                                                                                          'validation '
+                                                                                                          'is '
+                                                                                                          'outside '
+                                                                                                          'that '
+                                                                                                          'hard-check '
+                                                                                                          'path.'}},
+ '.engine/tools/build_coordinator_work.py': {'dependencies': ('.engine/tools/build_coordinator_core.py',
+                                                              '.engine/tools/result_contracts.py'),
+                                             'exclusions': {'.engine/tools/build_coordinator_dag.py': 'agent_coherence '
+                                                                                                      'invokes '
+                                                                                                      'pure '
+                                                                                                      'ingest_worker_report '
+                                                                                                      'only; '
+                                                                                                      'DAG '
+                                                                                                      'planning '
+                                                                                                      'and '
+                                                                                                      'integration '
+                                                                                                      'are '
+                                                                                                      'outside '
+                                                                                                      'that '
+                                                                                                      'hard-check '
+                                                                                                      'path.'}},
+ '.engine/tools/conformance_sweep.py': {'dependencies': ('.engine/tools/result_contracts.py',),
+                                        'exclusions': {'.engine/tools/github_client.py': 'agent_coherence '
+                                                                                         'invokes pure '
+                                                                                         'validate_block '
+                                                                                         'only; '
+                                                                                         'conformance '
+                                                                                         'discovery, '
+                                                                                         'history, '
+                                                                                         'promotion and '
+                                                                                         'GitHub '
+                                                                                         'operations '
+                                                                                         'are outside '
+                                                                                         'that '
+                                                                                         'hard-check '
+                                                                                         'path.',
+                                                       '.engine/tools/issue_author.py': 'agent_coherence '
+                                                                                        'invokes pure '
+                                                                                        'validate_block '
+                                                                                        'only; '
+                                                                                        'conformance '
+                                                                                        'discovery, '
+                                                                                        'history, '
+                                                                                        'promotion and '
+                                                                                        'GitHub '
+                                                                                        'operations are '
+                                                                                        'outside that '
+                                                                                        'hard-check '
+                                                                                        'path.',
+                                                       '.engine/tools/moment.py': 'agent_coherence '
+                                                                                  'invokes pure '
+                                                                                  'validate_block only; '
+                                                                                  'conformance '
+                                                                                  'discovery, history, '
+                                                                                  'promotion and GitHub '
+                                                                                  'operations are '
+                                                                                  'outside that '
+                                                                                  'hard-check path.',
+                                                       '.engine/tools/repo_identity.py': 'agent_coherence '
+                                                                                         'invokes pure '
+                                                                                         'validate_block '
+                                                                                         'only; '
+                                                                                         'conformance '
+                                                                                         'discovery, '
+                                                                                         'history, '
+                                                                                         'promotion and '
+                                                                                         'GitHub '
+                                                                                         'operations '
+                                                                                         'are outside '
+                                                                                         'that '
+                                                                                         'hard-check '
+                                                                                         'path.',
+                                                       '.engine/tools/spec_referent.py': 'agent_coherence '
+                                                                                         'invokes pure '
+                                                                                         'validate_block '
+                                                                                         'only; '
+                                                                                         'conformance '
+                                                                                         'discovery, '
+                                                                                         'history, '
+                                                                                         'promotion and '
+                                                                                         'GitHub '
+                                                                                         'operations '
+                                                                                         'are outside '
+                                                                                         'that '
+                                                                                         'hard-check '
+                                                                                         'path.',
+                                                       '.engine/tools/telemetry.py': 'agent_coherence '
+                                                                                     'invokes pure '
+                                                                                     'validate_block '
+                                                                                     'only; conformance '
+                                                                                     'discovery, '
+                                                                                     'history, '
+                                                                                     'promotion and '
+                                                                                     'GitHub operations '
+                                                                                     'are outside that '
+                                                                                     'hard-check path.',
+                                                       '.engine/tools/validate.py': 'agent_coherence '
+                                                                                    'invokes pure '
+                                                                                    'validate_block '
+                                                                                    'only; conformance '
+                                                                                    'discovery, '
+                                                                                    'history, promotion '
+                                                                                    'and GitHub '
+                                                                                    'operations are '
+                                                                                    'outside that '
+                                                                                    'hard-check path.'}},
+ '.engine/tools/plan_store.py': {'dependencies': ('.engine/tools/build_coordinator_core.py',),
+                                 'exclusions': {'.engine/tools/checkout_health.py': 'The hard-check '
+                                                                                    'ingress uses '
+                                                                                    'PlanStoreError, an '
+                                                                                    'alias of '
+                                                                                    'core.CoordinatorError; '
+                                                                                    'plan storage, '
+                                                                                    'checkout selection '
+                                                                                    'and lifecycle '
+                                                                                    'operations are not '
+                                                                                    'invoked.',
+                                                '.engine/tools/moment.py': 'The hard-check ingress uses '
+                                                                           'PlanStoreError, an alias of '
+                                                                           'core.CoordinatorError; plan '
+                                                                           'storage, checkout selection '
+                                                                           'and lifecycle operations '
+                                                                           'are not invoked.',
+                                                '.engine/tools/plan_contract.py': 'The hard-check '
+                                                                                  'ingress uses '
+                                                                                  'PlanStoreError, an '
+                                                                                  'alias of '
+                                                                                  'core.CoordinatorError; '
+                                                                                  'plan storage, '
+                                                                                  'checkout selection '
+                                                                                  'and lifecycle '
+                                                                                  'operations are not '
+                                                                                  'invoked.'}},
+ '.engine/tools/result_contracts.py': {'dependencies': (), 'exclusions': {}}}
 
 
 ENFORCEMENT_DYNAMIC_LOADERS = {'.engine/tools/close.py': {'calls': ("Call(func=Name(id='real_import', ctx=Load()), args=[Name(id='name', "

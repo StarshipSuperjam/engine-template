@@ -84,6 +84,7 @@ approval and reopening the same task to load its configuration; verify an actual
 qualification harness is not an Engine installation requirement. Claude 2.1.185 contract fixtures are offline
 checks; the operator's September 12 live smoke test remains explicitly outstanding.
 
+See [Executable persona result contracts](../docs/result-contracts.md): dispatch binding, observed-report validation, substitution refusal, recovery and demo.
 ## Done when
 
 The observed result satisfies its original assignment, any clarification is accounted for, and the

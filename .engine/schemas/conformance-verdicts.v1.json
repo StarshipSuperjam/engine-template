@@ -1,7 +1,7 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "title": "conformance-verdicts.v1 — the standing conformance sweep's machine channel",
-  "description": "The structured payload the read-only audit persona appends (as one HTML-comment-wrapped block, invisible in the rendered digest) alongside its plain-language digest when it runs the standing product-spec-conformance sweep (issue StarshipSuperjam/engine-template#449). A follow-up tool (conformance_sweep.py promote) parses it, opens or updates one deduped engine issue per divergence, and strips the block before the digest is sealed — so the JSON is never committed and never feeds back into a later run as stale judgment. This is DISTINCT from audit-finding.v1 (the audit's own finding shape, a retire/reconcile/escalate recommendation): a conformance divergence is still reported as a reconcile finding in the digest; this block only carries the per-criterion verdicts a mechanical dedup needs. The digest prose remains the record; this block is a best-effort accelerator, so a consumer treats an absent, malformed, or duplicated block as a clean no-op, never a failure.",
+  "description": "The structured payload the read-only audit persona appends (as one HTML-comment-wrapped block, invisible in the rendered digest) alongside its plain-language digest when it runs the standing product-spec-conformance sweep (issue StarshipSuperjam/engine-template#449). A follow-up tool (conformance_sweep.py promote) parses it, opens or updates one deduped engine issue per divergence, and strips the block before the digest is sealed — so the JSON is never committed and never feeds back into a later run as stale judgment. This is DISTINCT from audit-finding.v1 (the audit's own finding shape, a retire/reconcile/escalate recommendation): a conformance divergence is still reported as a reconcile finding in the digest; this block only carries the per-criterion verdicts a mechanical dedup needs. The digest prose remains the record; this block is a best-effort accelerator, so the validation-only adapter distinguishes absent, rejected and valid reports. Rejections are disclosed; the outer audit strips the block and continues successfully, without promoting invalid model verdicts.",
   "type": "object",
   "additionalProperties": false,
   "required": ["kind", "items"],
@@ -11,7 +11,7 @@
       "enum": ["product-conformance"]
     },
     "items": {
-      "description": "The per-criterion verdicts. An empty array is valid (the persona ran the sweep and found no divergence). Only 'diverges' verdicts are promoted to a tracked issue; 'meets'/'unsure' are carried for completeness and the digest disclosure.",
+      "description": "The per-criterion verdicts. An empty array is valid (the persona reported no criterion verdicts). Only 'diverges' verdicts are promoted to a tracked issue; 'meets'/'unsure' are carried for completeness and the digest disclosure.",
       "type": "array",
       "items": { "$ref": "#/$defs/product-conformance-item" }
     }

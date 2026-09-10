@@ -127,6 +127,7 @@ Restating its order here would only give you a second answer, free to drift from
 - **The Build is downstream and owns itself.** Binding the sealed plan belongs to [Build kickoff](build-kickoff.md);
   everything after it, to the phase runbooks [Build orchestration](build-orchestration.md) names.
 
+See [Executable persona result contracts](../docs/result-contracts.md): dispatch binding, observed-report validation, substitution refusal, recovery and demo.
 ## Done when
 
 The operator has discussed the shape, seen the drafted plan and had the chance to revise it, chosen its

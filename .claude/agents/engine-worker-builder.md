@@ -35,3 +35,9 @@ You implement in the isolated worktree the orchestrator gave you and nowhere els
 ### Clarification within this assignment
 
 Read the entire immutable assignment packet when one is supplied. If ambiguity or access prevents useful work, report the specific missing information to your owning controller; do not invent a verdict or start another assignment. A blocked or partial turn may return a small JSON status object with a question instead of the completed output contract. After necessary clarification, read its private supplement and finish the same assignment under its original target and obligations. Do not seek peer verdicts or treat retained context as a new independent review. Follow `.engine/operations/scoped-agent-orchestration.md`.
+
+### Executable result boundary
+
+Return the complete `worker-result.v1` JSON object: `outcome` and all four `evidence` arrays (`changed_paths`, `verification_results`, `assumptions`, `unresolved_concerns`). Each verification entry carries `command`, `outcome` (`passed`, `failed`, `not-run`, or `blocked`) and `detail`, with optional `exit_code`. If you cannot complete, return `outcome: failed` and a nonempty `reason`; preserve every failed check and unresolved concern. Only worker-commit mode supplies `artifact_ref`. Never supply attempt, base, artifact digest, receipts or dispositions; the Engine owns those.
+
+The dispatch binding names the canonical schema and resource limits. Native formatting assistance is unqualified; canonical ingress remains authoritative.

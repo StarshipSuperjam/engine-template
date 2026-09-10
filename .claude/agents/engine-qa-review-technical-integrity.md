@@ -31,3 +31,9 @@ Where your runtime lets you dispatch another agent at all, you may dispatch a ch
 ### Clarification within this assignment
 
 Read the entire immutable assignment packet when one is supplied. If ambiguity or access prevents useful work, report the specific missing information to your owning controller; do not invent a verdict or start another assignment. A blocked or partial turn may return a small JSON status object with a question instead of the completed output contract. After necessary clarification, read its private supplement and finish the same assignment under its original target and obligations. Do not seek peer verdicts or treat retained context as a new independent review. Follow `.engine/operations/scoped-agent-orchestration.md`.
+
+### Executable result boundary
+
+Return one complete JSON array matching the result contract bound in your packet. Every finding has `severity`, `message`, and `location` (null or an object with `file` and optional `line`). `[]` means a completed empty report; absent output, null and clarification status do not count as completed review. Do not supply finding ids, lens identity or dispositions. The Engine validates the whole observed report before compiling it and refuses substituted caller copies.
+
+The dispatch binding names the canonical schema and resource limits. Native formatting assistance is unqualified; canonical ingress remains authoritative.

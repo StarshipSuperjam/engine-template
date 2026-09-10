@@ -870,9 +870,10 @@ class TestModuleCoherenceConsumer(unittest.TestCase):
             self.assertEqual(len(owners), 1, f"{rel} must have exactly one owner, got {owners}")
         self.assertEqual(sorted(r for r, o in doc_owner.items() if o == ["core"]),
                          [".engine/docs/accepted-hook-qualification.md",
-                          ".engine/docs/ci-assurance.md", ".engine/docs/getting-started.md"],
+                          ".engine/docs/ci-assurance.md", ".engine/docs/getting-started.md",
+                          ".engine/docs/result-contracts.md"],
                          "core owns exactly the accepted-hook guide, generated CI assurance, and "
-                         "getting-started docs")
+                         "getting-started and executable result-contract docs")
         # product-design is OPTIONAL, so its footprint is asserted only when it is actually installed —
         # the same reason the check-ownership leg above is conditional. Requiring it to be present would red
         # a deployment's required self-tests for declining an add-on it was offered at setup.

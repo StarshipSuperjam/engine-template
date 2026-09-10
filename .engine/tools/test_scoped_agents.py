@@ -15,6 +15,7 @@ import build_coordinator_core as core
 import plan_store
 import providers
 import scoped_agents as scoped
+import result_contracts
 
 
 class ScopedAssignments(unittest.TestCase):
@@ -86,6 +87,25 @@ class ScopedAssignments(unittest.TestCase):
         return self.store.verified_locked(owner=self.owner, root="root-id", lens="architecture",
                                           packet_digest=self.a["packet_digest"])
 
+    def test_oversized_stop_is_not_hashed_or_retained_and_can_recover(self):
+        self.launch()
+        self.child_read()
+        huge = "é" * (result_contracts.LIMITS["bytes"] // 2 + 1)
+        original = core.digest
+        def checked(value):
+            self.assertNotEqual(value, huge)
+            return original(value)
+        with mock.patch.object(core, "digest", side_effect=checked):
+            self.stop(huge)
+        stop = self.store.read()["assignments"][self.a["id"]]["stops"][-1]
+        self.assertIsNone(stop["output"])
+        self.assertEqual(stop["rejection"]["rule"], "output_limit")
+        self.assertLess(self.store.path.stat().st_size, 100000)
+        with self.assertRaises(scoped.EvidenceError):
+            self.verified()
+        self.stop("[]")
+        self.assertEqual(self.verified()["id"], self.a["id"])
+
     def test_generated_packet_mutation_cannot_receive_the_original_target_label(self):
         expected = core.digest(self.packet.read_bytes())
         before = self.store.path.read_bytes()
@@ -106,6 +126,28 @@ class ScopedAssignments(unittest.TestCase):
         self.assertEqual(assignments[0]["file_digest"], expected)
         self.assertEqual(assignments[0]["packet_digest"], "logical-lens-target")
         self.assertEqual(Path(assignments[0]["packet_path"]).read_bytes(), self.packet.read_bytes())
+
+    def test_result_binding_is_frozen_and_invalid_acceptance_does_not_mutate(self):
+        self.owner["kind"] = "plan"
+        self.a = self.register("architecture")
+        self.launch(); self.child_read(); self.stop()
+        binding = self.a["result_contract"]
+        self.assertEqual(binding, result_contracts.resolve("plan-review-finding.v1"))
+        receipt = {"lens": "architecture", "packet_digest": self.a["packet_digest"]}
+        changed_type = copy.deepcopy(binding)
+        changed_type["schema"]["items"]["additionalProperties"] = 0
+        self.assertEqual(changed_type, binding)  # Python equality must not authorize this change.
+        for mutation in (None, {**binding, "schema_digest": "sha256:" + "0" * 64}, changed_type):
+            def change(data):
+                data["assignments"][self.a["id"]].pop("result_contract", None)
+                if mutation is not None:
+                    data["assignments"][self.a["id"]]["result_contract"] = mutation
+            self.store.change(change)
+            before = self.store.path.read_bytes()
+            with self.assertRaises(scoped.EvidenceError):
+                self.store.accept_locked(owner=self.owner, root="root-id", receipt=receipt,
+                    lenses=["architecture"], packet_digests={"architecture": self.a["packet_digest"]})
+            self.assertEqual(before, self.store.path.read_bytes())
 
     def test_native_capacity_rejection_permits_one_fresh_retry_and_preserves_failure(self):
         args = {"task_name": self.a["id"], "agent_type": self.a["role"], "fork_turns": "none", "message": "opaque launch"}
@@ -328,7 +370,8 @@ class ScopedAssignments(unittest.TestCase):
             self.stop(json.dumps({"status": status}))
             with self.assertRaises(scoped.EvidenceError):
                 verify()
-        self.stop('{"status":"complete","artifact":"useful result"}')
+        self.stop(json.dumps({"outcome": "failed", "reason": "Cannot complete", "evidence": {
+            "changed_paths": [], "verification_results": [], "assumptions": [], "unresolved_concerns": []}}))
         self.assertEqual(verify()["child"], "child-a")
 
     def test_relative_native_cat_binds_the_same_immutable_packet(self):

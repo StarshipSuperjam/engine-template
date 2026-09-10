@@ -5,6 +5,17 @@ from pathlib import Path
 
 import build_coordinator_core as core
 import close_linkage_preflight
+import result_contracts
+
+
+def ingest_review_report(raw, binding, *, lens):
+    """Canonical deliverable/repair report ingress, before controller adjudication."""
+    try:
+        report = result_contracts.ingest(raw, binding,
+            contract="pre-submission-review-finding.v1", role="pre-submission-review")
+        return result_contracts.compile_review(report, lens=lens)
+    except result_contracts.Rejection as exc:
+        raise core.CoordinatorError(str(exc)) from exc
 
 
 def installed(root: Path) -> list[dict]:
@@ -70,6 +81,8 @@ def lens_packet_digest(referent_digest: str, contract: dict) -> str:
 
 
 def lens_packets(referent_digest: str, contracts: list[dict]) -> list[dict]:
+    contracts = [{**c, "result_contract": result_contracts.resolve(
+        "pre-submission-review-finding.v1", role="pre-submission-review")} for c in contracts]
     return [
         {**contract, "lens_packet_digest": lens_packet_digest(referent_digest, contract)}
         for contract in contracts

@@ -16,7 +16,7 @@
       "role": "audit",
       "slug": "engine-audit",
       "source": {
-        "fingerprint": "sha256:ab2534bfd4156c677e4f53a8305b1790386534db7f047e41f06bcaf64db875e6",
+        "fingerprint": "sha256:0da4e31204ec96b48b95336a3cdcd812295e92e59dbf669a5186dd1f816c505f",
         "path": ".claude/agents/engine-audit.md"
       },
       "status": "active",
@@ -39,7 +39,7 @@
       "role": "plan-review",
       "slug": "engine-design-review-architecture",
       "source": {
-        "fingerprint": "sha256:2fe7bc6d7a2f0a96b52302a87c9d91d03ecd4bf33c2f6a645fda4a70a74b81fb",
+        "fingerprint": "sha256:b1e5b1a1cc783295f903dffdf258f2cccd169d6bbf20ade3d571392550df45e5",
         "path": ".claude/agents/engine-design-review-architecture.md"
       },
       "status": "active",
@@ -62,7 +62,7 @@
       "role": "plan-review",
       "slug": "engine-design-review-feasibility",
       "source": {
-        "fingerprint": "sha256:f6ec0c6e21ca8a3b7fbb57ee80b2dd04d6e66b10232015bd8bd0e46bffe1cb62",
+        "fingerprint": "sha256:53e61d0a7dc9f6f5b7f2f24243efdaf469ea0df0bc529e62a29ba6d1df90e3fc",
         "path": ".claude/agents/engine-design-review-feasibility.md"
       },
       "status": "active",
@@ -85,7 +85,7 @@
       "role": "plan-review",
       "slug": "engine-design-review-product-intent",
       "source": {
-        "fingerprint": "sha256:ade07dfbff74da167d3c0b71f95aae06ac3fc0072c594c525dcfa701e2656e64",
+        "fingerprint": "sha256:b76c9a18a5e451c935f689df9ff0b2a4154f4acc0a0c33440d0d3386f9a9969a",
         "path": ".claude/agents/engine-design-review-product-intent.md"
       },
       "status": "active",
@@ -108,7 +108,7 @@
       "role": "plan-review",
       "slug": "engine-design-review-risk-governance",
       "source": {
-        "fingerprint": "sha256:4d0ff9aa1cd84069427f9bf45125381ccd23b6c427e6268cd7c11cab2c04ed09",
+        "fingerprint": "sha256:c31c3f54334ad5d6f487e0db15ac49d27fc05f9c4f5b94395447c2a081aeada1",
         "path": ".claude/agents/engine-design-review-risk-governance.md"
       },
       "status": "active",
@@ -130,7 +130,7 @@
       "role": "scout",
       "slug": "engine-grounding-scout",
       "source": {
-        "fingerprint": "sha256:90865f67aef85ecd3179d903947fb461fd50a1bcf39d34d0ee9b97666bf8e5a0",
+        "fingerprint": "sha256:91ae9ef1e33b02271ed512ee73a9fb71fcf3b5af04000143ea9e906bf16825d5",
         "path": ".claude/agents/engine-grounding-scout.md"
       },
       "status": "active",
@@ -153,7 +153,7 @@
       "role": "pre-submission-review",
       "slug": "engine-qa-review-divergence-hunter",
       "source": {
-        "fingerprint": "sha256:74985b8f5d40aad9a0281c1ad635d71119b52e7fd562c8c59cffe4662212240c",
+        "fingerprint": "sha256:d087ea0c04f87ec05b65074dff53ef667328fc88ba1651673a0a09fe7140c6e7",
         "path": ".claude/agents/engine-qa-review-divergence-hunter.md"
       },
       "status": "active",
@@ -176,7 +176,7 @@
       "role": "pre-submission-review",
       "slug": "engine-qa-review-security-governance",
       "source": {
-        "fingerprint": "sha256:b75e1e8fd386a3104d6571820220253d113f4ebc348f9a5db6f79345e4c9dd6a",
+        "fingerprint": "sha256:b9d1d2f2a3b2a7bb104883d59248a69800e86edb42c2b5a6722a842621c1eed2",
         "path": ".claude/agents/engine-qa-review-security-governance.md"
       },
       "status": "active",
@@ -199,7 +199,7 @@
       "role": "pre-submission-review",
       "slug": "engine-qa-review-spec-conformance",
       "source": {
-        "fingerprint": "sha256:a5126b403d7bde1b1ccce1cfd9a5ec3d955df6b26de3962761d2aad06b1aaee5",
+        "fingerprint": "sha256:67441671279b9c65efa20988f743637aab30695ceac1c33a0ce061e6f5f961e4",
         "path": ".claude/agents/engine-qa-review-spec-conformance.md"
       },
       "status": "active",
@@ -222,7 +222,7 @@
       "role": "pre-submission-review",
       "slug": "engine-qa-review-technical-integrity",
       "source": {
-        "fingerprint": "sha256:8bb709ce9103bc8b5b2696b41f58c3d14facd3550903725204884da6c0610f3f",
+        "fingerprint": "sha256:933ae6cb79bf7507ad1c21f27bdd24d00a6071e7e81d4b3fd7c8a1fccd72c984",
         "path": ".claude/agents/engine-qa-review-technical-integrity.md"
       },
       "status": "active",
@@ -245,7 +245,7 @@
       "role": "pre-submission-review",
       "slug": "engine-qa-review-usability",
       "source": {
-        "fingerprint": "sha256:855e3dbf9934111f737ad3f6356467431f7bee77b1ef1bb9b78ca9ae42394e1f",
+        "fingerprint": "sha256:d1d1dc14988fef1e7773660f55db6b5114ad5f3bb74a37e11039f7a1a8d9a9ed",
         "path": ".claude/agents/engine-qa-review-usability.md"
       },
       "status": "active",
@@ -267,7 +267,7 @@
       "role": "scout",
       "slug": "engine-validation-runner",
       "source": {
-        "fingerprint": "sha256:6a3e90abb8fc244d01fa39cad03ecb6eced70a36366df54b0b6a68de46210782",
+        "fingerprint": "sha256:2f10dd291a2faa295e9fa28c983d25337f27f90453f3dcc2d0e88058898e4770",
         "path": ".claude/agents/engine-validation-runner.md"
       },
       "status": "active",
@@ -288,7 +288,7 @@
       "role": "worker",
       "slug": "engine-worker-bounded",
       "source": {
-        "fingerprint": "sha256:2812189cdb36c5e8d02a64fd6822ca34be27b79c25952889e14b27438f58dd07",
+        "fingerprint": "sha256:a0bc976db96adae7b8c8ce79019baa37dcb85703e68883c3c15e08aeb7d0f3a5",
         "path": ".claude/agents/engine-worker-bounded.md"
       },
       "status": "active",
@@ -309,7 +309,7 @@
       "role": "worker",
       "slug": "engine-worker-builder",
       "source": {
-        "fingerprint": "sha256:ff516f176b71deddbdeca13c4e79324981d1ddddedfe1897b388c803d65c69db",
+        "fingerprint": "sha256:4c328073da3577541c850225d6fa01a8a72fdfe2e987089d264f157a8e14b858",
         "path": ".claude/agents/engine-worker-builder.md"
       },
       "status": "active",
@@ -1133,7 +1133,8 @@
           "doc:accepted-hook-qualification",
           "doc:ci-assurance",
           "doc:getting-started",
-          "doc:product-design"
+          "doc:product-design",
+          "doc:result-contracts"
         ]
       },
       "slug": "doc-frontmatter",
@@ -1164,7 +1165,8 @@
           "doc:accepted-hook-qualification",
           "doc:ci-assurance",
           "doc:getting-started",
-          "doc:product-design"
+          "doc:product-design",
+          "doc:result-contracts"
         ]
       },
       "slug": "doc-shape",
@@ -3083,7 +3085,7 @@
       },
       "slug": "engine-audit",
       "source": {
-        "fingerprint": "sha256:c6c9e9fd75419ba550c32826b2749faae51d6acb686ac8b483902f94838eb39f",
+        "fingerprint": "sha256:ed4ec3ed26a1a15304132f83a8b3df6a9ba08dda1fe637d3678b95049a8cda8c",
         "path": ".codex/agents/engine-audit.toml"
       },
       "status": "active",
@@ -3103,7 +3105,7 @@
       },
       "slug": "engine-design-review-architecture",
       "source": {
-        "fingerprint": "sha256:325b840e843fbac0c6ca36568e11d99fc013dad7416b9b655403aa61ed0dc661",
+        "fingerprint": "sha256:7aedda7c4653f69fd148f4a29ef3b4ac826944c73a07cd75d96d9649eb242e71",
         "path": ".codex/agents/engine-design-review-architecture.toml"
       },
       "status": "active",
@@ -3123,7 +3125,7 @@
       },
       "slug": "engine-design-review-feasibility",
       "source": {
-        "fingerprint": "sha256:1884ce3fd4296297c14c6494e9fdb1908bce9fa4dbac4511fadc14d62eff6c9f",
+        "fingerprint": "sha256:79e24c3eb2dcce481e387a3fa0f85c73a1d98b8c6d5fed8dc97ebd650750f944",
         "path": ".codex/agents/engine-design-review-feasibility.toml"
       },
       "status": "active",
@@ -3143,7 +3145,7 @@
       },
       "slug": "engine-design-review-product-intent",
       "source": {
-        "fingerprint": "sha256:fcb6b48b588626be6b5873cedc75f2d0d003dd10b2ab4b23d691183de891dc05",
+        "fingerprint": "sha256:e196d2da7b00918be688a8c2ae353c09edc3093f0c9a044532f5587d26d35c49",
         "path": ".codex/agents/engine-design-review-product-intent.toml"
       },
       "status": "active",
@@ -3163,7 +3165,7 @@
       },
       "slug": "engine-design-review-risk-governance",
       "source": {
-        "fingerprint": "sha256:72e13526341190659e4d0cbb5f6b09697ffc7f43fc799a048bc73ca2efbcf5af",
+        "fingerprint": "sha256:d4d64036c609f1d181135857d4c26c81e322d28c81a60004d5ac2f8bd841d0ff",
         "path": ".codex/agents/engine-design-review-risk-governance.toml"
       },
       "status": "active",
@@ -3183,7 +3185,7 @@
       },
       "slug": "engine-qa-review-divergence-hunter",
       "source": {
-        "fingerprint": "sha256:f909e9c49d985a8b8df968dd556c06b4edf2eaab538a60c23a25f036967cf3dc",
+        "fingerprint": "sha256:73518dc99586d19e7c3867f6c55d8c710526c51858d4796cdfa6a33199676ad8",
         "path": ".codex/agents/engine-qa-review-divergence-hunter.toml"
       },
       "status": "active",
@@ -3203,7 +3205,7 @@
       },
       "slug": "engine-qa-review-security-governance",
       "source": {
-        "fingerprint": "sha256:006123d331c885f4db9eaa92e2fb9427b57f016812a31548e5e9df11da1ffc1a",
+        "fingerprint": "sha256:d2ba592387926bf8f40b96395afa8303ff9b51dea6ca491137aeb0989be0f41e",
         "path": ".codex/agents/engine-qa-review-security-governance.toml"
       },
       "status": "active",
@@ -3223,7 +3225,7 @@
       },
       "slug": "engine-qa-review-spec-conformance",
       "source": {
-        "fingerprint": "sha256:a3dc36c2fb23f58fb83ce81688a72840a3925cf95d21c428cad1751da224c2a3",
+        "fingerprint": "sha256:f3319bd2252645d5eeeaf570733e266b8cf35dd929f22f9d2fb434488a4923ef",
         "path": ".codex/agents/engine-qa-review-spec-conformance.toml"
       },
       "status": "active",
@@ -3243,7 +3245,7 @@
       },
       "slug": "engine-qa-review-technical-integrity",
       "source": {
-        "fingerprint": "sha256:4401fc198306a84940b19e702394eedaadfb2310b69eaf550f20afd3ec7d5e2f",
+        "fingerprint": "sha256:175dd239ee2a9ee69ed3f43e5d1b58a9589c50e74d48239c7c01db427b9350bc",
         "path": ".codex/agents/engine-qa-review-technical-integrity.toml"
       },
       "status": "active",
@@ -3263,7 +3265,7 @@
       },
       "slug": "engine-qa-review-usability",
       "source": {
-        "fingerprint": "sha256:05c6c1227974b2aa9541cbb4122c9afd0c2f4a9701302790a1b5121083ce43ac",
+        "fingerprint": "sha256:cfc974287dd4b2db875f594729a4ca31f4cc2df29eb5b3991986bdcdd35e11de",
         "path": ".codex/agents/engine-qa-review-usability.toml"
       },
       "status": "active",
@@ -3283,7 +3285,7 @@
       },
       "slug": "engine-worker-bounded",
       "source": {
-        "fingerprint": "sha256:106de19a59144a364999707b415d7b7f27baba19c5a285d1bda0e5c165b341ba",
+        "fingerprint": "sha256:a7ca4203f42c3f097876df6cde97f9cc7bab0ac08475f099a79c81a4ccf1372e",
         "path": ".codex/agents/engine-worker-bounded.toml"
       },
       "status": "active",
@@ -3303,7 +3305,7 @@
       },
       "slug": "engine-worker-builder",
       "source": {
-        "fingerprint": "sha256:273d2bbb1eaff3386c97b6995f15d453a84737c80ea8166b3d38eab0204bf23d",
+        "fingerprint": "sha256:bfe08dd68f918c0ebfb7effba23a282bbc897d17f4156fa22b80a450460439b1",
         "path": ".codex/agents/engine-worker-builder.toml"
       },
       "status": "active",
@@ -5243,7 +5245,7 @@
       },
       "slug": "ci-assurance",
       "source": {
-        "fingerprint": "sha256:dc244677a434955f6834277eb0aada6694f85216fe269df1ebe1331c9b8c8b53",
+        "fingerprint": "sha256:8232076f60deebba52d8ae12505cad821ae26aecabcec93b65331acc17048ff1",
         "path": ".engine/docs/ci-assurance.md"
       },
       "status": "active",
@@ -5285,6 +5287,26 @@
       "source": {
         "fingerprint": "sha256:4b7312304d1f5ccdae2868ddb2053b8fdebf783400c5e4fe330a85d2cd9582dd",
         "path": ".engine/docs/product-design.md"
+      },
+      "status": "active",
+      "type": "doc"
+    },
+    {
+      "id": "doc:result-contracts",
+      "name": ".engine/docs/result-contracts.md",
+      "owner": "core",
+      "predicates": {
+        "governed_by": [
+          "schema:doc.v1"
+        ],
+        "provided_by": [
+          "module:core"
+        ]
+      },
+      "slug": "result-contracts",
+      "source": {
+        "fingerprint": "sha256:545d5f2aa607a2fa83a18a4ded93aa3f70d8fa14ac7d03a03e80f816e493019b",
+        "path": ".engine/docs/result-contracts.md"
       },
       "status": "active",
       "type": "doc"
@@ -5485,7 +5507,7 @@
       },
       "slug": "core",
       "source": {
-        "fingerprint": "sha256:2d1d9ba61f1ce2faf1e7c70c3187359c1f948fbe622b9a442e9288b589591d8f",
+        "fingerprint": "sha256:a86fc0c428dc8da91ad499b2c0a2a98f3379162f8f0673e0c5f9004c1ef7f7c0",
         "path": ".engine/modules/core/manifest.json"
       },
       "status": "required",
@@ -5896,7 +5918,7 @@
       },
       "slug": "build-validation-and-review",
       "source": {
-        "fingerprint": "sha256:c03f535d54363fc56ad30325d3bce5d15245a0f6516ba6a29a65e262c30982ce",
+        "fingerprint": "sha256:39922cab3fd0fa85741f388af79b9b639c6d95a665e419fc19bbdd4f26f69711",
         "path": ".engine/operations/build-validation-and-review.md"
       },
       "status": "active",
@@ -5916,7 +5938,7 @@
       },
       "slug": "build-work-dispatch",
       "source": {
-        "fingerprint": "sha256:82e947a3fd6e0ac6ffda558bd6dbc9c6df21ec0445b09cdc9195378e721b1f2d",
+        "fingerprint": "sha256:039792d307cd45305275de135574a533a633551bb09269383e4b1bdb03aa3e22",
         "path": ".engine/operations/build-work-dispatch.md"
       },
       "status": "active",
@@ -6436,7 +6458,7 @@
       },
       "slug": "plan-orchestration",
       "source": {
-        "fingerprint": "sha256:dff26ed91c191da25d16159977ff5ff89d0bdd511fb64bc40374628d24196a88",
+        "fingerprint": "sha256:328514430d3595708736d189cc956f23d468747a5b16f6b1d802e7eefec9005c",
         "path": ".engine/operations/plan-orchestration.md"
       },
       "status": "active",
@@ -6556,7 +6578,7 @@
       },
       "slug": "scoped-agent-orchestration",
       "source": {
-        "fingerprint": "sha256:b0d01c77bf86d7decc91939583efd5c5cd6e1629ce44ff49f0de35c4c5fd2a84",
+        "fingerprint": "sha256:120e5feff74cbff42b2491291c64eda4124c84ed2d21a3e23f5ed12a5e13a110",
         "path": ".engine/operations/scoped-agent-orchestration.md"
       },
       "status": "active",
@@ -7129,7 +7151,7 @@
       },
       "slug": "build-state.v2",
       "source": {
-        "fingerprint": "sha256:47eed89f7b0cc0fc6e9f3caa505c1d4545a5dbe74662c2fcdec3fb34f84d9a86",
+        "fingerprint": "sha256:3c73c2ab21bebbe3b1cd268072aa9f0dad1dd3402e6cf5456104ee2507922479",
         "path": ".engine/schemas/build-state.v2.json"
       },
       "status": "active",
@@ -7265,7 +7287,7 @@
       },
       "slug": "conformance-verdicts.v1",
       "source": {
-        "fingerprint": "sha256:304ee2d6728d74641ee68ecbbf3978932dca207c3748fbd5a63e79b1f4fbb9e3",
+        "fingerprint": "sha256:bd06e836b7a8c23c443a9e65d26a41db4416bf359cdf88b681aefd6790545feb",
         "path": ".engine/schemas/conformance-verdicts.v1.json"
       },
       "status": "active",
@@ -7656,7 +7678,7 @@
       },
       "slug": "plan-review-finding.v1",
       "source": {
-        "fingerprint": "sha256:7fa83852d1f54f8c3c29169457df87be00afc68df5a6687eb4098ec8a1543b0b",
+        "fingerprint": "sha256:faa4de4ac7cd2becfc7eef1418198ec494df377d6996d7a0b2c37d4f4b3fba81",
         "path": ".engine/schemas/plan-review-finding.v1.json"
       },
       "status": "active",
@@ -7707,7 +7729,7 @@
       },
       "slug": "pre-submission-review-finding.v1",
       "source": {
-        "fingerprint": "sha256:38f58f09541707001af5e806024890dd157c78b0d865127edeccff6e2025653f",
+        "fingerprint": "sha256:e6d0f8dc4860844d1c5fcf8eee413028c9568a2d0872ebcc87db1f6407ff83e8",
         "path": ".engine/schemas/pre-submission-review-finding.v1.json"
       },
       "status": "active",
@@ -7782,6 +7804,23 @@
       "type": "schema"
     },
     {
+      "id": "schema:result-rejection.v1",
+      "name": ".engine/schemas/result-rejection.v1.json",
+      "owner": "core",
+      "predicates": {
+        "provided_by": [
+          "module:core"
+        ]
+      },
+      "slug": "result-rejection.v1",
+      "source": {
+        "fingerprint": "sha256:46d18ade82fcc74fa45ded2e3697d2485889cb57369636508810f18e49f5304b",
+        "path": ".engine/schemas/result-rejection.v1.json"
+      },
+      "status": "active",
+      "type": "schema"
+    },
+    {
       "id": "schema:scoped-agent-evidence.v1",
       "name": ".engine/schemas/scoped-agent-evidence.v1.json",
       "owner": "core",
@@ -7792,7 +7831,7 @@
       },
       "slug": "scoped-agent-evidence.v1",
       "source": {
-        "fingerprint": "sha256:5e08c6a99743cf8ca38088dec5d8170a3f98fe654959c2894c6ba01c4027380a",
+        "fingerprint": "sha256:3da5d5cc0474184d897159ddacb5a0d892b9f96bda2f04fa5e457ce84e1e6b32",
         "path": ".engine/schemas/scoped-agent-evidence.v1.json"
       },
       "status": "active",
@@ -9261,6 +9300,11 @@
       "owner": "core",
       "predicates": {
         "imports": [
+          "tool:build_coordinator_review",
+          "tool:build_coordinator_work",
+          "tool:conformance_sweep",
+          "tool:project_manager",
+          "tool:result_contracts",
           "tool:validate"
         ],
         "provided_by": [
@@ -9269,7 +9313,7 @@
       },
       "slug": "agent_coherence_check",
       "source": {
-        "fingerprint": "sha256:a94754ff810cd7aed515437708a3db131454436bfa6379443af7cdd8877dc51a",
+        "fingerprint": "sha256:37c68b50b6319bd4d5492b43ccdd2703383aaab8022fa0ac0a783cd3938efb55",
         "path": ".engine/tools/agent_coherence_check.py"
       },
       "status": "active",
@@ -9658,6 +9702,7 @@
           "tool:providers",
           "tool:repair_divergence",
           "tool:repo_identity",
+          "tool:result_contracts",
           "tool:review_integrity",
           "tool:scoped_agents",
           "tool:session_relay",
@@ -9671,7 +9716,7 @@
       },
       "slug": "build_coordinator",
       "source": {
-        "fingerprint": "sha256:49b24013c84b961539016f690bbf7ef45683e20f96524bde999b9bdc6fef529d",
+        "fingerprint": "sha256:5040d739b0e42c0b9bd85e8960b0ad6cf5e3f6fe2d6925c9cf9d965e28bc172a",
         "path": ".engine/tools/build_coordinator.py"
       },
       "status": "active",
@@ -9704,7 +9749,7 @@
     },
     {
       "entrypoint": "library",
-      "guarded": false,
+      "guarded": true,
       "id": "tool:build_coordinator_core",
       "name": ".engine/tools/build_coordinator_core.py",
       "owner": "core",
@@ -9795,14 +9840,15 @@
     },
     {
       "entrypoint": "library",
-      "guarded": false,
+      "guarded": true,
       "id": "tool:build_coordinator_review",
       "name": ".engine/tools/build_coordinator_review.py",
       "owner": "core",
       "predicates": {
         "imports": [
           "tool:build_coordinator_core",
-          "tool:close_linkage_preflight"
+          "tool:close_linkage_preflight",
+          "tool:result_contracts"
         ],
         "provided_by": [
           "module:core"
@@ -9810,7 +9856,7 @@
       },
       "slug": "build_coordinator_review",
       "source": {
-        "fingerprint": "sha256:864e909d74d42c48405ecceaf7230813beddf70292311867e807d6ee3f7c24c5",
+        "fingerprint": "sha256:1eaf544cfa86031f058b60e3ff80fb344f225ec2186ffc3ea46082aa6b932f8a",
         "path": ".engine/tools/build_coordinator_review.py"
       },
       "status": "active",
@@ -9844,14 +9890,15 @@
     },
     {
       "entrypoint": "library",
-      "guarded": false,
+      "guarded": true,
       "id": "tool:build_coordinator_work",
       "name": ".engine/tools/build_coordinator_work.py",
       "owner": "core",
       "predicates": {
         "imports": [
           "tool:build_coordinator_core",
-          "tool:build_coordinator_dag"
+          "tool:build_coordinator_dag",
+          "tool:result_contracts"
         ],
         "provided_by": [
           "module:core"
@@ -9859,7 +9906,7 @@
       },
       "slug": "build_coordinator_work",
       "source": {
-        "fingerprint": "sha256:91e0ece181688538196c934142fdb7198eb006541f4081d0d0926cfe85e2d41d",
+        "fingerprint": "sha256:b14c64d48ad2389455a79891c74670ea0cf2c09dec0b3617bcacf9b36e1e0f8a",
         "path": ".engine/tools/build_coordinator_work.py"
       },
       "status": "active",
@@ -10420,6 +10467,7 @@
       "predicates": {
         "imports": [
           "tool:agent_bindings",
+          "tool:result_contracts",
           "tool:skill_discovery",
           "tool:validate"
         ],
@@ -10429,7 +10477,7 @@
       },
       "slug": "codex_gen",
       "source": {
-        "fingerprint": "sha256:1ec5ffd859f1fb61986073f2ff6d573d1c0b8e9bf3533f3b6889fd28525b32cd",
+        "fingerprint": "sha256:25aca59e701fb3428865ac4ecc10aaa2b82e4748ae1ecbef54d2450e7e0aa92a",
         "path": ".engine/tools/codex_gen.py"
       },
       "status": "active",
@@ -10561,7 +10609,7 @@
     },
     {
       "entrypoint": "cli",
-      "guarded": false,
+      "guarded": true,
       "id": "tool:conformance_sweep",
       "name": ".engine/tools/conformance_sweep.py",
       "owner": "core",
@@ -10571,6 +10619,7 @@
           "tool:issue_author",
           "tool:moment",
           "tool:repo_identity",
+          "tool:result_contracts",
           "tool:spec_referent",
           "tool:telemetry",
           "tool:validate"
@@ -10581,7 +10630,7 @@
       },
       "slug": "conformance_sweep",
       "source": {
-        "fingerprint": "sha256:5a4e015f7425b7c2de61ab9d1a0bebaf8f84cfae581cb59209e207f72d1bb283",
+        "fingerprint": "sha256:fc20cf890100b22fce1ed7e9016b4ce9fc44dca8b52ac25b35cc28e030301709",
         "path": ".engine/tools/conformance_sweep.py"
       },
       "status": "active",
@@ -11659,7 +11708,7 @@
       },
       "slug": "demo_plan_to_ready_pr",
       "source": {
-        "fingerprint": "sha256:31c527b07a6736fbc2a2b5f41fe820c0038657b6948c298f474843a796a3365e",
+        "fingerprint": "sha256:45b7771d49b15299240d3881b070863183b19657224361b9681c81446a2beea5",
         "path": ".engine/tools/demo_plan_to_ready_pr.py"
       },
       "status": "active",
@@ -11914,6 +11963,26 @@
       },
       "status": "active",
       "summary": "Operator-runnable demo of restoring a memory backup when its record shape changed across engine versions.",
+      "type": "tool"
+    },
+    {
+      "entrypoint": "demo",
+      "guarded": false,
+      "id": "tool:demo_result_contracts",
+      "name": ".engine/tools/demo_result_contracts.py",
+      "owner": "core",
+      "predicates": {
+        "provided_by": [
+          "module:core"
+        ]
+      },
+      "slug": "demo_result_contracts",
+      "source": {
+        "fingerprint": "sha256:2569d97183822d827002ef982ae78451eb9518a009729d2ebfa1fa6e4b63bc83",
+        "path": ".engine/tools/demo_result_contracts.py"
+      },
+      "status": "active",
+      "summary": "Falsify the real review/worker ingress boundaries using disposable command fixtures.",
       "type": "tool"
     },
     {
@@ -14395,7 +14464,7 @@
     },
     {
       "entrypoint": "library",
-      "guarded": false,
+      "guarded": true,
       "id": "tool:plan_store",
       "name": ".engine/tools/plan_store.py",
       "owner": "core",
@@ -14583,6 +14652,7 @@
           "tool:plan_projection",
           "tool:plan_store",
           "tool:providers",
+          "tool:result_contracts",
           "tool:scoped_agents"
         ],
         "provided_by": [
@@ -14591,7 +14661,7 @@
       },
       "slug": "project_manager",
       "source": {
-        "fingerprint": "sha256:f550d95f9ba972ead323567bb3a8e77aca39d61f215d8a34c41077fe7099c456",
+        "fingerprint": "sha256:36708e428cb13d5960ab05077effea7fd9f4d94e1dcc63fdcfff1db5401e4b55",
         "path": ".engine/tools/project_manager.py"
       },
       "status": "active",
@@ -15204,6 +15274,26 @@
       "type": "tool"
     },
     {
+      "entrypoint": "library",
+      "guarded": true,
+      "id": "tool:result_contracts",
+      "name": ".engine/tools/result_contracts.py",
+      "owner": "core",
+      "predicates": {
+        "provided_by": [
+          "module:core"
+        ]
+      },
+      "slug": "result_contracts",
+      "source": {
+        "fingerprint": "sha256:78c521e784d6a841d132885433bb504d9734e14bfab73918e27e8baf4a5cf73c",
+        "path": ".engine/tools/result_contracts.py"
+      },
+      "status": "active",
+      "summary": "Canonical, bounded persona-result protocols; no state or provider invocation lives here.",
+      "type": "tool"
+    },
+    {
       "entrypoint": "ci",
       "guarded": true,
       "id": "tool:review",
@@ -15423,11 +15513,15 @@
       "predicates": {
         "imports": [
           "tool:build_coordinator_core",
+          "tool:build_coordinator_review",
           "tool:build_state_store",
           "tool:hooks",
           "tool:moment",
           "tool:plan_store",
-          "tool:providers"
+          "tool:project_manager",
+          "tool:providers",
+          "tool:result_contracts",
+          "tool:validate"
         ],
         "provided_by": [
           "module:core"
@@ -15435,7 +15529,7 @@
       },
       "slug": "scoped_agents",
       "source": {
-        "fingerprint": "sha256:5d968f7983f04e402b6f548758dd95d4079f8068267b78f7baa38f331ffa207c",
+        "fingerprint": "sha256:d185acdbb7bd033aabc1bddaa41494b965bda4fbfe582b100fe23d575a99d555",
         "path": ".engine/tools/scoped_agents.py"
       },
       "status": "active",
@@ -16209,12 +16303,14 @@
         ],
         "tests": [
           "tool:agent_coherence_check",
+          "tool:project_manager",
+          "tool:result_contracts",
           "tool:validate"
         ]
       },
       "slug": "test_agent_coherence_check",
       "source": {
-        "fingerprint": "sha256:02452bcd253637d5d91b6810210a02595fd9e67bd6e5b3770b6e261a90bcc754",
+        "fingerprint": "sha256:c63b2b62d24eb2c03ed4b4d09d19cb931507526698775b4343651f3cceeff878",
         "path": ".engine/tools/test_agent_coherence_check.py"
       },
       "status": "active",
@@ -16553,7 +16649,7 @@
       },
       "slug": "test_build_coordinator",
       "source": {
-        "fingerprint": "sha256:0f59492592ff15d5f2d8a494937f8cff7fd35c849706dc1ff8fd7d8cd8afd89d",
+        "fingerprint": "sha256:2d66046ed556c4bbfd88d20b782a396c2eaea028c584700ee14efb1b5b9b5996",
         "path": ".engine/tools/test_build_coordinator.py"
       },
       "status": "active",
@@ -16710,7 +16806,7 @@
       },
       "slug": "test_build_coordinator_review",
       "source": {
-        "fingerprint": "sha256:c6c0cb1ad3c922ddd4a9b3238ed5b7dd59212179cd3e6e5637174a6dfecdc00e",
+        "fingerprint": "sha256:ccec2b7e7ba195d01f635bca3eb81b3ab7523e1cde44ac28e6e8ed2fac40f362",
         "path": ".engine/tools/test_build_coordinator_review.py"
       },
       "status": "active",
@@ -16733,12 +16829,13 @@
           "tool:build_coordinator_github",
           "tool:build_coordinator_work",
           "tool:build_state_store",
+          "tool:result_contracts",
           "tool:test_build_coordinator"
         ]
       },
       "slug": "test_build_coordinator_work",
       "source": {
-        "fingerprint": "sha256:b923d07f05db10c4527ad0f10cb9b6e84a44ced9cf97f4e38ac86c6473555c9a",
+        "fingerprint": "sha256:ff03b1c4c7290eb4be788307c361fc3efb7143987af9ca4bfd64c8606c68c26b",
         "path": ".engine/tools/test_build_coordinator_work.py"
       },
       "status": "active",
@@ -17177,7 +17274,7 @@
       },
       "slug": "test_codex_gen",
       "source": {
-        "fingerprint": "sha256:29ec0df5f7929aa4eaa36bdb25e92fa1ea834e8b7f6aad5b9190094c465cfd1b",
+        "fingerprint": "sha256:b97a3b75669c08a4facdf0dc2c791e6d3684514666dd509b802cba042f598fb0",
         "path": ".engine/tools/test_codex_gen.py"
       },
       "status": "active",
@@ -17357,13 +17454,14 @@
           "tool:conformance_sweep",
           "tool:obligation_matrix",
           "tool:quiet_call",
+          "tool:result_contracts",
           "tool:telemetry",
           "tool:validate"
         ]
       },
       "slug": "test_conformance_sweep",
       "source": {
-        "fingerprint": "sha256:9f1ffed68b8bfa56c3efb161f77bb2109a5b7396dab666649bb7d1a5d3ef232d",
+        "fingerprint": "sha256:ebcca52e1b909ffe3041ac2096166275ac9f72010ac9085ed8e60192a324f860",
         "path": ".engine/tools/test_conformance_sweep.py"
       },
       "status": "active",
@@ -19171,7 +19269,7 @@
       },
       "slug": "test_modules",
       "source": {
-        "fingerprint": "sha256:ee7db739ef1ff11d2dc10a7db8f7e9baeaef2c21064e051883c70a2abf4ef400",
+        "fingerprint": "sha256:8f440b8d51f0c9e5ecbc88ea88df671aac33864a12669c10a23b9e555cfc9020",
         "path": ".engine/tools/test_modules.py"
       },
       "status": "active",
@@ -19591,7 +19689,7 @@
       },
       "slug": "test_plan_dogfood",
       "source": {
-        "fingerprint": "sha256:bf694dde60703fa35dc4fc5dedafbcec2a911e64e285c7e9ff051c0f347098fd",
+        "fingerprint": "sha256:7cf3668c7e470ae41aadceab3e8a1fbbd1473bc469f6338d09288506126fb6c8",
         "path": ".engine/tools/test_plan_dogfood.py"
       },
       "status": "active",
@@ -19623,7 +19721,7 @@
       },
       "slug": "test_plan_lifecycle",
       "source": {
-        "fingerprint": "sha256:d264414e490eb456047be8c9e98119e375054e6fd5d533bd00afc1dba302c180",
+        "fingerprint": "sha256:01b049931be16a2378cedf09a34bbda0f9022def95b0dd7359b9775ab07adb77",
         "path": ".engine/tools/test_plan_lifecycle.py"
       },
       "status": "active",
@@ -19881,6 +19979,7 @@
           "tool:plan_projection",
           "tool:plan_store",
           "tool:project_manager",
+          "tool:result_contracts",
           "tool:scoped_agents",
           "tool:test_build_coordinator",
           "tool:test_plan_store",
@@ -19889,7 +19988,7 @@
       },
       "slug": "test_project_manager",
       "source": {
-        "fingerprint": "sha256:99abc8e9b66b1e9cf8d06d027e386301bbbe390428ef99f633a6f4e4a519a9ee",
+        "fingerprint": "sha256:45b7d12f5d3c945db379cadbfb41746941a7724b31a723007a597e31bef07760",
         "path": ".engine/tools/test_project_manager.py"
       },
       "status": "active",
@@ -20398,6 +20497,31 @@
     {
       "entrypoint": "test",
       "guarded": false,
+      "id": "tool:test_result_contracts",
+      "name": ".engine/tools/test_result_contracts.py",
+      "owner": "core",
+      "predicates": {
+        "provided_by": [
+          "module:core"
+        ],
+        "tests": [
+          "tool:demo_result_contracts",
+          "tool:quiet_call",
+          "tool:result_contracts"
+        ]
+      },
+      "slug": "test_result_contracts",
+      "source": {
+        "fingerprint": "sha256:29ef684b6fbb9820493bdd75dd6d60344137ab1201f39ecf6abaee5beed8ac54",
+        "path": ".engine/tools/test_result_contracts.py"
+      },
+      "status": "active",
+      "summary": "Real canonical ingress witnesses, including the deliberately invalid inputs it must reject.",
+      "type": "tool"
+    },
+    {
+      "entrypoint": "test",
+      "guarded": false,
       "id": "tool:test_retire_eadr_records",
       "name": ".engine/tools/test_retire_eadr_records.py",
       "owner": "core",
@@ -20739,12 +20863,13 @@
           "tool:build_coordinator_core",
           "tool:plan_store",
           "tool:providers",
+          "tool:result_contracts",
           "tool:scoped_agents"
         ]
       },
       "slug": "test_scoped_agents",
       "source": {
-        "fingerprint": "sha256:3302844a064d2e6b2197286fb53226f1982b66b4a58aa15a58fb31d9a22f47a8",
+        "fingerprint": "sha256:5f6d42356cd9e43f0b33c2b921d56ee2b5fd11ab48aaee36969582260358b6eb",
         "path": ".engine/tools/test_scoped_agents.py"
       },
       "status": "active",
@@ -22245,7 +22370,7 @@
       },
       "slug": "weakening_guard",
       "source": {
-        "fingerprint": "sha256:d5df11c682e5e79dc558a5443a600319c08b66bc494c581a4dc44d60f18693da",
+        "fingerprint": "sha256:cc8912f2e64d862d793001a9b6c57ca7121175d04ff126662b249544d2d5f806",
         "path": ".engine/tools/weakening_guard.py"
       },
       "status": "active",
