@@ -12262,7 +12262,7 @@
       },
       "slug": "derived_state",
       "source": {
-        "fingerprint": "sha256:4fd3879c2e80c59a0f254b79ec551842ec10a29c72a9c181606b33f1ca009c75",
+        "fingerprint": "sha256:b752666141c89ee2b60791606fd08278c9356abec35bdde922e95688839206ba",
         "path": ".engine/tools/derived_state.py"
       },
       "status": "active",
@@ -14017,7 +14017,7 @@
       },
       "slug": "module_manager",
       "source": {
-        "fingerprint": "sha256:82a8e7b4235b9edd7c427264214c5f9fbe02d8d6285bc786f5c480102db738a2",
+        "fingerprint": "sha256:8a22afc07818406a90ed101d77a7e279527ecedb8ebe714073815c903bb50c4c",
         "path": ".engine/tools/module_manager.py"
       },
       "status": "active",
@@ -19222,7 +19222,7 @@
       },
       "slug": "test_module_manager",
       "source": {
-        "fingerprint": "sha256:d09eb0a7a68ab66af2109eebe7312fad9fd6a117c17e5dd58f6b0c2d8f7bcc79",
+        "fingerprint": "sha256:7511d4e53d45c068bd9ab6c4c26808e3497d201e89b900aec4f3e1b46fca90ae",
         "path": ".engine/tools/test_module_manager.py"
       },
       "status": "active",
