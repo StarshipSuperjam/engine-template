@@ -311,8 +311,13 @@ def _demo() -> int:
 
 def result_contract_findings(agents, tier="hard"):
     """Exercise registered production ingress adapters, including an actual bad report."""
-    import importlib
+    import build_coordinator_review
+    import build_coordinator_work
+    import conformance_sweep
+    import project_manager
     import result_contracts as rc
+    handlers = {module.__name__: module for module in
+                (build_coordinator_review, build_coordinator_work, conformance_sweep, project_manager)}
     findings = []
     witnessed = set()
     for persona in agents:
@@ -329,7 +334,7 @@ def result_contract_findings(agents, tier="hard"):
                 if not callable(getattr(rc, protocol["compiler"], None)):
                     rc.reject("missing_compiler", category="authority")
                 module, name = protocol["handler"].rsplit(".", 1)
-                handler = getattr(importlib.import_module(module), name, None)
+                handler = getattr(handlers.get(module), name, None)
                 if not callable(handler):
                     rc.reject("missing_handler", category="authority")
                 kwargs = {"lens": "witness"} if "review" in protocol["roles"][0] else {}

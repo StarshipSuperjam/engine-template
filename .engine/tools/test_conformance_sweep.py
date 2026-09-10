@@ -340,6 +340,23 @@ class TestLeakGuard(unittest.TestCase):
 
 
 class TestPromote(unittest.TestCase):
+    def test_cli_rejection_is_not_reported_as_an_empty_success(self):
+        import contextlib
+        import io
+        from unittest import mock
+        body = self._body_file(_block([{**_item(), "unknown": 1}]))
+        root = _seed({})
+        self.addCleanup(__import__("shutil").rmtree, root, True)
+        output, error = io.StringIO(), io.StringIO()
+        with mock.patch.object(cs, "_root", return_value=root), \
+                contextlib.redirect_stdout(output), contextlib.redirect_stderr(error):
+            self.assertEqual(cs.main(["promote", body]), 0)
+        self.assertIn("report rejected", error.getvalue())
+        self.assertIn("No conformance issues were promoted", output.getvalue())
+        self.assertNotIn("No standing conformance findings", output.getvalue())
+        with open(body) as stream:
+            self.assertNotIn("<!--", stream.read())
+
     def test_rejected_model_block_is_disclosed_stripped_and_does_not_promote(self):
         import contextlib
         import io

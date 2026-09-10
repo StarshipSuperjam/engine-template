@@ -708,7 +708,7 @@ def main(argv: list) -> int:
         elif tracked:
             print(f"Tracked {tracked} standing conformance finding(s) as engine issue(s).")
         else:
-            print("No standing conformance findings to track this run.")
+            print("No conformance issues were promoted this run; inspect any report-rejection notice above.")
         return 0
     if cmd == "state":
         print(conditional_state())
