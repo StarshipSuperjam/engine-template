@@ -5303,7 +5303,7 @@
       },
       "slug": "result-contracts",
       "source": {
-        "fingerprint": "sha256:f72013fd611565270c4db7364f7dd8e9999309803d9abcc2e49d2e0f3f24d433",
+        "fingerprint": "sha256:545d5f2aa607a2fa83a18a4ded93aa3f70d8fa14ac7d03a03e80f816e493019b",
         "path": ".engine/docs/result-contracts.md"
       },
       "status": "active",
@@ -9659,7 +9659,7 @@
       },
       "slug": "build_coordinator",
       "source": {
-        "fingerprint": "sha256:c8db1ea57c6e581d39dfd082db5fb82df230ffb4a736ca1803975af0d47e55ec",
+        "fingerprint": "sha256:eceaa45fd9e51bda9f4a39cf579c14c0a1ef56898838665ee177588254b0872d",
         "path": ".engine/tools/build_coordinator.py"
       },
       "status": "active",
@@ -9849,7 +9849,7 @@
       },
       "slug": "build_coordinator_work",
       "source": {
-        "fingerprint": "sha256:667920aa09ae74361834b93469b8c4f32c590d084994647f99f7f4a5b971291d",
+        "fingerprint": "sha256:00033dbc2a3b329cbc24f7f22cb9c54b85b499d699091e65142af6b43fd235ea",
         "path": ".engine/tools/build_coordinator_work.py"
       },
       "status": "active",
@@ -10572,7 +10572,7 @@
       },
       "slug": "conformance_sweep",
       "source": {
-        "fingerprint": "sha256:8ca1c6e26b1abe9a7414349829263ce5272b328a08e61f9ce655c5ecf4bc5ac5",
+        "fingerprint": "sha256:fc20cf890100b22fce1ed7e9016b4ce9fc44dca8b52ac25b35cc28e030301709",
         "path": ".engine/tools/conformance_sweep.py"
       },
       "status": "active",
@@ -11920,7 +11920,7 @@
       },
       "slug": "demo_result_contracts",
       "source": {
-        "fingerprint": "sha256:5e54988be4f7edfa9f7806ef1738c964593dd2e07db9a5bd7e90d6f3f650f586",
+        "fingerprint": "sha256:2569d97183822d827002ef982ae78451eb9518a009729d2ebfa1fa6e4b63bc83",
         "path": ".engine/tools/demo_result_contracts.py"
       },
       "status": "active",
@@ -14573,7 +14573,7 @@
       },
       "slug": "project_manager",
       "source": {
-        "fingerprint": "sha256:05c0c9afa4b938bff378ecae95a95454cfbcd48400a0384b9da447f432b55af5",
+        "fingerprint": "sha256:5acacb066bc98082fc00bbe9bff6af52eefe8d25ee7a1f5336105c3524c8abf3",
         "path": ".engine/tools/project_manager.py"
       },
       "status": "active",
@@ -15198,7 +15198,7 @@
       },
       "slug": "result_contracts",
       "source": {
-        "fingerprint": "sha256:4aa409ded77eba21dc79510b6beb4007c731343dec3b9259f3f3a1fb1e05da4e",
+        "fingerprint": "sha256:1773dfe85712cc01c4ad5ab9655d9f9492cba5ff94ba6e42ea80579ea0eb23a2",
         "path": ".engine/tools/result_contracts.py"
       },
       "status": "active",
@@ -15441,7 +15441,7 @@
       },
       "slug": "scoped_agents",
       "source": {
-        "fingerprint": "sha256:424ab19b505e550f5c1dba0bf2bb1a394e6cf9d033e222bf89a682d94a5d9f5c",
+        "fingerprint": "sha256:d185acdbb7bd033aabc1bddaa41494b965bda4fbfe582b100fe23d575a99d555",
         "path": ".engine/tools/scoped_agents.py"
       },
       "status": "active",
@@ -16560,7 +16560,7 @@
       },
       "slug": "test_build_coordinator",
       "source": {
-        "fingerprint": "sha256:1b3efa1773e5499361e5b95504423700ca10e5b5f0c12668898eb3f5d405c934",
+        "fingerprint": "sha256:2d66046ed556c4bbfd88d20b782a396c2eaea028c584700ee14efb1b5b9b5996",
         "path": ".engine/tools/test_build_coordinator.py"
       },
       "status": "active",
@@ -16717,7 +16717,7 @@
       },
       "slug": "test_build_coordinator_review",
       "source": {
-        "fingerprint": "sha256:aa78554a740144bd95c7663e0e8895c198f54eb4dd504a658a5c4976b1804fe5",
+        "fingerprint": "sha256:ccec2b7e7ba195d01f635bca3eb81b3ab7523e1cde44ac28e6e8ed2fac40f362",
         "path": ".engine/tools/test_build_coordinator_review.py"
       },
       "status": "active",
@@ -16746,7 +16746,7 @@
       },
       "slug": "test_build_coordinator_work",
       "source": {
-        "fingerprint": "sha256:594eaa7e025b7afe45bec659d8fe220dc74189369c2d436938b57657f4bb0820",
+        "fingerprint": "sha256:bb18fc6e593776cce0c74e6772946085cf7c051d7b51a802dad1035f8b087e0c",
         "path": ".engine/tools/test_build_coordinator_work.py"
       },
       "status": "active",
@@ -17363,13 +17363,14 @@
           "tool:conformance_sweep",
           "tool:obligation_matrix",
           "tool:quiet_call",
+          "tool:result_contracts",
           "tool:telemetry",
           "tool:validate"
         ]
       },
       "slug": "test_conformance_sweep",
       "source": {
-        "fingerprint": "sha256:62f358a08c0180a5cc0e5d1af5428937bd0983dacb1cd5c50b8a51c1e1c8cc83",
+        "fingerprint": "sha256:ebcca52e1b909ffe3041ac2096166275ac9f72010ac9085ed8e60192a324f860",
         "path": ".engine/tools/test_conformance_sweep.py"
       },
       "status": "active",
@@ -19865,7 +19866,7 @@
       },
       "slug": "test_project_manager",
       "source": {
-        "fingerprint": "sha256:72132728e6e9d863c700e1b92de133244be5ce8b68a985a69c4d97026431eaed",
+        "fingerprint": "sha256:94e170ccb08681368a458833711db59be88be624f2c9135411e8b3e8d53a8b9a",
         "path": ".engine/tools/test_project_manager.py"
       },
       "status": "active",
@@ -20389,7 +20390,7 @@
       },
       "slug": "test_result_contracts",
       "source": {
-        "fingerprint": "sha256:9ff05cefaa87295877edca1dc416cd3290a786b7d2320299820a48aac713ac00",
+        "fingerprint": "sha256:8b6dbb7e680c7082e253caca7b7633294b27951b33a3d14fe2bb9e6c97ccd532",
         "path": ".engine/tools/test_result_contracts.py"
       },
       "status": "active",
@@ -20746,7 +20747,7 @@
       },
       "slug": "test_scoped_agents",
       "source": {
-        "fingerprint": "sha256:2388746af33763ceec74270f3366d82d21ae5c65753ff37d2db55f6a1a4ed176",
+        "fingerprint": "sha256:5f6d42356cd9e43f0b33c2b921d56ee2b5fd11ab48aaee36969582260358b6eb",
         "path": ".engine/tools/test_scoped_agents.py"
       },
       "status": "active",
