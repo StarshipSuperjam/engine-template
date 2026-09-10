@@ -125,6 +125,21 @@ class TestComposedBodyOmitsPrivateReference(unittest.TestCase):
         self.assertNotIn("Private details", body)
 
 
+class TestBaseAdvanceDisclosure(unittest.TestCase):
+    def test_merge_proof_reaches_the_composed_pr_body(self):
+        import build_coordinator as bc
+        proof = {"target_repository": "example/repo", "target_ref": "main",
+                 "target_tip": "a" * 40, "merge_commit": "b" * 40,
+                 "first_parent": "c" * 40, "merge_tree": "d" * 40,
+                 "validated_head": "e" * 40, "observed_at": "2026-09-09T00:00:00Z"}
+        state = {"repair": None, "base_advances": [proof]}
+        evidence = {**_good_evidence(), "drift_line": bc._drift_line(state, "e" * 40)}
+        body = bcc.compose(_good_claim(), evidence)
+        for value in (proof["target_tip"], proof["merge_commit"], proof["validated_head"],
+                      "example/repo", "automatic merge result", "without restamping"):
+            self.assertIn(value, body)
+
+
 class TestClaimValidation(unittest.TestCase):
     def test_good_claim_validates(self):
         bcc.validate_claim(_good_claim())  # must not raise

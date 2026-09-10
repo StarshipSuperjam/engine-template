@@ -172,6 +172,15 @@ def _assert_snapshot_claim(record, claim, state):
             or ('authorizing_issue' in claim and state['plan'].get('authorizing_issue') != claim['authorizing_issue'])
             or str(Path(state['build'].get('worktree', '')).resolve()) != claim['worktree']):
         raise BuildStateError('snapshot and plan claim disagree about Build ownership; preserve evidence and recover the transaction')
+    if claim.get('admission') is not None:
+        admission = state.get('admission')
+        if (admission != claim['admission']
+                or core.digest(admission['material']) != claim.get('admission_digest')):
+            raise BuildStateError('snapshot and claim admission evidence disagree; preserve both and recover the original preparation')
+        if claim['state'] == 'preparing' and (
+                state['plan'].get('bound_head') != admission['material']['head']
+                or state['build']['base_at_bind'] != admission['material']['target_tip']):
+            raise BuildStateError('preparing snapshot head/base disagree with its frozen admission; preserve both records and recover the original preparation')
 
 
 def _binding_projection(claim) -> dict:
@@ -205,7 +214,7 @@ def _check_seal(record, state, *, legacy_revision=False) -> None:
 
 
 def reserve_build(library, slug, state, *, consent=None, locator=None,
-                  legacy_source=None, legacy_clients_stopped=False) -> dict:
+                  legacy_source=None, legacy_clients_stopped=False, validate_entry=None) -> dict:
     """Reserve before any snapshot write. A retry receives the same identity and consent.
 
     No timeout or rollback can steal this reservation. A caller changing any request field
@@ -229,6 +238,10 @@ def reserve_build(library, slug, state, *, consent=None, locator=None,
                   'build_plan_digest': state['plan']['digest'],
                   'mode': state['build']['mode'], 'authorizing_issue': state['plan'].get('authorizing_issue'),
                   'worktree': str(Path(state['build']['worktree']).resolve()), 'locator': locator}
+        if state.get('admission') is not None:
+            wanted['admission_digest'] = core.digest(state['admission']['material'])
+        if validate_entry:
+            validate_entry()
         lease = record.get('build_lease')
         if lease and lease['current']:
             claim = lease['current']
@@ -263,6 +276,8 @@ def reserve_build(library, slug, state, *, consent=None, locator=None,
         generation = lease['generation'] + 1 if lease else 1
         claim = dict(wanted, build_id='bld_' + uuid.uuid4().hex, generation=generation,
                      state='preparing', at=moment.utc_now())
+        if state.get('admission') is not None:
+            claim['admission'] = copy.deepcopy(state['admission'])
         claim['snapshot'] = str(builds_dir(library, slug) / claim['build_id'] / SNAPSHOT_FILENAME)
         if legacy_source:
             claim.update(legacy_source=str(Path(legacy_source).resolve()), legacy_digest=source_digest)
@@ -306,7 +321,7 @@ def _cutover_locked(library, slug, claim) -> None:
     _flush_directory(old.parent)
 
 
-def finish_binding(library, slug, identity, state, schema) -> dict:
+def finish_binding(library, slug, identity, state, schema, *, validate_entry=None) -> dict:
     """Converge preparing -> durable snapshot -> compatibility barrier -> active.
 
     A snapshot already written by this transaction wins over retry input, preserving all
@@ -317,6 +332,15 @@ def finish_binding(library, slug, identity, state, schema) -> dict:
         claim = _assert_claim(record, identity, states=('preparing', 'active'))
         if claim['state'] == 'preparing' and claim.get('transfer'):
             raise BuildStateError('this preparation belongs to successor adoption; retry the recorded adoption')
+        if claim['state'] == 'preparing' and claim.get('admission') is not None:
+            observed = state.get('admission')
+            if (not observed or core.digest(observed['material']) != claim.get('admission_digest')):
+                raise BuildStateError('preparing admission changed; preserve its snapshot and claim, explicitly retire it, then make a fresh admission')
+            if validate_entry:
+                validate_entry()
+            # Original observation time/evidence wins over an equivalent retry.
+            state = copy.deepcopy(state)
+            state['admission'] = copy.deepcopy(claim['admission'])
         _check_seal(record, state, legacy_revision=bool(claim.get('legacy_source')))
         path = _claim_path(library, slug, claim)
         if claim['state'] == 'preparing' and claim.get('legacy_source'):
@@ -734,7 +758,8 @@ def supersede(library, slug, *, reason, identity=None, expected_revision=None, s
                         expected_revision=expected_revision, terminal_state='superseded')
 
 
-def restore_handoff(library, slug, value, restored, schema, *, worktree, projection, locator=None):
+def restore_handoff(library, slug, value, restored, schema, *, worktree, projection, locator=None,
+                    validate_progress=None):
     """Verify a cold export against the surviving canonical evidence; never create ownership.
 
     A bounded export cannot prove it is the newest copy after the canonical evidence is lost.
@@ -757,6 +782,10 @@ def restore_handoff(library, slug, value, restored, schema, *, worktree, project
         bounded = {k: v for k, v in value.items() if k != 'snapshot'}
         if core.digest(projection(current)) != core.digest(bounded):
             raise BuildStateError('handoff evidence is stale or altered; re-export the current canonical Build')
+        if validate_progress:
+            # Recovery authority comes only from the surviving canonical record under its lock.
+            # Portable handoff contents never grant an ancestry exception.
+            validate_progress(current)
         # Preserve private notes from the canonical snapshot. Only continuation evidence changes.
         for node_id, node in restored['work'].items():
             original = current['work'].get(node_id, {})

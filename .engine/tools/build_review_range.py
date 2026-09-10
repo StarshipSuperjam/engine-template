@@ -37,6 +37,11 @@ counts as authored — the fail-toward-more-review direction.
 from __future__ import annotations
 
 from pathlib import Path
+import json
+import os
+import re
+import subprocess
+import tempfile
 
 import build_coordinator_core as core
 
@@ -148,12 +153,74 @@ def authored_only(root: Path, shas: list[str]) -> list[str]:
     return [sha for sha in shas if not is_derived_only(root, sha, owned)]
 
 
-def authored_between(root: Path, base: str | None, tip: str | None) -> list[str]:
+def prove_base_advance(root: Path, merge: str, target: dict) -> dict | None:
+    """Prove one exact two-parent automatic merge of a previously observed target tip.
+
+    Target identity comes from the coordinator's verified remote observation. Git facts are
+    re-derived whenever coverage consumes this evidence; the receipt itself never changes.
+    Conflicts, missing objects and edited merge trees grant no exemption.
+    """
+    try:
+        if (not target.get("target_repository") or not target.get("target_ref")
+                or not re.fullmatch(r"[0-9a-f]{40}", target.get("target_tip", ""))):
+            return None
+        if not re.fullmatch(r"[0-9a-f]{40}", merge):
+            return None
+        # Reproduce only committed Git objects. A kept checkout's info/attributes, config,
+        # replacement refs or environment can otherwise install a custom merge driver that
+        # manufactures a manually resolved tree and falsely turns authored work into coverage.
+        with tempfile.TemporaryDirectory(prefix="engine-merge-proof-") as directory:
+            env = {k: v for k, v in os.environ.items() if not k.startswith("GIT_")}
+            env.update(HOME=directory, XDG_CONFIG_HOME=directory, GIT_CONFIG_NOSYSTEM="1",
+                       GIT_CONFIG_SYSTEM=os.devnull, GIT_CONFIG_GLOBAL=os.devnull,
+                       GIT_ATTR_NOSYSTEM="1", GIT_TERMINAL_PROMPT="0")
+
+            def git(where, *args):
+                result = subprocess.run(["git", "--no-replace-objects", *args], cwd=where,
+                    env=env, text=True, capture_output=True, timeout=45)
+                if result.returncode:
+                    raise RangeUnreadable("isolated automatic merge proof failed")
+                return result.stdout.strip()
+
+            objects = Path(git(root, "rev-parse", "--path-format=absolute", "--git-path", "objects"))
+            git(directory, "init", "--bare", "--template=", ".")
+            # Quoted alternate paths protect separators and unusual checkout path characters.
+            env["GIT_ALTERNATE_OBJECT_DIRECTORIES"] = json.dumps(str(objects), ensure_ascii=False)
+            parents = git(directory, "rev-list", "--parents", "-n", "1", merge).split()
+            if len(parents) != 3 or parents[0] != merge or parents[2] != target["target_tip"]:
+                return None
+            tree = git(directory, "merge-tree", "--write-tree", parents[1], parents[2]).splitlines()[0]
+            if not re.fullmatch(r"[0-9a-f]{40}", tree):
+                return None
+            if tree != git(directory, "rev-parse", merge + "^{tree}"):
+                return None
+        return {key: target[key] for key in ("target_repository", "target_ref", "target_tip")} | {
+            "merge_commit": merge, "first_parent": parents[1], "merge_tree": tree}
+    except (RangeUnreadable, IndexError, OSError, subprocess.TimeoutExpired):
+        return None
+
+
+def _base_advance_commits(root: Path, tip: str, observations) -> set[str]:
+    exempt = set()
+    for observation in observations or []:
+        proof = prove_base_advance(root, observation.get("merge_commit", ""), observation)
+        if not proof or any(observation.get(key) != value for key, value in proof.items()):
+            continue
+        # A proof from another branch or an abandoned merge cannot answer for this tip.
+        if core.run(["git", "merge-base", "--is-ancestor", proof["merge_commit"], tip], root=root).returncode:
+            continue
+        exempt.add(proof["merge_commit"])
+        exempt.update(commits(root, proof["first_parent"], proof["target_tip"]))
+    return exempt
+
+
+def authored_between(root: Path, base: str | None, tip: str | None, base_advances=()) -> list[str]:
     """The authored commits in `base..tip` — the range-shaped question, answered once and cached."""
-    return [sha for sha, derived in _classified_range(root, base, tip) if not derived]
+    exempt = _base_advance_commits(root, tip, base_advances)
+    return [sha for sha, derived in _classified_range(root, base, tip) if not derived and sha not in exempt]
 
 
-def unread_authored(root: Path, read: dict | None, new_base: str | None, new_tip: str | None) -> list[str]:
+def unread_authored(root: Path, read: dict | None, new_base: str | None, new_tip: str | None, base_advances=()) -> list[str]:
     """The authored commits in `new_base..new_tip` that `read` — a recorded `{base, tip}` range — does
     not already cover.
 
@@ -163,30 +230,31 @@ def unread_authored(root: Path, read: dict | None, new_base: str | None, new_tip
     absent range is not a claim of coverage, and inventing one would launder an unread delta.
     """
     if not read or not read.get("base") or not read.get("tip"):
-        return authored_between(root, new_base, new_tip)
+        return authored_between(root, new_base, new_tip, base_advances)
     already = set(commits(root, read["base"], read["tip"]))
+    already.update(_base_advance_commits(root, new_tip, base_advances))
     return [sha for sha, derived in _classified_range(root, new_base, new_tip)
             if not derived and sha not in already]
 
 
-def receipt_covers(root: Path, receipt: dict, new_base: str | None, new_tip: str | None) -> bool:
+def receipt_covers(root: Path, receipt: dict, new_base: str | None, new_tip: str | None, base_advances=()) -> bool:
     """Whether this receipt still answers for the range `new_base..new_tip`.
 
     Fails CLOSED: any range this checkout cannot resolve (a garbage-collected anchor, an orphan left by
     a rewrite) means the receipt is not carried and the lens is asked again. Losing a cold review to an
     unreadable history costs a re-run; carrying one on an unverifiable claim costs the audit trail."""
     try:
-        return not unread_authored(root, receipt.get("reviewed_range"), new_base, new_tip)
+        return not unread_authored(root, receipt.get("reviewed_range"), new_base, new_tip, base_advances)
     except RangeUnreadable:
         return False
 
 
-def coverage_report(root: Path, receipt: dict, new_base: str | None, new_tip: str | None) -> str:
+def coverage_report(root: Path, receipt: dict, new_base: str | None, new_tip: str | None, base_advances=()) -> str:
     """One human line saying what this lens still owes, for the status render and the carry-forward
     refusals. Names the count and the range, because 'go re-read something' without saying what is the
     wall the whole change exists to remove."""
     try:
-        unread = unread_authored(root, receipt.get("reviewed_range"), new_base, new_tip)
+        unread = unread_authored(root, receipt.get("reviewed_range"), new_base, new_tip, base_advances)
     except RangeUnreadable as exc:
         return f"{receipt['lens']}: coverage cannot be measured ({exc})"
     if not unread:

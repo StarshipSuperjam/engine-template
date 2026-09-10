@@ -12,6 +12,7 @@ import os
 from pathlib import Path
 import re
 import secrets
+import shlex
 import stat
 import subprocess
 import sys
@@ -29,6 +30,7 @@ import build_coordinator_github as github
 import build_coordinator_review as review
 import build_coordinator_spec as spec_service
 import build_coordinator_work as work
+import build_entry_preflight as entry
 import build_review_range as ranges
 import build_state_store
 import ci_gatekeeper
@@ -370,7 +372,10 @@ def verify_resume(store, args) -> None:
     # base. Its own command verifies the old/new commits, bases, and contribution before it re-anchors
     # any evidence, so applying the ordinary ancestor check first would deadlock the recovery path.
     # Only that expected rewritten-head mismatch is waived; a different worktree still refuses here.
-    reasons = resume_reasons(state, allow_rewritten_head=(command, sub) == ("reconcile", None))
+    applying_rewrite = ((command, sub) == ("reconcile", None)
+                        and not getattr(args, "prepare", False)
+                        and not getattr(args, "cancel_preparation", False))
+    reasons = resume_reasons(state, allow_rewritten_head=applying_rewrite)
     verb = command if not sub else f"{command} {sub}"
     if reasons:
         raise CoordinatorError(
@@ -470,7 +475,7 @@ def _coverage(stage: dict, kind: str):
     authored commit this stage asks about? Built here because it needs git and ROOT; consumed by the pure
     `build_coordinator_review` through injection, so that module keeps no repository knowledge."""
     base, tip = _stage_range(stage, kind)
-    return lambda receipt: ranges.receipt_covers(ROOT, receipt, base, tip)
+    return lambda receipt: ranges.receipt_covers(ROOT, receipt, base, tip, stage.get("base_advances", []))
 
 
 def _missing_receipts(stage: dict, kind: str = "deliverable") -> list[str]:
@@ -594,11 +599,35 @@ def _receipt_crosscheck(plan: dict, state: dict) -> dict:
             "attributed_commits": sorted(covered), "disagreements": disagreements}
 
 
+def _recovery_instructions(plan: dict, state: dict) -> dict:
+    """Expose the original opaque identity needed to resume interrupted reverification."""
+    events = state.get("rewrite_recoveries", [])
+    if not events:
+        return {}
+    event = events[-1]
+    result = {}
+    for item in plan["work_items"]:
+        node_id = item["id"]
+        if node_id not in event["invalidated_nodes"] or state["work"].get(node_id, {}).get("integration"):
+            continue
+        original = event["prior_work"].get(node_id, {}).get("integration")
+        if not original:
+            continue
+        attempt, head = original["attempt_id"], event["to_commit"]
+        command = ("work integrate --item " + shlex.quote(node_id) + " --attempt " + shlex.quote(attempt)
+                   + " --plan <payload.json> --commit " + head
+                   + " --recovery --verification-input '<fresh check and result>'")
+        result[node_id] = {"attempt_id": attempt, "commit": head,
+                           "depends_on": item.get("depends_on", []), "command": command}
+    return result
+
+
 def _work_projection(plan: dict, state: dict) -> dict:
     """The DAG status section for a v2 Build: ready/claimable sets, per-node state, capacity, holders."""
     lifecycle = dag.derive_lifecycle(plan, state)
     parallelism = plan.get("parallelism", {"mode": "serial", "max_concurrency": 1})
     nodes = {}
+    recoveries = _recovery_instructions(plan, state)
     for node_id, node in lifecycle.items():
         nw = (state.get("work") or {}).get(node_id) or {}
         claim = nw.get("claim") or {}
@@ -613,6 +642,7 @@ def _work_projection(plan: dict, state: dict) -> dict:
             "integration_commit": integration.get("commit"),
             "focused_verification": integration.get("focused_verification"),
             "artifact_digest": result.get("artifact_digest"),
+            "recovery": recoveries.get(node_id),
             # A returned result's unresolved concerns are surfaced here for the integrator's judgment
             # (obligation 2): they never auto-block and never auto-redispatch, but they are not silent.
             "unresolved_concerns": (result.get("evidence") or {}).get("unresolved_concerns", []),
@@ -1128,6 +1158,22 @@ def _record_session_binding(state: dict, *, pr_number: int) -> None:
               f"{exc}", file=sys.stderr)
 
 
+def _observe_admission(args, plan, pr, library, identity=None):
+    admission = entry.observe_fresh(ROOT, args.repository, args.pr, pr)
+    material = admission['material']
+    material['issues'] = entry.issue_numbers(plan, args.issue, pr, args.repository)
+    material['overlap'] = entry.overlap_observation(ROOT, library, args.repository, material['issues'],
+        identity=identity, candidate=material, worktree=ROOT)
+    material['override'] = entry.accept_overlap(args.repository, material['issues'], material['overlap'],
+        override=getattr(args, 'overlap_override', None), reason=getattr(args, 'overlap_reason', None))
+    return admission
+
+
+def _verify_admission_local(library, admission, identity=None):
+    entry.verify_frozen(ROOT, admission)
+    entry.verify_local_overlap(library, admission['material'], identity=identity, worktree=ROOT)
+
+
 def cmd_plan_bind(args, store: Snapshot) -> None:
     mode = getattr(args, "mode", "same-session")
     plan_id, sealed_digest, plan = _sealed_plan(args.plan)
@@ -1144,6 +1190,35 @@ def cmd_plan_bind(args, store: Snapshot) -> None:
             "can be imported from the old one — and seal that. If a v1 Build is already in flight, "
             "finish it on the engine it started on.")
     issue = args.issue
+    library = _library()
+    slug = library.resolve(plan_id)
+    existing = (library.read_record(slug).get('build_lease') or {}).get('current')
+    caller = _expected_identity(args)
+    if caller and (not existing or caller != build_state_store.claim_identity(existing)):
+        raise CoordinatorError('stale Build identity on bind retry; preserve the existing claim and use verified continuation')
+    if existing and existing['state'] == 'active':
+        # A bind retry cannot mint new freshness or consent for work already running.
+        wanted = {'repository': args.repository, 'pull_request': args.pr, 'mode': mode,
+                  'authorizing_issue': issue, 'worktree': str(ROOT.resolve()),
+                  'sealed_digest': sealed_digest, 'build_plan_digest': _digest(plan)}
+        if any(existing.get(k) != v for k, v in wanted.items()):
+            raise CoordinatorError('this plan already has a different Build claim; use state continue with its recorded identity')
+        active = build_state_store.ClaimedBuildStore(library, slug, _state_schema_for,
+            identity=build_state_store.claim_identity(existing))
+        state = active.read()
+        expected_revision = getattr(args, 'expect_revision', None)
+        if expected_revision is not None and expected_revision != state['revision']:
+            raise CoordinatorError('stale Build revision on bind retry; reread the current continuation evidence')
+        reasons = resume_reasons(state)
+        if reasons:
+            raise CoordinatorError('active Build continuation refused: ' + '; '.join(reasons))
+        _record_session_binding(state, pr_number=args.pr)
+        print(json.dumps({'state': existing['snapshot'], 'ownership': state['ownership'],
+                          'revision': state['revision'], 'continuation': True,
+                          'admission': 'original' if state.get('admission') else 'legacy-unverified'}))
+        return
+    if existing and existing['state'] == 'preparing' and not existing.get('admission'):
+        raise CoordinatorError('this legacy preparation has no frozen admission evidence; preserve it, explicitly retire it, then bind fresh (or resume its original migration/adoption)')
     # Profile first, then authorization. Both can be true of one bad bind — a trivial plan handed an
     # Issue and unattended mode breaks two rules at once — and the profile rule is the root cause: it
     # says this plan may not run in this mode AT ALL, so no Issue could have fixed it. Reporting the
@@ -1160,23 +1235,32 @@ def cmd_plan_bind(args, store: Snapshot) -> None:
     # taken here where the Build actually starts. Recorded, not proven (issue 914's residual).
     import moment
     import plan_lifecycle
-    if not getattr(args, "operator_decided", False):
+    if not existing and not getattr(args, "operator_decided", False):
         raise CoordinatorError(plan_lifecycle.missing_consent({}, "bind"))
     consent = plan_lifecycle.attestation("bind", at=moment.utc_now())
     pr = _verify_draft(args.repository, args.pr)
     if pr.get("headRefOid") != _head():
         raise CoordinatorError("the draft PR head does not match this worktree")
+    identity = build_state_store.claim_identity(existing) if existing else None
+    admission = _observe_admission(args, plan, pr, library, identity)
     state = _initial_state(args.repository, args.pr, pr.get("baseRefOid") or _base(), plan_id,
                            sealed_digest, plan, issue, mode)
+    state['admission'] = admission
     # Where this Build's evidence lands. With no --state it goes to the durable store beside its own
     # sealed plan, which is the default because the alternative is what actually happened: a killed
     # Build whose approval, receipts, findings and progress were reconstructed by hand.
-    library = _library()
-    slug = library.resolve(plan_id)
     locator = getattr(args, 'state', None)
-    claim = build_state_store.reserve_build(library, slug, state, consent=consent, locator=locator)
+    claim = build_state_store.reserve_build(library, slug, state, consent=consent, locator=locator,
+        validate_entry=lambda: _verify_admission_local(library, admission, identity))
+    # Remote facts are refreshed outside the ownership lock. A changed observation cannot activate
+    # the already-reserved snapshot; retirement, not a silent refresh, is its recovery route.
+    identity = build_state_store.claim_identity(claim)
+    confirmed = _observe_admission(args, plan, _verify_draft(args.repository, args.pr), library, identity)
+    if entry.material_digest(confirmed) != entry.material_digest(admission):
+        raise CoordinatorError('admission changed after reservation; preserve the preparing claim, explicitly retire it, then bind fresh')
     state = build_state_store.finish_binding(library, slug,
-        build_state_store.claim_identity(claim), state, _state_schema_for)
+        build_state_store.claim_identity(claim), state, _state_schema_for,
+        validate_entry=lambda: _verify_admission_local(library, admission, identity))
     # Tag the PR the coordinator just adopted, so it carries a durable "coordinator owns this workflow"
     # marker (StarshipSuperjam/engine-template#1014). Best-effort and non-fatal: a labeling failure is
     # disclosed on stderr and the Build proceeds — the stdout below stays a clean machine-readable line.
@@ -1685,6 +1769,8 @@ def cmd_status(args, store: Snapshot) -> None:
                     reason = reason[:157] + "..."
                 line += f" [failure: {reason}]"
             print(line)
+            if node.get("recovery"):
+                print("    reverify dependencies first; with current identity flags: " + node["recovery"]["command"])
         if w["resource_holders"]:
             print("  resources held by: " + ", ".join(sorted(w["resource_holders"])))
         crosscheck = w.get("receipt_crosscheck")
@@ -1876,7 +1962,7 @@ def _packet(args, store: Snapshot | None) -> None:
     # re-cut instead of being thrown away and re-run for nothing.
     new_base = (state["repair"]["reviewed_commit"] if stage == "repair" else packet["base_commit"])
     new_tip = commit
-    covers = lambda receipt: ranges.receipt_covers(ROOT, receipt, new_base, new_tip)   # noqa: E731
+    covers = lambda receipt: ranges.receipt_covers(ROOT, receipt, new_base, new_tip, current.get("base_advances", []))   # noqa: E731
 
     def change(s):
         old = s["repair"] if stage == "repair" else s["reviews"][stage]
@@ -3044,31 +3130,195 @@ def _history_was_rewritten(state: dict, head: str) -> bool:
     return bool(recorded_base) and bool(current_base) and recorded_base != current_base
 
 
+def _rewrite_checkout() -> tuple[str, str]:
+    """Require a finished, clean checkout on a named branch; never repair git implicitly."""
+    branch = core.run(["git", "symbolic-ref", "--short", "HEAD"], root=ROOT)
+    dirty = core.run(["git", "status", "--porcelain"], root=ROOT)
+    if branch.returncode or dirty.returncode or dirty.stdout.strip():
+        raise CoordinatorError("rewrite recovery requires a clean checkout on the Build branch")
+    for marker in ("rebase-merge", "rebase-apply", "MERGE_HEAD", "CHERRY_PICK_HEAD"):
+        path = core.run(["git", "rev-parse", "--git-path", marker], root=ROOT)
+        if path.returncode or (ROOT / path.stdout.strip()).exists():
+            raise CoordinatorError("finish or abort the git operation before rewrite recovery")
+    return branch.stdout.strip(), _head()
+
+
+def _rewrite_identity(state: dict, branch: str) -> dict:
+    if not state.get("ownership"):
+        raise CoordinatorError("rewrite preparation requires canonical Build ownership; migrate this legacy Build first")
+    return {"ownership": state["ownership"], "plan_digest": state["plan"]["digest"],
+            "repository": state["build"]["repository"], "pr": state["build"]["pr"],
+            "worktree": str(ROOT.resolve()), "branch": branch}
+
+
+def _prepare_rewrite(args, store, state, plan):
+    reasons = resume_reasons(state)
+    if reasons:
+        raise CoordinatorError("prepare recovery before rewriting history: " + "; ".join(reasons))
+    if _effective_reviewed(state):
+        raise CoordinatorError("this Build has review evidence; use the reviewed reconcile path")
+    branch, head = _rewrite_checkout()
+    identity = _rewrite_identity(state, branch)
+    old = state.get("rewrite_preparation")
+    if getattr(args, "cancel_preparation", False):
+        if old:
+            store.mutate(lambda s: s.pop("rewrite_preparation", None), from_revision=state["revision"])
+        print("rewrite preparation cancelled; retained git objects remain available")
+        return
+    if old:
+        if (old["identity"] != identity or old["source_head"] != head
+                or old["prepared_revision"] != state["revision"]):
+            raise CoordinatorError("a different rewrite preparation is pending; cancel it on the original line before preparing again")
+        print(json.dumps(old))
+        return
+    if any(n.get("claim") and not n.get("integration") for n in state.get("work", {}).values()):
+        raise CoordinatorError("finish or abandon outstanding work claims before preparing a rewrite")
+    pending = {node for event in state.get("rewrite_recoveries", [])
+               if event["preparation"]["identity"]["plan_digest"] == state["plan"]["digest"]
+               for node in event["invalidated_nodes"]
+               if not state.get("work", {}).get(node, {}).get("integration")}
+    if pending:
+        raise CoordinatorError("reverify affected nodes before preparing another rewrite: " + ", ".join(sorted(pending)))
+    pr = _verify_draft(identity["repository"], identity["pr"])
+    if not pr.get("baseRefName") or not pr.get("headRefName"):
+        pr.update(_gh_json(["pr", "view", str(identity["pr"]), "--repo", identity["repository"],
+                            "--json", "headRefName,baseRefName,headRefOid"]))
+    target = pr.get("baseRefName")
+    if pr.get("headRefName") != branch or pr.get("headRefOid") != head or not target:
+        raise CoordinatorError("the draft PR must name this branch and HEAD and a verifiable target ref")
+    if not repo_identity.slug_eq(repo_identity.origin_slug(str(ROOT)), identity["repository"]):
+        raise CoordinatorError("rewrite target repository differs from origin")
+    fetched = core.run(["git", "fetch", "--no-tags", "origin",
+                        f"+refs/heads/{target}:refs/remotes/origin/{target}"], root=ROOT)
+    tip = core.run(["git", "rev-parse", "--verify", f"refs/remotes/origin/{target}^{{commit}}"], root=ROOT)
+    base = core.run(["git", "merge-base", head, tip.stdout.strip()], root=ROOT)
+    if fetched.returncode or tip.returncode or base.returncode:
+        raise CoordinatorError("could not fetch and verify the rewrite target; no preparation recorded")
+    if (_rewrite_checkout() != (branch, head)
+            or not repo_identity.slug_eq(repo_identity.origin_slug(str(ROOT)), identity["repository"])):
+        raise CoordinatorError("checkout changed during rewrite preparation; retry")
+    preparation = {"identity": identity, "source_head": head, "source_base": base.stdout.strip(),
+                   "target_ref": target, "target_tip": tip.stdout.strip(),
+                   "prepared_revision": state["revision"] + 1}
+    preparation["id"] = _digest(preparation)
+    retained = "refs/engine/build-recovery/" + identity["ownership"]["build_id"] + "/" + preparation["id"].split(":")[1]
+    result = core.run(["git", "update-ref", retained, head], root=ROOT)
+    if result.returncode:
+        raise CoordinatorError("could not retain the original history; no preparation recorded")
+    store.mutate(lambda s: s.update(rewrite_preparation=preparation), from_revision=state["revision"])
+    print(json.dumps(preparation))
+
+
+def _rewrite_affected(plan, paths):
+    affected = {n["id"] for n in plan["work_items"]
+                if any(dag.path_within_declared(p, n["paths"]) for p in paths)}
+    # An unassigned change cannot be localized honestly.
+    if any(not any(dag.path_within_declared(p, n["paths"]) for n in plan["work_items"]) for p in paths):
+        affected = {n["id"] for n in plan["work_items"]}
+    while True:
+        expanded = affected | {n["id"] for n in plan["work_items"] if affected.intersection(n.get("depends_on", []))}
+        if expanded == affected:
+            return sorted(affected)
+        affected = expanded
+
+
+def _apply_unreviewed_rewrite(store, state, plan):
+    branch, head = _rewrite_checkout()
+    preparation = state.get("rewrite_preparation")
+    if not preparation:
+        if any(e["to_commit"] == head and e["preparation"]["identity"] == _rewrite_identity(state, branch)
+               for e in state.get("rewrite_recoveries", [])):
+            print("this history rewrite is already recorded")
+            return
+        raise CoordinatorError(
+            "no prepared rewrite; no evidence changed. In this clean isolated Build worktree only, "
+            "preserve the recovered work first with `git branch codex/recovery-rescue-" + head[:12] + " HEAD`. "
+            "Inspect `git reflog show " + shlex.quote(branch) + "` and verify the pre-rewrite tip; "
+            "do not guess it from the current base or delete the rescue branch. After verifying that tip, "
+            "return this Build branch with `git reset --keep <verified-pre-rewrite-tip>`, restore its matching "
+            "draft PR head (if already pushed, inspect the remote and use an exact force-with-lease), then "
+            "run reconcile --prepare before rebasing again. Reapply any needed resolution from the retained "
+            "rescue branch. If the original objects cannot be verified, recover them from backup; never "
+            "edit the snapshot or replace the plan. These are manual recovery steps, not actions performed here.")
+    if preparation["identity"] != _rewrite_identity(state, branch) or state["revision"] != preparation["prepared_revision"]:
+        raise CoordinatorError("rewrite preparation no longer matches this Build revision and identity; preserve both histories and recover the original preparation")
+    source, base, target = preparation["source_head"], preparation["source_base"], preparation["target_tip"]
+    identity = preparation["identity"]
+    if not repo_identity.slug_eq(repo_identity.origin_slug(str(ROOT)), identity["repository"]):
+        raise CoordinatorError("rewrite origin no longer matches the prepared repository")
+    pr = _verify_draft(identity["repository"], identity["pr"])
+    if not pr.get("baseRefName") or not pr.get("headRefName"):
+        pr.update(_gh_json(["pr", "view", str(identity["pr"]), "--repo", identity["repository"],
+                            "--json", "headRefName,baseRefName,headRefOid"]))
+    if (pr.get("headRefOid") not in (source, head) or pr.get("headRefName") != branch
+            or pr.get("baseRefName") != preparation["target_ref"]):
+        raise CoordinatorError("the PR head or target no longer matches this prepared rewrite")
+    # Positive local git provenance is required, not just a plausible replacement SHA.
+    log = core.run(["git", "reflog", "show", "-2", "--format=%H%x00%gs", f"refs/heads/{branch}"], root=ROOT)
+    entries = log.stdout.splitlines()
+    if (log.returncode or len(entries) != 2 or not entries[0].startswith(head + "\0rebase (finish):")
+            or not entries[0].endswith("onto " + target) or not entries[1].startswith(source + "\0")
+            or source == head or base == target or not _is_ancestor(target, head)):
+        raise CoordinatorError("HEAD is not the completed rebase of the prepared source onto its pinned target; no anchor changed")
+    try:
+        paths = _contribution_divergence(base, source, target, head)
+    except _Unmeasurable as exc:
+        raise CoordinatorError("rewrite contribution cannot be measured; preserve original evidence: " + str(exc)) from exc
+    affected = _rewrite_affected(plan, paths)
+    event = {"preparation": preparation, "to_commit": head, "divergent_paths": paths,
+             "invalidated_nodes": affected, "prior_work": state.get("work", {}),
+             "prior_progress": state["progress"]}
+    baseline = review_integrity.snapshot(str(ROOT))
+    def change(s):
+        if (_rewrite_checkout() != (branch, head)
+                or not repo_identity.slug_eq(repo_identity.origin_slug(str(ROOT)), identity["repository"])):
+            raise CoordinatorError("checkout changed during rewrite verification")
+        # Deep copies preserve original receipts, attempts and verification for audit and re-derivation.
+        s.setdefault("rewrite_recoveries", []).append(json.loads(json.dumps(event)))
+        for node_id in affected:
+            nw = s.get("work", {}).get(node_id)
+            if nw and nw.get("integration"):
+                attempt = nw["integration"]["attempt_id"]
+                nw["integration"] = None
+                nw["latest_failure"] = work.failure_record(attempt, "integration",
+                    "history rewrite changed this node or a dependency; run work integrate --recovery with fresh verification", dag.DISP_OPEN)
+        s["progress"]["completed"] = [p for p in s["progress"]["completed"] if p["id"] not in affected]
+        s["plan"]["bound_head"] = head
+        s.pop("rewrite_preparation", None)
+        s["validation"] = s["pr_contract"] = s["checkpoint"] = None
+        s["preflights"] = []
+        s.pop("artifact_sync", None)
+        s["checkout_snapshot"] = baseline
+    store.mutate(change, from_revision=state["revision"])
+    print("unreviewed rewrite recorded; original evidence retained; " +
+          ("reverify affected nodes: " + ", ".join(affected) if affected else "contribution unchanged"))
+    for node_id, recovery in _recovery_instructions(plan, store.read()).items():
+        print(node_id + ": reverify dependencies first; with current identity flags: " + recovery["command"])
+
+
 def cmd_reconcile(args, store: Snapshot) -> None:
-    """Re-anchor the deliverable review's commit bindings after a diff-preserving history rewrite.
+    """Recover a deliberately rewritten Build without inventing or discarding its evidence.
 
-    The merge-freshness floor and a linear-history ruleset together make a rebase the required reconcile
-    for an already-reviewed branch, and a rebase rewrites the very SHAs the review evidence is bound to
-    (StarshipSuperjam/engine-template#1000). The receipts themselves survive -- they bind to packet
-    digests -- so what breaks is narrower than the audit trail: the coordinator can no longer tell what
-    the branch contributed, and demands a fresh judgment for a diff nobody changed.
+    Ordinary target catch-up can merge: protect-main does not require linear history. An unreviewed
+    rewrite first freezes source/target identity with --prepare, then verifies retained objects and
+    completed-rebase provenance before re-anchoring. Clean contribution keeps the original ledger;
+    divergent contribution archives it and requires affected nodes and dependents to be reverified.
 
-    There are exactly two outcomes and no operator-typed escape between them. When the branch's own
-    contribution is provably identical, the bindings move to the new head and the reconcile is published.
-    When it is not -- or cannot be measured -- the bindings move only as far as the NEW BASE, which leaves
-    `reviewed_commit != head` and hands the session straight back to `repair assess`, now against a
-    meaningful `base_after..head` diff instead of an orphaned one. That path consumes a repair round, arms
-    the escalation gate, and publishes the reviewed-vs-submitted line, so the weaker outcome is the one
-    carrying MORE scrutiny, not less. A session cannot spend a string to skip re-review here."""
+    Reviewed recovery keeps its existing contribution comparison. An identical contribution moves
+    review bindings; a differing or unmeasurable one anchors at the new base and requires the ordinary
+    proportional repair judgment. Neither path creates review receipts or replaces the approved plan.
+    """
     head = _head()
     state = store.read()
     revision = state["revision"]
     plan = _plan(args.plan)
     _assert_plan(state, plan)
+    if getattr(args, "prepare", False) or getattr(args, "cancel_preparation", False):
+        return _prepare_rewrite(args, store, state, plan)
     delivery = state["reviews"]["deliverable"]
     reviewed = _effective_reviewed(state)
     if not reviewed:
-        raise CoordinatorError("deliverable review has not recorded a reviewed commit; there is nothing to re-anchor")
+        return _apply_unreviewed_rewrite(store, state, plan)
     if reviewed == head:
         raise CoordinatorError("the reviewed commit is already the current head; nothing was rewritten")
     if _is_ancestor(reviewed, head):
@@ -3410,6 +3660,49 @@ def _trajectory(rounds: list) -> str:
     return "\n".join(lines)
 
 
+def _observe_base_advances(state: dict, reviewed: str, head: str) -> list[dict]:
+    """Remote identity is observed outside the state lock; unreadable proof buys no coverage.
+
+    Push the current draft head before assessing a clean catch-up merge. Reuse the same
+    verified default-target observation as fresh admission, without creating a new admission.
+    """
+    prior = (state.get("repair") or {}).get("base_advances", [])
+    try:
+        merges = ranges._git(ROOT, ["rev-list", "--first-parent", "--merges", f"{reviewed}..{head}"]).splitlines()
+    except ranges.RangeUnreadable:
+        return list(prior)
+    if not merges:
+        return list(prior)
+    try:
+        repo, number = state["build"]["repository"], state["build"]["pr"]
+        observed = entry.observe_fresh(ROOT, repo, number, github.pr_state(ROOT, repo, number))
+    except CoordinatorError:
+        # Admission's stale-branch remedy is for UNBOUND work, so do not relay that rebase advice
+        # to an active Build. Ordinary proportional review still applies without remote proof.
+        print("clean target-merge coverage could not be verified: check the clean worktree, current "
+              "pushed draft head and fetched default target; merge target catch-up normally and retry. "
+              "No new merge exemption was granted.", file=sys.stderr)
+        return list(prior)
+    proofs = [proof for merge in merges
+              if (proof := ranges.prove_base_advance(ROOT, merge, observed["material"]))]
+    if proofs and not _candidate_ok(state, head):
+        raise CoordinatorError("clean target-merge receipt preservation requires green candidate validation "
+                               "of the actual merged HEAD; run validate --plan <payload>, then retry repair assess")
+    known = {p["merge_commit"]: p for p in prior}
+    for proof in proofs:
+        known.setdefault(proof["merge_commit"], proof | {
+            "observed_at": observed["observed_at"], "validated_head": head})
+    return list(known.values())
+
+
+def _base_advance_lines(state: dict) -> list[str]:
+    return [f"Clean target merge: `{p['target_repository']}` `{p['target_ref']}` at "
+            f"`{p['target_tip']}` entered through `{p['merge_commit']}`; its tree matched the automatic "
+            f"merge result `{p['merge_tree']}`. Candidate validation passed at `{p['validated_head']}`; "
+            "target ancestry was exempted from unread work without restamping receipts or read ranges."
+            for p in state.get("base_advances", [])]
+
+
 def cmd_repair_assess(args, store: Snapshot) -> None:
     head = _head()
     state = store.read()
@@ -3440,6 +3733,7 @@ def cmd_repair_assess(args, store: Snapshot) -> None:
                 "deliverable review against the current head rather than recording a judgment on a span "
                 "that cannot be computed.") from exc
         raise
+    base_advances = _observe_base_advances(state, reviewed, head)
     # Re-assessing the SAME divergence (upgrading a scoped judgment to full, say) replaces its entry in
     # place rather than counting twice.
     rounds = list(state.get("repair_rounds", []))
@@ -3448,7 +3742,7 @@ def cmd_repair_assess(args, store: Snapshot) -> None:
         machine output the engine generated itself, and no reviewer would read it. An unmeasurable range
         answers yes: never a free pass (StarshipSuperjam/engine-template#1065)."""
         try:
-            return bool(ranges.authored_between(ROOT, base, tip))
+            return bool(ranges.authored_between(ROOT, base, tip, base_advances))
         except ranges.RangeUnreadable:
             return True
 
@@ -3580,7 +3874,7 @@ def cmd_repair_assess(args, store: Snapshot) -> None:
     # all-or-nothing wall that cost two true receipts in StarshipSuperjam/engine-template#1063.
     carried, dropped = [], []
     for receipt in (prior or {}).get("receipts", []):
-        (carried if ranges.receipt_covers(ROOT, receipt, reviewed, head) else dropped).append(receipt)
+        (carried if ranges.receipt_covers(ROOT, receipt, reviewed, head, base_advances) else dropped).append(receipt)
     # A dropped receipt is always NAMED. It is only REFUSED on a `none` judgment, and the difference is
     # what each path costs. A scoped or full round drops a receipt and then asks that lens to read the new
     # range, so the evidence is replaced rather than lost — naming it is enough, and walling every ordinary
@@ -3588,7 +3882,7 @@ def cmd_repair_assess(args, store: Snapshot) -> None:
     # one StarshipSuperjam/engine-template#1012 named: it discards the receipt AND ends the repair loop
     # with no re-review, mid-stream, prompted by a status line that used to read like a step to take.
     if dropped:
-        detail = "; ".join(ranges.coverage_report(ROOT, r, reviewed, head) for r in dropped)
+        detail = "; ".join(ranges.coverage_report(ROOT, r, reviewed, head, base_advances) for r in dropped)
         also = f" {len(carried)} receipt(s) DO still cover it and are kept." if carried else ""
         if args.judgment == "none" and not getattr(args, "accept_receipt_loss", False):
             raise CoordinatorError(
@@ -3632,13 +3926,19 @@ def cmd_repair_assess(args, store: Snapshot) -> None:
               "rationale": args.rationale, "lenses": lenses, "packet_digest": None,
               "referent_digest": None, "reviewer_contracts": [], "receipts": carried,
               "anchor": anchor, "counted": counted, "classification": classification,
-              "roster_provenance": roster_provenance}
-    store.mutate(lambda s: s.update({"repair": repair, "repair_rounds": rounds}), from_revision=revision)
+              "roster_provenance": roster_provenance, "base_advances": base_advances}
+    def record(s):
+        if _head() != head:
+            raise CoordinatorError("HEAD changed during repair assessment; retry on the validated candidate")
+        ledger = {p["merge_commit"]: p for p in s.get("base_advances", [])}
+        ledger.update({p["merge_commit"]: p for p in base_advances})
+        s.update({"repair": repair, "repair_rounds": rounds, "base_advances": list(ledger.values())})
+    store.mutate(record, from_revision=revision)
     print(json.dumps(repair, indent=2, sort_keys=True))
     print("\nHow the rounds have gone:\n" + _trajectory(rounds))
     if carried:
         print(f"carried {len(carried)} repair receipt(s) forward — "
-              + "; ".join(ranges.coverage_report(ROOT, r, reviewed, head) for r in carried), file=sys.stderr)
+              + "; ".join(ranges.coverage_report(ROOT, r, reviewed, head, base_advances) for r in carried), file=sys.stderr)
     if same:
         print("this re-points the repair round already recorded at "
               f"{reviewed[:12]} rather than opening a new one against the escalation gate", file=sys.stderr)
@@ -3679,7 +3979,7 @@ def _compute_preflight_legs(state: dict, head: str, pr_data: dict, body: str) ->
     # while dropping the "worth a look before you merge" line the headline is standing in front of. The
     # recorded operator guidance is required with them: the headline asserts that guidance was disclosed,
     # so the assertion and the thing it asserts have to be gated together.
-    missing_rounds = [line for line in _repair_round_lines(state) + _round_guidance_lines(state)
+    missing_rounds = [line for line in _repair_round_lines(state) + _round_guidance_lines(state) + _base_advance_lines(state)
                       if line not in body]
     if missing_rounds:
         contract_passed = False
@@ -4002,6 +4302,42 @@ def _rederive_restored_receipts(plan: dict, state: dict) -> None:
         integ["receipt"] = fresh
 
 
+def _verify_recovered_progress(state: dict, head: str) -> None:
+    if _head() != head:
+        raise CoordinatorError("checkout changed while restoring the handoff")
+    for completed in state["progress"].get("completed", []):
+        node_id, commit = completed["id"], completed["commit"]
+        candidate = commit
+        if not _commit_present(commit):
+            raise CoordinatorError(f"handoff progress commit for {node_id} is not contained by the live PR head: original object missing")
+        for event in state.get("rewrite_recoveries", []):
+            prep = event["preparation"]
+            if not _is_ancestor(candidate, prep["source_head"]):
+                continue
+            branch = core.run(["git", "symbolic-ref", "--short", "HEAD"], root=ROOT)
+            if (branch.returncode or prep["identity"] != _rewrite_identity(state, branch.stdout.strip())
+                    or prep["id"] != _digest({k: v for k, v in prep.items() if k != "id"})
+                    or not _is_ancestor(prep["target_tip"], event["to_commit"])):
+                continue
+            try:
+                measured = _contribution_divergence(prep["source_base"], prep["source_head"],
+                                                     prep["target_tip"], event["to_commit"])
+            except _Unmeasurable:
+                continue
+            if measured != event["divergent_paths"]:
+                continue
+            if node_id in event["invalidated_nodes"]:
+                # Verification can live in a later event's retained work map after a second rewrite.
+                histories = [state.get("work", {})] + [e["prior_work"] for e in state.get("rewrite_recoveries", [])]
+                expected = {"recovery_id": prep["id"], "commit": event["to_commit"]}
+                if not any(h.get(node_id, {}).get("integration", {}).get("recovery_verification") == expected
+                           for h in histories if h.get(node_id, {}).get("integration")):
+                    continue
+            candidate = event["to_commit"]
+        if not _is_ancestor(candidate, head):
+            raise CoordinatorError(f"handoff progress commit for {node_id} is not contained by the live PR head or a verified canonical recovery")
+
+
 def cmd_handoff_restore(args, store: Snapshot) -> None:
     if not args.input:
         raise CoordinatorError(
@@ -4049,11 +4385,8 @@ def cmd_handoff_restore(args, store: Snapshot) -> None:
     if pr.get("number") != value["build"]["pr"] or pr.get("state") != "OPEN" or pr.get("headRefOid") != _head():
         raise CoordinatorError("handoff PR is not the open claim at this worktree's current HEAD")
     for completed in value["progress"].get("completed", []):
-        commit = completed.get("commit")
-        if (not isinstance(commit, str)
-                or _run(["git", "cat-file", "-e", f"{commit}^{{commit}}"]).returncode
-                or _run(["git", "merge-base", "--is-ancestor", commit, pr["headRefOid"]]).returncode):
-            raise CoordinatorError(f"handoff progress commit for {completed.get('id', 'unknown item')} is not contained by the live PR head")
+        if _run(["git", "cat-file", "-e", completed["commit"] + "^{commit}"], cwd=ROOT).returncode:
+            raise CoordinatorError(f"handoff progress commit for {completed['id']} is not contained by the live PR head: original object missing")
     # The replacement anchor for cold continuation: the sealed plan RECORD, not an Issue body. The plan
     # must still be in the library, still sealed, still sealed to the same digest, and still carrying
     # the payload this Build was bound to. Any of those missing or changed and continuation is blocked —
@@ -4084,7 +4417,8 @@ def cmd_handoff_restore(args, store: Snapshot) -> None:
     _rederive_restored_receipts(plan, state)
     library = _library()
     state = build_state_store.restore_handoff(library, library.resolve(plan_id), value, state,
-        _state_schema_for, worktree=ROOT, projection=_handoff, locator=getattr(args, 'state', None))
+        _state_schema_for, worktree=ROOT, projection=_handoff, locator=getattr(args, 'state', None),
+        validate_progress=lambda canonical: _verify_recovered_progress(canonical, pr["headRefOid"]))
     _record_session_binding(state, pr_number=value["build"]["pr"])
     print(f"restored Build snapshot against sealed plan {plan_id}")
     print(json.dumps({'ownership': state['ownership'], 'revision': state['revision'],
@@ -4486,7 +4820,7 @@ def cmd_work_result(args, store: Snapshot) -> None:
 def _commit_on_branch(commit: str) -> bool:
     if not re.fullmatch(r"[0-9a-f]{40}", commit):
         return False
-    return _run(["git", "merge-base", "--is-ancestor", commit, "HEAD"]).returncode == 0
+    return _run(["git", "merge-base", "--is-ancestor", commit, "HEAD"], cwd=ROOT).returncode == 0
 
 
 def cmd_work_reject(args, store: Snapshot) -> None:
@@ -4551,6 +4885,8 @@ def cmd_work_integrate(args, store: Snapshot) -> None:
     def change(state):
         _assert_plan(state, plan)
         nw = _node_work(state, args.item)
+        if getattr(args, "recovery", False):
+            return _integrate_recovered_work(args, state, plan, item, nw)
         result = nw.get("latest_result")
         if not result or result.get("outcome") != "returned" or result.get("attempt_id") != args.attempt:
             raise CoordinatorError(f"work item {args.item} has no returned result for attempt {args.attempt} to integrate")
@@ -4629,6 +4965,36 @@ def _sibling_attributions(plan: dict, state: dict, node_id: str) -> list:
         else:
             attributions.append({"node": oid, "fallback_commit": integ["commit"]})
     return attributions
+
+
+def _integrate_recovered_work(args, state, plan, item, nw):
+    """Earn current verification without pretending an original receipt covered rewritten commits.
+
+    This remains inside work integrate's single completion mutation. The archived receipt and result
+    stay unchanged; a separate record identifies the HEAD on which focused verification was repeated.
+    """
+    events = state.get("rewrite_recoveries", [])
+    event = events[-1] if events else None
+    if not event or args.item not in event["invalidated_nodes"]:
+        raise CoordinatorError("this node has no recorded rewrite invalidation to reverify")
+    original = event["prior_work"].get(args.item, {}).get("integration")
+    if (not original or original["attempt_id"] != args.attempt or nw.get("claim")
+            or nw.get("integration") or args.commit != event["to_commit"] or _head() != args.commit):
+        raise CoordinatorError("recovery integration must name the original attempt and unchanged recovered HEAD, without a new claim")
+    if any(not state["work"].get(dep, {}).get("integration") for dep in item.get("depends_on", [])):
+        raise CoordinatorError("reverify this node's dependencies first")
+    historical = dict(state, work=json.loads(json.dumps(event["prior_work"])))
+    _rederive_restored_receipts(plan, historical)
+    if not original.get("receipt"):
+        raise CoordinatorError("the original node has no reproducible receipt; explicitly retry its work")
+    integration = json.loads(json.dumps(original))
+    integration["focused_verification"] = args.verification_input.strip()
+    integration["recovery_verification"] = {"recovery_id": event["preparation"]["id"], "commit": args.commit}
+    nw["integration"] = integration
+    nw["latest_failure"] = None
+    state["progress"]["completed"] = [p for p in state["progress"]["completed"] if p["id"] != args.item]
+    state["progress"]["completed"].append({"id": args.item, "commit": original["commit"]})
+    return ("integrated", None, [])
 
 
 def _compute_receipt(repo_root: str, plan: dict, state: dict, node_id: str, claim_base: str,
@@ -5138,6 +5504,10 @@ def _plan_disagreement_lines(state: dict) -> list[str]:
 
 
 def _drift_line(state: dict, head: str) -> str:
+    return " ".join([_review_drift_line(state, head), *_base_advance_lines(state)])
+
+
+def _review_drift_line(state: dict, head: str) -> str:
     """The PR body's "Reviewed vs submitted" disclosure, composed from recorded state.
 
     Pure and single-homed so it can be driven end to end by a test: the operator's consent surface is the
@@ -5588,6 +5958,8 @@ def parser() -> argparse.ArgumentParser:
     sub = p.add_subparsers(dest="command", required=True)
     plan = sub.add_parser("plan").add_subparsers(dest="plan_command", required=True)
     bind = plan.add_parser("bind"); bind.add_argument("--plan", required=True, help="a SEALED plan in the local library, by id or by name"); bind.add_argument("--mode", choices=["same-session", "unattended"], default="same-session"); bind.add_argument("--repository", required=True); bind.add_argument("--pr", type=int, required=True); bind.add_argument("--issue", type=int, help="the Issue that AUTHORIZES this work; never its plan"); bind.add_argument("--operator-decided", action="store_true", help="Record that the operator, asked, gave the go for this Build to begin. The record is the gate and the moment, never their words; the bind refuses without it."); bind.set_defaults(func=cmd_plan_bind)
+    bind.add_argument("--overlap-override", help="the current overlap observation digest explicitly accepted by the operator")
+    bind.add_argument("--overlap-reason", help="why the operator chose to proceed despite those exact observations")
     adopt = plan.add_parser("adopt", help="consume a SEALED successor plan without restarting the Build"); adopt.add_argument("--successor", required=True, help="a sealed plan in the library that names the bound plan as its predecessor"); adopt.add_argument("--input", required=True, help="the plan this Build is currently executing, for the node-by-node comparison"); adopt.add_argument("--operator-decided", action="store_true", help="Record that the operator, asked, authorised the Build to continue on the successor."); adopt.set_defaults(func=cmd_plan_adopt)
     revise = plan.add_parser("revise"); revise.add_argument("--input", required=True); revise.add_argument("--operator-change", help="The operator's decision authorizing execution of a plan that differs from the sealed one. The sealed plan is unchanged; the divergence is disclosed at merge."); revise.set_defaults(func=cmd_plan_revise)
     approve = sub.add_parser("approve"); approve.add_argument("--plan", required=True); approve.add_argument("--depth", choices=["quick", "standard", "thorough"], required=True); approve.set_defaults(func=cmd_approve)
@@ -5617,6 +5989,9 @@ def parser() -> argparse.ArgumentParser:
     repair = sub.add_parser("repair").add_subparsers(dest="repair_command", required=True)
     assess = repair.add_parser("assess"); assess.add_argument("--judgment", choices=["none", "scoped", "full"], required=True); assess.add_argument("--rationale", required=True); assess.add_argument("--guidance", help="The operator's answer when a third or later repair round is proposed; published in the PR body."); assess.add_argument("--lens", action="append"); assess.add_argument("--accept-receipt-loss", action="store_true", help="Re-bind even though recorded repair receipts do not cover the new divergence and will be dropped. Without it the re-bind refuses and names what each lens still owes."); assess.set_defaults(func=cmd_repair_assess)
     reconcile = sub.add_parser("reconcile"); reconcile.add_argument("--plan", required=True); reconcile.set_defaults(func=cmd_reconcile)
+    preparation = reconcile.add_mutually_exclusive_group()
+    preparation.add_argument("--prepare", action="store_true", help="pin and retain an unreviewed Build's source before an intentional rebase")
+    preparation.add_argument("--cancel-preparation", action="store_true", help="cancel a preparation while still on the original Build line")
     preflight = sub.add_parser("preflight"); preflight.add_argument("--pr-body"); preflight.add_argument("--json", action="store_true"); preflight.set_defaults(func=cmd_preflight)
     handoff = sub.add_parser("handoff").add_subparsers(dest="handoff_command", required=True)
     export = handoff.add_parser("export"); export.add_argument("--output", default="-"); export.set_defaults(func=cmd_handoff_export)
@@ -5638,6 +6013,7 @@ def parser() -> argparse.ArgumentParser:
     wretry = work_p.add_parser("retry"); wretry.add_argument("--item", required=True); wretry.add_argument("--strategy", choices=["redispatch", "integrator-inline"], required=True); wretry.add_argument("--reason", required=True); wretry.set_defaults(func=cmd_work_retry)
     wabandon = work_p.add_parser("abandon"); wabandon.add_argument("--item", required=True); wabandon.add_argument("--attempt", required=True); wabandon.add_argument("--reason", required=True); wabandon.set_defaults(func=cmd_work_abandon)
     wintegrate = work_p.add_parser("integrate"); wintegrate.add_argument("--item", required=True); wintegrate.add_argument("--attempt", required=True); wintegrate.add_argument("--commit", required=True); wintegrate.add_argument("--verification-input", required=True); wintegrate.add_argument("--plan", required=True, help="the approved plan; integration enforces the receipt against its declared paths, no-op permission, and sibling attribution"); wintegrate.set_defaults(func=cmd_work_integrate)
+    wintegrate.add_argument("--recovery", action="store_true", help="record fresh verification at the recovered HEAD for an invalidated original integration")
     wstage = work_p.add_parser("stage-digest"); wstage.add_argument("--item", required=True); wstage.add_argument("--plan", required=True); wstage.set_defaults(func=cmd_work_stage_digest)
     return p
 

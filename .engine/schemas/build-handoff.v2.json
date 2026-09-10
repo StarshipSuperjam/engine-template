@@ -73,6 +73,7 @@
         "attempt_id": {"type": "string", "pattern": "^[0-9a-f]{32}$"},
         "commit": {"type": "string", "pattern": "^[0-9a-f]{40}$"},
         "focused_verification": {"type": "string", "minLength": 1},
+        "recovery_verification": {"type": "object", "additionalProperties": false, "required": ["recovery_id", "commit"], "properties": {"recovery_id": {"type": "string"}, "commit": {"type": "string", "pattern": "^[0-9a-f]{40}$"}}},
         "receipt": {"oneOf": [{"type": "null"}, {"$ref": "#/$defs/handoff_receipt"}]},
         "restored": {"type": "boolean"}
       }

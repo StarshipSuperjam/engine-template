@@ -6,7 +6,15 @@
   "additionalProperties": false,
   "required": ["schema_version", "revision", "build", "plan", "approval", "reviews", "findings", "checkpoint", "progress", "work", "validation", "repair", "preflights", "pr_contract", "submission"],
   "properties": {
+    "admission": {"$ref": "#/$defs/admission"},
+    "rewrite_preparation": {"$ref": "#/$defs/rewrite_preparation"},
+    "rewrite_recoveries": {"type": "array", "items": {"type": "object", "additionalProperties": false, "required": ["preparation", "to_commit", "divergent_paths", "invalidated_nodes", "prior_work", "prior_progress"], "properties": {
+      "preparation": {"$ref": "#/$defs/rewrite_preparation"}, "to_commit": {"$ref": "#/$defs/commit"},
+      "divergent_paths": {"type": "array", "items": {"type": "string"}}, "invalidated_nodes": {"type": "array", "items": {"type": "string"}},
+      "prior_work": {"type": "object", "additionalProperties": {"$ref": "#/$defs/node_work"}}, "prior_progress": {"$ref": "#/properties/progress"}
+    }}},
     "plan_change_escalations": {"type": "array", "items": {"type": "object", "additionalProperties": false, "required": ["reviewed_plan_digest", "plan_digest", "operator_change"], "properties": {"reviewed_plan_digest": {"type": "string"}, "plan_digest": {"type": "string"}, "operator_change": {"type": "string"}}}},
+    "base_advances": {"type": "array", "items": {"$ref": "#/$defs/base_advance"}},
     "repair_rounds": {"type": "array", "items": {"type": "object", "additionalProperties": false, "required": ["reviewed_commit", "final_commit", "judgment", "lenses"], "properties": {"reviewed_commit": {"type": "string"}, "final_commit": {"type": "string"}, "judgment": {"enum": ["none", "scoped", "full"]}, "lenses": {"type": "array", "items": {"type": "string"}}, "guidance": {"type": ["string", "null"]}, "counted": {"type": "boolean"}, "anchor": {"type": "string", "pattern": "^[0-9a-f]{40}$"}, "anchor_note": {"type": ["string", "null"], "enum": [null, "reconcile", "rewritten"]}, "roster_provenance": {"enum": ["explicit", "blocker-union", "none"]}, "classification": {"$ref": "#/$defs/divergence_classification"}}}},
     "reconciles": {"type": "array", "items": {"type": "object", "additionalProperties": false, "required": ["from_commit", "to_commit", "base_before", "base_after", "contribution_identical", "divergent_paths", "anchored_to"], "properties": {"from_commit": {"type": "string"}, "to_commit": {"type": "string"}, "base_before": {"type": ["string", "null"]}, "base_after": {"type": "string"}, "contribution_identical": {"type": "boolean"}, "divergent_paths": {"type": "array", "items": {"type": "string"}}, "unmeasurable": {"type": ["string", "null"]}, "anchored_to": {"type": "string"}}}},
     "ownership": {"type": "object", "additionalProperties": false, "required": ["build_id", "generation"], "properties": {"build_id": {"type": "string", "pattern": "^bld_[0-9a-f]{32}$"}, "generation": {"type": "integer", "minimum": 1}}},
@@ -92,6 +100,7 @@
           "anchor": {"oneOf": [{"$ref": "#/$defs/commit"}, {"type": "null"}]},
           "counted": {"type": "boolean"},
           "classification": {"oneOf": [{"$ref": "#/$defs/divergence_classification"}, {"type": "null"}]},
+          "base_advances": {"type": "array", "items": {"$ref": "#/$defs/base_advance"}},
           "roster_provenance": {"enum": ["explicit", "blocker-union", "none"]}
         }}
       ]
@@ -116,6 +125,8 @@
     }
   },
   "$defs": {
+    "base_advance": {"type": "object", "additionalProperties": false, "required": ["target_repository", "target_ref", "observed_at", "target_tip", "merge_commit", "first_parent", "merge_tree", "validated_head"], "properties": {"target_repository": {"type": "string", "minLength": 1}, "target_ref": {"type": "string", "minLength": 1}, "observed_at": {"type": "string", "minLength": 1}, "target_tip": {"$ref": "#/$defs/commit"}, "merge_commit": {"$ref": "#/$defs/commit"}, "first_parent": {"$ref": "#/$defs/commit"}, "merge_tree": {"$ref": "#/$defs/commit"}, "validated_head": {"$ref": "#/$defs/commit"}}},
+    "admission": {"type": "object","additionalProperties": false,"required": ["observed_at","material"],"properties": {"observed_at": {"type": "string","minLength": 1},"material": {"type": "object","additionalProperties": false,"required": ["repository","pr","head_repository","head_ref","head","target_repository","target_ref","target_tip"],"properties": {"repository": {"type": "string","minLength": 1},"pr": {"type": "integer","minimum": 1},"head_repository": {"type": "string","minLength": 1},"head_ref": {"type": "string","minLength": 1},"head": {"type": "string","pattern": "^[0-9a-f]{40}$"},"target_repository": {"type": "string","minLength": 1},"target_ref": {"type": "string","minLength": 1},"target_tip": {"type": "string","pattern": "^[0-9a-f]{40}$"},"issues": {"type": "array","uniqueItems": true,"items": {"type": "integer","minimum": 1}},"overlap": {"type": "object","additionalProperties": false,"required": ["coverage","matches","errors","local_digest"],"properties": {"coverage": {"enum": ["not-applicable","complete","incomplete"]},"matches": {"type": "array","items": {"type": "string","minLength": 1}},"errors": {"type": "array","items": {"type": "string","minLength": 1}},"local_digest": {"type": "string","minLength": 1}}},"override": {"oneOf": [{"type": "null"},{"type": "object","additionalProperties": false,"required": ["observation_digest","reason"],"properties": {"observation_digest": {"type": "string","minLength": 1},"reason": {"type": "string","minLength": 1}}}]}}}}},
     "digest": {"type": "string", "pattern": "^sha256:[0-9a-f]{64}$"},
     "commit": {"type": "string", "pattern": "^[0-9a-f]{40}$"},
     "divergence_classification": {"type": "object", "additionalProperties": false, "required": ["files", "churn", "total_churn"], "properties": {"anchor": {"type": "string"}, "head": {"type": "string"}, "total_churn": {"type": "integer", "minimum": 0}, "guards_read": {"type": "boolean"}, "files": {"type": "object", "additionalProperties": false, "properties": {"guarded": {"type": "array", "items": {"type": "string"}}, "derived": {"type": "array", "items": {"type": "string"}}, "docs": {"type": "array", "items": {"type": "string"}}, "authored": {"type": "array", "items": {"type": "string"}}}}, "churn": {"type": "object", "additionalProperties": false, "properties": {"guarded": {"type": "integer", "minimum": 0}, "derived": {"type": "integer", "minimum": 0}, "docs": {"type": "integer", "minimum": 0}, "authored": {"type": "integer", "minimum": 0}}}}},
@@ -175,6 +186,19 @@
         }
       }
     },
+    "rewrite_preparation": {
+      "type": "object", "additionalProperties": false,
+      "required": ["id", "identity", "source_head", "source_base", "target_ref", "target_tip", "prepared_revision"],
+      "properties": {
+        "id": {"type": "string", "pattern": "^sha256:[0-9a-f]{64}$"},
+        "source_head": {"$ref": "#/$defs/commit"}, "source_base": {"$ref": "#/$defs/commit"}, "target_tip": {"$ref": "#/$defs/commit"},
+        "target_ref": {"type": "string", "minLength": 1}, "prepared_revision": {"type": "integer", "minimum": 1},
+        "identity": {"type": "object", "additionalProperties": false, "required": ["ownership", "plan_digest", "repository", "pr", "worktree", "branch"], "properties": {
+          "ownership": {"$ref": "#/properties/ownership"}, "plan_digest": {"type": "string"}, "repository": {"type": "string"},
+          "pr": {"type": "integer", "minimum": 1}, "worktree": {"type": "string"}, "branch": {"type": "string", "minLength": 1}
+        }}
+      }
+    },
     "integration": {
       "type": "object", "additionalProperties": false,
       "required": ["attempt_id", "commit", "focused_verification"],
@@ -182,6 +206,7 @@
         "attempt_id": {"$ref": "#/$defs/attempt_id"},
         "commit": {"$ref": "#/$defs/commit"},
         "focused_verification": {"type": "string", "minLength": 1},
+        "recovery_verification": {"type": "object", "additionalProperties": false, "required": ["recovery_id", "commit"], "properties": {"recovery_id": {"type": "string"}, "commit": {"$ref": "#/$defs/commit"}}},
         "receipt": {"oneOf": [{"type": "null"}, {"$ref": "#/$defs/receipt"}]},
         "restored": {"type": "boolean"}
       }

@@ -1338,6 +1338,9 @@
   ".engine/tools/build_coordinator_work.py": [
    "core"
   ],
+  ".engine/tools/build_entry_preflight.py": [
+   "core"
+  ],
   ".engine/tools/build_protocol.py": [
    "core"
   ],
@@ -2299,6 +2302,9 @@
    "core"
   ],
   ".engine/tools/test_build_coordinator_work.py": [
+   "core"
+  ],
+  ".engine/tools/test_build_entry_preflight.py": [
    "core"
   ],
   ".engine/tools/test_build_protocol.py": [
