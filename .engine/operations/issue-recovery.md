@@ -4,10 +4,9 @@ title: Recover an Engine issue submission without sending it twice
 
 ## Purpose
 
-Every new Engine issue goes through the issue helper and an explicitly activated repository journal.
-The journal retains the intended content, stable submission identity, send claim and confirmed issue identity.
-A restart or an empty GitHub search never grants permission to replay a claimed send. Ordinary product
-issues use the helper's explicit product scope without Engine markers or this journal.
+Engine issues use the helper and an explicitly activated journal retaining content, submission ID, send claim
+and confirmed issue identity. Restarts and empty searches never authorize replay. Product scope uses neither
+Engine markers nor this journal.
 
 ## Steps
 
@@ -57,8 +56,7 @@ including every page, using the same submission marker. One verified match is ad
 incomplete or malformed matches remain held. An adopted closed issue is returned in that invocation, never
 immediately replaced. A later distinct authoritative producer observation may create a new recorded generation
 under its existing recurrence policy. Clearing a symptom alone does not prove an uncertain issue was never created.
-Automatic reporting passes also reconcile retained uncertain submissions when no new failure needs filing.
-Unverified recovery remains visibly held while existing report updates and closures keep their normal rules.
+Automatic passes recover uncertain submissions even without a new failure; unverified recovery stays visibly held.
 
 An operator who has inspected a specific matching issue can use `adopt` with the same arguments plus
 `--issue NUMBER`. Target, numeric identity, Engine scope and submission marker must agree. Adoption does not
