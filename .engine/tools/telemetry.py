@@ -524,6 +524,55 @@ def all_open_issues_query_url(repo: str) -> str:
     return f"https://github.com/{repo}/issues?q=is:open+is:issue"
 
 
+
+REPORT_START = '<!-- engine-report-content -->'
+REPORT_END = '<!-- /engine-report-content -->'
+
+
+def _replace_report(previous: str, candidate: str) -> str:
+    """Preserve user text outside the producer-owned content section."""
+    for body in (previous, candidate):
+        if (body.count(REPORT_START) != 1 or body.count(REPORT_END) != 1
+                or body.index(REPORT_END) < body.index(REPORT_START)):
+            raise DegradedReadError('The report content boundaries are missing or ambiguous; inspect the existing issue.')
+    a, b = previous.index(REPORT_START), previous.index(REPORT_END) + len(REPORT_END)
+    x, y = candidate.index(REPORT_START), candidate.index(REPORT_END) + len(REPORT_END)
+    return previous[:a] + candidate[x:y] + previous[b:]
+
+
+def producer_body(body: str, evidence, now: str, *, previous: str | None = None,
+                  final_marker: str | None = None) -> str:
+    """Explicit unknown-remedy classification for automatic reporters; never infer from severity.
+
+    Evidence is producer-normalized semantic content; observation timestamps and run links do not
+    enter its fingerprint. Existing unversioned reports retain their legacy lifecycle.
+    """
+    import issue_triage
+    import uuid
+    try:
+        old = issue_triage.parse(previous or '')
+        if previous is not None and old is None:
+            return body
+        assessment = issue_triage.pending('The remedy and its compatibility impact have not been established.',
+                                          'Inspect the reported failure, establish a remedy, and assess its release impact.')
+        record = (issue_triage.refresh(old, assessment, evidence, now=now) if old else
+                  issue_triage.new_record(assessment, uuid.uuid4().hex, evidence, now=now))
+        tail = ''
+        if final_marker and body.rstrip().endswith(final_marker):
+            body = body.rstrip()[:-len(final_marker)].rstrip()
+            tail = '\n' + final_marker + '\n'
+        candidate = REPORT_START + '\n' + body + '\n' + REPORT_END + tail
+        if old:
+            candidate = _replace_report(previous, candidate)
+        return issue_triage.with_record(candidate, record)
+    except issue_triage.TriageError as exc:
+        raise DegradedReadError(f'Assessment state needs repair: {exc}') from exc
+
+
+def _semantic_finding(record):
+    return {key: record.get(key) for key in ('source_id', 'message', 'location', 'body_core')}
+
+
 class GitHubIssues:
     """The engine-labelled-Issue boundary. Reuses the urllib + GITHUB_TOKEN pattern of the seed
     guards, EXTENDED to writes (POST/PATCH). `transport(method, path, body) -> (status, json)` is
@@ -592,20 +641,82 @@ class GitHubIssues:
         return out
 
     def open_issue(self, title: str, body: str) -> dict:
-        status, data = self._transport(
-            "POST", f"/repos/{self.repo}/issues",
-            {"title": title, "body": body, "labels": [self.label]})  # label applied at creation
-        if status >= 400 or data is None:
-            raise DegradedReadError(f"GitHub returned {status} opening an engine issue")
-        return data
+        """Compatibility issue-dict wrapper over the mandatory assessment filing operation."""
+        import issue_triage
+        configuration_error = None
+        try:
+            config = issue_triage.load_config()
+        except issue_triage.TriageError as exc:
+            config = None
+            configuration_error = str(exc)
+        result = self.file_assessed_issue(title, body, config=config)
+        if configuration_error:
+            result['configuration_error'] = configuration_error
+            print('Issue milestone configuration is invalid: ' + configuration_error, file=sys.stderr)
+        if result['filing'] != 'created' or not result.get('number'):
+            raise DegradedReadError(result['reason'])
+        if result['assignment']['state'] not in issue_triage.TERMINAL_ASSIGNMENTS:
+            print('Issue filed; release triage remains pending: ' + result['assignment']['reason'])
+        return {'id': result['issue_id'], 'number': result['number'], 'html_url': result['url'], 'triage': result}
+
+    def file_assessed_issue(self, title: str, body: str, *, config=None, retry=False) -> dict:
+        """Supported typed submission; raw open_issue is the legacy transport seam."""
+        import issue_triage
+        return issue_triage.file_issue(self, title, body, config=config, retry=retry)
 
     def update_issue(self, number: int, body: str) -> dict:
-        status, data = self._transport("PATCH", f"/repos/{self.repo}/issues/{number}", {"body": body})
-        if status >= 400:
-            raise DegradedReadError(f"GitHub returned {status} updating engine issue #{number}")
-        return data or {"number": number}
+        import issue_triage
+        try:
+            path = f'/repos/{self.repo}/issues/{number}'
+            live = issue_triage.read_api(self, path)
+            if not issue_triage.scoped(live) or live.get('state') == 'closed':
+                raise DegradedReadError('Report left scope or closed before refresh; no write.')
+            candidate = issue_triage.parse(body)
+            notice = None
+            consolidation = re.match(r'^\*Consolidated into #([1-9][0-9]*)', body)
+            if consolidation:
+                notice = _consolidation_note(int(consolidation.group(1)))
+            elif body.startswith('**Resolved'):
+                notice = _capture_resolution_note()
+            if notice is not None:
+                if not body.startswith(notice):
+                    raise DegradedReadError('Unrecognized resolution notice; no write.')
+                # The caller's listed body may already be stale. Only prepend the known
+                # notice to the body just read, retaining human text and current triage.
+                current_body = live.get('body') or ''
+                body = current_body if current_body.startswith(notice) else notice + current_body
+            elif candidate and REPORT_START in body:
+                current = issue_triage.parse(live.get('body') or '')
+                if current is None:
+                    raise DegradedReadError('Report assessment disappeared; repair it before refreshing.')
+                if current['evidence'] == candidate['evidence']:
+                    candidate = current
+                else:
+                    candidate['revision'] = current['revision'] + 1
+                    candidate['superseded'] = {'assessment': current['assessment'], 'evidence': current['evidence']}
+                body = issue_triage.with_record(_replace_report(live['body'], body), candidate)
+            elif issue_triage.has_record_markers(live.get('body') or ''):
+                raise DegradedReadError('Refresh would remove current assessment state; rediscover or repair before refreshing.')
+            if issue_triage.read_api(self, path) != live:
+                raise DegradedReadError('Issue changed before refresh; no write.')
+            status, data = self._transport('PATCH', f'/repos/{self.repo}/issues/{number}', {'body': body})
+            if status >= 400:
+                raise DegradedReadError(f'GitHub returned {status} updating engine issue #{number}')
+            after = issue_triage.read_api(self, path)
+            if (not issue_triage.scoped(after) or after.get('state') == 'closed'
+                    or after.get('body') != body or after.get('milestone') != live.get('milestone')):
+                raise DegradedReadError('Refresh readback differs; inspect the issue before retrying.')
+            return data or {'number': number}
+        except issue_triage.TriageError as exc:
+            raise DegradedReadError(str(exc)) from exc
 
     def close_issue(self, number: int) -> dict:
+        import issue_triage
+        live = issue_triage.read_api(self, f'/repos/{self.repo}/issues/{number}')
+        if not issue_triage.scoped(live):
+            raise DegradedReadError('Report left engine scope before closure; no write.')
+        if live.get('state') == 'closed':
+            return live
         status, data = self._transport("PATCH", f"/repos/{self.repo}/issues/{number}", {"state": "closed"})
         if status >= 400:
             raise DegradedReadError(f"GitHub returned {status} closing engine issue #{number}")
@@ -837,14 +948,21 @@ def run(github: GitHubIssues, records: list, cache: Cache, thresholds: dict, now
 
     plan = reconcile(records, open_issues, cache.load(), thresholds, now,
                      authoritative=authoritative, live=live)
+    record_by_source = {derive_source_key(r): r for r in records}
+    previous_by_number = {i['number']: i for i in open_issues}
     opened = updated = closed = 0
     try:
         for sid, title, body in plan.to_open:
+            body = producer_body(body, _semantic_finding(record_by_source.get(sid, {})), now)
             created = github.open_issue(title, body)
             if sid in plan.next_counts:
                 plan.next_counts[sid]["issue"] = created.get("number")
             opened += 1
         for number, body in plan.to_update:
+            previous = previous_by_number.get(number, {})
+            source = record_by_source.get(previous.get('source_id') or parse_source_id(body))
+            if source is not None and not body.startswith(('*Consolidated', '**Resolved')):
+                body = producer_body(body, _semantic_finding(source), now, previous=previous.get('body') or '')
             github.update_issue(number, body)
             updated += 1
         for number in plan.to_close:
@@ -961,7 +1079,7 @@ def promote_finding(github: GitHubIssues, record: dict, now: str, *, title: str 
             if record.get("first_seen"):
                 seen.append(record["first_seen"])
             first_seen = min(seen) if seen else now
-            github.update_issue(survivor["number"], _render(first_seen))
+            github.update_issue(survivor['number'], producer_body(_render(first_seen), _semantic_finding(record), now, previous=survivor.get('body') or ''))
             # Converge a create/create race: fold every same-signal duplicate into the survivor and close
             # it, so a recurring signal amends ONE tracked Issue instead of multiplying (never touches a
             # DIFFERENT source_id — promote_finding is authoritative only for the sid it is promoting).
@@ -969,7 +1087,7 @@ def promote_finding(github: GitHubIssues, record: dict, now: str, *, title: str 
                 github.update_issue(dup["number"], _consolidation_note(survivor["number"]) + (dup.get("body") or ""))
                 github.close_issue(dup["number"])
             return survivor["number"]
-        return github.open_issue(ttl, _render(record.get("first_seen") or now)).get("number")
+        return github.open_issue(ttl, producer_body(_render(record.get('first_seen') or now), _semantic_finding(record), now)).get('number')
     except DegradedReadError:
         return False
 
@@ -1700,6 +1818,11 @@ class _FakeGitHub:
             self.issues[num] = {"number": num, "title": body["title"], "body": body["body"],
                                 "labels": body.get("labels", []), "state": "open"}
             return 201, self.issues[num]
+        match = re.search(r'/issues/(\d+)$', path)
+        if match and method == 'GET':
+            import copy
+            issue = self.issues.get(int(match.group(1)))
+            return (200, copy.deepcopy(issue)) if issue else (404, None)
         m = re.search(r"/issues/(\d+)$", path)
         if m and method == "PATCH":
             num = int(m.group(1))

@@ -50,7 +50,18 @@ resolves the TRUSTED target repository from engine config, and prints the reposi
 (applied by construction), the title, and the rendered body — WITHOUT any network call. `create` does the
 same, then (only with `--confirm`) files the Issue through the supported GitHub boundary
 (`telemetry.GitHubIssues` → `github_client.json_request`), applying the `engine` label by construction, and
-prints the link.
+prints separate JSON outcomes for filing, assessment and milestone assignment. Input must include
+`submission_id` (a stable operation id reused after uncertainty) and `assessment`: either assessed with
+canonical impact, remedy, rationale and evidence, or pending with the unknown and concrete next action.
+Absent assessment is rejected before any POST. Issue kind and severity never choose release impact.
+Use `create --retry` only to reconcile an uncertain operation; an absent or ambiguous match refuses
+another POST. Configure mappings and recover pending work through `triage`; see
+`.engine/operations/issue-triage.md`. Unlabelled human issues remain exempt, while adding `engine` opts in.
+The formatter functions above remain passive; these CLI and producer boundaries perform network writes.
+Direct-session routing enforcement (StarshipSuperjam/engine-template#1093) and App/credential integration
+(StarshipSuperjam/engine-template#914) remain separate work.
+Run `triage demo` for the offline, asserted end-to-end behavior, or pass `--expected-pending 0` to
+demonstrate that an intentionally wrong expectation fails.
 
 AUTHORITY BOUNDARY (why the input's `repository` cannot steer the filing). The input NAMES an intended
 repository, but the create path RESOLVES the actual target from trusted config (this checkout's own
@@ -249,10 +260,15 @@ def validate_input(data: dict) -> dict:
         first = errors[0]
         where = "/".join(str(p) for p in first.path) or "(root)"
         raise IssueInputError(f"the input does not match engine-issue-input.v1 at {where}: {first.message}")
+    import issue_triage
+    try:
+        issue_triage.validate(data['assessment'], 'assessment')
+    except issue_triage.TriageError as exc:
+        raise IssueInputError(str(exc)) from exc
     return data
 
 
-def resolve_trusted_targets(*, env=None, root: "str | None" = None) -> list:
+def resolve_issue_repositories(*, env=None, root: "str | None" = None) -> list:
     """The repositories this engine may file its OWN engine Issues into, resolved from TRUSTED config only —
     never from the input. Always the engine's own checkout: `GITHUB_REPOSITORY` (the CI-provided identity) when
     set, otherwise the checkout's git `origin` slug (read offline from disk). For an engine-MECHANIC it ALSO
@@ -284,6 +300,11 @@ def resolve_trusted_targets(*, env=None, root: "str | None" = None) -> list:
     return deduped
 
 
+def resolve_trusted_targets(*, env=None, root: "str | None" = None) -> list:
+    """Compatibility name for repository identities; these values are not credentials."""
+    return resolve_issue_repositories(env=env, root=root)
+
+
 def title_from_input(data: dict) -> str:
     """The canonical Issue title from the validated input: `<Kind>: <title>`, rendered from the REQUIRED `kind`
     (structured data) and the descriptive `title`. issue_kind.render_title normalises and strips any prefix the
@@ -298,29 +319,33 @@ def body_from_input(data: dict) -> str:
     self-healing. References carry (label, link) fields (engine-issue-input.v1) — mapped to the renderer's
     (label, url) pairs."""
     references = [(ref["label"], ref["link"]) for ref in data.get("references", [])] or None
-    return render_engine_issue_body(
+    body = render_engine_issue_body(
         what_this_is=data["what_this_is"], whats_next=data["whats_next"], references=references,
         urgency=data.get("urgency"), verified_head=data.get("verified_head"), kind=data["kind"])
+    import issue_triage
+    record = issue_triage.new_record(data['assessment'], data['submission_id'],
+                                    {'what_this_is': data['what_this_is'], 'whats_next': data['whats_next']})
+    return issue_triage.with_record(body, record)
 
 
-def _matched_target(requested: str, trusted_targets: list) -> "str | None":
+def _matched_target(requested: str, repository_slugs: list) -> "str | None":
     """The trusted target the requested repository matches (case/normalization-insensitive), or None when it
     matches none — an input naming an untrusted repository is never treated as a match (fail closed)."""
     import repo_identity  # lazy
-    for target in trusted_targets:
+    for target in repository_slugs:
         if repo_identity.slug_eq(requested, target):
             return target
     return None
 
 
-def preview_text(data: dict, trusted_targets: list) -> str:
+def preview_text(data: dict, repository_slugs: list) -> str:
     """The operator-facing preview string: requested repository, the trusted target set and whether the request
     matches one of them, the engine label (by construction), the title, and the rendered body. Pure — no
     network, nothing filed."""
     import telemetry  # lazy: for the label constant (issue_author is imported by telemetry at load)
     requested = data["repository"]
-    matched = _matched_target(requested, trusted_targets)
-    if not trusted_targets:
+    matched = _matched_target(requested, repository_slugs)
+    if not repository_slugs:
         agree = ("  ✗ no trusted target could be resolved from engine config — `create` will refuse to file "
                  "until one can (fail closed).")
     elif matched:
@@ -331,7 +356,7 @@ def preview_text(data: dict, trusted_targets: list) -> str:
     return (
         "ENGINE ISSUE — PREVIEW (nothing has been filed)\n\n"
         f"Repository (requested in the input): {requested}\n"
-        f"Trusted targets (where create MAY file): {', '.join(trusted_targets) or '(none resolved)'}\n"
+        f"Trusted targets (where create MAY file): {', '.join(repository_slugs) or '(none resolved)'}\n"
         f"{agree}\n"
         f"Label applied by construction: {telemetry.ENGINE_DOMAIN_LABEL}\n"
         f"Kind (structured): {data['kind']}\n"
@@ -343,23 +368,25 @@ def preview_text(data: dict, trusted_targets: list) -> str:
     )
 
 
-def create_issue(data: dict, *, env=None, root: "str | None" = None, issues_factory=None) -> str:
+def create_issue_result(data: dict, *, env=None, root: "str | None" = None, issues_factory=None,
+                        retry=False) -> dict:
     """File the engine Issue and return its link. Resolves the trusted target SET and REFUSES (IssueInputError)
     if the input's repository matches none of it, or if no target/token can be resolved. The Issue is filed into
     the trusted target the input MATCHED (never a repository named only by the input). The `engine` label is
     applied by construction (telemetry.GitHubIssues' default). `issues_factory(repo, token)` is injectable so
     offline tests exercise the whole path without a network; production uses telemetry.GitHubIssues."""
+    validate_input(data)
     environ = os.environ if env is None else env
-    trusted = resolve_trusted_targets(env=environ, root=root)
-    if not trusted:
+    repository_slugs = resolve_issue_repositories(env=environ, root=root)
+    if not repository_slugs:
         raise IssueInputError(
             "refusing to file: no trusted target could be resolved from engine config "
             "(no GITHUB_REPOSITORY, no git origin, no recorded product build target) — the target cannot be verified.")
-    matched = _matched_target(data["repository"], trusted)
+    matched = _matched_target(data["repository"], repository_slugs)
     if matched is None:
         raise IssueInputError(
             f"refusing to file: the input names '{data['repository']}' but this engine's trusted targets are "
-            f"{trusted}. An engine Issue is filed only into the engine's own repository (or, for a mechanic, the "
+            f"{repository_slugs}. An engine Issue is filed only into the engine's own repository (or, for a mechanic, the "
             "owned product it builds); correct the input's `repository` to one of those (an input cannot redirect "
             "the filing elsewhere).")
     token = environ.get("GITHUB_TOKEN")
@@ -369,8 +396,25 @@ def create_issue(data: dict, *, env=None, root: "str | None" = None, issues_fact
         import telemetry  # lazy
         issues_factory = telemetry.GitHubIssues
     issues = issues_factory(matched, token.strip())
-    created = issues.open_issue(title_from_input(data), body_from_input(data))
-    return created.get("html_url") or f"https://github.com/{matched}/issues/{created.get('number', '')}"
+    import issue_triage
+    configuration_error = None
+    try:
+        config = issue_triage.load_config(root)
+    except issue_triage.TriageError as exc:
+        config = None  # Preserve filing availability while retaining the actionable diagnostic.
+        configuration_error = str(exc)
+    result = issues.file_assessed_issue(title_from_input(data), body_from_input(data), config=config, retry=retry)
+    if configuration_error:
+        result["configuration_error"] = configuration_error
+    return result
+
+
+def create_issue(data: dict, **kwargs) -> str:
+    """Compatibility URL wrapper; typed callers use create_issue_result for assignment outcomes."""
+    result = create_issue_result(data, **kwargs)
+    if result['filing'] != 'created' or not result.get('number'):
+        raise IssueInputError(result['reason'])
+    return result.get('url') or f"https://github.com/{result['repository']}/issues/{result['number']}"
 
 
 def _cli_preview(source: str) -> int:
@@ -379,26 +423,26 @@ def _cli_preview(source: str) -> int:
     except IssueInputError as exc:
         print(f"Refused — {exc}", file=sys.stderr)
         return 2
-    print(preview_text(data, resolve_trusted_targets()))
+    print(preview_text(data, resolve_issue_repositories()))
     return 0
 
 
-def _cli_create(source: str, confirm: bool) -> int:
+def _cli_create(source: str, confirm: bool, *, retry=False) -> int:
     if not confirm:
         print("Refused — `create` files a GitHub Issue, so it needs explicit confirmation. Re-run with "
               "`--confirm` (use `preview` first to see exactly what will be filed).", file=sys.stderr)
         return 2
     try:
         data = validate_input(load_input(source))
-        link = create_issue(data)
+        result = create_issue_result(data, retry=retry)
     except IssueInputError as exc:
         print(f"Refused — {exc}", file=sys.stderr)
         return 2
     except Exception as exc:  # a network / GitHub failure (e.g. telemetry.DegradedReadError) — report plainly
         print(f"Could not file the Issue: {exc}", file=sys.stderr)
         return 1
-    print(f"Filed: {link}")
-    return 0
+    print(json.dumps(result, indent=2))
+    return 0 if result['filing'] == 'created' else 1
 
 
 def _parse_cli(argv: list) -> "tuple[str, bool]":
@@ -490,6 +534,9 @@ def _demo() -> int:
 
 def main(argv: list) -> int:
     verb = argv[0] if argv else None
+    if verb == 'triage':
+        import issue_triage
+        return issue_triage.main(argv[1:])
     if verb == "demo":
         return _demo()
     if verb in ("preview", "create"):
@@ -498,7 +545,7 @@ def main(argv: list) -> int:
         except IssueInputError as exc:
             print(f"Refused — {exc}", file=sys.stderr)
             return 2
-        return _cli_preview(source) if verb == "preview" else _cli_create(source, confirm)
+        return _cli_preview(source) if verb == "preview" else _cli_create(source, confirm, retry='--retry' in argv)
     print(__doc__)
     return 0
 

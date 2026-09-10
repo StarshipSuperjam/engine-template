@@ -150,6 +150,9 @@ class TestSingleAuthoringPath(unittest.TestCase):
 
 
 _GOOD = {
+    "submission_id": "test-submission-1",
+    "assessment": {"state": "pending", "unknown": "The remedy is not established.",
+                   "next_action": "Inspect the failing check and identify the remedy."},
     "repository": "StarshipSuperjam/engine-template",
     "kind": "Fix",
     "title": "A finding",
@@ -173,8 +176,22 @@ class _CapturingIssues:
         self.opened.append((title, body))
         return {"html_url": f"https://github.com/{self.repo}/issues/7", "number": 7}
 
+    def file_assessed_issue(self, title, body, **kwargs):
+        import issue_triage
+        created=self.open_issue(title,body)
+        return issue_triage.filing_result(self.repo, 'test-submission-1', 'created',
+                                         issue_triage.parse(body), issue=created)
+
 
 class TestInputLoadingAndValidation(unittest.TestCase):
+    def test_malformed_configuration_diagnostic_survives_successful_filing(self):
+        import issue_triage
+        from unittest.mock import patch
+        with patch.object(issue_triage, 'load_config', side_effect=issue_triage.TriageError('invalid milestone configuration: missing patch')):
+            result = issue_author.create_issue_result(dict(_GOOD), env=_TRUSTED_ENV, issues_factory=_CapturingIssues)
+        self.assertEqual(result['filing'], 'created')
+        self.assertIn('missing patch', result['configuration_error'])
+
     def test_load_input_from_stdin_parses_object(self):
         data = issue_author.load_input("-", _stdin=io.StringIO(json.dumps(_GOOD)))
         self.assertEqual(data["title"], "A finding")
@@ -340,7 +357,7 @@ class TestVerifiedHeadAtFiling(unittest.TestCase):
         self.assertEqual(issue_author.parse_verified_head(body), self._GOOD)   # last-match: the genuine trailer wins
 
     def test_schema_accepts_a_valid_value_and_threads_it_through_the_cli_path(self):
-        data = {"repository": "StarshipSuperjam/engine-template", "kind": "Fix", "title": "x",
+        data = {**_GOOD, "repository": "StarshipSuperjam/engine-template", "kind": "Fix", "title": "x",
                 "what_this_is": "a", "whats_next": "b", "verified_head": self._GOOD}
         issue_author.validate_input(data)                       # does not raise
         self.assertIn(f"<!-- verified-head: {self._GOOD} -->", issue_author.body_from_input(data))

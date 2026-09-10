@@ -7454,5 +7454,22 @@ class TestPreviouslySubmittedAdvisoryReachesBothSurfaces(unittest.TestCase):
         self.assertIn(shared, self._reground("ready"))
 
 
+
+
+class TestIssueTriageEnvelope(unittest.TestCase):
+    def test_selected_obligation_is_in_typed_envelope_and_inert_render(self):
+        patchers = _offline()
+        try:
+            signals = _signals(issue_triage={'state':'available','pending_count':4,'selected_issue':1119})
+            envelope = boot._envelope_from_signals(signals, 'triage-envelope-test', use_ledger=False)
+        finally:
+            for patcher in patchers:
+                patcher.stop()
+        self.assertEqual(envelope['issue_triage']['selected_issue'], 1119)
+        rendered = boot.session_relay.render(envelope)
+        self.assertIn('Act on issue #1119', rendered)
+        self.assertIn('Acknowledgement alone does not satisfy', rendered)
+
+
 if __name__ == "__main__":
     unittest.main()

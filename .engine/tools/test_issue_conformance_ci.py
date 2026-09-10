@@ -121,7 +121,9 @@ class TestSkeletonComment(unittest.TestCase):
             self.assertIn(marker, body)
 
     def test_leads_with_the_plain_no_chore_line(self):
-        self.assertIn("Nothing for you to do", icc.skeleton_comment())
+        self.assertIn("repair this existing issue", icc.skeleton_comment())
+        self.assertIn("triage repair", icc.skeleton_comment())
+        self.assertIn("do not close and refile", icc.skeleton_comment())
 
     def test_is_static_takes_no_issue_argument(self):
         import inspect
@@ -503,6 +505,23 @@ class TestHelpNeverActs(unittest.TestCase):
         twice = subprocess.run([sys.executable, script, "demo", "demo"], capture_output=True, text=True, timeout=5, env=env)
         self.assertEqual(twice.returncode, 2, twice.stderr)      # never a traceback (repair round 2)
         self.assertNotIn("Traceback", twice.stderr)
+
+
+
+
+class TestTriageOptIn(unittest.TestCase):
+    def test_unrelated_label_is_noop_but_engine_label_is_opt_in(self):
+        issue={'number':1,'labels':[{'name':'engine'}]}
+        self.assertIsNone(icc.engine_issue_or_none({'action':'labeled','label':{'name':'bug'},'issue':issue}))
+        self.assertEqual(icc.engine_issue_or_none({'action':'labeled','label':{'name':'engine'},'issue':issue}),issue)
+
+    def test_required_assessment_flags_structural_body_without_assessment(self):
+        from unittest.mock import Mock
+        client=Mock();client.list_comments.return_value=[]
+        body=issue_author.render_engine_issue_body(what_this_is='Human opt-in',whats_next='Investigate')
+        issue={'number':1,'labels':[{'name':'engine'}],'body':body}
+        self.assertEqual(icc.reconcile(issue,client,require_triage=True),'flagged')
+        client.add_label.assert_called_once()
 
 
 if __name__ == "__main__":

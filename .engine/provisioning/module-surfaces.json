@@ -939,6 +939,9 @@
   ".engine/operations/first-run.md": [
    "core"
   ],
+  ".engine/operations/issue-triage.md": [
+   "core"
+  ],
   ".engine/operations/knowledge-impact-check.md": [
    "core"
   ],
@@ -1143,6 +1146,9 @@
   ".engine/schemas/interface.v1.json": [
    "core"
   ],
+  ".engine/schemas/issue-triage.v1.json": [
+   "core"
+  ],
   ".engine/schemas/knowledge.v1.json": [
    "core"
   ],
@@ -1156,6 +1162,9 @@
    "core"
   ],
   ".engine/schemas/operation.v1.json": [
+   "core"
+  ],
+  ".engine/schemas/operator-issue-triage.v1.json": [
    "core"
   ],
   ".engine/schemas/persistent-execution-context.v1.json": [
@@ -1738,6 +1747,9 @@
    "core"
   ],
   ".engine/tools/issue_label_client.py": [
+   "core"
+  ],
+  ".engine/tools/issue_triage.py": [
    "core"
   ],
   ".engine/tools/knowledge_gen.py": [
@@ -2482,6 +2494,9 @@
    "core"
   ],
   ".engine/tools/test_issue_kind_label.py": [
+   "core"
+  ],
+  ".engine/tools/test_issue_triage.py": [
    "core"
   ],
   ".engine/tools/test_knowledge.py": [

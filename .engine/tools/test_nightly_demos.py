@@ -272,5 +272,39 @@ class TheWorkflowIsFencedAndHomeOnly(unittest.TestCase):
             "refuses and nothing is removed")
 
 
+class TriageReviewRegressions(unittest.TestCase):
+    def test_cosmetic_output_preserves_assessment_but_exit_or_diagnostic_change_invalidates(self):
+        import copy
+        import issue_triage
+        from test_issue_triage import assessed
+        api = _Issues()
+        first = _red('demo_x.py')
+        first['failures'][0]['output'] = '2026-09-10T01:02:03Z /tmp/run-one/result.txt expected 2 got 3'
+        reporter.report(first, api, 'o/r')
+        item = api.issues[0]; record = issue_triage.parse(item['body'])
+        record['assessment'] = assessed()
+        item['body'] = issue_triage.with_record(item['body'], record)
+        cosmetic = copy.deepcopy(first)
+        cosmetic['failures'][0]['output'] = '2026-09-11T04:05:06Z  /tmp/run-two/result.txt\nexpected 2   got 3'
+        reporter.report(cosmetic, api, 'o/r', 'https://example.test/new-run')
+        self.assertEqual(issue_triage.parse(item['body'])['assessment'], assessed())
+        for field, value in [('exit_code', 2), ('output', 'expected 2 got 4')]:
+            changed = copy.deepcopy(cosmetic); changed['failures'][0][field] = value
+            reporter.report(changed, api, 'o/r')
+            self.assertEqual(issue_triage.parse(item['body'])['assessment']['state'], 'pending')
+            restored = issue_triage.parse(item['body']); restored['assessment'] = assessed()
+            item['body'] = issue_triage.with_record(item['body'], restored)
+        self.assertTrue(item['body'].rstrip().endswith(reporter.MARKER))
+
+    def test_filed_summary_retains_real_typed_pending_assignment(self):
+        import telemetry
+        from test_telemetry import FakeGH, gh
+        client = gh(FakeGH())
+        outcome = reporter.report(_red('demo_x.py'), client, client.repo)
+        self.assertEqual(outcome['triage']['filing'], 'created')
+        self.assertEqual(outcome['triage']['assessment'], 'pending')
+        self.assertEqual(outcome['triage']['assignment']['state'], 'resolution-failed')
+
+
 if __name__ == "__main__":
     unittest.main()

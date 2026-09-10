@@ -94,6 +94,10 @@ class FakeGH:
             self.issues[num] = {"number": num, "title": body["title"], "body": body["body"],
                                 "labels": body.get("labels", []), "state": "open"}
             return 201, self.issues[num]
+        if base.split('/')[-1].isdigit() and method == 'GET':
+            import copy
+            issue = self.issues.get(int(base.split('/')[-1]))
+            return (200, copy.deepcopy(issue)) if issue else (404, None)
         if base.split("/")[-1].isdigit() and method == "PATCH":
             num = int(base.split("/")[-1])
             self.issues[num].update(body)
@@ -1071,7 +1075,7 @@ class TestPromoteFindingBodyOverride(unittest.TestCase):
                                   title="A lane-aware title", body_core="Lane-aware prose.")
         created = next(iter(f.issues.values()))
         self.assertEqual(created["title"], "A lane-aware title")
-        self.assertTrue(created["body"].startswith("Lane-aware prose."))
+        self.assertIn("Lane-aware prose.", created["body"])
         self.assertNotIn("health framing would say", created["body"])   # NOT the default body
 
     def test_appends_exactly_one_recoverable_signal_marker(self):
@@ -2102,7 +2106,7 @@ class TestCaptureRecoveryResolve(unittest.TestCase):
     def _stuck(self, gh):
         body = ("The engine keeps failing to save session conversations to this project's memory.\n\n"
                 f"<!-- engine-signal: {self._SID} -->")
-        return gh.open_issue("Engine health: capture keeps failing", body)["number"]
+        return gh.open_issue("Engine health: capture keeps failing", telemetry.producer_body(body, {"source": "capture"}, "2026-09-10T00:00:00Z"))["number"]
 
     def test_recovered_everywhere_closes_with_a_plain_note(self):
         wt = self._worktree("wt-a")
@@ -2158,7 +2162,7 @@ class TestCaptureRecoveryResolve(unittest.TestCase):
         fake, gh = self._gh()
         num = self._stuck(gh)
         other = gh.open_issue("Engine health: something else",
-                              "body\n\n<!-- engine-signal: ambient/other-signal -->")["number"]
+                              telemetry.producer_body("body\n\n<!-- engine-signal: ambient/other-signal -->", {"source":"other"}, "2026-09-10T00:00:00Z"))["number"]
         self.assertTrue(telemetry.resolve_capture_marker(gh, root=self.repo, cache_path=self.cachep))
         self.assertEqual(fake.issues[num]["state"], "closed")
         self.assertEqual(fake.issues[other]["state"], "open")
@@ -2212,6 +2216,119 @@ class TestCaptureRecoveryResolve(unittest.TestCase):
         self.assertTrue(telemetry.resolve_capture_marker(gh, root=self.repo, cache_path=self.cachep))
         self.assertEqual(fake.issues[num]["state"], "closed")
         self.assertEqual(fake.issues[num]["body"].count("**Resolved"), 1)
+
+
+
+
+class TestProducerAssessment(unittest.TestCase):
+    def test_stale_legacy_refresh_cannot_erase_repaired_assessment(self):
+        import issue_triage
+        fake = FakeGH(); client = gh(fake)
+        _, created = fake.transport('POST', '/repos/o/r/issues',
+                                     {'title':'Fix: legacy','body':'Legacy report','labels':['engine']})
+        number = created['number']
+        candidate = telemetry.producer_body('Refreshed legacy report', {}, T[1], previous='Legacy report')
+        for damaged in ((), (issue_triage.START,), (issue_triage.START, issue_triage.END)):
+            with self.subTest(damaged=damaged):
+                repaired = 'Human prefix\n' + telemetry.producer_body('Repaired report', {}, T[1]) + '\nHuman tail'
+                for marker in damaged:
+                    repaired = repaired.replace(marker, '<!-- damaged -->')
+                fake.issues[number]['body'] = repaired
+                fake.calls.clear()
+                with self.assertRaisesRegex(telemetry.DegradedReadError, 'remove current assessment'):
+                    client.update_issue(number, candidate)
+                self.assertEqual(fake.issues[number]['body'], repaired)
+                self.assertFalse(any(method == 'PATCH' for method, _ in fake.calls))
+
+    def test_cached_source_recovery_preserves_assessment_and_human_text(self):
+        import issue_triage
+        with tempfile.TemporaryDirectory() as directory:
+            fake = FakeGH(); client = gh(fake)
+            cache = telemetry.Cache(os.path.join(directory, 'cache.json'))
+            source = rec('checks/recovered', severity='trust-critical')
+            first = telemetry.run(client, [source], cache, TH, T[0], authoritative=set())
+            self.assertEqual(first.opened, 1)
+            number = next(iter(fake.issues))
+            live = fake.issues[number]['body']
+            assessment = issue_triage.parse(live)
+            assessment['assessment'] = {'state':'assessed','impact':'patch','remedy':'Restore behavior',
+                                        'rationale':'Existing behavior only','evidence':['verified test']}
+            live = issue_triage.with_record(live, assessment)
+            live = live.replace('<!-- engine-signal: checks/recovered -->', '')
+            fake.issues[number]['body'] = 'Human prefix\n' + live + '\nHuman tail'
+            second = telemetry.run(client, [source], cache, TH, T[1], authoritative=set())
+            self.assertFalse(second.degraded)
+            self.assertEqual(second.updated, 1)
+            final = fake.issues[number]['body']
+            self.assertEqual(issue_triage.parse(final), assessment)
+            self.assertTrue(final.startswith('Human prefix\n'))
+            self.assertTrue(final.endswith('\nHuman tail'))
+            self.assertEqual(telemetry.parse_source_id(final), 'checks/recovered')
+
+    def test_refresh_preserves_assessed_state_and_human_text_then_invalidates_new_evidence(self):
+        import issue_triage
+        now='2026-09-10T00:00:00Z'
+        body=telemetry.producer_body('Reported failure',{'failure':'a'},now)
+        record=issue_triage.parse(body)
+        record['assessment']={'state':'assessed','impact':'patch','remedy':'Restore behavior',
+                              'rationale':'Existing behavior only','evidence':['verified test']}
+        body='Human note\n'+issue_triage.with_record(body,record)+'\nHuman tail'
+        same=telemetry.producer_body('Updated display only',{'failure':'a'},now,previous=body)
+        self.assertEqual(issue_triage.parse(same)['assessment']['state'],'assessed')
+        self.assertTrue(same.startswith('Human note\n'));self.assertTrue(same.endswith('Human tail'))
+        changed=telemetry.producer_body('Different failure',{'failure':'b'},now,previous=same)
+        self.assertEqual(issue_triage.parse(changed)['assessment']['state'],'pending')
+        self.assertEqual(issue_triage.parse(changed)['superseded']['assessment']['impact'],'patch')
+
+    def test_final_nightly_marker_stays_final_and_legacy_is_not_bulk_adopted(self):
+        marker='<!-- final-nightly -->'
+        body=telemetry.producer_body('failure\n'+marker+'\n',{'failure':'a'},'2026-09-10T00:00:00Z',final_marker=marker)
+        again=telemetry.producer_body('new\n'+marker+'\n',{'failure':'b'},'2026-09-11T00:00:00Z',previous=body,final_marker=marker)
+        self.assertTrue(again.endswith(marker+'\n'))
+        self.assertEqual(telemetry.producer_body('new legacy report',{},'2026-09-10T00:00:00Z',previous='legacy'),'new legacy report')
+
+    def test_refresh_and_closure_recheck_engine_scope(self):
+        fake = FakeGH(); client = gh(fake)
+        body = telemetry.producer_body('Failure', {'case':'a'}, '2026-09-10T00:00:00Z')
+        number = client.open_issue('Fix: failure', body)['number']
+        fake.issues[number]['labels'] = []
+        fake.calls.clear()
+        for action in (lambda: client.update_issue(number, body), lambda: client.close_issue(number)):
+            with self.assertRaises(telemetry.DegradedReadError):
+                action()
+        self.assertFalse(any(method=='PATCH' for method, _ in fake.calls))
+
+    def test_refresh_readback_detects_a_server_that_drops_the_body(self):
+        fake = FakeGH(); client = gh(fake)
+        body = telemetry.producer_body('Failure', {'case':'a'}, '2026-09-10T00:00:00Z')
+        number = client.open_issue('Fix: failure', body)['number']
+        def transport(method, path, payload):
+            if method == 'PATCH':
+                return 200, fake.issues[number]
+            return fake.transport(method, path, payload)
+        client._transport = transport
+        changed = telemetry.producer_body('Changed failure', {'case':'b'}, '2026-09-11T00:00:00Z', previous=body)
+        with self.assertRaisesRegex(telemetry.DegradedReadError, 'readback'):
+            client.update_issue(number, changed)
+
+    def test_reversed_owned_markers_refuse_without_mangling_human_text(self):
+        body = telemetry.REPORT_END + 'human text' + telemetry.REPORT_START
+        with self.assertRaises(telemetry.DegradedReadError):
+            telemetry._replace_report(body, body)
+
+    def test_resolution_and_consolidation_preserve_text_added_since_listing(self):
+        for notice in (telemetry._capture_resolution_note(), telemetry._consolidation_note(42)):
+            with self.subTest(notice=notice):
+                fake = FakeGH(); client = gh(fake)
+                body = telemetry.producer_body('Failure', {'case':'a'}, '2026-09-10T00:00:00Z')
+                number = client.open_issue('Fix: failure', body)['number']
+                stale = fake.issues[number]['body']
+                live = 'Human note added after listing.\n' + stale + '\nHuman tail.'
+                fake.issues[number]['body'] = live
+                client.update_issue(number, notice + stale)
+                self.assertEqual(fake.issues[number]['body'], notice + live)
+                client.update_issue(number, notice + stale)
+                self.assertEqual(fake.issues[number]['body'], notice + live)
 
 
 if __name__ == "__main__":
