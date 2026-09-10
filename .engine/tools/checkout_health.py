@@ -1355,14 +1355,17 @@ def registered_checkout_roots(cwd: str | None = None) -> list[str] | None:
     first = _run(command, cwd=cwd)
     if not first:
         return None
-    paths = [part[len('worktree '):] for part in first.split('\0') if part.startswith('worktree ')]
-    if not paths or len(set(paths)) != len(paths):
+    # Git uses forward slashes on Windows; compare native normalized spellings while
+    # still refusing symbolic aliases and duplicate registrations.
+    paths = [os.path.abspath(part[len('worktree '):])
+             for part in first.split('\0') if part.startswith('worktree ')]
+    if not paths or len({os.path.normcase(path) for path in paths}) != len(paths):
         return None
     for path in paths:
-        if not os.path.isdir(path) or os.path.realpath(path) != path:
+        if not os.path.isdir(path) or os.path.normcase(os.path.realpath(path)) != os.path.normcase(path):
             return None
         owner = engine_common_checkout(path)
-        if owner is None or os.path.realpath(owner) != os.path.realpath(canonical):
+        if owner is None or os.path.normcase(os.path.realpath(owner)) != os.path.normcase(os.path.realpath(canonical)):
             return None
     return paths if first == _run(command, cwd=cwd) else None
 

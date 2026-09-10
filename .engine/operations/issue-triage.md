@@ -120,8 +120,7 @@ Unrelated pending state stays on GitHub and never becomes a requirement for endi
 
 ## Notes
 
-Run the permanent offline demonstration with:
-
+Run the permanent offline demonstration:
 ```text
 uv run --directory .engine --frozen -- python tools/issue_author.py triage demo --continuity
 uv run --directory .engine --frozen -- python tools/issue_author.py triage demo --expected-pending 0
