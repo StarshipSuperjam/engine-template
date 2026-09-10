@@ -242,10 +242,23 @@ def config_snapshot(root=None, *, resolve_from=None):
         source = str(Path(resolve_from).absolute())
         if source not in sources:
             raise TriageError('The chosen configuration source is not a readable registered project copy.')
-        config = sources[source]['config']
+        config = copy.deepcopy(sources[source]['config'])
+        chosen_names = {name.lower() for name in config['repositories']}
+        for other in sources.values():
+            for name, settings in other['config']['repositories'].items():
+                if name.lower() in chosen_names:
+                    continue
+                retained = repo_config(config, name)
+                if retained is not None and retained != settings:
+                    raise TriageError(f'Chosen configuration source omits conflicting repository {name}; '
+                                      'reconcile a complete source before retrying.')
+                if retained is None:
+                    config['repositories'][name] = copy.deepcopy(settings)
     else:
         configs = [v['config'] for v in active.values()]
-        if configs and any(v['repositories'] != configs[0]['repositories'] for v in configs[1:]):
+        changed_source = any(p in migrated and migrated[p] != v['digest']
+                             for p, v in active.items() if p != str(paths[0]))
+        if changed_source or (configs and any(v['repositories'] != configs[0]['repositories'] for v in configs[1:])):
             raise TriageError('Configuration copies conflict: ' + ', '.join(active)
                               + f'. Observation {digest}; use configure --resolve-config-from with'
                                 ' --expect-config-digest to explicitly choose a source.')

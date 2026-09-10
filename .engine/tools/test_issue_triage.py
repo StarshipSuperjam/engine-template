@@ -511,6 +511,52 @@ class ConfigurationUpgrade(unittest.TestCase):
             triage.configure(Client(), {key: 16 for key in self.mapping}, root=self.root)
         self.assertFalse(self.canonical.exists())
 
+    def test_changed_acknowledged_bytes_conflict_even_when_mappings_match(self):
+        self.config['repositories']['o/r']['milestones'] = self.mapping
+        self.write(self.legacy, self.config)
+        triage.configure(FakeGitHub(), self.mapping, root=self.root)
+        before = self.canonical.read_bytes()
+        self.legacy.write_text(json.dumps(self.config, indent=2))
+        with self.assertRaisesRegex(triage.TriageError, 'copies conflict'):
+            triage.load_config(self.root)
+        with self.assertRaisesRegex(triage.TriageError, 'copies conflict'):
+            triage.configure(FakeGitHub(), self.mapping, root=self.root)
+        self.assertEqual(self.canonical.read_bytes(), before)
+        observed = triage.config_snapshot(self.root, resolve_from=self.canonical)
+        triage.configure(FakeGitHub(), self.mapping, root=self.root, resolve_from=self.canonical,
+                         expected_digest=observed['digest'])
+        self.assertEqual(triage.load_config(self.root)['repositories'], self.config['repositories'])
+
+    def test_selected_legacy_copy_cannot_drop_other_repository(self):
+        self.write(self.legacy, self.config)
+        canonical = copy.deepcopy(self.config)
+        canonical['repositories']['other/project'] = copy.deepcopy(Discovery.settings)
+        self.write(self.canonical, canonical)
+        observed = triage.config_snapshot(self.root, resolve_from=self.legacy)
+        triage.configure(FakeGitHub(), self.mapping, root=self.root, resolve_from=self.legacy,
+                         expected_digest=observed['digest'])
+        actual = triage.load_config(self.root)
+        self.assertEqual(actual['repositories']['other/project'], Discovery.settings)
+        self.assertEqual(actual['repositories']['o/r']['activated_at'], Discovery.settings['activated_at'])
+        self.assertEqual(json.loads(self.legacy.read_text()), self.config)
+
+    def test_omitted_conflicting_repository_refuses_without_guessing(self):
+        import subprocess
+        third = self.root.parent / 'third'
+        subprocess.run(['git', '-C', str(self.root), 'worktree', 'add', '-b', 'third', str(third)],
+                       check=True, stdout=subprocess.DEVNULL, stderr=subprocess.PIPE)
+        self.write(self.legacy, self.config)
+        canonical = copy.deepcopy(self.config)
+        canonical['repositories']['other/project'] = copy.deepcopy(Discovery.settings)
+        self.write(self.canonical, canonical)
+        different = copy.deepcopy(canonical)
+        different['repositories']['other/project']['activated_at'] = '2026-09-01T00:00:00Z'
+        self.write(third / triage.CONFIG_NAME, different)
+        before = self.canonical.read_bytes()
+        with self.assertRaisesRegex(triage.TriageError, 'omits conflicting repository'):
+            triage.config_snapshot(self.root, resolve_from=self.legacy)
+        self.assertEqual(self.canonical.read_bytes(), before)
+
     def test_unreadable_and_symbolic_copies_do_not_create_new_activation(self):
         self.legacy.parent.mkdir()
         self.legacy.write_text('broken json')
