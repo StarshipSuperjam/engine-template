@@ -162,6 +162,9 @@ _GOOD = {
 _TRUSTED_ENV = {"GITHUB_REPOSITORY": "StarshipSuperjam/engine-template", "GITHUB_TOKEN": "tok"}
 
 
+from test_issue_recovery import MemoryStore
+
+
 class _CapturingIssues:
     """A stand-in for telemetry.GitHubIssues: records the (repo, token) it was built with and the open_issue
     call, and returns a created-Issue dict — so the whole create path runs offline with no network."""
@@ -172,15 +175,17 @@ class _CapturingIssues:
         self.repo, self.token, self.opened = repo, token, []
         _CapturingIssues.last = self
 
-    def open_issue(self, title, body):
-        self.opened.append((title, body))
-        return {"html_url": f"https://github.com/{self.repo}/issues/7", "number": 7}
-
-    def file_assessed_issue(self, title, body, **kwargs):
-        import issue_triage
-        created=self.open_issue(title,body)
-        return issue_triage.filing_result(self.repo, 'test-submission-1', 'created',
-                                         issue_triage.parse(body), issue=created)
+    def _transport(self, method, path, body=None):
+        if method == 'POST':
+            self.opened.append((body['title'], body['body']))
+            self.issue = {'id': 107, 'number': 7, 'html_url': f'https://github.com/{self.repo}/issues/7',
+                          'state': 'open', **body}
+            return 201, self.issue
+        if '/issues?' in path:
+            return 200, []
+        if path.endswith('/issues/7'):
+            return 200, self.issue
+        return 404, None
 
 
 class TestInputLoadingAndValidation(unittest.TestCase):
@@ -188,7 +193,7 @@ class TestInputLoadingAndValidation(unittest.TestCase):
         import issue_triage
         from unittest.mock import patch
         with patch.object(issue_triage, 'load_config', side_effect=issue_triage.TriageError('invalid milestone configuration: missing patch')):
-            result = issue_author.create_issue_result(dict(_GOOD), env=_TRUSTED_ENV, issues_factory=_CapturingIssues)
+            result = issue_author.create_issue_result(dict(_GOOD), env=_TRUSTED_ENV, issues_factory=_CapturingIssues, recovery_store=MemoryStore())
         self.assertEqual(result['filing'], 'created')
         self.assertIn('missing patch', result['configuration_error'])
 
@@ -259,7 +264,7 @@ class TestCreateIssue(unittest.TestCase):
     def test_files_through_the_trusted_target_and_returns_link(self):
         with mock.patch("checkout_health.recorded_product_build_target", return_value=None):
             link = issue_author.create_issue(dict(_GOOD), env=dict(_TRUSTED_ENV),
-                                             issues_factory=_CapturingIssues)
+                                             issues_factory=_CapturingIssues, recovery_store=MemoryStore())
         self.assertEqual(link, "https://github.com/StarshipSuperjam/engine-template/issues/7")
         self.assertEqual(_CapturingIssues.last.repo, "StarshipSuperjam/engine-template")
         self.assertEqual(_CapturingIssues.last.token, "tok")
@@ -274,27 +279,27 @@ class TestCreateIssue(unittest.TestCase):
         with mock.patch("checkout_health.recorded_product_build_target", return_value="acme/product"):
             issue_author.create_issue({**_GOOD, "repository": "acme/product"},
                                       env={"GITHUB_REPOSITORY": "acme/mechanic", "GITHUB_TOKEN": "tok"},
-                                      issues_factory=_CapturingIssues)
+                                      issues_factory=_CapturingIssues, recovery_store=MemoryStore())
         self.assertEqual(_CapturingIssues.last.repo, "acme/product")
 
     def test_refuses_when_input_repository_matches_no_trusted_target(self):
         with mock.patch("checkout_health.recorded_product_build_target", return_value=None):
             env = {"GITHUB_REPOSITORY": "someone/else", "GITHUB_TOKEN": "tok"}
             with self.assertRaises(issue_author.IssueInputError) as ctx:
-                issue_author.create_issue(dict(_GOOD), env=env, issues_factory=_CapturingIssues)
+                issue_author.create_issue(dict(_GOOD), env=env, issues_factory=_CapturingIssues, recovery_store=MemoryStore())
         self.assertIn("trusted target", str(ctx.exception))
 
     def test_refuses_without_a_token(self):
         env = {"GITHUB_REPOSITORY": "StarshipSuperjam/engine-template"}   # no GITHUB_TOKEN
         with mock.patch("checkout_health.recorded_product_build_target", return_value=None):
             with self.assertRaises(issue_author.IssueInputError):
-                issue_author.create_issue(dict(_GOOD), env=env, issues_factory=_CapturingIssues)
+                issue_author.create_issue(dict(_GOOD), env=env, issues_factory=_CapturingIssues, recovery_store=MemoryStore())
 
     def test_refuses_when_target_unresolvable(self):
         with tempfile.TemporaryDirectory() as d:
             with self.assertRaises(issue_author.IssueInputError):
                 issue_author.create_issue(dict(_GOOD), env={"GITHUB_TOKEN": "tok"},
-                                          root=d, issues_factory=_CapturingIssues)
+                                          root=d, issues_factory=_CapturingIssues, recovery_store=MemoryStore())
 
 
 class TestCliDispatch(unittest.TestCase):

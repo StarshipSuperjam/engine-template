@@ -29,16 +29,10 @@ the [PR template](../../.github/pull_request_template.md)'s summary->bullets sha
 stay plain prose (audits' pinned exemplar). The helper renders whatever markdown a part contains
 verbatim, so bulleted detail renders as bullets; `_demo` below models the readable shape.
 
-PASSIVE FORMATTER, NOT A REGISTRY. This is shared code each producer *calls*; it
-makes no network calls, applies no label, and holds no roster of producers. The engine-domain label is
-applied by each producer's own GitHub boundary (an explicit `labels` value at creation, or a label
-call right after — never a web-only issue-template default, which the programmatic path bypasses). Its
-literal string is `engine` (`telemetry.ENGINE_DOMAIN_LABEL`), never `engine-domain` or a look-alike a
-descriptive phrase might suggest — a look-alike label is read by no machinery, so the Issue silently drops out
-of the debt register and the boot counts. The producer-side rule: whoever files an Issue about the engine's
-OWN health applies `--label engine` AT creation, regardless of who asked for it. The
-product-design spec Issue is the named exception: its body is a plain-prose specification, a
-different realization of the same channel, not authored through this helper.
+THE COMPLETE SUBMISSION OPERATION. Formatter functions remain passive. The preview/create
+entry point validates explicit scope, binds the trusted repository, and files through the existing
+GitHub client. Engine creation requires an activated durable recovery journal; product creation
+preserves ordinary fields without Engine markers. Unknown outcomes never authorize a replay.
 
 CLI (operator-runnable):
   uv run --directory .engine -- python tools/issue_author.py demo
@@ -58,8 +52,9 @@ Use `create --retry` only to reconcile an uncertain operation; an absent or ambi
 another POST. Configure mappings and recover pending work through `triage`; see
 `.engine/operations/issue-triage.md`. Unlabelled human issues remain exempt, while adding `engine` opts in.
 The formatter functions above remain passive; these CLI and producer boundaries perform network writes.
-Direct-session routing enforcement (StarshipSuperjam/engine-template#1093) and App/credential integration
-(StarshipSuperjam/engine-template#914) remain separate work.
+Direct-session routing is best effort; App/credential integration (#914) remains separate.
+Use `recovery preview` for journal publication/permission disclosure and `recovery init --confirm`
+for explicit activation. No journal is automatically initialized or reset.
 Run `triage demo` for the offline, asserted end-to-end behavior, or pass `--expected-pending 0` to
 demonstrate that an intentionally wrong expectation fails.
 
@@ -380,6 +375,7 @@ def preview_text(data: dict, repository_slugs: list) -> str:
                  "(an input cannot steer the filing off the engine's own channel).")
     return (
         "ENGINE ISSUE — PREVIEW (nothing has been filed)\n\n"
+        "Create publishes intended content and recovery metadata to the repository recovery branch; Git history retains it.\n"
         f"Repository (requested in the input): {requested}\n"
         f"Trusted targets (where create MAY file): {', '.join(repository_slugs) or '(none resolved)'}\n"
         f"{agree}\n"
@@ -394,7 +390,7 @@ def preview_text(data: dict, repository_slugs: list) -> str:
 
 
 def create_issue_result(data: dict, *, env=None, root: "str | None" = None, issues_factory=None,
-                        retry=False) -> dict:
+                        retry=False, recovery_store=None) -> dict:
     """File the engine Issue and return its link. Resolves the trusted target SET and REFUSES (IssueInputError)
     if the input's repository matches none of it, or if no target/token can be resolved. The Issue is filed into
     the trusted target the input MATCHED (never a repository named only by the input). The `engine` label is
@@ -433,7 +429,14 @@ def create_issue_result(data: dict, *, env=None, root: "str | None" = None, issu
     except issue_triage.TriageError as exc:
         config = None  # Preserve filing availability while retaining the actionable diagnostic.
         configuration_error = str(exc)
-    result = issues.file_assessed_issue(title_from_input(data), body_from_input(data), config=config, retry=retry)
+    import issue_recovery
+    def prepare(submission_id):
+        frozen = {**data, 'submission_id': submission_id}
+        return issue_triage.prepare_request(issues, title_from_input(frozen), body_from_input(frozen), config=config)
+    try:
+        result = issue_recovery.submit(issues, data, prepare, root=root, store=recovery_store, retry=retry)
+    except issue_recovery.RecoveryError as exc:
+        raise IssueInputError(str(exc)) from exc
     if configuration_error:
         result["configuration_error"] = configuration_error
     return result
@@ -593,6 +596,9 @@ def _demo() -> int:
 
 def main(argv: list) -> int:
     verb = argv[0] if argv else None
+    if verb == 'recovery':
+        import issue_recovery
+        return issue_recovery.main(argv[1:])
     if verb == 'triage':
         import issue_triage
         return issue_triage.main(argv[1:])

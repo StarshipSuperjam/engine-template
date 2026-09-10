@@ -367,7 +367,19 @@ def observed_record(issue: dict) -> dict | None:
     return record
 
 
-def file_issue(client, title: str, body: str, *, config=None, retry=False, send=None) -> dict:
+def prepare_request(client, title, body, *, config=None):
+    """Freeze assessment and assignment before the durable send claim."""
+    record = parse(body)
+    if record is None:
+        raise TriageError('Issue submission requires an explicit assessment and stable submission id.')
+    record['assignment'] = resolve_assignment(client, record, config)
+    request = {'title': title, 'body': with_record(body, record), 'labels': ['engine']}
+    if record['assignment']['state'] == 'assigned':
+        request['milestone'] = record['assignment']['milestone']
+    return request
+
+
+def file_issue(client, title: str, body: str, *, config=None, retry=False, send=None, frozen_request=None) -> dict:
     """Typed filing boundary. Ambiguous responses never cause an automatic second POST.
 
     The caller retains the submission id in its input; use retry=True after any uncertain attempt.
@@ -389,10 +401,11 @@ def file_issue(client, title: str, body: str, *, config=None, retry=False, send=
     if matches or retry:
         return filing_result(client.repo,sid,'creation-uncertain',record,
                              reason='Ambiguous or absent retry match; inspect GitHub before authorizing a new submission.')
-    record['assignment'] = resolve_assignment(client, record, config)
-    request = {'title':title, 'body':with_record(body,record), 'labels':['engine']}
-    if record['assignment']['state'] == 'assigned':
-        request['milestone'] = record['assignment']['milestone']
+    request = frozen_request if frozen_request is not None else prepare_request(client, title, body, config=config)
+    if (request.get('labels') != ['engine'] or request.get('title') != title
+            or (frozen_request is not None and request.get('body') != body)):
+        raise TriageError('Frozen submission differs from the authorized Engine request.')
+    record = parse(request['body'])
     try:
         status, issue = (send or (lambda payload: client._transport('POST', f'/repos/{client.repo}/issues', payload)))(request)
     except Exception as exc:

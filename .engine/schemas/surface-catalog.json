@@ -4,7 +4,7 @@
     "policy": {
       "class": "prose",
       "location": ".engine/policies/",
-      "purpose": "Standing rules — ongoing directives that govern behavior across sessions; the highest declared authority tier.",
+      "purpose": "Standing rules \u2014 ongoing directives that govern behavior across sessions; the highest declared authority tier.",
       "authority": "standing-rules",
       "lifecycle": "decision",
       "governing_schema": "policy.v1.json",
@@ -13,7 +13,7 @@
     "conduct": {
       "class": "prose",
       "location": ".engine/conduct/",
-      "purpose": "Codes of conduct — the operator's standing behavioral stance for how the AI engages (plain language, provenance, push-back, and the like); tier-3 guidance, pure posture, never an enforcement gate. Two committed layers (engine defaults plus operator override) composed by rule id, loaded at the grounding floor.",
+      "purpose": "Codes of conduct \u2014 the operator's standing behavioral stance for how the AI engages (plain language, provenance, push-back, and the like); tier-3 guidance, pure posture, never an enforcement gate. Two committed layers (engine defaults plus operator override) composed by rule id, loaded at the grounding floor.",
       "authority": "mechanics-and-guidance",
       "lifecycle": "artifact",
       "governing_schema": "conduct.v1.json",
@@ -22,7 +22,7 @@
     "schema": {
       "class": "structured",
       "location": ".engine/schemas/",
-      "purpose": "Structural contracts — JSON Schema (2020-12) declaring the shape of structured files and of prose frontmatter.",
+      "purpose": "Structural contracts \u2014 JSON Schema (2020-12) declaring the shape of structured files and of prose frontmatter.",
       "authority": "mechanics-and-guidance",
       "lifecycle": "artifact",
       "governing_schema": "https://json-schema.org/draft/2020-12/schema",
@@ -31,7 +31,7 @@
     "check": {
       "class": "structured",
       "location": ".engine/check/",
-      "purpose": "Declarative validation rules the validator dispatches (target, kind, params, tier, suites, message) — authored as data, never as validator code.",
+      "purpose": "Declarative validation rules the validator dispatches (target, kind, params, tier, suites, message) \u2014 authored as data, never as validator code.",
       "authority": "mechanics-and-guidance",
       "lifecycle": "artifact",
       "governing_schema": "check.v1.json",
@@ -40,7 +40,7 @@
     "tool": {
       "class": "code",
       "location": ".engine/tools/",
-      "purpose": "The engine's executable machinery — the validator, hooks, MCP servers, the wiring library, and interface implementations.",
+      "purpose": "The engine's executable machinery \u2014 the validator, hooks, MCP servers, the wiring library, and interface implementations.",
       "authority": "mechanics-and-guidance",
       "lifecycle": "artifact",
       "governing_schema": null,
@@ -76,7 +76,7 @@
     "interface": {
       "class": "structured",
       "location": ".engine/interfaces/",
-      "purpose": "Protocol contracts — a stable callable boundary a swappable implementation satisfies; implementations bind by presence, resolve single-active, and name a fallback.",
+      "purpose": "Protocol contracts \u2014 a stable callable boundary a swappable implementation satisfies; implementations bind by presence, resolve single-active, and name a fallback.",
       "authority": "mechanics-and-guidance",
       "lifecycle": "artifact",
       "governing_schema": "interface.v1.json",
@@ -85,7 +85,7 @@
     "doc": {
       "class": "prose",
       "location": ".engine/docs/",
-      "purpose": "Operator-facing, hand-authored plain-language explanations of the engine — written for the human, not the AI.",
+      "purpose": "Operator-facing, hand-authored plain-language explanations of the engine \u2014 written for the human, not the AI.",
       "authority": "mechanics-and-guidance",
       "lifecycle": "artifact",
       "governing_schema": "doc.v1.json",
@@ -112,10 +112,19 @@
     "executors": {
       "class": "structured",
       "location": ".engine/executors/",
-      "purpose": "Executor-qualification records — the Engine's versioned, observed account of an external build-executor's three qualification gates (protocol, containment, capability) and fail-closed dispatch witnesses; distinct from the runtime-environment store at .engine/state/execution.json.",
+      "purpose": "Executor-qualification records \u2014 the Engine's versioned, observed account of an external build-executor's three qualification gates (protocol, containment, capability) and fail-closed dispatch witnesses; distinct from the runtime-environment store at .engine/state/execution.json.",
       "authority": "mechanics-and-guidance",
       "lifecycle": "artifact",
       "governing_schema": "executor-qualification.v1.json",
+      "template": null
+    },
+    "issue-recovery": {
+      "class": "structured",
+      "location": ".engine/issue-recovery/",
+      "purpose": "Remote-only Engine submission journal on refs/heads/codex/engine-issue-recovery; intended content and recovery records, never a source-branch file. Activation is the operator-owned .engine/operator-issue-recovery.json (operator-issue-recovery.v1); upgrades preserve it. Git history retains publication metadata.",
+      "authority": "mechanics-and-guidance",
+      "lifecycle": "artifact",
+      "governing_schema": "issue-recovery.v1.json",
       "template": null
     }
   }

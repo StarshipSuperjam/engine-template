@@ -1,0 +1,199 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "issue-recovery.v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_version",
+    "repository_id",
+    "revision",
+    "records"
+  ],
+  "properties": {
+    "schema_version": {
+      "const": "issue-recovery.v1"
+    },
+    "repository_id": {
+      "type": "integer",
+      "minimum": 1
+    },
+    "revision": {
+      "type": "integer",
+      "minimum": 0
+    },
+    "records": {
+      "type": "object",
+      "propertyNames": {
+        "pattern": "^[0-9a-f]{64}:[1-9][0-9]*$"
+      },
+      "additionalProperties": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "producer",
+          "source_key",
+          "generation",
+          "previous",
+          "submission_id",
+          "intent",
+          "request",
+          "request_digest",
+          "state",
+          "send_nonce",
+          "issue",
+          "decision",
+          "observation",
+          "closed_observation"
+        ],
+        "properties": {
+          "producer": {
+            "enum": [
+              "manual",
+              "telemetry",
+              "nightly"
+            ]
+          },
+          "source_key": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 1024
+          },
+          "generation": {
+            "type": "integer",
+            "minimum": 1
+          },
+          "previous": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "maxLength": 65536
+          },
+          "submission_id": {
+            "type": "string",
+            "pattern": "^[A-Za-z0-9][A-Za-z0-9._:-]{7,127}$"
+          },
+          "intent": {
+            "type": "object"
+          },
+          "request": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "title",
+              "body",
+              "labels"
+            ],
+            "properties": {
+              "title": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 65536
+              },
+              "body": {
+                "type": "string",
+                "maxLength": 1048576
+              },
+              "labels": {
+                "const": [
+                  "engine"
+                ]
+              },
+              "milestone": {
+                "type": "integer",
+                "minimum": 1
+              }
+            }
+          },
+          "request_digest": {
+            "type": "string",
+            "pattern": "^[0-9a-f]{64}$"
+          },
+          "state": {
+            "enum": [
+              "prepared",
+              "send-claimed",
+              "confirmed",
+              "rejected",
+              "recovery-needed",
+              "superseded"
+            ]
+          },
+          "send_nonce": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "pattern": "^[0-9a-f]{32}$"
+          },
+          "issue": {
+            "type": [
+              "object",
+              "null"
+            ],
+            "additionalProperties": false,
+            "required": [
+              "id",
+              "number",
+              "url"
+            ],
+            "properties": {
+              "id": {
+                "type": "integer",
+                "minimum": 1
+              },
+              "number": {
+                "type": "integer",
+                "minimum": 1
+              },
+              "url": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 65536
+              }
+            }
+          },
+          "decision": {
+            "type": [
+              "object",
+              "null"
+            ],
+            "additionalProperties": false,
+            "required": [
+              "reason",
+              "quiescent",
+              "residual_duplicate_risk"
+            ],
+            "properties": {
+              "reason": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 65536
+              },
+              "quiescent": {
+                "const": true
+              },
+              "residual_duplicate_risk": {
+                "const": true
+              }
+            }
+          },
+          "observation": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "maxLength": 65536
+          },
+          "closed_observation": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "maxLength": 65536
+          }
+        }
+      }
+    }
+  }
+}
