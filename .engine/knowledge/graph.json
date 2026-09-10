@@ -5706,7 +5706,7 @@
       },
       "slug": "build-continuity",
       "source": {
-        "fingerprint": "sha256:abd41e1b142e7ed341dc9d8a36184d4a0f47bf00aaece1f793e28e84b329c80e",
+        "fingerprint": "sha256:2e48cc7163e91134cfc6b42dfe513df9aec63f578b248ed82159a89e0677b3de",
         "path": ".engine/operations/build-continuity.md"
       },
       "status": "active",
@@ -5766,7 +5766,7 @@
       },
       "slug": "build-kickoff",
       "source": {
-        "fingerprint": "sha256:667107d721789dcdaa9bb2fd1bbd6c462bb713f062b2e3198ebba78e90428b7e",
+        "fingerprint": "sha256:450f5b3dd2bfa48947e06a89f6f4297954a76afeac352e123a0c0c22fcebd3e0",
         "path": ".engine/operations/build-kickoff.md"
       },
       "status": "active",
@@ -5866,7 +5866,7 @@
       },
       "slug": "build-validation-and-review",
       "source": {
-        "fingerprint": "sha256:5fb276c525e0a7167b26b78bb914ea96bb121230c33b13c09bef082f63663db9",
+        "fingerprint": "sha256:79b2b6772a5c81632e44aaf1fb6b5f6edfb7eefe7c4a6fcf7c4547b480abf82c",
         "path": ".engine/operations/build-validation-and-review.md"
       },
       "status": "active",
@@ -16622,7 +16622,7 @@
       },
       "slug": "test_build_entry_preflight",
       "source": {
-        "fingerprint": "sha256:7786a6f0da5b97f9b373a3df6089d7b571753fa7dd81ae0023c78be2c7c7eab5",
+        "fingerprint": "sha256:e0caa9045a9cbad374904e2bd3b6d3272b9515a68ae3f2d929726ff2f2d87306",
         "path": ".engine/tools/test_build_entry_preflight.py"
       },
       "status": "active",
