@@ -711,6 +711,53 @@ class ScopedControlReconciliation(unittest.TestCase):
                 path.write_text("\n".join(json.dumps(row) for row in rows))
                 self.assertEqual(providers.scoped_transcript({"transcript_path": str(path)}, providers.CODEX), {})
 
+    def test_metadata_only_reads_bounded_first_header(self):
+        import tempfile
+        from pathlib import Path
+        meta = {"type": "session_meta", "payload": {"id": "child", "source": {"subagent": {
+            "thread_spawn": {"parent_thread_id": "root", "agent_path": "/root/assignment"}}}}}
+        with tempfile.TemporaryDirectory() as temp:
+            path = Path(temp) / "huge.jsonl"
+            path.write_text(json.dumps(meta) + "\n" + "not json\n" + ("x" * (4 * 1024 * 1024)))
+            self.assertEqual(providers.scoped_transcript({"transcript_path": str(path)}, providers.CODEX,
+                             metadata_only=True)["name"], "/root/assignment")
+            path.write_bytes(json.dumps(meta).encode() + b'\n\xff\xfe')
+            self.assertEqual(providers.scoped_transcript({"transcript_path": str(path)}, providers.CODEX,
+                             metadata_only=True)["child"], "child")
+            self.assertEqual(providers.scoped_transcript({"transcript_path": str(path)}, providers.CLAUDE,
+                             metadata_only=True), {})
+            meta['payload']['id'] = ' '
+            path.write_text(json.dumps(meta) + '\n')
+            self.assertEqual(providers.scoped_transcript({"transcript_path": str(path)}, providers.CODEX,
+                             metadata_only=True), {})
+
+    def test_metadata_only_rejects_oversized_or_malformed_header_and_full_rejects_contradiction(self):
+        import tempfile
+        from pathlib import Path
+        with tempfile.TemporaryDirectory() as temp:
+            path = Path(temp) / "bad.jsonl"
+            path.write_text("{" + "x" * (64 * 1024) + "\n")
+            self.assertEqual(providers.scoped_transcript({"transcript_path": str(path)}, providers.CODEX,
+                             metadata_only=True), {})
+            path.write_text(json.dumps({'padding': 'é' * 40000}, ensure_ascii=False) + '\n')
+            self.assertEqual(providers.scoped_transcript({"transcript_path": str(path)}, providers.CODEX,
+                             metadata_only=True), {})
+            meta = {"type": "session_meta", "payload": {"id": "child", "source": {"subagent": {
+                "thread_spawn": {"parent_thread_id": "root", "agent_path": "/root/assignment"}}}}}
+            other = {"type": "session_meta", "payload": {"id": "other", "source": {"subagent": {
+                "thread_spawn": {"parent_thread_id": "root", "agent_path": "/root/other"}}}}}
+            path.write_text("\n".join(json.dumps(x) for x in (meta, other)))
+            self.assertEqual(providers.scoped_transcript({"transcript_path": str(path)}, providers.CODEX), {})
+
+    def test_full_transcript_stream_closes_on_early_refusal(self):
+        import io
+        from pathlib import Path
+        from unittest import mock
+        stream = io.StringIO('[]\n')
+        with mock.patch.object(Path, 'open', return_value=stream):
+            self.assertEqual(providers.scoped_transcript({'transcript_path':'unused'}, providers.CODEX), {})
+        self.assertTrue(stream.closed)
+
 
 if __name__ == "__main__":
     unittest.main()

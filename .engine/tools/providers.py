@@ -229,7 +229,7 @@ def scoped_call(payload: dict) -> dict:
     return result
 
 
-def scoped_transcript(payload: dict, provider: str) -> dict:
+def scoped_transcript(payload: dict, provider: str, *, metadata_only: bool = False) -> dict:
     """Read observed child identity, delivered control payloads and final output.
 
     Deliberately bounded to the two qualified native formats. Never convert malformed or missing
@@ -241,37 +241,60 @@ def scoped_transcript(payload: dict, provider: str) -> dict:
         return {}
     result = {"path": path, "messages": [], "final": None}
     try:
-        for line in Path(path).read_text(encoding="utf-8").splitlines():
+        if metadata_only:
+            if provider != CODEX:
+                return {}
+            with Path(path).open("rb") as stream:
+                header = stream.readline(64 * 1024 + 1)
+            if len(header) > 64 * 1024 or not header.endswith(b"\n"):
+                return {}
+            line = header.decode("utf-8")
             row = json.loads(line)
-            if not isinstance(row, dict):
+            if not isinstance(row, dict) or row.get("type") != "session_meta":
                 return {}
-            data = row.get("payload", {})
-            if not isinstance(data, dict):
+            data = row.get("payload")
+            source = data.get("source") if isinstance(data, dict) else None
+            spawn = (source.get("subagent") or {}).get("thread_spawn") if isinstance(source, dict) else None
+            if (not isinstance(data, dict) or not isinstance(data.get("id"), str) or
+                    not isinstance(spawn, dict) or not isinstance(spawn.get("parent_thread_id"), str) or
+                    not isinstance(spawn.get("agent_path"), str)):
                 return {}
-            if provider == CODEX:
-                if row.get("type") == "event_msg" and data.get("type") == "task_started":
-                    result["final"] = None
-                elif row.get("type") == "session_meta":
-                    source = data.get("source") or {}
-                    spawn = (source.get("subagent") or {}).get("thread_spawn") if isinstance(source, dict) else None
-                    if "child" in result:
-                        return {}  # duplicate/contradictory session metadata is not one actor
-                    if isinstance(spawn, dict):
-                        result.update(child=data.get("id"), root=spawn.get("parent_thread_id"),
-                                      name=spawn.get("agent_path"))
-                elif row.get("type") == "response_item" and data.get("type") == "agent_message":
-                    result["messages"].append(data)
-                elif row.get("type") == "response_item" and data.get("type") == "message" and data.get("role") == "assistant" and data.get("phase") in ("final", "final_answer"):
-                    result["final"] = "".join(x.get("text", "") for x in data.get("content", []) if isinstance(x, dict))
-            else:
-                if row.get("type") == "assistant":
-                    content = (row.get("message") or {}).get("content", [])
-                    texts = [x.get("text", "") for x in content if isinstance(x, dict) and x.get("type") == "text"]
-                    if texts:
-                        result["final"] = "".join(texts)
-                elif row.get("type") == "user":
-                    result["final"] = None
-                    result["messages"].append(row)
+            if not all(x.strip() for x in (data["id"], spawn["parent_thread_id"], spawn["agent_path"])):
+                return {}
+            return {"path": path, "child": data["id"], "root": spawn["parent_thread_id"],
+                    "name": spawn["agent_path"], "messages": [], "final": None}
+        with Path(path).open("r", encoding="utf-8") as stream:
+            for line in stream:
+                row = json.loads(line)
+                if not isinstance(row, dict):
+                    return {}
+                data = row.get("payload", {})
+                if not isinstance(data, dict):
+                    return {}
+                if provider == CODEX:
+                    if row.get("type") == "event_msg" and data.get("type") == "task_started":
+                        result["final"] = None
+                    elif row.get("type") == "session_meta":
+                        source = data.get("source") or {}
+                        spawn = (source.get("subagent") or {}).get("thread_spawn") if isinstance(source, dict) else None
+                        if "child" in result:
+                            return {}  # duplicate/contradictory session metadata is not one actor
+                        if isinstance(spawn, dict):
+                            result.update(child=data.get("id"), root=spawn.get("parent_thread_id"),
+                                          name=spawn.get("agent_path"))
+                    elif row.get("type") == "response_item" and data.get("type") == "agent_message":
+                        result["messages"].append(data)
+                    elif row.get("type") == "response_item" and data.get("type") == "message" and data.get("role") == "assistant" and data.get("phase") in ("final", "final_answer"):
+                        result["final"] = "".join(x.get("text", "") for x in data.get("content", []) if isinstance(x, dict))
+                else:
+                    if row.get("type") == "assistant":
+                        content = (row.get("message") or {}).get("content", [])
+                        texts = [x.get("text", "") for x in content if isinstance(x, dict) and x.get("type") == "text"]
+                        if texts:
+                            result["final"] = "".join(texts)
+                    elif row.get("type") == "user":
+                        result["final"] = None
+                        result["messages"].append(row)
     except (OSError, ValueError, TypeError, AttributeError):
         return {}
     return result

@@ -44,6 +44,12 @@ class ScopedAssignments(unittest.TestCase):
             payload.update(tool_name=tool, tool_input=inp or {})
         if child:
             payload.update(agent_id=child, agent_type=self.a["role"])
+            if event == "SubagentStart" and not payload.get("transcript_path"):
+                transcript = self.root / (child + "-start.jsonl")
+                transcript.write_text(json.dumps({"type": "session_meta", "payload": {"id": child,
+                    "source": {"subagent": {"thread_spawn": {"parent_thread_id": payload["session_id"],
+                    "agent_path": "/root/" + self.a["id"]}}}}}) + "\n")
+                payload["transcript_path"] = str(transcript)
         if response is not None:
             payload["tool_response"] = response
         return self.store.observe(event, providers.normalize(event, payload))
@@ -63,7 +69,7 @@ class ScopedAssignments(unittest.TestCase):
             return self.observe("PostToolUse", "Bash", {"command": "cat " + self.a["packet_path"]},
                 child=child, response={"exit_code": 0, "stdout": self.packet.read_text()})
 
-    def stop(self, output="[]", messages=None):
+    def stop(self, output="[]", messages=None, launch_message="opaque launch"):
         if messages is None:
             messages = [{"author": "/root", "recipient": "/root/" + self.a["id"],
                          "content": [{"type": "input_text", "text": "native header"},
@@ -71,7 +77,7 @@ class ScopedAssignments(unittest.TestCase):
                         for c in self.store.read()["assignments"][self.a["id"]]["continuations"] if c["dispatched"]]
         messages = [{"author": "/root", "recipient": "/root/" + self.a["id"],
                      "content": [{"type": "input_text", "text": "native header"},
-                                 {"type": "encrypted_content", "encrypted_content": "opaque launch"}]}] + messages
+                                 {"type": "encrypted_content", "encrypted_content": launch_message}]}] + messages
         with mock.patch.object(providers, "scoped_transcript", return_value={"final": output, "messages": messages,
                 "child": "child-a", "root": "root-id", "name": "/root/" + self.a["id"]}):
             self.observe("SubagentStop", child="child-a")
@@ -106,10 +112,11 @@ class ScopedAssignments(unittest.TestCase):
         self.observe("PreToolUse", "spawn_agent", args, tool_use_id="failed-launch")
         error = "collab spawn failed: agent thread limit reached"
         self.observe("PostToolUse", "spawn_agent", args, tool_use_id="failed-launch", response=error, is_error=True)
+        args = {**args, "message": "opaque retry"}
         self.assertEqual(self.observe("PreToolUse", "spawn_agent", args, tool_use_id="retry-launch")["action"], "proceed")
         self.observe("PostToolUse", "spawn_agent", args, tool_use_id="retry-launch", response={"task_name": "/root/" + self.a["id"]})
         self.child_read()
-        self.stop()
+        self.stop(launch_message="opaque retry")
         result = self.verified()
         self.assertEqual(result["failed_launches"][0]["response"], error)
         self.assertEqual(result["failed_launches"][0]["call_id"], "failed-launch")
@@ -123,6 +130,7 @@ class ScopedAssignments(unittest.TestCase):
             self.observe("PreToolUse", "spawn_agent", args, tool_use_id="first")
             if outcome is not None:
                 self.observe("PostToolUse", "spawn_agent", args, tool_use_id="first", response=outcome, is_error=True)
+            args = {**args, "message": "opaque retry"}
             result = self.observe("PreToolUse", "spawn_agent", args, tool_use_id="retry")
             if outcome == "collab spawn failed: agent thread limit reached":
                 self.assertEqual(result["action"], "proceed")
@@ -131,6 +139,54 @@ class ScopedAssignments(unittest.TestCase):
                 self.assertEqual(len(self.store.read()["assignments"][self.a["id"]]["failed_launches"]), 1)
             else:
                 self.assertEqual(result["action"], "block")
+
+    def test_capacity_retry_cannot_accept_the_failed_attempts_late_child(self):
+        args = {"task_name": self.a["id"], "agent_type": self.a["role"], "fork_turns": "none", "message": "opaque launch"}
+        self.observe("PreToolUse", "spawn_agent", args, tool_use_id="first")
+        self.observe("PostToolUse", "spawn_agent", args, tool_use_id="first",
+            response="collab spawn failed: agent thread limit reached", is_error=True)
+        self.assertEqual(self.observe("PreToolUse", "spawn_agent", args, tool_use_id="retry")["action"], "block")
+        retry = {**args, "message": "opaque retry"}
+        self.assertEqual(self.observe("PreToolUse", "spawn_agent", retry, tool_use_id="retry")["action"], "proceed")
+        self.observe("PostToolUse", "spawn_agent", retry, tool_use_id="retry",
+            response={"task_name": "/root/" + self.a["id"]})
+        self.child_read()
+        self.stop()  # Late first-attempt child has the same name and role, but the original launch message.
+        with self.assertRaises(scoped.EvidenceError):
+            self.verified()
+
+    def test_duplicate_clarification_is_refused_before_dispatch(self):
+        self.launch()
+        self.child_read()
+        args = {"target": "child-a", "message": "repeat"}
+        self.observe("PreToolUse", "followup_task", args, tool_use_id="first")
+        self.observe("PostToolUse", "followup_task", args, tool_use_id="first", response={"ok": True})
+        self.stop('{"status":"needs_clarification"}')
+        before = self.store.path.read_bytes()
+        result = self.observe("PreToolUse", "followup_task", args, tool_use_id="second")
+        self.assertEqual(result["action"], "block")
+        self.assertIn("distinct clarification", result["reason"])
+        self.assertEqual(self.store.path.read_bytes(), before)
+
+    def test_oversized_and_nonregular_inputs_are_refused_without_unbounded_reads(self):
+        for label in ("packet", "supplement"):
+            with self.subTest(label=label):
+                self.packet.write_bytes(b'x' * (providers.SCOPED_READ_MAX_BYTES + 1))
+                with mock.patch.object(Path, "read_bytes", side_effect=AssertionError("unbounded read")), \
+                     self.assertRaisesRegex(scoped.EvidenceError, "narrow the " + label):
+                    scoped._bounded_input(self.packet, label)
+                fifo = self.root / (label + '.fifo')
+                if hasattr(os, "mkfifo"):
+                    os.mkfifo(fifo)
+                    with self.assertRaisesRegex(scoped.EvidenceError, "regular"):
+                        scoped._bounded_input(fifo, label)
+
+    def test_unrelated_native_start_is_not_persisted(self):
+        before = self.store.path.read_bytes()
+        with mock.patch.object(providers, "scoped_transcript", return_value={"child":"other", "root":"root-id", "name":"/root/unrelated"}) as read:
+            self.observe("SubagentStart", child="other")
+        self.assertTrue(read.call_args.kwargs['metadata_only'])
+        self.assertEqual(self.store.path.read_bytes(), before)
 
     def test_uncertain_followup_transport_failure_remains_unverified_not_retryable(self):
         self.launch()
@@ -172,21 +228,70 @@ class ScopedAssignments(unittest.TestCase):
         import io
         self.launch()
         self.child_read()
-        for order in (("broken", "test-plan"), ("test-plan", "broken")):
-            with self.subTest(order=order):
-                broken = self.library.plan_dir("broken") / scoped.FILENAME
-                broken.parent.mkdir(exist_ok=True)
-                broken.write_text("{malformed")
-                payload = providers.normalize("PreToolUse", {"session_id": "root-id", "tool_use_id": "queue",
-                    "tool_name": "send_message", "tool_input": {"target": "child-a", "message": "queued"}})
-                notice = io.StringIO()
-                with mock.patch.object(self.library, "slugs", return_value=list(order)), mock.patch("sys.stderr", notice):
-                    result = scoped.handler("PreToolUse", payload, self.library)
-                self.assertEqual(result["action"], "block")
-                self.assertIn("unverified", notice.getvalue())
-                self.assertIn(str(broken), notice.getvalue())
-                self.assertEqual(broken.read_text(), "{malformed")
-                self.assertFalse(scoped.Store(self.library, "broken").receipt_verified({"lens": "architecture"}, self.owner))
+        for damaged in ("{malformed", "[]", "null", "true", "42", '"private detail"', "{}"):
+            for order in (("broken", "test-plan"), ("test-plan", "broken")):
+                with self.subTest(order=order, damaged=damaged):
+                    broken = self.library.plan_dir("broken") / scoped.FILENAME
+                    broken.parent.mkdir(exist_ok=True)
+                    broken.write_text(damaged)
+                    payload = providers.normalize("PreToolUse", {"session_id": "root-id", "tool_use_id": "queue",
+                        "tool_name": "send_message", "tool_input": {"target": "child-a", "message": "queued"}})
+                    notice = io.StringIO()
+                    with mock.patch.object(self.library, "slugs", return_value=list(order)), mock.patch("sys.stderr", notice), \
+                         mock.patch.object(scoped.hooks, "_promote_fail_open", return_value=False) as promote, \
+                         mock.patch.object(scoped.hooks, "_record_crash_debug") as debug:
+                        result = scoped.handler("PreToolUse", payload, self.library)
+                    self.assertEqual(result["action"], "block")
+                    self.assertIn("unverified", notice.getvalue())
+                    self.assertNotIn(str(broken), notice.getvalue())
+                    self.assertNotIn("private detail", notice.getvalue())
+                    promote.assert_called_once()
+                    debug.assert_called_once()
+                    self.assertEqual(broken.read_text(), damaged)
+                    self.assertFalse(scoped.Store(self.library, "broken").receipt_verified({"lens": "architecture"}, self.owner))
+
+    def test_damaged_companions_use_real_hook_failure_reporting_once(self):
+        import io
+        self.store.path.write_text("null")
+        broken = self.library.plan_dir("broken") / scoped.FILENAME
+        broken.parent.mkdir(exist_ok=True)
+        broken.write_text("[]")
+        for recorded in (True, False):
+            with self.subTest(recorded=recorded):
+                out, err = io.StringIO(), io.StringIO()
+                with mock.patch.object(scoped.hooks, "_promote_fail_open", return_value=recorded) as promote, \
+                     mock.patch.object(scoped.hooks, "_record_crash_debug") as debug, mock.patch("sys.stderr", err), \
+                     mock.patch.object(self.library, "slugs", return_value=["test-plan", "broken"]):
+                    code = scoped.hooks.run_hook("PreToolUse", lambda p: scoped.handler("PreToolUse", p, self.library),
+                        stdin=io.StringIO('{"session_id":"root-id"}'), stdout=out, stderr=err)
+                self.assertEqual(code, scoped.hooks.EXIT_PROCEED)
+                self.assertIn("unverified", err.getvalue())
+                tail = scoped.hooks._RECORDED_TAIL if recorded else scoped.hooks._NOT_RECORDED_TAIL
+                self.assertIn(tail, err.getvalue())
+                promote.assert_called_once()
+                debug.assert_called_once()
+                self.assertEqual(self.store.path.read_text(), "null")
+                self.assertEqual(broken.read_text(), "[]")
+
+    def test_failure_recorder_errors_do_not_erase_a_healthy_refusal(self):
+        import io
+        self.launch()
+        self.child_read()
+        broken = self.library.plan_dir("broken") / scoped.FILENAME
+        broken.parent.mkdir(exist_ok=True)
+        broken.write_text("[]")
+        payload = {"session_id": "root-id", "tool_use_id": "queue", "tool_name": "send_message",
+                   "tool_input": {"target": "child-a", "message": "queued"}}
+        err = io.StringIO()
+        with mock.patch.object(scoped.hooks, "_promote_fail_open", side_effect=OSError("offline")), \
+             mock.patch.object(scoped.hooks, "_record_crash_debug", side_effect=OSError("disk")), \
+             mock.patch("sys.stderr", err), \
+             mock.patch.object(self.library, "slugs", return_value=["test-plan", "broken"]):
+            code = scoped.hooks.run_hook("PreToolUse", lambda p: scoped.handler("PreToolUse", p, self.library),
+                stdin=io.StringIO(json.dumps(payload)), stdout=io.StringIO(), stderr=err)
+        self.assertEqual(code, scoped.hooks.EXIT_BLOCK)
+        self.assertIn(scoped.hooks._NOT_RECORDED_TAIL, err.getvalue())
+        self.assertEqual(broken.read_text(), "[]")
 
     def test_worker_partial_status_is_not_finished_work(self):
         self.a = self.store.register(owner=self.owner, root="root-id", purpose="worker", lens=None,
@@ -265,10 +370,10 @@ class ScopedAssignments(unittest.TestCase):
 
     def test_wrong_blocked_child_metadata_cannot_enable_access_clarification(self):
         self.launch()
-        self.observe("SubagentStart", child="child-a")
         facts = {"child": "child-a", "root": "other-root", "name": "/root/" + self.a["id"],
                  "final": '{"status":"needs_clarification"}'}
         with mock.patch.object(providers, "scoped_transcript", return_value=facts):
+            self.observe("SubagentStart", child="child-a")
             self.observe("SubagentStop", child="child-a")
         with self.assertRaises(scoped.EvidenceError):
             self.store.clarify(self.a["id"], "root-id", "Do not bind another root's child.")
@@ -446,10 +551,13 @@ class ScopedAssignments(unittest.TestCase):
         original = self.a
         self.a = self.register("architecture")
         self.launch()
-        self.child_read()
+        with self.assertRaisesRegex(scoped.EvidenceError, "contradictory child start identity"):
+            self.child_read()
         data = self.store.read()["assignments"]
-        self.assertTrue(data[self.a["id"]]["faults"])
+        self.assertIsNone(data[self.a["id"]]["child"])
         self.assertEqual(data[original["id"]]["child"], "child-a")
+        with self.assertRaises(scoped.EvidenceError):
+            self.verified()
 
     def test_parallel_distinct_registration_preserves_every_assignment(self):
         with concurrent.futures.ThreadPoolExecutor(max_workers=4) as pool:

@@ -10,6 +10,8 @@ from __future__ import annotations
 import argparse
 import copy
 import json
+import os
+import stat
 import sys
 import uuid
 from pathlib import Path
@@ -56,6 +58,22 @@ def _text(value):
     return isinstance(value, str) and bool(value.strip())
 
 
+def _bounded_input(path, label):
+    """Bound regular-file input before allocation, including a file that grows after stat."""
+    maximum = providers.SCOPED_READ_MAX_BYTES
+    fd = os.open(path, os.O_RDONLY | getattr(os, "O_NONBLOCK", 0))
+    with os.fdopen(fd, "rb") as stream:
+        info = os.fstat(stream.fileno())
+        if not stat.S_ISREG(info.st_mode):
+            raise EvidenceError(f"{label} requires a regular UTF-8 text file")
+        if info.st_size > maximum:
+            raise EvidenceError(f"narrow the {label} to at most {maximum} UTF-8 bytes before dispatch")
+        content = stream.read(maximum + 1)
+        if len(content) > maximum:
+            raise EvidenceError(f"narrow the {label} to at most {maximum} UTF-8 bytes before dispatch")
+        return content
+
+
 class Store:
     """A companion beside one plan, locked by that plan's existing record lock.
 
@@ -71,7 +89,7 @@ class Store:
         if not self.path.exists():
             return {"schema_version": VERSION, "assignments": {}, "acceptances": {}, "starts": {}}
         value = core.json_file(self.path)
-        if value.get("schema_version") != VERSION or not isinstance(value.get("assignments"), dict):
+        if not isinstance(value, dict) or value.get("schema_version") != VERSION or not isinstance(value.get("assignments"), dict):
             raise EvidenceError("unsupported or damaged scoped-assignment companion; review is unverified")
         schema = Path(__file__).resolve().parents[1] / "schemas" / (VERSION + ".json")
         try:
@@ -97,7 +115,7 @@ class Store:
         if not all(_text(x) for x in (root, purpose, role, packet_digest)) or not isinstance(owner, dict):
             raise EvidenceError("assignment requires explicit owner, root, purpose, role and packet identity")
         source = Path(packet).resolve()
-        content = source.read_bytes()
+        content = _bounded_input(source, "packet")
         if expected_file_digest is not None and core.digest(content) != expected_file_digest:
             raise EvidenceError("Generated review packet changed before freezing; regenerate the packet before dispatch.")
         if len(content) > providers.SCOPED_READ_MAX_BYTES:
@@ -149,10 +167,13 @@ class Store:
             kind = call["kind"]
             if event == "SubagentStart" and _text(actor):
                 start = {"root": root, "child": actor, "role": call.get("role")}
-                transcript = providers.scoped_transcript(payload, call["provider"])
+                transcript = providers.scoped_transcript(payload, call["provider"], metadata_only=True)
                 if (call["provider"] == providers.CODEX and _text(transcript.get("name")) and
                         (transcript.get("child"), transcript.get("root")) == (actor, root)):
                     start["name"] = transcript["name"]
+                if call["provider"] == providers.CODEX and not any(
+                        start.get("name") == "/root/" + a["id"] and start["role"] == a["role"] for a in owned):
+                    return hooks.proceed()
                 previous = data["starts"].get(actor)
                 if previous is not None and any(previous.get(k) != start.get(k) for k in ("root", "child", "role")):
                     raise EvidenceError("contradictory child start observations")
@@ -195,10 +216,14 @@ class Store:
                              and not a.get("failed_launches") and a["child"] is None and a["read"] is None
                              and not any(s.get("name") == "/root/" + a["id"] for s in data["starts"].values()))
                     if actor or not call.get("fresh") or call.get("role") != a["role"] or (a["launch"] and not retry):
+                        if a["launch"] and a["child"] is None and not a["launch"].get("successful"):
+                            return hooks.block("The prior launch is unverified and no child was observed. Do not resend or clarify a nonexistent child; inspect assignment status, preserve the uncertain attempt, and report the missing coverage.")
                         return hooks.block("This Engine assignment needs a fresh, fork-free agent of its registered role; use clarification only for its existing assignment.")
                     if not _text(call.get("call_id")):
                         return hooks.block("The native launch has no correlatable tool identity; fresh execution is unverified.")
                     if retry:
+                        if providers.scoped_control_digest(call["input"].get("message")) == a["launch"].get("control_digest"):
+                            return hooks.block("Retry this assignment with a distinct initial launch message so the failed attempt cannot be mistaken for the retry.")
                         a.setdefault("failed_launches", []).append(copy.deepcopy(a["launch"]))
                     a["launch"] = {"call_id": call["call_id"], "provider": call["provider"],
                                    "role": call["role"], "fresh": True, "successful": False,
@@ -259,6 +284,9 @@ class Store:
                         if previous["input_digest"] == core.digest(call["input"]):
                             return hooks.proceed()  # duplicate observation, not another native send
                         return hooks.block("Contradictory clarification observations; preserve evidence and reconcile.")
+                    if call["provider"] == providers.CODEX and providers.scoped_control_digest(content) in (
+                            [a["launch"].get("control_digest")] + [providers.scoped_control_digest(c["content"]) for c in a["continuations"]]):
+                        return hooks.block("Use a distinct clarification message for this delivery, including its newly registered supplement path; identical prior messages cannot establish separate deliveries.")
                     if any(not c.get("delivered") for c in a["continuations"]):
                         return hooks.block("Prior clarification delivery is uncertain. Reconcile the child's actual delivery before retrying.")
                     staged = [s for s in a["supplements"] if not s["call_id"]]
@@ -515,6 +543,7 @@ def missing_build_evidence(library, state, receipts):
 def handler(event, payload, library=None):
     library = library or plan_store.PlanLibrary()
     blocked = None
+    failures = []
     for slug in library.slugs():
         store = Store(library, slug)
         if not store.path.exists():
@@ -522,13 +551,21 @@ def handler(event, payload, library=None):
         try:
             decision = store.observe(event, payload)
         except (OSError, ValueError, TypeError, KeyError, core.CoordinatorError) as exc:
-            # One broken historical record cannot disable another assignment's live guard.
-            # Preserve the damaged bytes and disclose the failed check even if another record blocks.
-            print(f"Engine agent checks could not read {store.path}: {exc}. "
-                  "That plan's execution and review freshness are unverified; other plans are still checked.", file=sys.stderr)
+            failures.append(exc)
             continue
         if decision.get("action") == "block" and blocked is None:
             blocked = decision
+    if failures:
+        # Use the existing failure sinks once, without losing a healthy plan's refusal.
+        # Raw exception detail stays in the private diagnostic sink, not the public finding.
+        try:
+            hooks._record_crash_debug(event, failures[0])
+        except Exception:  # recording a failed check must not disable a healthy guard
+            pass
+        hooks._emit_finding(sys.stderr, "hard", event, "crash",
+            "Engine agent checks could not read one or more plan evidence files; those plans' "
+            "execution and review freshness are unverified. Other plans were still checked.",
+            hooks._promote_fail_open)
     return blocked or hooks.proceed()
 
 
@@ -569,8 +606,9 @@ def main(argv=None):
                 # Registration grants neither write authority nor independent review coverage.
                 owner = plan_owner(record, record["current"])
             packet = Path(args.packet)
+            file_digest = core.digest(_bounded_input(packet, "packet"))
             assignment = store.register(owner=owner, root=args.session, purpose=args.purpose,
-                lens=None, role=args.role, packet=packet, packet_digest=core.digest(packet.read_bytes()))
+                lens=None, role=args.role, packet=packet, packet_digest=file_digest, expected_file_digest=file_digest)
             print(json.dumps(assignment, indent=2))
         elif args.command == "finish":
             def finish(data):
@@ -585,6 +623,9 @@ def main(argv=None):
             data = store.read()
             print(json.dumps([{k: a[k] for k in ("id", "lens", "role", "child", "packet_path", "accepted", "faults")}
                               | {"clarifications": len(a["continuations"]),
+                                 "launch_outcome": ("not-launched" if not a["launch"] else
+                                     "capacity-rejected" if a["launch"].get("capacity_rejected") else
+                                     "successful" if a["launch"].get("successful") else "unverified"),
                                  "undelivered": sum(not c["delivered"] for c in a["continuations"])}
                               for a in data["assignments"].values() if a["root"] == args.session], indent=2))
         elif args.command == "reconcile":
@@ -609,7 +650,7 @@ def main(argv=None):
         elif args.command == "clarify":
             if not args.assignment or not args.input:
                 raise EvidenceError("clarify requires --assignment and a private --input text file")
-            print(json.dumps(store.clarify(args.assignment, args.session, Path(args.input).read_text()), indent=2))
+            print(json.dumps(store.clarify(args.assignment, args.session, _bounded_input(args.input, "supplement").decode("utf-8")), indent=2))
         else:
             if not args.assignment or not _text(args.reason):
                 raise EvidenceError("abandon requires --assignment and --reason")
