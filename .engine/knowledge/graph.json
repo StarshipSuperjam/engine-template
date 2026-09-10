@@ -6278,7 +6278,7 @@
       },
       "slug": "issue-triage",
       "source": {
-        "fingerprint": "sha256:2eb470c1f66644a0100347a6353b23c3ac87a03fa07f14195f202ff891c0c0c9",
+        "fingerprint": "sha256:133a0281c0e4f618d7c9198b79479a1fe6414b857495e1c7f14bcaaf7163320f",
         "path": ".engine/operations/issue-triage.md"
       },
       "status": "active",
@@ -13285,7 +13285,7 @@
       },
       "slug": "issue_triage",
       "source": {
-        "fingerprint": "sha256:836b92caa5cc84dceb14a6a229d9d25d382ecbf9fc2ce769bd19f62231cd6ec4",
+        "fingerprint": "sha256:a4181c56ee95d15ae71506bcc94fa55cae3d2453a79e1d69d3c943255d7d3d9d",
         "path": ".engine/tools/issue_triage.py"
       },
       "status": "active",
@@ -16136,7 +16136,7 @@
       },
       "slug": "telemetry",
       "source": {
-        "fingerprint": "sha256:5dd6609f771c2ed002d58a53661a6b340ce7e79965e5776090d8bd5c01b6019e",
+        "fingerprint": "sha256:a2356badfd301d8d0e7324aa33bf171e2147ec76a23d7d2b90337b4ed350f95c",
         "path": ".engine/tools/telemetry.py"
       },
       "status": "active",
@@ -17224,7 +17224,7 @@
       },
       "slug": "test_close",
       "source": {
-        "fingerprint": "sha256:ca527f18458abebd78e6786bc518815b3519e82bb88a97159247cae569c2467e",
+        "fingerprint": "sha256:8b1ec29c8877a7c10310c98e46bb634b0bdea255c610a2cb174b4268c32c002c",
         "path": ".engine/tools/test_close.py"
       },
       "status": "active",
@@ -18634,7 +18634,7 @@
       },
       "slug": "test_issue_triage",
       "source": {
-        "fingerprint": "sha256:5462d8d9fef782d4f2503c2c2cb5453fcabb7aa374f155a930ed01e5d92c6ed4",
+        "fingerprint": "sha256:80b9eb1dabc812db7db38587b635e503c6817aacea2c5cd76e392deadbf62f4b",
         "path": ".engine/tools/test_issue_triage.py"
       },
       "status": "active",
@@ -21602,7 +21602,7 @@
       },
       "slug": "test_telemetry",
       "source": {
-        "fingerprint": "sha256:ac9f2e1ae625c83162966e3003407eb01ff1fa5937b49ba72a5179bbbad45923",
+        "fingerprint": "sha256:e28fba5dab0f19f83ea90803a10a6b2f6153bc424ed8163ced9b6abd1458697f",
         "path": ".engine/tools/test_telemetry.py"
       },
       "status": "active",
