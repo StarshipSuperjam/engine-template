@@ -594,5 +594,78 @@ class EligibilityRegression(unittest.TestCase):
         self.assertEqual(triage.select_pending(result, None, client.repo)['number'], 222)
 
 
+
+class AuthenticationRecovery(unittest.TestCase):
+    def test_gh_only_cli_assessment_and_assignment_use_github_com(self):
+        import contextlib, io, os
+        from unittest.mock import patch
+        import github_client, issue_author, telemetry
+        client=FakeGitHub()
+        Filing().file(client, triage.pending('Unknown remedy', 'Investigate'))
+        command=[]
+        def run(args, **kwargs):
+            import subprocess
+            command.append(args)
+            self.assertEqual(args, ['gh','auth','token','--hostname','github.com'])
+            return subprocess.CompletedProcess(args,0,'fixture-secret\n','')
+        with patch.dict(os.environ, {'GH_HOST':'enterprise.invalid'}, clear=True), \
+             patch('subprocess.run', side_effect=run), \
+             patch.object(issue_author,'resolve_issue_repositories',return_value=['o/r']), \
+             patch.object(issue_author,'load_input',return_value=assessed()), \
+             patch.object(triage,'load_config',return_value=Filing.config), \
+             patch.object(telemetry,'GitHubIssues',return_value=client) as factory, \
+             contextlib.redirect_stdout(io.StringIO()) as out, contextlib.redirect_stderr(io.StringIO()) as err:
+            self.assertEqual(triage.main(['assess','--issue','1','--input','fixture',
+                                         '--expect-revision','1','--confirm']),0)
+            self.assertEqual(triage.observed_record(client.issues[0])['assignment']['state'],'assigned')
+            self.assertTrue(command)
+            factory.assert_called_with('o/r','fixture-secret')
+        self.assertNotIn('fixture-secret',out.getvalue()+err.getvalue())
+
+    def test_other_host_only_auth_cannot_reach_transport(self):
+        import contextlib, io, os, subprocess
+        from unittest.mock import patch
+        import issue_author, telemetry
+        def run(args, **kwargs):
+            self.assertIn('github.com',args)
+            return subprocess.CompletedProcess(args,1,'','fixture-other-host-secret')
+        with patch.dict(os.environ, {'GH_HOST':'enterprise.invalid'}, clear=True), \
+             patch('subprocess.run',side_effect=run), \
+             patch.object(issue_author,'resolve_issue_repositories',return_value=['o/r']), \
+             patch.object(telemetry,'GitHubIssues') as factory, \
+             contextlib.redirect_stderr(io.StringIO()) as err:
+            self.assertEqual(triage.main(['list']),1)
+            factory.assert_not_called()
+        self.assertNotIn('fixture-other-host-secret',err.getvalue())
+        self.assertIn('No github.com credential',err.getvalue())
+
+    def test_missing_config_list_is_unknown_but_marker_pending_survives(self):
+        import contextlib, io
+        from unittest.mock import patch
+        import github_client, issue_author, telemetry
+        client=FakeGitHub();Filing().file(client)
+        client.issues.append({'number':221,'labels':['engine'],'body':'Legacy','created_at':'2026-06-23T00:00:00Z'})
+        with patch.object(github_client,'auth_token',return_value='fixture'), \
+             patch.object(issue_author,'resolve_issue_repositories',return_value=['o/r']), \
+             patch.object(triage,'load_config',return_value=None), \
+             patch.object(telemetry,'GitHubIssues',return_value=client), contextlib.redirect_stdout(io.StringIO()) as out:
+            # Turn the first known issue into genuine pending assignment without deleting its marker.
+            client.issues[0]['milestone']=None
+            self.assertEqual(triage.main(['list']),1)
+        value=json.loads(out.getvalue())
+        self.assertEqual(value['unknown_count'],1);self.assertEqual(value['pending_count'],1)
+        self.assertIn('configure',value['configuration_error'])
+        self.assertEqual(triage.select_pending(value,None,client.repo)['number'],1)
+
+    def test_wrong_target_refuses_before_credentials_or_network(self):
+        import contextlib,io
+        from unittest.mock import patch
+        import github_client,issue_author
+        with patch.object(issue_author,'resolve_issue_repositories',return_value=['o/r']), \
+             patch.object(github_client,'auth_token') as token,contextlib.redirect_stderr(io.StringIO()):
+            self.assertEqual(triage.main(['list','--repository','other/repo']),1)
+            token.assert_not_called()
+
+
 if __name__ == '__main__':
     unittest.main()

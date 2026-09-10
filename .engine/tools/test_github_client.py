@@ -277,5 +277,23 @@ class DecodeContentTests(unittest.TestCase):
         self.assertIn("ok", github_client.decode_content(obj))
 
 
+class HostBoundCredentials(unittest.TestCase):
+    def test_explicit_environment_precedes_cli(self):
+        from unittest.mock import Mock
+        run = Mock(side_effect=AssertionError('CLI must not run'))
+        self.assertEqual(github_client.auth_token(environ={'GITHUB_TOKEN':' explicit '}, run=run), 'explicit')
+        run.assert_not_called()
+
+    def test_cli_host_is_explicit_and_empty_or_failed_lookup_stays_absent(self):
+        from unittest.mock import Mock
+        import subprocess
+        for result in ('fixture-token', '', None):
+            run = Mock(return_value=result)
+            self.assertEqual(github_client.auth_token(environ={'GH_HOST':'enterprise.invalid'}, run=run), result or None)
+            run.assert_called_once_with(['gh','auth','token','--hostname','github.com'])
+        for error in (FileNotFoundError(), subprocess.TimeoutExpired('gh', 10, output='secret')):
+            self.assertIsNone(github_client.auth_token(environ={}, run=Mock(side_effect=error)))
+
+
 if __name__ == "__main__":
     unittest.main()
