@@ -6278,7 +6278,7 @@
       },
       "slug": "issue-triage",
       "source": {
-        "fingerprint": "sha256:133a0281c0e4f618d7c9198b79479a1fe6414b857495e1c7f14bcaaf7163320f",
+        "fingerprint": "sha256:68280b77f39072c272fdd3c3f14c95a2245f6c1ccc76eeccb34f1742535129ec",
         "path": ".engine/operations/issue-triage.md"
       },
       "status": "active",
@@ -13278,7 +13278,8 @@
           "tool:issue_author",
           "tool:moment",
           "tool:release_impact",
-          "tool:telemetry"
+          "tool:telemetry",
+          "tool:test_close"
         ],
         "provided_by": [
           "module:core"
@@ -13286,7 +13287,7 @@
       },
       "slug": "issue_triage",
       "source": {
-        "fingerprint": "sha256:c052afaa447804efe815f60d6893a0eb5f47a639fa9bcdc6539d076414af97aa",
+        "fingerprint": "sha256:a528d488ccd50a6aba3d599a5fac62a49da78d3df94e9d812e7e3e7a76d99064",
         "path": ".engine/tools/issue_triage.py"
       },
       "status": "active",
@@ -17218,14 +17219,16 @@
           "tool:issue_triage",
           "tool:ledger",
           "tool:modes",
+          "tool:session_relay",
           "tool:telemetry",
           "tool:test_issue_triage",
+          "tool:test_session_relay",
           "tool:validate"
         ]
       },
       "slug": "test_close",
       "source": {
-        "fingerprint": "sha256:a1501c6ae374a6897e43cab3cab16198b29b909a394641c7c0d59ef7a724ed9c",
+        "fingerprint": "sha256:7c6e990cd93e7a79011a86478bbce135141bf285592c2bce52ec28b2bcf8b58e",
         "path": ".engine/tools/test_close.py"
       },
       "status": "active",
@@ -18225,7 +18228,7 @@
       },
       "slug": "test_hooks",
       "source": {
-        "fingerprint": "sha256:28d8d19c3a3997cb98579f8937667fdd2651a6b80fb944dce2d9945e522c490c",
+        "fingerprint": "sha256:e1b5790f80174e1710ba0668666aa6022c31e7eafe267555d9a9d53d962c7323",
         "path": ".engine/tools/test_hooks.py"
       },
       "status": "active",
@@ -18639,7 +18642,7 @@
       },
       "slug": "test_issue_triage",
       "source": {
-        "fingerprint": "sha256:0ab2eeb63338670d494d333e5522e524979fa8a002d3a2efaf43a7840421c0c9",
+        "fingerprint": "sha256:f2979694b6a877dff7d28d1be0267c014f4c14368debea9a4174c19152814b66",
         "path": ".engine/tools/test_issue_triage.py"
       },
       "status": "active",
@@ -22375,7 +22378,7 @@
       },
       "slug": "weakening_guard",
       "source": {
-        "fingerprint": "sha256:cc8912f2e64d862d793001a9b6c57ca7121175d04ff126662b249544d2d5f806",
+        "fingerprint": "sha256:c1d6d8b1dea1520ae5934e01a81aaf0bf7c4f3ac7c989a6389fc2492eea72a99",
         "path": ".engine/tools/weakening_guard.py"
       },
       "status": "active",
