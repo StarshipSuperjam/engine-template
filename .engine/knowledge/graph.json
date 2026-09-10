@@ -1133,7 +1133,8 @@
           "doc:accepted-hook-qualification",
           "doc:ci-assurance",
           "doc:getting-started",
-          "doc:product-design"
+          "doc:product-design",
+          "doc:result-contracts"
         ]
       },
       "slug": "doc-frontmatter",
@@ -1164,7 +1165,8 @@
           "doc:accepted-hook-qualification",
           "doc:ci-assurance",
           "doc:getting-started",
-          "doc:product-design"
+          "doc:product-design",
+          "doc:result-contracts"
         ]
       },
       "slug": "doc-shape",
@@ -5288,6 +5290,26 @@
       "type": "doc"
     },
     {
+      "id": "doc:result-contracts",
+      "name": ".engine/docs/result-contracts.md",
+      "owner": "core",
+      "predicates": {
+        "governed_by": [
+          "schema:doc.v1"
+        ],
+        "provided_by": [
+          "module:core"
+        ]
+      },
+      "slug": "result-contracts",
+      "source": {
+        "fingerprint": "sha256:7c4e5a41fc4ac135bdc02e8d772f9de9bcb1bc62c77c88b8123c36df2770dd2e",
+        "path": ".engine/docs/result-contracts.md"
+      },
+      "status": "active",
+      "type": "doc"
+    },
+    {
       "id": "executors:witness-declared-incomplete",
       "name": ".engine/executors/witness-declared-incomplete.json",
       "owner": "core",
@@ -5483,7 +5505,7 @@
       },
       "slug": "core",
       "source": {
-        "fingerprint": "sha256:a38e6b300fae713eb615200e133d5d5436868cee5a781581f9ec9272284991da",
+        "fingerprint": "sha256:f3efaf1195a6bf869bd7a5e14da1d10acd32d119c73e09c8eead35271371f171",
         "path": ".engine/modules/core/manifest.json"
       },
       "status": "required",
@@ -5894,7 +5916,7 @@
       },
       "slug": "build-validation-and-review",
       "source": {
-        "fingerprint": "sha256:c03f535d54363fc56ad30325d3bce5d15245a0f6516ba6a29a65e262c30982ce",
+        "fingerprint": "sha256:e7af51408692edc633d00a7e40ec521ed784bf87a171baebd41461ad5c5b8800",
         "path": ".engine/operations/build-validation-and-review.md"
       },
       "status": "active",
@@ -5914,7 +5936,7 @@
       },
       "slug": "build-work-dispatch",
       "source": {
-        "fingerprint": "sha256:82e947a3fd6e0ac6ffda558bd6dbc9c6df21ec0445b09cdc9195378e721b1f2d",
+        "fingerprint": "sha256:cab1a68d77372fc6a661e21a30c92806766ce291370b2a7d58d632b23f6fba64",
         "path": ".engine/operations/build-work-dispatch.md"
       },
       "status": "active",
@@ -6414,7 +6436,7 @@
       },
       "slug": "plan-orchestration",
       "source": {
-        "fingerprint": "sha256:dff26ed91c191da25d16159977ff5ff89d0bdd511fb64bc40374628d24196a88",
+        "fingerprint": "sha256:cbb62cc3269fc4fba35de491d4bceef192dff871c2801ad82dcbc6b431eb8b2f",
         "path": ".engine/operations/plan-orchestration.md"
       },
       "status": "active",
@@ -6534,7 +6556,7 @@
       },
       "slug": "scoped-agent-orchestration",
       "source": {
-        "fingerprint": "sha256:b0d01c77bf86d7decc91939583efd5c5cd6e1629ce44ff49f0de35c4c5fd2a84",
+        "fingerprint": "sha256:c820ffc25f7c182601f5d75564624fd2a66af011f00dc6b8f601e8e43fa0c07c",
         "path": ".engine/operations/scoped-agent-orchestration.md"
       },
       "status": "active",
@@ -11884,6 +11906,26 @@
     {
       "entrypoint": "demo",
       "guarded": false,
+      "id": "tool:demo_result_contracts",
+      "name": ".engine/tools/demo_result_contracts.py",
+      "owner": "core",
+      "predicates": {
+        "provided_by": [
+          "module:core"
+        ]
+      },
+      "slug": "demo_result_contracts",
+      "source": {
+        "fingerprint": "sha256:5e54988be4f7edfa9f7806ef1738c964593dd2e07db9a5bd7e90d6f3f650f586",
+        "path": ".engine/tools/demo_result_contracts.py"
+      },
+      "status": "active",
+      "summary": "Falsify the real review/worker ingress boundaries using disposable command fixtures.",
+      "type": "tool"
+    },
+    {
+      "entrypoint": "demo",
+      "guarded": false,
       "id": "tool:demo_reverse_adjacency",
       "name": ".engine/tools/demo_reverse_adjacency.py",
       "owner": "core",
@@ -16514,7 +16556,7 @@
       },
       "slug": "test_build_coordinator",
       "source": {
-        "fingerprint": "sha256:0f59492592ff15d5f2d8a494937f8cff7fd35c849706dc1ff8fd7d8cd8afd89d",
+        "fingerprint": "sha256:c83dbb33c99ae14adb9d84ab1d454d1abf3201c8e2bf297b1344c4a877f81dcb",
         "path": ".engine/tools/test_build_coordinator.py"
       },
       "status": "active",
@@ -20336,12 +20378,13 @@
           "module:core"
         ],
         "tests": [
+          "tool:demo_result_contracts",
           "tool:result_contracts"
         ]
       },
       "slug": "test_result_contracts",
       "source": {
-        "fingerprint": "sha256:089ac8bf7632eadbaf7a4cc8e5434cf8d878c51278d00800be1c35f0995361cb",
+        "fingerprint": "sha256:d603dfbe9ec131fbd3079a46074cfe47fa17e2ae44d1b4282641bfe86aa261e9",
         "path": ".engine/tools/test_result_contracts.py"
       },
       "status": "active",
