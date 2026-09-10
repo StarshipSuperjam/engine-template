@@ -275,8 +275,10 @@ def validate_submission(data: dict) -> dict:
     request = data['request']
     if data['scope'] == 'engine':
         validate_input(request)
-    elif any(label.casefold() == 'engine' for label in request.get('labels', [])):
+    elif any(label.strip().casefold() == 'engine' for label in request.get('labels', [])):
         raise IssueInputError('The engine label requires Engine scope and an assessment.')
+    if data['scope'] == 'product' and not request['title'].strip():
+        raise IssueInputError('A product issue needs a nonblank title.')
     return data
 
 

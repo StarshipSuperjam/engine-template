@@ -481,3 +481,12 @@ class TestSubmissionEnvelope(unittest.TestCase):
         data = {'schema_version': 'issue-submission-input.v1', 'scope': 'engine', 'request': dict(_GOOD)}
         self.assertEqual(issue_author.preview_submission(data, [_GOOD['repository']]),
                          issue_author.preview_text(_GOOD, [_GOOD['repository']]))
+
+
+class ProductMetadataRefusal(unittest.TestCase):
+    def test_blank_title_and_engine_label_spelling_refuse_before_transport(self):
+        for fields in ({'title': '   '}, {'labels': [' ENGINE ']}):
+            data = {'schema_version': 'issue-submission-input.v1', 'scope': 'product',
+                    'request': {'repository': 'o/r', 'title': 'x', 'body': '', **fields}}
+            with self.assertRaises(issue_author.IssueInputError):
+                issue_author.validate_submission(data)
