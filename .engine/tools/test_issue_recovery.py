@@ -366,6 +366,18 @@ state['remote']=remote.__dict__;open(p,'w').write(json.dumps(state));print(resul
 
 
 class OperatorConfiguration(unittest.TestCase):
+    def test_ambiguous_activation_json_is_refused(self):
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / recovery.CONFIG_NAME
+            path.parent.mkdir()
+            for text in (
+                '{"schema_version":"operator-issue-recovery.v1","repositories":{},"repositories":{}}',
+                '{"schema_version":"operator-issue-recovery.v1","repositories":{"acme/project":{"repository_id":NaN,"genesis":"' + 'a' * 40 + '"}}}',
+            ):
+                path.write_text(text)
+                with self.assertRaisesRegex(storage.RecoveryError, 'unreadable'):
+                    recovery.load_activation(REPO, root=directory)
+
     def test_activation_is_preserved_operator_config(self):
         import module_coherence
         import module_manager

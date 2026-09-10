@@ -7,7 +7,7 @@ import json
 from pathlib import Path
 import uuid
 
-from issue_recovery_store import GitStore, RecoveryError, REF
+from issue_recovery_store import GitStore, RecoveryError, REF, _decode_json
 
 CONFIG_NAME = '.engine/operator-issue-recovery.json'
 SCHEMAS = Path(__file__).resolve().parents[1] / 'schemas'
@@ -62,7 +62,7 @@ def validate(value, name='issue-recovery.v1'):
 def load_activation(repository, root=None):
     path = Path(root or Path(__file__).resolve().parents[2]) / CONFIG_NAME
     try:
-        config = validate(json.loads(path.read_text()), 'operator-issue-recovery.v1')
+        config = validate(_decode_json(path.read_text()), 'operator-issue-recovery.v1')
     except FileNotFoundError:
         raise RecoveryError('Recovery setup required: run issue_author.py recovery preview, then explicit recovery init --confirm.') from None
     except (OSError, ValueError) as exc:
@@ -301,7 +301,7 @@ def main(argv=None):
             if not args.confirm:
                 raise RecoveryError('Review recovery preview, then initialize with --confirm.')
             path = Path(__file__).resolve().parents[2] / CONFIG_NAME
-            existing = (validate(json.loads(path.read_text()), 'operator-issue-recovery.v1') if path.exists()
+            existing = (validate(_decode_json(path.read_text()), 'operator-issue-recovery.v1') if path.exists()
                         else {'schema_version': 'operator-issue-recovery.v1', 'repositories': {}})
             if any(k.casefold() == repo.casefold() for k in existing['repositories']):
                 raise RecoveryError('Activation already exists; inspect or restore it instead of reinitializing.')
