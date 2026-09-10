@@ -348,7 +348,8 @@ class ScopedAssignments(unittest.TestCase):
             self.stop(json.dumps({"status": status}))
             with self.assertRaises(scoped.EvidenceError):
                 verify()
-        self.stop('{"status":"complete","artifact":"useful result"}')
+        self.stop(json.dumps({"outcome": "failed", "reason": "Cannot complete", "evidence": {
+            "changed_paths": [], "verification_results": [], "assumptions": [], "unresolved_concerns": []}}))
         self.assertEqual(verify()["child"], "child-a")
 
     def test_relative_native_cat_binds_the_same_immutable_packet(self):

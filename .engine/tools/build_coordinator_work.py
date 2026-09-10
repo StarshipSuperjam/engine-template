@@ -173,10 +173,9 @@ def identity_duty(route: dict) -> dict:
     if identity_mode_for_route(route) == "accepted-candidate":
         return {"mode": "accepted-candidate",
                 "duty": "Your change is integrated inline by the senior session. Stage the candidate "
-                        "(`git add`), run `build_coordinator.py work stage-digest --item <id> --plan "
-                        "<plan>` to capture the Engine-observed staged tree digest, and carry that value "
-                        "back as the result's artifact_digest; the session then commits and integrates "
-                        "it. You owe no worker commit id."}
+                        "(`git add`) before work result. The Engine captures the staged tree digest "
+                        "at result ingress and checks it at integration. Do not supply artifact_digest "
+                        "or artifact_ref in this mode; attempt and base also come from the claim."}
     return {"mode": "worker-commit",
             "duty": "Commit your candidate in this worktree and return its commit id as artifact_ref. "
                     "The Engine derives the artifact tree digest from that commit, so identity is "
@@ -316,72 +315,54 @@ def build_packet(plan: dict, state: dict, node_id: str, route: dict, base_sha: s
     return packet
 
 
-def bind_result(nw: dict, item: dict, attempt_id: str, base_sha: str, payload: dict) -> dict:
-    """Bind a worker result to the active claim's attempt id and base SHA; reject a stale attempt.
+def ingest_worker_report(raw, binding):
+    """Validate the entire raw worker report before using or deriving any fields."""
+    try:
+        return result_contracts.compile_worker(result_contracts.ingest(
+            raw, binding, contract="worker-result.v1", role="worker"))
+    except result_contracts.Rejection as exc:
+        raise CoordinatorError(str(exc)) from exc
 
-    A returned result must carry every evidence kind its node's output_contract requires; a missing
-    kind is a contract failure, so the output_contract is enforced, not merely declared.
-    """
-    if not isinstance(payload, dict):
-        raise CoordinatorError("work result payload must be a JSON object")   # fail closed, never crash
+
+def bind_result(nw: dict, item: dict, attempt_id: str, base_sha: str, payload,
+                *, observed_digest=None) -> dict:
+    """Bind validated semantics to Engine-owned identity; legacy records remain read-only."""
+    def refuse(rule, category="semantic", detail="Worker result rejected"):
+        raise CoordinatorError(str(result_contracts.Rejection(category, rule,
+            contract="worker-result.v1", detail=detail)))
     claim = nw.get("claim")
     if not claim:
-        raise CoordinatorError("no active claim to bind a result to")
+        refuse("missing_claim", "authority")
     if attempt_id != claim["attempt_id"]:
-        raise CoordinatorError(
-            f"result attempt {attempt_id} does not match the active claim attempt {claim['attempt_id']}")
+        refuse("attempt_mismatch", "stale-attempt")
     if base_sha != claim["base_sha"]:
-        raise CoordinatorError(
-            f"result base {base_sha} does not match the claimed base {claim['base_sha']}")
-    outcome = payload.get("outcome")
-    if outcome not in ("returned", "failed"):
-        raise CoordinatorError("result outcome must be 'returned' or 'failed'")
-    supplied = payload.get("evidence") or {}
-    if not isinstance(supplied, dict):
-        raise CoordinatorError("result evidence must be an object")   # fail closed, never crash
-    evidence = {}
-    for key in _EVIDENCE_KEYS:
-        value = supplied.get(key)
-        value = [] if value is None else value
-        # The whole payload is a worker's UNTRUSTED self-report, so every field fails closed with a
-        # refusal, never a crash or a silent coercion (a bare string must not become a char list).
-        if not isinstance(value, list) or any(not isinstance(entry, str) for entry in value):
-            raise CoordinatorError(f"result evidence {key} must be a list of strings")
-        evidence[key] = list(value)
+        refuse("base_mismatch", "authority")
+    # Dict input is an internal convenience, never a bypass of the canonical validator.
+    import json
+    try:
+        raw = json.dumps(payload, allow_nan=False) if isinstance(payload, (dict, list)) else payload
+    except (ValueError, TypeError, RecursionError):
+        refuse("raw_input_required", "syntax")
+    report = ingest_worker_report(raw, claim.get("result_contract"))
+    outcome, evidence = report["outcome"], report["evidence"]
+    artifact_digest = None
     if outcome == "returned":
-        # A required key satisfied by an explicit null is MISSING, not empty: the contract demands
-        # the evidence kind be carried, and a null must not silently launder it into [].
-        missing = [k for k in item["output_contract"]["required_evidence"] if supplied.get(k) is None]
-        if missing:
-            raise CoordinatorError(
-                "returned result is missing output-contract evidence: " + ", ".join(sorted(missing)))
-        # Scoped-write teeth: a returned result whose reported changed paths escape the node's
-        # declared paths is a contract failure — the worker wrote outside the scope it was given.
-        declared = item.get("paths", [])
-        escaped = [c for c in evidence["changed_paths"] if not dag.path_within_declared(c, declared)]
+        escaped = [c for c in evidence["changed_paths"] if not dag.path_within_declared(c, item.get("paths", []))]
         if escaped:
-            raise CoordinatorError(
-                "returned result changed paths outside the node's declared scope: " + ", ".join(sorted(escaped)))
-        # Identity, Engine-selected from the claim's stored route — never offered to the supplier. A
-        # worker-commit attempt must name its commit; an accepted-candidate attempt must carry the
-        # Engine-observed staged tree digest (`work stage-digest`). The digest is re-derived and
-        # cross-checked at integration; here we only refuse a result lacking its mode's identity.
-        mode = identity_mode_for_route((claim or {}).get("requested_route") or {})
+            refuse("path_scope", detail="Returned result changed paths outside the node's declared scope")
+        mode = identity_mode_for_route(claim.get("requested_route") or {})
         if mode == "worker-commit":
-            ref = payload.get("artifact_ref")
-            if not (isinstance(ref, str) and re.fullmatch(r"[0-9a-f]{40}", ref)):
-                raise CoordinatorError(
-                    "worker-commit identity requires artifact_ref to be the worker's 40-hex commit id; "
-                    "the Engine derives the artifact tree digest from that commit")
+            if report.get("artifact_ref") is None:
+                refuse("artifact_ref", detail="worker-commit identity requires artifact_ref")
         else:
-            supplied = payload.get("artifact_digest")
-            if not (isinstance(supplied, str) and re.fullmatch(r"sha256:[0-9a-f]{64}", supplied)):
-                raise CoordinatorError(
-                    "accepted-candidate identity requires artifact_digest to be the Engine-observed "
-                    "staged tree digest from `work stage-digest`")
-    return {"attempt_id": attempt_id, "base_sha": base_sha, "outcome": outcome,
-            "artifact_ref": payload.get("artifact_ref"), "artifact_digest": payload.get("artifact_digest"),
-            "evidence": evidence}
+            if report.get("artifact_ref") is not None:
+                refuse("artifact_mode", "authority")
+            if not isinstance(observed_digest, str) or not re.fullmatch(r"sha256:[0-9a-f]{64}", observed_digest):
+                refuse("observed_artifact", "authority", "accepted-candidate identity requires an Engine-observed staged digest")
+            artifact_digest = observed_digest
+    return {"attempt_id": claim["attempt_id"], "base_sha": claim["base_sha"], "outcome": outcome,
+            "artifact_ref": report.get("artifact_ref"), "artifact_digest": artifact_digest,
+            "evidence": evidence, "report": report, "result_contract": claim["result_contract"]}
 
 
 FAIL_CLOSED_GAPS = ("declared-incomplete-binding", "external-transport-refused", "no-eligible-for-production")

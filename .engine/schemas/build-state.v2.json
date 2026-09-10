@@ -202,6 +202,8 @@
       "type": "object", "additionalProperties": false,
       "required": ["attempt_id", "base_sha", "outcome", "artifact_ref", "artifact_digest", "evidence"],
       "properties": {
+        "report": {"$ref": "#/$defs/worker_report"},
+        "result_contract": {"$ref": "#/$defs/result_binding"},
         "attempt_id": {"$ref": "#/$defs/attempt_id"},
         "base_sha": {"$ref": "#/$defs/commit"},
         "outcome": {"enum": ["returned", "failed"]},
@@ -212,7 +214,7 @@
           "required": ["changed_paths", "verification_results", "assumptions", "unresolved_concerns"],
           "properties": {
             "changed_paths": {"type": "array", "items": {"type": "string"}},
-            "verification_results": {"type": "array", "items": {"type": "string"}},
+            "verification_results": {"type": "array", "items": {"oneOf": [{"type": "string"}, {"$ref": "#/$defs/worker_verification"}]}},
             "assumptions": {"type": "array", "items": {"type": "string"}},
             "unresolved_concerns": {"type": "array", "items": {"type": "string"}}
           }

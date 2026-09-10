@@ -4811,23 +4811,27 @@ def cmd_work_result(args, store: Snapshot) -> None:
     plan = _plan(args.plan)
     _require_dag_plan(plan)
     item = work.node_item(plan, args.item)
+    import result_contracts
     try:
-        payload = json.loads(_input(args.input))
-    except ValueError as exc:
-        raise CoordinatorError(f"work result input is not JSON: {exc}") from exc
-    base_sha = payload.get("base_sha")
-    if not base_sha:
-        raise CoordinatorError("work result must report the base_sha the worker built from")
+        raw = result_contracts.read_input(args.input)
+    except result_contracts.Rejection as exc:
+        raise CoordinatorError(str(exc)) from exc
 
     def change(state):
         _assert_plan(state, plan)
         nw = _node_work(state, args.item)
-        result = work.bind_result(nw, item, args.attempt, base_sha, payload)
+        claim = nw.get("claim") or {}
+        payload = work.ingest_worker_report(raw, claim.get("result_contract"))
+        observed = None
+        if (payload["outcome"] == "returned" and
+                work.identity_mode_for_route(claim.get("requested_route") or {}) == "accepted-candidate"):
+            observed = _staged_tree_digest(str(ROOT))
+        result = work.bind_result(nw, item, args.attempt, claim.get("base_sha"), payload,
+                                  observed_digest=observed)
         nw["latest_result"] = result
         if result["outcome"] == "failed":
-            nw["latest_failure"] = work.failure_record(
-                args.attempt, payload.get("class", "worker"),
-                payload.get("reason", "worker reported a failure"))
+            nw["latest_failure"] = work.failure_record(args.attempt, "worker", payload["reason"])
+
         else:
             # A returned result supersedes any open failure for this attempt, so the node never
             # derives as failed while holding a complete, contract-satisfying returned result.

@@ -436,6 +436,12 @@ class Store:
                     continue
             elif not _text(a["stops"][-1]["output"]):
                 continue
+            elif a["purpose"] == "worker":
+                try:
+                    result_contracts.ingest(a["stops"][-1]["output"], a.get("result_contract"),
+                                            contract="worker-result.v1", role="worker")
+                except result_contracts.Rejection:
+                    continue
             else:
                 try:
                     worker_output = json.loads(a["stops"][-1]["output"])
