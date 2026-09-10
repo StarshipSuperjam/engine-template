@@ -43,14 +43,16 @@ class TestObsoleteSetupRoutes(unittest.TestCase):
         mid = "former-addon"
         rel = f".claude/skills/engine-setup-{mid}/SKILL.md"
         old = {"id": mid, "status": "default-on", "presentation": {"setup_trigger": "enable the fixture"}}
-        for shape in ("generated", "authored", "line-endings", "untracked", "still-offerable", "symlink"):
+        for shape in ("generated", "authored", "line-endings", "untracked", "still-offerable", "symlink",
+                      "declined-authored", "declined-generated"):
             with self.subTest(shape=shape), tempfile.TemporaryDirectory() as directory:
                 root, release = Path(directory) / "live", Path(directory) / "release"
                 release.mkdir()
                 target = root / rel
                 target.parent.mkdir(parents=True)
                 body = setup_route_gen._render(mid, old["presentation"])
-                target.write_text(body + ("\nOperator notes.\n" if shape == "authored" else ""))
+                authored = shape in ("authored", "declined-authored")
+                target.write_text(body + ("\nOperator notes.\n" if authored else ""))
                 if shape == "line-endings":
                     target.write_bytes(body.replace("\n", "\r\n").encode("utf-8"))
                 adjacent = target.parent / "operator.md"
@@ -65,21 +67,28 @@ class TestObsoleteSetupRoutes(unittest.TestCase):
                 # Exercise the whole deletion leg, including a route named by old_owned: preserving
                 # authored content in the route helper must not let the generic deletion loop take it.
                 synced = {rel: str(target)} if shape == "still-offerable" else {}
+                old_by_id = {"core": {"id": "core", "provides": {"skills": [rel]}}}
+                if not shape.startswith("declined-"):
+                    old_by_id[mid] = old
                 with module_manager._redirect_root(str(root)), \
                      mock.patch.object(module_manager, "retire_set", return_value=([], [])), \
                      mock.patch.object(module_manager, "engine_synced_map", return_value=synced), \
                      mock.patch.object(module_manager, "_copy_synced", return_value=[]):
                     _, removed = module_manager._reconcile_surface(
-                        str(release), candidates, [rel], {mid: old}, tracked=tracked)
+                        str(release), candidates, [rel], old_by_id, tracked=tracked)
                 self.assertEqual(target.exists(), shape != "generated")
                 self.assertEqual(rel in removed["engine"], shape == "generated")
                 self.assertEqual(adjacent.read_text(), "Keep my notes.\n")
-                if shape == "authored":
+                if authored:
                     self.assertEqual(target.read_text(), body + "\nOperator notes.\n")
                 if shape == "line-endings":
                     self.assertEqual(target.read_bytes(), body.replace("\n", "\r\n").encode("utf-8"))
-                if shape in ("authored", "line-endings", "untracked", "symlink"):
+                if shape in ("authored", "line-endings", "untracked", "symlink", "declined-authored", "declined-generated"):
                     self.assertTrue(removed["left_in_place"])
+                if shape.startswith("declined-"):
+                    self.assertIn("generation metadata is unavailable", removed["left_in_place"][0])
+                if shape == "declined-generated":
+                    self.assertEqual(target.read_bytes(), body.encode("utf-8"))
                 if shape == "symlink":
                     self.assertEqual(outside.read_text(), body)
 

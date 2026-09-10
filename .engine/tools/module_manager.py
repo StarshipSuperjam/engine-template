@@ -2971,18 +2971,22 @@ def _glob_namespace_prefixes(old_by_id: dict) -> tuple:
     return tuple(sorted(prefixes))
 
 
-def _retire_obsolete_setup_routes(release_tree, candidates, old_by_id, tracked, removed):
+def _retire_obsolete_setup_routes(release_tree, candidates, old_by_id, tracked, removed, old_owned=()):
     """Retire a former add-on's exact generated route after it stops being offerable.
 
     These core-owned dynamic files are not in the old module's provides. Delete only tracked,
     byte-identical generated content, leaving authored edits and adjacent files recoverable.
     """
     handled = set()
-    for rel, generated in derived_state.obsolete_setup_routes(old_by_id, candidates).items():
+    for rel, generated in derived_state.obsolete_setup_routes(old_by_id, candidates, old_owned).items():
         target = os.path.join(validate.ROOT, rel)
         if os.path.exists(os.path.join(release_tree, rel)) or not os.path.isfile(target):
             continue
         handled.add(rel)
+        if generated is None:
+            removed["left_in_place"].append(
+                f"{rel} — left in place: the old module's generation metadata is unavailable.")
+            continue
         if not _within_root(rel) or os.path.islink(target):
             removed["left_in_place"].append(f"{rel} — left in place: the route is not a contained regular file.")
             continue
@@ -3062,7 +3066,7 @@ def _reconcile_surface(release_tree: str, candidates: dict, old_owned: list, old
     dropped_owned = set(module_coherence.provides_claims(
         [(f".engine/modules/{mid}/manifest.json", old_by_id.get(mid) or {}) for mid in (dropped_ids or ())]))
     removed = {"engine": [], "suspect": [], "left_in_place": []}
-    handled_routes = _retire_obsolete_setup_routes(release_tree, candidates, old_by_id, tracked, removed)
+    handled_routes = _retire_obsolete_setup_routes(release_tree, candidates, old_by_id, tracked, removed, old_owned)
     for rel in to_delete:
         if rel in handled_routes:
             continue
