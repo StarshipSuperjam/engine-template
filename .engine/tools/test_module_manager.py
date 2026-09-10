@@ -1234,10 +1234,13 @@ class TestVersionStamp(unittest.TestCase):
 
     def test_surface_promotes_exactly_one_finding_via_a_faked_github(self):
         import telemetry
-        gh = telemetry.GitHubIssues("you/proj", "tok", transport=telemetry._FakeGitHub().transport)
-        num = module_manager.surface_stamp_mismatch(
-            "ledger", "0.2.0", "0.1.0", "engine restore ledger",
-            now="2026-01-01T00:00:00Z", github=gh)
+        fake = telemetry._FakeGitHub()
+        gh = telemetry.GitHubIssues("you/proj", "tok", transport=fake.transport,
+                                   recovery_store=fake.recovery_store)
+        with mock.patch.dict(os.environ, {"GITHUB_REPOSITORY": "you/proj"}):
+            num = module_manager.surface_stamp_mismatch(
+                "ledger", "0.2.0", "0.1.0", "engine restore ledger",
+                now="2026-01-01T00:00:00Z", github=gh)
         self.assertTrue(num)                                   # an Issue number was opened
         # no mismatch -> nothing surfaced
         self.assertIsNone(module_manager.surface_stamp_mismatch(

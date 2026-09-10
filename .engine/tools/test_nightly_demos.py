@@ -361,8 +361,6 @@ class TriageReviewRegressions(unittest.TestCase):
         self.assertEqual(outcome['triage']['assignment']['state'], 'resolution-failed')
 
 
-if __name__ == "__main__":
-    unittest.main()
 
 
 from test_nightly_demo_report import ReportRemote, failed_nightly
@@ -402,3 +400,7 @@ class DurableNightlySubmission(unittest.TestCase):
         self.assertEqual(outcome['action'], 'filed')
         self.assertEqual(self.remote.posts, 1)
         self.assertIn('`demo_durable.py` — exit None', self.remote.issues[0]['body'])
+
+
+if __name__ == "__main__":
+    unittest.main()

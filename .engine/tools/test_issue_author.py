@@ -431,8 +431,6 @@ class TestKindAtFiling(unittest.TestCase):
         self.assertIn("Fix: A finding", text)
 
 
-if __name__ == "__main__":
-    unittest.main()
 
 
 class TestSubmissionEnvelope(unittest.TestCase):
@@ -490,3 +488,7 @@ class ProductMetadataRefusal(unittest.TestCase):
                     'request': {'repository': 'o/r', 'title': 'x', 'body': '', **fields}}
             with self.assertRaises(issue_author.IssueInputError):
                 issue_author.validate_submission(data)
+
+
+if __name__ == "__main__":
+    unittest.main()

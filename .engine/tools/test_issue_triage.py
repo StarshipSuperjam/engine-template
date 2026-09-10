@@ -441,8 +441,6 @@ class ReviewRegressions(unittest.TestCase):
         self.assertEqual(triage.select_pending(discovery, Filing.config, client.repo)['number'], 2)
 
 
-if __name__ == '__main__':
-    unittest.main()
 
 
 class SendBoundary(unittest.TestCase):
@@ -457,3 +455,7 @@ class SendBoundary(unittest.TestCase):
         self.assertEqual(len(sent), 1)
         self.assertEqual(sent[0]['labels'], ['engine'])
         self.assertFalse(any(call[0] == 'POST' for call in client.calls))
+
+
+if __name__ == "__main__":
+    unittest.main()
