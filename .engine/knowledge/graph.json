@@ -5213,7 +5213,7 @@
       },
       "slug": "ci-assurance",
       "source": {
-        "fingerprint": "sha256:fb84aeb8df09aec5c791285cd715c6368608e98e078824c8f75fd8212c68e17d",
+        "fingerprint": "sha256:43d212126421462af0d3bc16e6c344c0d8446f470d904bc8b52c85c435e8d2ae",
         "path": ".engine/docs/ci-assurance.md"
       },
       "status": "active",
@@ -5706,7 +5706,7 @@
       },
       "slug": "build-continuity",
       "source": {
-        "fingerprint": "sha256:7e295f5e5384dd1cbe3e20fe871dba0713eef1d4690d54216281d0a1c38dcc37",
+        "fingerprint": "sha256:abd41e1b142e7ed341dc9d8a36184d4a0f47bf00aaece1f793e28e84b329c80e",
         "path": ".engine/operations/build-continuity.md"
       },
       "status": "active",
@@ -5766,7 +5766,7 @@
       },
       "slug": "build-kickoff",
       "source": {
-        "fingerprint": "sha256:9d9d04c3123a780565b6c61fadc835a56e74df146e40a378aacf8c63431396c3",
+        "fingerprint": "sha256:667107d721789dcdaa9bb2fd1bbd6c462bb713f062b2e3198ebba78e90428b7e",
         "path": ".engine/operations/build-kickoff.md"
       },
       "status": "active",
@@ -5866,7 +5866,7 @@
       },
       "slug": "build-validation-and-review",
       "source": {
-        "fingerprint": "sha256:2c82061d8c9512240e5dcbdf7d2c663b06450d54ebb7fcb974d7af6faedf3097",
+        "fingerprint": "sha256:5fb276c525e0a7167b26b78bb914ea96bb121230c33b13c09bef082f63663db9",
         "path": ".engine/operations/build-validation-and-review.md"
       },
       "status": "active",
@@ -6977,7 +6977,7 @@
       },
       "slug": "build-handoff.v2",
       "source": {
-        "fingerprint": "sha256:fe61ae85929e29282ae80229afca42411dfee44519006d150243df6fd3db72fb",
+        "fingerprint": "sha256:c3780712e2fa8c6185d3d6eea636ebc6a8b8b8332199b7b39a0f4e22eadb436a",
         "path": ".engine/schemas/build-handoff.v2.json"
       },
       "status": "active",
@@ -7079,7 +7079,7 @@
       },
       "slug": "build-state.v2",
       "source": {
-        "fingerprint": "sha256:0265e1844fdff7cc1a89542c86a95bdef075e2bf4ce72c04785376bb0a86115f",
+        "fingerprint": "sha256:47eed89f7b0cc0fc6e9f3caa505c1d4545a5dbe74662c2fcdec3fb34f84d9a86",
         "path": ".engine/schemas/build-state.v2.json"
       },
       "status": "active",
@@ -7555,7 +7555,7 @@
       },
       "slug": "plan-record.v1",
       "source": {
-        "fingerprint": "sha256:fd22659a04a20d34abc489328df4a1ae5d75524b6356ddacb3d2dcefdd156d62",
+        "fingerprint": "sha256:42e99f4da04dab43a73634ea380abc952d9da7c4d57d01bc9b81d4fa21b6384f",
         "path": ".engine/schemas/plan-record.v1.json"
       },
       "status": "active",
@@ -9555,6 +9555,7 @@
           "tool:build_coordinator_review",
           "tool:build_coordinator_spec",
           "tool:build_coordinator_work",
+          "tool:build_entry_preflight",
           "tool:build_protocol",
           "tool:build_review_range",
           "tool:build_state_store",
@@ -9585,7 +9586,7 @@
       },
       "slug": "build_coordinator",
       "source": {
-        "fingerprint": "sha256:e2d7db02d98f124e7740a359fc93136ecd96d2012be33b86110052b3178e78f0",
+        "fingerprint": "sha256:bd117d0bae372618271fe3614c9cec418f942067283428f48fba8d5ced6fec21",
         "path": ".engine/tools/build_coordinator.py"
       },
       "status": "active",
@@ -9675,7 +9676,7 @@
       },
       "slug": "build_coordinator_github",
       "source": {
-        "fingerprint": "sha256:70855909cad33024b5937382fc7f27c0e4412a055658eac5b688936a00830950",
+        "fingerprint": "sha256:a94c8110c7f5997c4a98745f8c5f7fad9cc504c4afab416c7785591554fb1152",
         "path": ".engine/tools/build_coordinator_github.py"
       },
       "status": "active",
@@ -9781,6 +9782,31 @@
       "type": "tool"
     },
     {
+      "entrypoint": "library",
+      "guarded": false,
+      "id": "tool:build_entry_preflight",
+      "name": ".engine/tools/build_entry_preflight.py",
+      "owner": "core",
+      "predicates": {
+        "imports": [
+          "tool:build_coordinator_core",
+          "tool:moment",
+          "tool:repo_identity"
+        ],
+        "provided_by": [
+          "module:core"
+        ]
+      },
+      "slug": "build_entry_preflight",
+      "source": {
+        "fingerprint": "sha256:90c9f5b21539833f01fd027a9e596a72f4a969025e1b342aea85c2d4700dadf6",
+        "path": ".engine/tools/build_entry_preflight.py"
+      },
+      "status": "active",
+      "summary": "Observed admission facts for a new Build, separate from continuation and local Build stance.",
+      "type": "tool"
+    },
+    {
       "entrypoint": "cli",
       "guarded": false,
       "id": "tool:build_protocol",
@@ -9866,7 +9892,7 @@
       },
       "slug": "build_review_range",
       "source": {
-        "fingerprint": "sha256:84cc10a159578d873cf7d0eb5c45835cc207594dc5b0e1d9242f17fabad6b7ed",
+        "fingerprint": "sha256:95dd48ad0948a13a829ac3199b142c9d85f95c5f01e1e34c17471f583702a6a2",
         "path": ".engine/tools/build_review_range.py"
       },
       "status": "active",
@@ -9892,7 +9918,7 @@
       },
       "slug": "build_state_store",
       "source": {
-        "fingerprint": "sha256:9cceb92c79ebb5e2aed0cf98671dc5eb622344aaf81144e7721fbb2b7970e4c1",
+        "fingerprint": "sha256:39bf0635e31ba7b94e6b7dce95c9740230f74222f469e60472baf88527fac908",
         "path": ".engine/tools/build_state_store.py"
       },
       "status": "active",
@@ -11537,6 +11563,8 @@
       "predicates": {
         "imports": [
           "tool:build_coordinator",
+          "tool:build_coordinator_contract",
+          "tool:test_build_coordinator_contract",
           "tool:validate"
         ],
         "provided_by": [
@@ -11545,7 +11573,7 @@
       },
       "slug": "demo_plan_to_ready_pr",
       "source": {
-        "fingerprint": "sha256:847ba61092f26578db1b8d944120f816f3c8044fa380d9731769c8caedf1bfa3",
+        "fingerprint": "sha256:e4c76794bf35ba46abf59bfdcedb458962f708cdc2b804b09d37f9b781c362fd",
         "path": ".engine/tools/demo_plan_to_ready_pr.py"
       },
       "status": "active",
@@ -13499,7 +13527,11 @@
       "owner": "core",
       "predicates": {
         "imports": [
+          "tool:build_coordinator_core",
+          "tool:build_entry_preflight",
           "tool:checkout_health",
+          "tool:moment",
+          "tool:plan_store",
           "tool:repo_identity"
         ],
         "provided_by": [
@@ -13508,7 +13540,7 @@
       },
       "slug": "mechanic_build",
       "source": {
-        "fingerprint": "sha256:bced8819f2ac3293eab98c2da08155389044b164a15a24068a46e60e6fdcae66",
+        "fingerprint": "sha256:6dc7f72c4064e5f05bdcf25e95b34f42982291eb797caa1ece2d6e412d02a5b5",
         "path": ".engine/tools/mechanic_build.py"
       },
       "status": "active",
@@ -16380,7 +16412,7 @@
       },
       "slug": "test_build_coordinator",
       "source": {
-        "fingerprint": "sha256:7ea23b8eb2f73b2e313c922d8c7621cb2856a9bf4fbbdf6505220b84dd5ec5d1",
+        "fingerprint": "sha256:f8202bd928372baa051ee86043e76a826d4122d2104400315ae4eb815a7d2b08",
         "path": ".engine/tools/test_build_coordinator.py"
       },
       "status": "active",
@@ -16410,7 +16442,7 @@
       },
       "slug": "test_build_coordinator_contract",
       "source": {
-        "fingerprint": "sha256:85873fca02d6dda3f9cdd53a8b10b054492f132a25b59398a115eff761b34732",
+        "fingerprint": "sha256:3d8825788de5ca6bd156aa56fff7821ff564efb50f4e645c786abd6a267d3152",
         "path": ".engine/tools/test_build_coordinator_contract.py"
       },
       "status": "active",
@@ -16575,6 +16607,31 @@
     {
       "entrypoint": "test",
       "guarded": false,
+      "id": "tool:test_build_entry_preflight",
+      "name": ".engine/tools/test_build_entry_preflight.py",
+      "owner": "core",
+      "predicates": {
+        "provided_by": [
+          "module:core"
+        ],
+        "tests": [
+          "tool:build_coordinator_core",
+          "tool:build_entry_preflight",
+          "tool:test_build_coordinator"
+        ]
+      },
+      "slug": "test_build_entry_preflight",
+      "source": {
+        "fingerprint": "sha256:7786a6f0da5b97f9b373a3df6089d7b571753fa7dd81ae0023c78be2c7c7eab5",
+        "path": ".engine/tools/test_build_entry_preflight.py"
+      },
+      "status": "active",
+      "summary": "Fresh Build admission against real isolated git checkouts and a local bare origin.",
+      "type": "tool"
+    },
+    {
+      "entrypoint": "test",
+      "guarded": false,
       "id": "tool:test_build_protocol",
       "name": ".engine/tools/test_build_protocol.py",
       "owner": "core",
@@ -16639,6 +16696,7 @@
           "tool:build_state_store",
           "tool:demo_build_resumes_after_a_kill",
           "tool:plan_contract",
+          "tool:plan_lifecycle",
           "tool:plan_store",
           "tool:project_manager",
           "tool:quiet_call",
@@ -16648,7 +16706,7 @@
       },
       "slug": "test_build_state_store",
       "source": {
-        "fingerprint": "sha256:67a66ffa0dd5486f76bfa5a3c48fe37fd36518c02d459fd41cfe42e22cda7d02",
+        "fingerprint": "sha256:d4e6f9e07426c66b62f00a7e353ea37f5c948ff3c88f6d218a45d35af7bd043c",
         "path": ".engine/tools/test_build_state_store.py"
       },
       "status": "active",
@@ -18692,7 +18750,7 @@
       },
       "slug": "test_mechanic_build",
       "source": {
-        "fingerprint": "sha256:a86a7c231163199d591280331ee1e5b416cd7fa0e177c578edef60dc6f1460eb",
+        "fingerprint": "sha256:cc33c350e30ccda257218d7492e8e7ec908b8cb222a1205a2828128e59d3e921",
         "path": ".engine/tools/test_mechanic_build.py"
       },
       "status": "active",
@@ -20229,12 +20287,13 @@
           "tool:build_coordinator_review",
           "tool:build_review_range",
           "tool:demo_v1_plan_sunset_refused",
-          "tool:quiet_call"
+          "tool:quiet_call",
+          "tool:test_build_coordinator"
         ]
       },
       "slug": "test_review_economy",
       "source": {
-        "fingerprint": "sha256:944fc2f4164cb6388247b896cff4a81a61f205e73eca827525aae1de54e13888",
+        "fingerprint": "sha256:5c704be58cf7fd94c1e3178ed3ff3b8a64095ea7469ffd656ce734137fad8083",
         "path": ".engine/tools/test_review_economy.py"
       },
       "status": "active",
