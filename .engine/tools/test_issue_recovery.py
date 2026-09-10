@@ -3,10 +3,14 @@ import base64
 import copy
 import hashlib
 import json
+import os
 from pathlib import Path
+import sys
 import tempfile
 import unittest
 from unittest.mock import patch
+
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
 import issue_author
 import issue_recovery as recovery
@@ -57,6 +61,7 @@ class Remote:
         self.lose_ref_response = False
         self.fail_reads = False
         self.malformed_page = False
+        self.malformed_graph = False
         self.before_ref = None
 
     def client(self):
@@ -67,8 +72,61 @@ class Remote:
     def object_id(kind, raw):
         return hashlib.sha1(kind.encode() + b' ' + str(len(raw)).encode() + b'\0' + raw).hexdigest()
 
+    def graph_tree(self, sha):
+        tree = self.objects[sha]
+        entries = []
+        for entry in tree['tree']:
+            mode = {'040000': 16384, '100644': 33188}[entry['mode']]
+            item = {'name': entry['path'], 'mode': mode, 'type': entry['type'].upper(), 'oid': entry['sha']}
+            if entry['type'] == 'tree':
+                item['object'] = self.graph_tree(entry['sha'])
+            elif entry['type'] == 'blob':
+                item['object'] = {'byteSize': len(base64.b64decode(self.objects[entry['sha']]['content']))}
+            entries.append(item)
+        return {'oid': sha, 'entries': entries}
+
+    def graph_history(self, tip, after):
+        commits = []
+        sha = tip
+        while sha:
+            commit = self.objects[sha]
+            commits.append({'oid': sha, 'message': commit['message'],
+                            'parents': {'nodes': [{'oid': p['sha']} for p in commit['parents']], 'pageInfo': {'hasNextPage': False}},
+                            'tree': self.graph_tree(commit['tree']['sha'])})
+            sha = commit['parents'][0]['sha'] if commit['parents'] else None
+        offset = int(after or 0)
+        page = commits[offset:offset + 100]
+        more = offset + len(page) < len(commits)
+        return {'data': {'repository': {'object': {'oid': tip, 'history': {
+            'nodes': page, 'pageInfo': {'hasNextPage': more, 'endCursor': str(offset + len(page)) if more else None}}}}}}
+
     def call(self, method, path, body=None):
         self.calls.append((method, path, copy.deepcopy(body)))
+        if path == '/graphql' and method == 'POST':
+            if self.malformed_graph:
+                return 200, {'data': {'repository': None}}
+            variables = body.get('variables', {}) if isinstance(body, dict) else {}
+            query = body.get('query', '') if isinstance(body, dict) else ''
+            if 'RecoveryHistory' in query:
+                # A fake must not supply fields the actual query omitted.
+                import re
+                assert len(re.findall(r"object\s*\{\s*oid\s*\.\.\. on Tree", query)) == 2
+                assert '... on Blob { byteSize }' in query
+                assert 'nodes { oid } pageInfo { hasNextPage }' in query
+                assert 'object(expression: $expression) { oid' in query
+                return 200, self.graph_history(variables['expression'], variables.get('after'))
+            if 'RecoveryBlobs' in query:
+                values = {}
+                for key, sha in variables.items():
+                    if key.startswith('id'):
+                        blob = self.objects.get(sha)
+                        if not blob or blob.get('encoding') != 'base64':
+                            return 200, {'data': {'repository': {}}}
+                        raw = base64.b64decode(blob['content'])
+                        values['b' + key[2:]] = {'oid': sha, 'byteSize': len(raw), 'isTruncated': False,
+                                                  'text': raw.decode('utf-8')}
+                return 200, {'data': {'repository': values}}
+            return 200, {'errors': [{'message': 'unknown query'}]}
         prefix = '/repos/' + REPO
         if path == prefix:
             return 200, {'id': 42}
@@ -301,9 +359,187 @@ class RecoveryTests(unittest.TestCase):
         self.assertEqual(self.store().load()[1], before)
         self.assertEqual(self.remote.posts, 0)
 
+    def test_fresh_store_cold_read_batches_hundred_commit_history(self):
+        store = self.store()
+        for number in range(100):
+            tip, snapshot = store.load()
+            updated = copy.deepcopy(snapshot)
+            updated['revision'] += 1
+            updated['records'][f'operation-{number}'] = {'state': 'prepared'}
+            store.compare_and_swap(tip, updated)
+        self.remote.calls.clear()
+        fresh = self.store()
+        tip, snapshot = fresh.load()
+        self.assertEqual(tip, self.remote.ref)
+        self.assertEqual(snapshot['revision'], 100)
+        self.assertLessEqual(len(self.remote.calls), 12)
+        self.assertEqual(sum(path == '/graphql' for _method, path, _body in self.remote.calls), 8)
 
-if __name__ == '__main__':
-    unittest.main()
+    def test_graphql_partial_or_malformed_data_refuses_before_send(self):
+        self.remote.malformed_graph = True
+        with self.assertRaises(storage.RecoveryError):
+            self.submit()
+        self.assertEqual(self.remote.posts, 0)
+
+
+class BoundedJournalReads(unittest.TestCase):
+    def setUp(self):
+        self.remote = Remote()
+        self.activation = storage.initialize(self.remote.client())
+
+    def store(self, transport=None):
+        client = self.remote.client()
+        if transport is not None:
+            client._transport = transport
+        return storage.GitStore(client, self.activation)
+
+    def seed(self, count):
+        writer = self.store()
+        for number in range(count):
+            tip, snapshot = writer.load()
+            snapshot['revision'] += 1
+            snapshot['records'][str(number)] = {'state': 'prepared'}
+            writer.compare_and_swap(tip, snapshot)
+        return writer
+
+    def test_cold_helper_after_a_hundred_operations_stays_below_a_hundred_calls(self):
+        costs = []
+        for number in range(101):
+            self.remote.calls.clear()
+            result = issue_author.create_issue_result(
+                {**INTENT, 'submission_id': f'manual-{number}'}, env=ENV,
+                issues_factory=lambda *_: self.remote.client(), recovery_store=self.store())
+            self.assertEqual(result['filing'], 'created', result)
+            costs.append(len(self.remote.calls))
+        self.assertEqual(self.remote.posts, 101)
+        self.assertLess(costs[-1], 100, costs[-1])
+        self.assertLess(costs[-1] - costs[0], 30, (costs[0], costs[-1]))
+
+    def test_verified_instance_cache_is_defensive_and_reads_remote_identity_each_time(self):
+        store = self.seed(3)
+        tip, snapshot = store.load()
+        snapshot['records'].clear()
+        self.remote.calls.clear()
+        self.assertEqual(len(store.load()[1]['records']), 3)
+        self.assertEqual([path for _method, path, _body in self.remote.calls],
+                         ['/repos/' + REPO, '/repos/' + REPO + '/git/ref/heads/codex/engine-issue-recovery'])
+        peer = self.store()
+        _, update = peer.load()
+        update['revision'] += 1
+        peer.compare_and_swap(tip, update)
+        self.remote.calls.clear()
+        self.assertEqual(store.load()[1]['revision'], 4)
+        reads = [body for _method, path, body in self.remote.calls
+                 if path == '/graphql' and 'RecoveryBlobs' in body['query']]
+        self.assertEqual([len([key for key in body['variables'] if key.startswith('id')]) for body in reads], [1])
+        self.remote.ref = tip
+        with self.assertRaises(storage.RecoveryError):
+            store.load()
+
+    def test_payload_batches_obey_aggregate_byte_budget(self):
+        self.seed(100)
+        self.remote.calls.clear()
+        with patch.object(storage, '_GRAPH_BYTES', 8192):
+            self.store().load()
+        batches = [body for _method, path, body in self.remote.calls
+                   if path == '/graphql' and 'RecoveryBlobs' in body['query']]
+        self.assertGreater(len(batches), 6)
+        for body in batches:
+            sizes = [len(base64.b64decode(self.remote.objects[sha]['content']))
+                     for key, sha in body['variables'].items() if key.startswith('id')]
+            self.assertLessEqual(sum(sizes), 8192)
+            self.assertLessEqual(len(sizes), storage._GRAPH_BATCH)
+
+    def test_history_pages_are_pinned_when_another_writer_advances(self):
+        writer = self.seed(100)
+        pinned, snapshot = writer.load()
+        snapshot['revision'] += 1
+        future = writer._post_commit(writer._write_tree(snapshot), [pinned], storage._UPDATE_MESSAGE)
+        advanced = False
+        def racing(method, path, body):
+            nonlocal advanced
+            answer = self.remote.call(method, path, body)
+            if path == '/graphql' and 'RecoveryHistory' in body['query']:
+                self.assertEqual(body['variables']['expression'], pinned if not advanced or body['variables']['after'] else future)
+                if not advanced:
+                    self.remote.ref = future
+                    advanced = True
+            return answer
+        reader = self.store(racing)
+        tip, old = reader.load()
+        self.assertEqual((tip, old['revision']), (pinned, 100))
+        self.assertEqual(reader.load()[1]['revision'], 101)
+
+    def test_bad_graph_data_and_oversize_metadata_refuse_before_issue_posts(self):
+        self.seed(2)
+        mutations = [
+            lambda d: d.update(errors=[{'message': 'partial result'}]),
+            lambda d: d['data']['repository']['object'].update(oid='f' * 40),
+            lambda d: d['data']['repository']['object']['history']['nodes'][0]['tree'].update(oid='f' * 40),
+            lambda d: d['data']['repository']['object']['history']['nodes'][0]['parents']['pageInfo'].update(hasNextPage=True),
+            lambda d: d['data']['repository']['object']['history']['nodes'].pop(0),
+            lambda d: d['data']['repository']['object']['history']['nodes'][0]['tree']['entries'][0]['object'].pop('oid'),
+            lambda d: d['data']['repository']['object']['history']['nodes'][0]['tree']['entries'][0]['object']['entries'][0]['object']['entries'][0]['object'].update(byteSize=storage._MAX_SNAPSHOT_BYTES + 1),
+        ]
+        for change in mutations:
+            with self.subTest(change=mutations.index(change)):
+                def malformed(method, path, body):
+                    status, data = self.remote.call(method, path, body)
+                    if path == '/graphql' and 'RecoveryHistory' in body['query']:
+                        change(data)
+                    return status, data
+                with self.assertRaises(storage.RecoveryError):
+                    self.store(malformed).load()
+        self.assertEqual(self.remote.posts, 0)
+
+    def test_truncated_graph_blob_uses_verified_rest_bytes(self):
+        self.seed(2)
+        def truncated(method, path, body):
+            status, data = self.remote.call(method, path, body)
+            if path == '/graphql' and 'RecoveryBlobs' in body['query']:
+                for blob in data['data']['repository'].values():
+                    blob.update(isTruncated=True, text='incomplete')
+            return status, data
+        self.remote.calls.clear()
+        self.assertEqual(self.store(truncated).load()[1]['revision'], 2)
+        self.assertTrue(any('/git/blobs/' in path and method == 'GET' for method, path, _body in self.remote.calls))
+        def corrupt(method, path, body):
+            status, data = truncated(method, path, body)
+            if method == 'GET' and '/git/blobs/' in path:
+                data['content'] = base64.b64encode(b'{}').decode()
+            return status, data
+        with self.assertRaises(storage.RecoveryError):
+            self.store(corrupt).load()
+
+    def test_cold_history_still_refuses_record_removal(self):
+        writer = self.seed(2)
+        tip, snapshot = writer.load()
+        snapshot['revision'] += 1
+        snapshot['records'].clear()
+        self.remote.calls.clear()
+        with self.assertRaises(storage.RecoveryError):
+            writer.compare_and_swap(tip, snapshot)
+        self.assertFalse(any(method in ('POST', 'PATCH') for method, _path, _body in self.remote.calls))
+        self.remote.ref = writer._post_commit(writer._write_tree(snapshot), [tip], storage._UPDATE_MESSAGE)
+        with self.assertRaises(storage.RecoveryError):
+            self.store().load()
+
+    def test_repeated_cursor_and_extra_history_after_genesis_refuse(self):
+        self.seed(100)
+        def extra(method, path, body):
+            status, data = self.remote.call(method, path, body)
+            if path == '/graphql' and 'RecoveryHistory' in body['query'] and body['variables']['after']:
+                data['data']['repository']['object']['history']['pageInfo'].update(hasNextPage=True, endCursor='100')
+            return status, data
+        with self.assertRaises(storage.RecoveryError):
+            self.store(extra).load()
+
+    def test_duplicate_or_nonfinite_json_is_a_typed_refusal(self):
+        for raw in (b'{"records":{},"records":{}}', b'{"revision":NaN}'):
+            sha = self.remote.object_id('blob', raw)
+            self.remote.objects[sha] = {'encoding':'base64', 'content':base64.b64encode(raw).decode(), 'sha':sha}
+            with self.assertRaises(storage.RecoveryError):
+                list(self.store()._graph_blobs([('0'*40, None, sha, len(raw), True)]))
 
 
 class ProcessAndOperatorTests(unittest.TestCase):
@@ -316,8 +552,10 @@ class ProcessAndOperatorTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as directory:
             path = Path(directory) / 'remote.json'
             path.write_text(json.dumps({'remote': remote.__dict__, 'activation': activation}))
-            script = '''
+            tools = str(Path(__file__).resolve().parent)
+            script = f'''
 import json,sys
+sys.path.insert(0, {tools!r})
 from test_issue_recovery import Remote,INTENT,ENV
 import issue_author,issue_recovery_store
 p=sys.argv[1]; state=json.load(open(p)); remote=Remote(); remote.__dict__.update(state['remote'])
@@ -386,3 +624,7 @@ class OperatorConfiguration(unittest.TestCase):
         self.assertFalse(module_coherence.travels_to_engine_home(recovery.CONFIG_NAME))
         exact, _ = module_manager._reconcile_carveouts()
         self.assertIn(recovery.CONFIG_NAME, exact)
+
+
+if __name__ == '__main__':
+    unittest.main()

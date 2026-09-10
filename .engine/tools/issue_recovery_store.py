@@ -9,6 +9,7 @@ or GitHub-client construction path: callers provide the already-bound client.
 from __future__ import annotations
 
 import base64
+import copy
 import hashlib
 import json
 import re
@@ -25,7 +26,29 @@ _SHA = re.compile(r"^[0-9a-f]{40}$")
 _REPO = re.compile(r"^[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+$")
 _UPDATE_MESSAGE = "Update Engine issue recovery journal"
 _INITIAL_MESSAGE = "Initialize Engine issue recovery journal"
+_GRAPH_BATCH = 20
+_GRAPH_BYTES = 10 * 1024 * 1024
 
+# Only immutable metadata travels in a history page. Blob sizes bound the
+# separate payload batches; every page is pinned to the already-read tip SHA.
+_HISTORY_QUERY = """
+query RecoveryHistory($owner: String!, $name: String!, $expression: String!, $after: String) {
+  repository(owner: $owner, name: $name) {
+    object(expression: $expression) { oid ... on Commit {
+      history(first: 100, after: $after) {
+        nodes { oid message parents(first: 2) { nodes { oid } pageInfo { hasNextPage } }
+          tree { oid entries { name mode type oid object { oid ... on Tree {
+            entries { name mode type oid object { oid ... on Tree {
+              entries { name mode type oid object { ... on Blob { byteSize } } }
+            } } }
+          } } } }
+        }
+        pageInfo { hasNextPage endCursor }
+      }
+    } }
+  }
+}
+"""
 
 class RecoveryError(ValueError):
     """The durable journal cannot safely be used."""
@@ -120,6 +143,8 @@ class GitStore:
         self.client = client
         self.activation = _activation(activation)
         self._last_tip = None
+        self._last_snapshot = None
+        self._last_depth = 0
 
     def _call(self, method, path, body=None):
         try:
@@ -159,71 +184,133 @@ class GitStore:
             raise RecoveryError("recovery journal ref is malformed")
         return sha
 
-    def _get_commit(self, sha):
-        status, data = self._call("GET", self._path(f"/git/commits/{sha}"))
-        if status != 200 or not isinstance(data, dict) or not _is_sha(data.get("sha")) or data["sha"] != sha:
-            raise RecoveryError("recovery journal commit is unavailable or malformed")
-        tree = data.get("tree")
-        parents = data.get("parents")
-        if not isinstance(tree, dict) or not _is_sha(tree.get("sha")) or not isinstance(parents, list):
-            raise RecoveryError("recovery journal commit is malformed")
-        parent_shas = []
-        for parent in parents:
-            parent_sha = parent.get("sha") if isinstance(parent, dict) else None
-            if not _is_sha(parent_sha):
-                raise RecoveryError("recovery journal commit is malformed")
-            parent_shas.append(parent_sha)
-        message = data.get("message")
-        if message not in (_INITIAL_MESSAGE, _UPDATE_MESSAGE):
-            raise RecoveryError("recovery journal commit has unexpected metadata")
-        return tree["sha"], parent_shas
+    def _graph(self, query, variables):
+        status, data = self._call("POST", "/graphql", {"query": query, "variables": variables})
+        if status != 200 or not isinstance(data, dict) or set(data) != {"data"} or not isinstance(data["data"], dict):
+            raise RecoveryError("recovery journal GraphQL response is unavailable or malformed")
+        return data["data"]
 
-    def _tree_entries(self, sha):
-        status, data = self._call("GET", self._path(f"/git/trees/{sha}"))
-        if status != 200 or not isinstance(data, dict) or data.get("sha") != sha or data.get("truncated") is True:
-            raise RecoveryError("recovery journal tree is unavailable or malformed")
-        entries = data.get("tree")
-        if not isinstance(entries, list):
+    @staticmethod
+    def _graph_entries(value):
+        if not isinstance(value, list):
             raise RecoveryError("recovery journal tree is malformed")
-        normalized = []
-        for entry in entries:
+        entries = []
+        for entry in value:
             if not isinstance(entry, dict):
                 raise RecoveryError("recovery journal tree is malformed")
-            path, mode, kind, entry_sha = entry.get("path"), entry.get("mode"), entry.get("type"), entry.get("sha")
-            if not isinstance(path, str) or not isinstance(mode, str) or not isinstance(kind, str) or not _is_sha(entry_sha):
+            path, mode, kind, entry_sha = entry.get("name"), entry.get("mode"), entry.get("type"), entry.get("oid")
+            # GraphQL's TreeEntry.mode is an Int (the POSIX decimal value),
+            # whereas REST spells Git's octal mode as a string.
+            if type(mode) is not int or mode not in (16384, 33188):
+                raise RecoveryError("recovery journal tree mode is malformed")
+            mode = "040000" if mode == 16384 else "100644"
+            if not isinstance(path, str) or not isinstance(kind, str) or not _is_sha(entry_sha):
                 raise RecoveryError("recovery journal tree is malformed")
-            normalized.append({"path": path, "mode": mode, "type": kind, "sha": entry_sha})
-        if _tree_sha(normalized) != sha:
-            raise RecoveryError("recovery journal tree hash does not verify")
-        return normalized
+            entries.append({"path": path, "mode": mode, "type": kind.lower(), "sha": entry_sha, "object": entry.get("object")})
+        return entries
 
-    def _only(self, sha, path, mode, kind):
-        entries = self._tree_entries(sha)
-        if len(entries) != 1:
+    def _graph_snapshot_pointer(self, tree):
+        if not isinstance(tree, dict) or not _is_sha(tree.get("oid")):
+            raise RecoveryError("recovery journal tree is malformed")
+        root = self._graph_entries(tree.get("entries"))
+        if _tree_sha(root) != tree["oid"] or len(root) != 1 or root[0]["path"] != ".engine" or root[0]["mode"] != "040000" or root[0]["type"] != "tree":
             raise RecoveryError("recovery journal tree contains unexpected paths")
-        entry = entries[0]
-        if entry["path"] != path or entry["mode"] != mode or entry["type"] != kind:
+        engine = root[0]["object"]
+        if not isinstance(engine, dict) or engine.get("oid") != root[0]["sha"]:
+            raise RecoveryError("recovery journal tree is malformed")
+        middle = self._graph_entries(engine.get("entries"))
+        if _tree_sha(middle) != root[0]["sha"] or len(middle) != 1 or middle[0]["path"] != "issue-recovery" or middle[0]["mode"] != "040000" or middle[0]["type"] != "tree":
             raise RecoveryError("recovery journal tree contains unexpected paths")
-        return entry["sha"]
+        recovery = middle[0]["object"]
+        if not isinstance(recovery, dict) or recovery.get("oid") != middle[0]["sha"]:
+            raise RecoveryError("recovery journal tree is malformed")
+        leaf = self._graph_entries(recovery.get("entries"))
+        if _tree_sha(leaf) != middle[0]["sha"] or len(leaf) != 1 or leaf[0]["path"] != "journal.json" or leaf[0]["mode"] != "100644" or leaf[0]["type"] != "blob":
+            raise RecoveryError("recovery journal tree contains unexpected paths")
+        blob = leaf[0]["object"]
+        size = blob.get("byteSize") if isinstance(blob, dict) else None
+        if type(size) is not int or not 0 <= size <= _MAX_SNAPSHOT_BYTES:
+            raise RecoveryError("recovery journal blob exceeds its size bound or is malformed")
+        return leaf[0]["sha"], size
 
-    def _read_snapshot(self, tree_sha):
-        engine = self._only(tree_sha, ".engine", "040000", "tree")
-        recovery = self._only(engine, "issue-recovery", "040000", "tree")
-        blob_sha = self._only(recovery, "journal.json", "100644", "blob")
-        status, data = self._call("GET", self._path(f"/git/blobs/{blob_sha}"))
-        if status != 200 or not isinstance(data, dict) or data.get("sha") != blob_sha or data.get("encoding") != "base64" or not isinstance(data.get("content"), str):
+    def _graph_history(self, tip):
+        owner, name = self.client.repo.split("/", 1)
+        after = None
+        cursors = set()
+        count = 0
+        expected = tip
+        while True:
+            data = self._graph(_HISTORY_QUERY, {"owner": owner, "name": name, "expression": tip, "after": after})
+            repo = data.get("repository")
+            target = repo.get("object") if isinstance(repo, dict) else None
+            payload = target.get("history") if isinstance(target, dict) and target.get("oid") == tip else None
+            if not isinstance(payload, dict) or not isinstance(payload.get("nodes"), list) or not isinstance(payload.get("pageInfo"), dict):
+                raise RecoveryError("recovery journal history is unavailable or malformed")
+            page, info = payload["nodes"], payload["pageInfo"]
+            more = info.get("hasNextPage")
+            if type(more) is not bool or not page or len(page) > 100 or count + len(page) > _MAX_HISTORY:
+                raise RecoveryError("recovery journal history is unavailable or exceeds its safety bound")
+            cursor = info.get("endCursor")
+            if more and (not isinstance(cursor, str) or not cursor or cursor in cursors):
+                raise RecoveryError("recovery journal history pagination is malformed")
+            for index, node in enumerate(page):
+                if not isinstance(node, dict) or not _is_sha(node.get("oid")) or node["oid"] != expected or node.get("message") not in (_INITIAL_MESSAGE, _UPDATE_MESSAGE):
+                    raise RecoveryError("recovery journal ancestry is discontinuous or malformed")
+                parents = node.get("parents")
+                rows = parents.get("nodes") if isinstance(parents, dict) else None
+                parent_info = parents.get("pageInfo") if isinstance(parents, dict) else None
+                if not isinstance(rows, list) or len(rows) > 1 or not isinstance(parent_info, dict) or parent_info.get("hasNextPage") is not False:
+                    raise RecoveryError("recovery journal ancestry is not single-parent")
+                parent = rows[0].get("oid") if rows and isinstance(rows[0], dict) else None
+                if rows and not _is_sha(parent):
+                    raise RecoveryError("recovery journal parent is malformed")
+                pointer, size = self._graph_snapshot_pointer(node.get("tree"))
+                expected = parent
+                count += 1
+                yield node["oid"], parent, pointer, size, index == len(page) - 1 and not more
+            if not more:
+                return
+            cursors.add(cursor)
+            after = cursor
+
+    def _blob_bytes(self, sha):
+        status, data = self._call("GET", self._path(f"/git/blobs/{sha}"))
+        if status != 200 or not isinstance(data, dict) or data.get("sha") != sha or data.get("encoding") != "base64" or not isinstance(data.get("content"), str):
             raise RecoveryError("recovery journal blob is unavailable or malformed")
         try:
-            # GitHub may fold a base64 blob with line breaks.  Accept that wire
-            # formatting, but reject all non-base64 characters after unfolding.
             encoded = b"".join(data["content"].encode("ascii").split())
-            raw = base64.b64decode(encoded, validate=True)
-            value = _decode_json(raw.decode("utf-8"))
-        except (ValueError, UnicodeDecodeError, UnicodeEncodeError, json.JSONDecodeError) as exc:
-            raise RecoveryError("recovery journal blob is malformed") from exc
-        if len(raw) > _MAX_SNAPSHOT_BYTES or _object_sha("blob", raw) != blob_sha:
-            raise RecoveryError("recovery journal blob does not verify")
-        return _snapshot(value, self.activation["repository_id"])
+            if len(encoded) > ((_MAX_SNAPSHOT_BYTES + 2) // 3) * 4:
+                raise ValueError()
+            return base64.b64decode(encoded, validate=True)
+        except (ValueError, UnicodeError):
+            raise RecoveryError("recovery journal blob is malformed") from None
+
+    def _graph_blobs(self, batch):
+        owner, name = self.client.repo.split("/", 1)
+        declarations = ", ".join(f"$id{i}: String!" for i in range(len(batch)))
+        fields = " ".join(f"b{i}: object(expression: $id{i}) {{ ... on Blob {{ oid byteSize isTruncated text }} }}" for i in range(len(batch)))
+        query = f"query RecoveryBlobs($owner: String!, $name: String!, {declarations}) {{ repository(owner: $owner, name: $name) {{ {fields} }} }}"
+        variables = {"owner": owner, "name": name, **{f"id{i}": item[2] for i, item in enumerate(batch)}}
+        repo = self._graph(query, variables).get("repository")
+        if not isinstance(repo, dict) or set(repo) != {f"b{i}" for i in range(len(batch))}:
+            raise RecoveryError("recovery journal blobs are unavailable or incomplete")
+        for index, (_commit, _parent, sha, size, _last) in enumerate(batch):
+            blob = repo[f"b{index}"]
+            if not isinstance(blob, dict) or blob.get("oid") != sha or type(blob.get("byteSize")) is not int or blob["byteSize"] != size or type(blob.get("isTruncated")) is not bool:
+                raise RecoveryError("recovery journal blob is unavailable or malformed")
+            if blob["isTruncated"]:
+                raw = self._blob_bytes(sha)
+            elif isinstance(blob.get("text"), str):
+                raw = blob["text"].encode("utf-8")
+            else:
+                raise RecoveryError("recovery journal blob is unavailable or malformed")
+            if len(raw) != size or len(raw) > _MAX_SNAPSHOT_BYTES or _object_sha("blob", raw) != sha:
+                raise RecoveryError("recovery journal blob does not verify")
+            try:
+                value = _decode_json(raw.decode("utf-8"))
+            except (ValueError, UnicodeError):
+                raise RecoveryError("recovery journal blob is malformed") from None
+            yield _snapshot(value, self.activation["repository_id"])
 
     @staticmethod
     def _history_transition(parent, child):
@@ -269,48 +356,61 @@ class GitStore:
                 raise RecoveryError("recovery journal made a non-monotonic state transition")
 
     def _verify_chain(self, tip):
-        snapshots = []
-        sha = tip
-        for _ in range(_MAX_HISTORY):
-            tree, parents = self._get_commit(sha)
-            snapshot = self._read_snapshot(tree)
-            snapshots.append((sha, snapshot, parents))
+        # Retain only one bounded payload batch, the tip and the adjacent older
+        # snapshot. A verified in-process prefix is reusable only after a fresh
+        # remote identity/ref read; no cache is persisted or used as a permit.
+        first = child = None
+        count = 0
+        batch = []
+        batch_bytes = 0
+
+        def consume():
+            nonlocal first, child, count, batch, batch_bytes
+            for snapshot in self._graph_blobs(batch):
+                if first is None:
+                    first = snapshot
+                if child is not None:
+                    self._history_transition(snapshot, child)
+                child = snapshot
+                count += 1
+            batch, batch_bytes = [], 0
+
+        for entry in self._graph_history(tip):
+            sha, parent, _pointer, size, last = entry
+            if sha == self._last_tip and self._last_snapshot is not None:
+                if batch:
+                    consume()
+                if child is not None:
+                    self._history_transition(self._last_snapshot, child)
+                if count + self._last_depth > _MAX_HISTORY:
+                    raise RecoveryError("recovery journal history exceeds its safety bound")
+                return first or copy.deepcopy(self._last_snapshot), count + self._last_depth
+            if batch and (len(batch) >= _GRAPH_BATCH or batch_bytes + size > _GRAPH_BYTES):
+                consume()
+            batch.append(entry)
+            batch_bytes += size
             if sha == self.activation["genesis"]:
-                if parents or snapshot != _initial(self.activation["repository_id"]):
+                if parent is not None or not last:
+                    raise RecoveryError("recovery journal genesis has unexpected ancestry")
+                consume()
+                if child != _initial(self.activation["repository_id"]):
                     raise RecoveryError("recovery journal genesis does not match activation")
-                break
-            if len(parents) != 1:
-                raise RecoveryError("recovery journal ancestry is not single-parent")
-            sha = parents[0]
-        else:
-            raise RecoveryError("recovery journal history exceeds its safety bound")
-        for index in range(len(snapshots) - 1, 0, -1):
-            self._history_transition(snapshots[index][1], snapshots[index - 1][1])
-        return snapshots[0][1]
+                if self._last_tip is not None:
+                    raise RecoveryError("recovery journal appears to have been rewound")
+                return first, count
+            if parent is None or last:
+                raise RecoveryError("recovery journal genesis is missing from history")
+        raise RecoveryError("recovery journal history is incomplete")
 
     def load(self):
         self._repo_id()
         tip = self._ref()
-        if self._last_tip is not None and tip != self._last_tip:
-            # A different tip is acceptable only when it extends the previously verified one.
-            # The chain verification below proves that relation by locating the old tip.
-            current = tip
-            seen = False
-            for _ in range(_MAX_HISTORY):
-                if current == self._last_tip:
-                    seen = True
-                    break
-                _tree, parents = self._get_commit(current)
-                if not parents:
-                    break
-                if len(parents) != 1:
-                    break
-                current = parents[0]
-            if not seen:
-                raise RecoveryError("recovery journal appears to have been rewound")
-        snapshot = self._verify_chain(tip)
-        self._last_tip = tip
-        return tip, snapshot
+        if tip != self._last_tip or self._last_snapshot is None:
+            snapshot, depth = self._verify_chain(tip)
+            self._last_tip = tip
+            self._last_snapshot = copy.deepcopy(snapshot)
+            self._last_depth = depth
+        return tip, copy.deepcopy(self._last_snapshot)
 
     def _post_blob(self, raw):
         expected = _object_sha("blob", raw)
@@ -348,12 +448,14 @@ class GitStore:
         if not _is_sha(expected_tip):
             raise RecoveryError("expected recovery journal tip is malformed")
         _snapshot(snapshot, self.activation["repository_id"])
-        # This is deliberately a full read, not merely a ref comparison: an
-        # otherwise matching parent must still have valid anchored history and
-        # lifecycle transitions before we append to it.
+        # Verify the current remote identity/ref and any unverified suffix.
+        # A matching immutable prefix was fully checked by this instance.
         actual, _parent_snapshot = self.load()
         if actual != expected_tip:
             raise Conflict("recovery journal advanced; reload before deciding again")
+        self._history_transition(_parent_snapshot, snapshot)
+        if self._last_depth >= _MAX_HISTORY:
+            raise RecoveryError("recovery journal history exceeds its safety bound")
         root = self._write_tree(snapshot)
         commit = self._post_commit(root, [expected_tip], _UPDATE_MESSAGE)
         status, data = self._call("PATCH", self._path("/git/refs/heads/codex/engine-issue-recovery"), {"sha": commit, "force": False})
@@ -369,6 +471,8 @@ class GitStore:
         if self._ref() != commit:
             raise Conflict("recovery journal changed before readback")
         self._last_tip = commit
+        self._last_snapshot = copy.deepcopy(snapshot)
+        self._last_depth += 1
         return commit
 
 

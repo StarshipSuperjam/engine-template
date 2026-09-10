@@ -88,7 +88,10 @@ response followed by failed metadata confirmation also remains recoverable using
 
 Records are limited to 1 MiB and active snapshots to 10 MiB. Exceeding a limit refuses new publication without
 evicting unresolved records. History verification is bounded at 10,000 commits and refuses beyond that bound.
-There is no automatic pruning, force-push compaction or promise of content erasure from Git history.
+Reads use the same credential for GraphQL history/blob batches; writes use non-force Git-data REST updates.
+Each blob batch is at most 20 blobs and 10 MiB; verified process-local prefixes save repeated reads after a
+fresh remote identity/ref check. Cold reads still grow with retained history; quota or service errors hold
+creation, never reset the journal. There is no automatic pruning, compaction or erasure from Git history.
 Missing/corrupt state requires restoration, never initialization over the old record. A process can detect a
 rewind relative to a previously observed tip; a fresh process cannot prove that a hostile repository writer
 has not replaced history with a valid prefix rooted at the pinned genesis. This is recovery discipline among
