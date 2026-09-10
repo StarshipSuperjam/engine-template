@@ -222,6 +222,21 @@ class Filing(unittest.TestCase):
 
 
 class Qualification(unittest.TestCase):
+    def test_conflicting_case_variant_configuration_is_rejected(self):
+        config = copy.deepcopy(Filing.config)
+        config['repositories']['O/R'] = copy.deepcopy(config['repositories']['o/r'])
+        config['repositories']['O/R']['milestones']['patch'] = 99
+        with self.assertRaisesRegex(triage.TriageError, 'capitalization'):
+            triage.validate_config(config)
+
+    def test_corrupt_persisted_prerequisite_does_not_hide_pending_work(self):
+        value = record()
+        value['disposition'] = {'kind':'defer','at':value['updated_at'], 'evidence':'Inspected mapping.',
+                                'missing':'Target release.', 'next_action':'Read configuration.',
+                                'prerequisite':{'kind':'milestone-config','observed':'invented'}}
+        with self.assertRaisesRegex(triage.TriageError, 'prerequisite'):
+            triage.validate(value)
+
     def test_demo_asserts_real_path_and_deliberately_wrong_expectation_fails(self):
         self.assertEqual(triage.demo()['pending'], 1)
         with self.assertRaisesRegex(AssertionError, 'Expected 0'):

@@ -51,6 +51,12 @@ def validate(value: dict, definition: str = 'record') -> dict:
             for key in ('evidence', 'missing', 'next_action'):
                 if not isinstance(disposition.get(key), str) or not disposition[key].strip():
                     raise TriageError(f'disposition requires {key}')
+            prerequisite_value = disposition.get('prerequisite')
+            if prerequisite_value is not None:
+                if (not isinstance(prerequisite_value, dict)
+                        or prerequisite_value.get('kind') not in ('milestone-config', 'issue-evidence')
+                        or not re.fullmatch(r'sha256:[0-9a-f]{64}', str(prerequisite_value.get('observed', '')))):
+                    raise TriageError('invalid persisted triage prerequisite')
     return value
 
 
@@ -161,6 +167,9 @@ def validate_config(value: dict) -> dict:
     errors = list(Draft202012Validator(json.loads(CONFIG_SCHEMA.read_text())).iter_errors(value))
     if errors:
         raise TriageError(f'invalid milestone configuration: {errors[0].message}')
+    names = [name.lower() for name in value['repositories']]
+    if len(names) != len(set(names)):
+        raise TriageError('Milestone configuration repeats a repository with different capitalization.')
     for settings in value['repositories'].values():
         if moment.parse_z(settings['activated_at']) is None:
             raise TriageError('invalid triage activation timestamp')
@@ -491,7 +500,8 @@ def main(argv=None) -> int:
             existing=load_config() or {'schema_version':'operator-issue-triage.v1','repositories':{}}
             previous=repo_config(existing,repo)
             settings={'activated_at':previous['activated_at'] if previous else now,'milestones':mapping}
-            existing['repositories'][repo]=settings
+            key = next((name for name in existing['repositories'] if name.lower() == repo.lower()), repo)
+            existing['repositories'][key]=settings
             validate_config(existing)
             for target in mapping.values():
                 if target is not None:
