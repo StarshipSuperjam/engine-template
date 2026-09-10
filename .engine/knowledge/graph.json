@@ -17521,7 +17521,7 @@
       },
       "slug": "test_enforcement_files_check",
       "source": {
-        "fingerprint": "sha256:f64e5887e553be3a84702a620d51240b3f7e2365dd204265c316f68e6707aa79",
+        "fingerprint": "sha256:76149a3ca9ca93703e61f6d96132faaa293b0d58b02a33c1b38b48c8f117eb9f",
         "path": ".engine/tools/test_enforcement_files_check.py"
       },
       "status": "active",
@@ -22121,7 +22121,7 @@
       },
       "slug": "weakening_guard",
       "source": {
-        "fingerprint": "sha256:067c674a381ec9a96c4184036406fe045deb3434c0fbcbef12c0a7bb263ec77c",
+        "fingerprint": "sha256:b33a1f78da3e0834c7fadf51def70bce2803d9c3a76ab17c86318753baa64c5c",
         "path": ".engine/tools/weakening_guard.py"
       },
       "status": "active",
