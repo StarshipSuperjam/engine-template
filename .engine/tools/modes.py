@@ -383,9 +383,9 @@ def describe_explore_scope() -> str:
         "notebook) plus the branch/commit/pull-request verbs are denied; any other command-line tool "
         "still runs. One carve-out: an Issue about the engine's own health takes `--label engine` at "
         "creation (the literal string, never `engine-domain`), and its body is authored through the "
-        "issue helper (`.engine/tools/issue_author.py` — render_engine_issue_body); a non-conforming "
-        "`engine`-labelled `gh issue create` is rerouted back to that helper. Any other Issue needs no "
-        "label from you — the engine derives the native `Kind:`-prefix label. (The gate is a strong "
+        "issue helper (`.engine/tools/issue_author.py` — preview/create). Recognized trusted-repository "
+        "creates reroute there regardless of label, with explicit Engine/product scope. Engine creates "
+        "require recovery activation; product requests retain ordinary fields. (The gate is a strong "
         "default, not a wall; nothing reaches main without the operator's own merge — which you never "
         "perform yourself, in any stance.)"
     )

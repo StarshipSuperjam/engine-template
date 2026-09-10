@@ -267,6 +267,23 @@ class TestBackstopMarkerCoupling(unittest.TestCase):
 
 
 class TestDemo(unittest.TestCase):
+    def test_submission_demo_variations_and_false_expectation(self):
+        for options in ([], ['--failure', 'closed-before-recovery'], ['--failure', 'claim-loss'],
+                        ['--failure', 'recurrence'], ['--scope', 'product'],
+                        ['--scope', 'product', '--label', 'engine'], ['--target', 'external'],
+                        ['--target', 'external', '--label', 'engine'], ['--assessment', 'missing']):
+            with self.subTest(options=options):
+                self.assertEqual(quiet_call.run(issue_gate.main, ['submission-demo', *options]), 0)
+        self.assertEqual(quiet_call.run(issue_gate.main, ['submission-demo', '--expected-posts', '99']), 1)
+
+    def test_redirect_command_resolves_under_uv_engine_directory(self):
+        from pathlib import Path
+        for line in issue_gate.DENY_REASON.splitlines():
+            if 'uv run' in line:
+                tokens = shlex.split(line)
+                target = tokens[tokens.index('python') + 1]
+                self.assertTrue((Path(__file__).resolve().parents[1] / target).is_file())
+
     def test_demo_self_check_passes(self):
         self.assertEqual(quiet_call.run(issue_gate.main, ["demo"]), 0)
 

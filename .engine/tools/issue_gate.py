@@ -5,7 +5,7 @@ WHAT THIS IS. A pure-logic matcher the Explore/Build PreToolUse hook (modes.hand
 call: when a session makes a recognized direct GitHub Issue creation for an Engine-labelled Issue or a trusted
 Engine repository — a Bash `gh`/API command, or a connector issue-creation tool — this returns a plain redirect reason; modes wraps it in
 hooks.decide("deny", reason) so the platform blocks the call and feeds the reason back to the session, which
-re-files through the issue-authoring helper's `create` CLI. An unlabelled or non-engine Issue, every read /
+re-files through the issue-authoring helper's `create` CLI. An external unlabelled Issue, every read /
 list / view / comment / close, and anything the matcher cannot parse all return None → the call proceeds.
 
 WHY EVERY ENGINE-LABELLED CREATION, NOT JUST A MALFORMED ONE. The helper now offers a supported create path
@@ -22,7 +22,7 @@ fail-loud catch-all is the `on:issues` conformance workflow (`issue_conformance_
 landed body against the contract MARKERS. Those markers live HERE as the single source that backstop imports
 (`CONTRACT_MARKERS`), coupled to issue_author's real output by test_issue_conformance_ci — so an operator-facing
 copy change to the framing or the headers breaks that test, never the backstop silently. This gate no longer
-inspects the body itself (it reroutes on the creation + label alone); the markers remain the backstop's contract.
+inspects the body itself (it reroutes on recognized creation plus trusted target or explicit Engine label); the markers remain the backstop's contract.
 
 LABEL DETECTION IS PRECISE. Only a real `--label`/`-l`/`--label=`/`labels[]=` field carrying `engine`, never a
 loose "any token containing both 'label' and 'engine'" (which would false-deny an innocent Issue whose body
@@ -70,13 +70,12 @@ CONTRACT_MARKERS = (
 HELPER = ".engine/tools/issue_author.py"
 
 # The redirect reason, surfaced to the session by modes.handler via hooks.decide. Names why the call was held,
-# the supported create path (with its preview companion), AND the escape hatch (drop the label) — so a
-# legitimate non-engine note that tripped the gate is never stranded.
+# the complete create path and its explicit product classification.
 DENY_REASON = (
-    "This directly creates an Engine-scoped Issue. Route it through the Issue helper; preview first, then "
+    f"This direct Issue create requires classification through the Issue helper (`{HELPER}`); preview first, then "
     "create with the explicit confirmation:\n\n"
-    f"    uv run --directory .engine --frozen -- python {HELPER} preview --input <file|->\n"
-    f"    uv run --directory .engine --frozen -- python {HELPER} create --input <file|-> --confirm\n\n"
+    "    uv run --directory .engine --frozen -- python tools/issue_author.py preview --input <file|->\n"
+    "    uv run --directory .engine --frozen -- python tools/issue_author.py create --input <file|-> --confirm\n\n"
     "Use the issue-submission-input.v1 envelope. Engine scope requires its assessed request, including kind, "
     "submission_id and assessment. Product scope uses ordinary request fields and must not carry the `engine` "
     "label. The helper validates the target and does not use a connector fallback when credentials are missing."
@@ -416,7 +415,7 @@ def _demo() -> int:
     different-labelled creation, a mere mention of "engine", and a non-creation are allowed. Self-checks and
     returns 1 on any unexpected verdict (the failure path)."""
     def verdict(tool_name: str, tool_input) -> str:
-        return "REROUTE" if reroute_reason(tool_name, tool_input) else "ALLOW"
+        return "REROUTE" if reroute_reason(tool_name, tool_input, cwd="/nonexistent-offline-demo") else "ALLOW"
 
     heredoc = "gh issue create --label engine --body-file - <<'EOF'\njust some free text\nEOF"
     conforming = (
@@ -450,7 +449,100 @@ def _demo() -> int:
     return 0
 
 
+def _submission_demo(argv):
+    """Permanent offline regression: real normalized gate, helper and Git journal, fake service only."""
+    import argparse
+    import copy
+    import json
+    import tempfile
+    from pathlib import Path
+    from unittest.mock import patch
+    import issue_author
+    import issue_recovery
+    import issue_recovery_store
+    import modes
+    import providers
+    from test_issue_recovery import Remote, REPO, INTENT, ENV
+
+    parser = argparse.ArgumentParser(description='Offline normalized routing and durable submission demonstration')
+    parser.add_argument('--scope', choices=['engine', 'product'], default='engine')
+    parser.add_argument('--label', choices=['engine', 'none'], default='none')
+    parser.add_argument('--target', choices=['trusted', 'external'], default='trusted')
+    parser.add_argument('--assessment', choices=['pending', 'missing'], default='pending')
+    parser.add_argument('--failure', choices=['none', 'response-loss', 'closed-before-recovery', 'claim-loss', 'recurrence'], default='response-loss')
+    parser.add_argument('--expected-posts', type=int)
+    args = parser.parse_args(argv)
+    class DemoRemote(Remote):
+        def call(self, method, path, body=None):
+            if (getattr(self, 'lose_on_claim', False) and method == 'PATCH' and '/git/refs/' in path
+                    and sum(m == 'PATCH' and '/git/refs/' in p for m, p, _ in self.calls) == 1):
+                self.lose_on_claim = False
+                self.lose_ref_response = True
+            return super().call(method, path, body)
+    remote = DemoRemote()
+    activation = issue_recovery_store.initialize(remote.client())
+    target = REPO if args.target == 'trusted' else 'outside/project'
+    command = f'gh issue create --repo {target} -t Example' + (' --label engine' if args.label == 'engine' else '')
+    with tempfile.TemporaryDirectory(prefix='issue-routing-demo-') as directory, patch.dict(os.environ, ENV):
+        payload = providers.normalize('PreToolUse', {'tool_name': 'exec_command', 'tool_input': {'cmd': command}, 'cwd': directory})
+        decision = modes.handler(payload)
+        routed = decision.get('permissionDecision') == 'deny' or decision.get('decision') == 'deny'
+        # hooks.decide uses a portable internal decision; preserve the full observed result below.
+        routed = routed or decision.get('hookSpecificOutput', {}).get('permissionDecision') == 'deny'
+        expected_route = args.target == 'trusted' or args.label == 'engine'
+        intent = copy.deepcopy(INTENT)
+        intent['repository'] = target
+        if args.assessment == 'missing':
+            intent.pop('assessment')
+        envelope = {'schema_version': 'issue-submission-input.v1', 'scope': args.scope, 'request': intent}
+        if args.scope == 'product':
+            envelope['request'] = {'repository': target, 'title': 'Example', 'body': 'Ordinary product issue.',
+                                   'labels': ['engine'] if args.label == 'engine' else []}
+        remote.lose_issue_response = args.failure in ('response-loss', 'closed-before-recovery')
+        remote.lose_on_claim = args.failure == 'claim-loss'
+        outcomes = []
+        def submit():
+            try:
+                result = issue_author.create_issue_result(envelope, env=ENV, issues_factory=lambda *_: remote.client(),
+                    recovery_store=issue_recovery_store.GitStore(remote.client(), activation))
+                outcomes.append(result['filing'])
+            except issue_author.IssueInputError:
+                outcomes.append('refused')
+        submit()
+        if args.scope == 'engine':
+            if args.failure == 'closed-before-recovery' and remote.issues:
+                remote.issues[0]['state'] = 'closed'
+            # Persist only fake remote service state; discard all clients, stores and live permits.
+            state = Path(directory) / 'remote.json'
+            state.write_text(json.dumps(remote.__dict__))
+            restored = DemoRemote()
+            restored.__dict__.update(json.loads(state.read_text()))
+            remote = restored
+            submit()
+            if args.failure == 'recurrence' and args.target == 'trusted' and args.assessment == 'pending':
+                # Automatic recurrence is separately keyed by its source; manual retries never recur.
+                signal = {'source_id': 'demo:recurrence', 'severity': 'trust-critical', 'message': 'Demo failure'}
+                observations = ('2026-09-10T00:00:00Z', '2026-09-10T01:00:00Z', '2026-09-10T02:00:00Z')
+                for now in observations:
+                    client = remote.client()
+                    issue_author.create_producer_result('telemetry', {'record': signal, 'first_seen': observations[0], 'now': now}, client,
+                        env=ENV, recovery_store=issue_recovery_store.GitStore(client, activation))
+                    if now == observations[0]:
+                        remote.issues[-1]['state'] = 'closed'
+        valid = args.target == 'trusted' and (args.scope == 'product' and args.label != 'engine' or args.scope == 'engine' and args.assessment == 'pending')
+        expected = (3 if args.failure == 'recurrence' and args.scope == 'engine' else 1) if valid else 0
+        if args.failure == 'claim-loss' and args.scope == 'engine':
+            expected = 0
+        expected = expected if args.expected_posts is None else args.expected_posts
+        ok = routed == expected_route and remote.posts == expected
+        print(json.dumps({'routing': decision, 'scope': args.scope, 'failure': args.failure, 'outcomes': outcomes,
+                          'issue_posts': remote.posts, 'expected_posts': expected, 'passed': ok}, indent=2))
+        return 0 if ok else 1
+
+
 def main(argv: list) -> int:
+    if argv and argv[0] == "submission-demo":
+        return _submission_demo(argv[1:])
     if argv and argv[0] == "demo":
         return _demo()
     print(__doc__)

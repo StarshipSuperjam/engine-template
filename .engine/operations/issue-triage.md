@@ -114,3 +114,16 @@ ambiguous-create reconciliation. The second deliberately fails its pending-count
 claims remain in `test_issue_triage.py`; the explicit duplicate-creation and lost-update race witnesses
 also remain regression tests. This demonstration makes no live GitHub writes and proves no live-service
 atomicity or provider hook qualification.
+
+## New submissions and durable recovery
+
+The issue helper now owns complete creation, including explicit scope, trusted repository, rendering,
+assessment, assignment and durable send authorization. Legacy Engine input remains supported. Use
+`issue-submission-input.v1` with `scope: engine` and the legacy request nested under `request`, or
+`scope: product` with ordinary repository/title/body/labels/assignees/milestone fields. Product scope refuses
+an Engine label and does not add Engine markers or a journal. Its uncertain POST is never automatically retried.
+
+Preview stores nothing. New Engine requests require an explicitly activated journal and the existing
+`GITHUB_TOKEN`; no credential discovery is added. `create --retry` reconciles the same durable submission,
+including closed issues; it cannot authorize another POST. Issue-owned assessment and human milestone
+handling remain here; pre-submission recovery, activation and supersede live in [Issue recovery](issue-recovery.md).

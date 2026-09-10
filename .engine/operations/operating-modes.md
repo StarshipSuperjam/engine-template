@@ -120,3 +120,10 @@ benign case it once was. A message that merely mentions or quotes the Codex acce
 not an acceptance, because the line only counts at the very start of the message. And none of it can reach
 the stance: no hook writes the signal, so a miss, a misfire, or a failed import all leave the session in
 explore, never falsely in build.
+
+The issue-creation reroute runs before stance handling in Explore, Build and Routine. Recognized creates
+for trusted repositories require the helper's explicit Engine/product classification even without a label.
+Explicit Engine-labelled creates route too; the helper independently refuses an untrusted target. Reads,
+comments, edits and closes are separate operations. A recognized dynamic target is disclosed as unclassified,
+while ordinary stance rules still apply. [Issue recovery](issue-recovery.md) records the supported-surface
+matrix, credential/setup refusals and offline verification limits.

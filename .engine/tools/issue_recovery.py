@@ -92,7 +92,10 @@ class SendPermit:
         if self._used or request != self._request:
             raise RecoveryError('Send permit consumed or request changed.')
         self._used = True
-        return self._client._transport('POST', f'/repos/{self._client.repo}/issues', request)
+        try:
+            return self._client._transport('POST', f'/repos/{self._client.repo}/issues', request)
+        except Exception:
+            raise RecoveryError('Issue transport response unavailable; reconcile the same submission.') from None
 
 
 def _load(store):

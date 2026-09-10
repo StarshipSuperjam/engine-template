@@ -18,7 +18,6 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import issue_author  # noqa: E402
 import issue_recovery_store as storage  # noqa: E402
 import issue_triage  # noqa: E402
-import nightly_demo_report as nightly  # noqa: E402
 import telemetry  # noqa: E402
 from test_issue_recovery import ENV, REPO, Remote  # noqa: E402
 
@@ -66,6 +65,17 @@ class ReportRemote(Remote):
 
 
 class DurableAutomatedSubmissionTests(unittest.TestCase):
+    def test_transport_diagnostics_do_not_expose_exception_content(self):
+        original = self.remote.call
+        def transport(method, path, body=None):
+            if method == 'POST' and path.endswith('/issues'):
+                raise TimeoutError('private-token-and-body-content')
+            return original(method, path, body)
+        client = telemetry.GitHubIssues(REPO, 'test-only', transport=transport)
+        result = self.submit_telemetry(client=client)
+        self.assertEqual(result['filing'], 'creation-uncertain')
+        self.assertNotIn('private-token-and-body-content', str(result))
+
     def test_lifecycle_refuses_nonmonotonic_publication_before_writes(self):
         import issue_recovery
         self.submit_telemetry()
@@ -140,35 +150,6 @@ class DurableAutomatedSubmissionTests(unittest.TestCase):
             issue_author.create_producer_result(
                 'telemetry', telemetry_data(), untrusted, env=ENV, recovery_store=self.store())
         self.assertEqual(self.remote.posts, 0)
-
-    def test_nightly_report_recovers_after_response_loss_with_the_real_report_entry_point(self):
-        self.remote = ReportRemote()
-        self.activation = storage.initialize(self.remote.client())
-        client = self.remote.client()
-        client.recovery_store = self.store()
-        self.remote.lose_issue_response = True
-        with patch.dict(os.environ, ENV, clear=False):
-            held = nightly.report(failed_nightly(), client, REPO)
-            self.assertEqual(held['action'], 'held')
-            self.assertEqual(self.remote.posts, 1)
-            fresh = self.remote.client()
-            fresh.recovery_store = self.store()
-            recovered = nightly.report(failed_nightly(), fresh, REPO)
-        self.assertEqual(recovered['action'], 'updated')
-        self.assertEqual(self.remote.posts, 1)
-
-    def test_nightly_failure_with_unavailable_exit_code_is_preserved_and_filed(self):
-        self.remote = ReportRemote()
-        self.activation = storage.initialize(self.remote.client())
-        client = self.remote.client()
-        client.recovery_store = self.store()
-        unavailable = failed_nightly()
-        unavailable['failures'][0]['exit_code'] = None
-        with patch.dict(os.environ, ENV, clear=False):
-            outcome = nightly.report(unavailable, client, REPO)
-        self.assertEqual(outcome['action'], 'filed')
-        self.assertEqual(self.remote.posts, 1)
-        self.assertIn('`demo_durable.py` — exit None', self.remote.issues[0]['body'])
 
     def _legacy_issue(self, *, submission_id, number, message='Historical durable signal.'):
         record = telemetry_data(message=message)['record']

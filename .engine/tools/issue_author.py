@@ -473,6 +473,87 @@ def preview_submission(data: dict, repository_slugs: list) -> str:
             + json.dumps(request, indent=2))
 
 
+def nightly_fenced(output: str) -> str:
+    """Demonstration output, made safe to place inside a code fence in a body OTHER engine code parses.
+
+    The workflow's security story is that the write-token half RENDERS demonstration output and never
+    parses it. That story was false one layer down: a fence does not contain what it wraps. Output
+    carrying a triple backtick closes the fence early, and anything after it is body — including the
+    engine's own invisible trailers. A demonstration could therefore set the severity class the triage
+    meter counts and the dedup key the Issue register uses, because those parsers take the LAST trailer
+    of their kind and the forged one was later.
+
+    So two things are neutralized: the fence terminator, and the comment opener that every engine
+    control marker begins with. Both are replaced visibly rather than deleted — a reader sees that
+    something was defanged instead of silently reading altered output."""
+    text = (output or "").replace("`" * 3, "'" * 3 + " [backticks neutralized]")
+    return text.replace("<!--", "&lt;!-- [marker neutralized]")
+
+
+NIGHTLY_MARKER = "<!-- engine-nightly-demos:v1 -->"
+NIGHTLY_TITLE = "a shipped demonstration is failing"
+NIGHTLY_KIND = "Fix"
+# How many failing demonstrations are named in the body. A corpus-wide breakage should read as "everything
+# is failing, start at the top", not as a wall no one finishes.
+_NIGHTLY_NAMED = 12
+
+
+def render_nightly_report(result: dict, repository: str, run_url: str | None = None) -> str:
+    """The Issue body for a red run, through the engine's own helper so it meets the body contract."""
+    failures = result.get("failures") or []
+    shown = failures[:_NIGHTLY_NAMED]
+    lines = [f"- `{f['demo']}` — exit {f['exit_code']}" for f in shown]
+    if len(failures) > len(shown):
+        lines.append(f"- …and {len(failures) - len(shown)} more")
+    what = (
+        f"The nightly run of this engine's behavioral demonstrations went red: {len(failures)} of "
+        f"{len(result.get('ran') or [])} failed.\n\n"
+        "A demonstration is a fail-then-pass reproducer of a real past incident — it exists so that a change "
+        "which quietly reintroduces that incident goes red AT the incident rather than at some downstream "
+        "symptom months later. One failing means either the guarded behaviour has regressed, or the "
+        "demonstration itself has gone stale against a deliberate change. Both need a person; neither is "
+        "urgent tonight.\n\n"
+        + "\n".join(lines))
+    tail = "\n".join(f"### {f['demo']}\n\n```\n{nightly_fenced(f['output'])}\n```" for f in shown)
+    whats_next = (
+        "Run the corpus locally and read the failure the demonstration itself prints — each one states, in "
+        "plain words, what it expected and what it saw:\n\n"
+        "```\nuv run --directory .engine --frozen -- python tools/demonstration_corpus.py\n```\n\n"
+        "Then either fix the regression the demonstration caught, or — if the behaviour changed on purpose "
+        "— update the demonstration in the same change that changed it, so the reproducer still describes "
+        "something true.\n\n"
+        "This Issue is the ONLY one this workflow keeps open. While it stays red, each night updates this "
+        "body with the current failure set rather than filing another; the night it goes green, this closes "
+        "itself.\n\n"
+        "**Please COMMENT rather than editing this body.** The workflow recognises its own report by an "
+        "invisible marker on the last line — the rule that stops anyone who merely quotes this report from "
+        "having their Issue closed by a green run. An edit that appends text below that marker makes the "
+        "workflow stop recognising this Issue. The durable journal then holds creation for repair. Comments are "
+        "untouched by the nightly update.\n\n"
+        f"The failing output, as the demonstrations printed it:\n\n{tail}")
+    references = [("the nightly run that reported this", run_url)] if run_url else None
+    return (render_engine_issue_body(
+        what_this_is=what, whats_next=whats_next, references=references, kind=NIGHTLY_KIND)
+        + "\n" + NIGHTLY_MARKER + "\n")
+
+
+def nightly_failure_evidence(result: dict) -> dict:
+    """Keep failure identity and exit status; remove known display-only output variation.
+
+    Output remains inert data. Normalization cannot interpret arbitrary diagnostic prose;
+    only timestamp, temporary-path and whitespace variation is ignored.
+    """
+    failures = []
+    for failure in result.get('failures', []):
+        output = str(failure.get('output') or '')
+        output = re.sub(r'\x1b\[[0-9;]*m', '', output)
+        output = re.sub(r'\b\d{4}-\d{2}-\d{2}[T ]\d{2}:\d{2}:\d{2}(?:\.\d+)?(?:Z|[+-]\d{2}:\d{2})?', '<timestamp>', output)
+        output = re.sub(r'(?:/private)?/(?:tmp|var/folders)/[^\s\'"`]+', '<temporary-path>', output)
+        output = ' '.join(output.split())
+        failures.append({'demo':failure.get('demo'), 'exit_code':failure.get('exit_code'), 'output':output})
+    return {'failures':sorted(failures, key=lambda value: str(value['demo']))}
+
+
 def contract_parts(body):
     """Adapt an older helper-rendered core by recovering and revalidating its structured parts."""
     prefix = _FRAMING + '\n\n**What this is.** '
@@ -532,7 +613,6 @@ def create_producer_result(producer, data, client, *, root=None, env=None, recov
         final_marker = None
         matches_source = lambda issue: telemetry.parse_source_id(issue.get('body') or '') == source_key
     elif producer == 'nightly':
-        import nightly_demo_report as nightly
         result = data.get('result')
         if not isinstance(result, dict) or result.get('ok') is not False or not isinstance(result.get('failures'), list):
             raise IssueInputError('A nightly report requires an explicit failed corpus result.')
@@ -544,11 +624,11 @@ def create_producer_result(producer, data, client, *, root=None, env=None, recov
         intent = {'result': {'ok': False, 'ran': list(result.get('ran') or []), 'failures': failures},
                   'run_url': data.get('run_url'), 'now': data['now']}
         source_key = 'engine-nightly-demos:v1'
-        title = f'{nightly.KIND}: {nightly.TITLE}'
-        raw = lambda: nightly.render(intent['result'], client.repo, intent['run_url'])
-        evidence = nightly._failure_evidence(intent['result'])
-        final_marker = nightly.MARKER
-        matches_source = lambda issue: nightly._is_report(issue.get('body') or '')
+        title = f'{NIGHTLY_KIND}: {NIGHTLY_TITLE}'
+        raw = lambda: render_nightly_report(intent['result'], client.repo, intent['run_url'])
+        evidence = nightly_failure_evidence(intent['result'])
+        final_marker = NIGHTLY_MARKER
+        matches_source = lambda issue: (issue.get('body') or '').rstrip().split('\n')[-1].strip() == NIGHTLY_MARKER
     else:
         raise IssueInputError('Unknown automatic producer.')
     configuration_error = None
