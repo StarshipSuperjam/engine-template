@@ -449,7 +449,7 @@ def main(argv=None) -> int:
     import issue_author
     import telemetry
     parser=argparse.ArgumentParser(description='Investigate issue impact and recover milestone assignment. Best-effort GitHub writes; direct-session routing and App authority are separate work.')
-    parser.add_argument('verb',choices=('list','show','configure','assess','assign','defer','repair','pause','demo'))
+    parser.add_argument('verb',choices=('list','show','configure','assess','assign','defer','repair','pause','resume','demo'))
     parser.add_argument('--expected-pending',type=int,default=1,
                         help='Offline demo assertion; change it to make a wrong expectation fail.')
     parser.add_argument('--session')
@@ -469,18 +469,22 @@ def main(argv=None) -> int:
                 return 1
             print(json.dumps(result, indent=2))
             return 0
-        if args.verb == 'pause':
+        if args.verb in ('pause', 'resume'):
             if not args.session or not args.confirm or not args.input:
                 raise TriageError('pause requires --session, --input with the explicit operator instruction, and --confirm.')
             directive = issue_author.load_input(args.input)
-            if directive.get('kind') not in ('pause', 'cancel', 'urgent-priority') or not str(directive.get('instruction') or '').strip():
+            kinds = ('resume',) if args.verb == 'resume' else ('pause', 'cancel', 'urgent-priority')
+            if directive.get('kind') not in kinds or not str(directive.get('instruction') or '').strip():
                 raise TriageError('Only an explicit operator pause, cancellation or urgent priority may defer this session obligation.')
             obligation = _read_session(args.session)
             if obligation is None:
                 raise TriageError('No session obligation exists.')
-            obligation['operator_exception'] = directive
+            if args.verb == 'resume':
+                obligation.pop('operator_exception', None)
+            else:
+                obligation['operator_exception'] = directive
             _write_session(args.session, obligation['repository'], obligation)
-            print(json.dumps({'state':'paused','durable_pending':'unchanged',
+            print(json.dumps({'state':'resumed' if args.verb == 'resume' else 'paused','durable_pending':'unchanged',
                               'authority':'Explicit operator instruction; this CLI does not authenticate its author.'}))
             return 0
         targets=issue_author.resolve_trusted_targets()

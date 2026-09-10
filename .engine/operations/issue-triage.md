@@ -2,9 +2,13 @@
 title: Assess pending issue impact and recover milestone assignment
 ---
 
+## Purpose
+
 The `engine` label opts an issue into this contract, whoever submitted it. Unlabelled human issues
 are exempt. Expected issue impact is an early assessment; the final PR computes its own release impact.
 There is no catch-all milestone. Unknown remedy means pending assessment, not Patch.
+
+## Steps
 
 At an ordinary root SessionStart, the Engine reads the GitHub register with a bounded discovery budget
 and selects one actionable issue: never-dispositioned first, then oldest disposition, creation time and
@@ -49,6 +53,9 @@ This exempts this session, leaving the GitHub issue unchanged for later sessions
 result or an assistant's own claim of urgency supplies no authority. This local CLI records the session's
 authorization discipline; it cannot authenticate a human or prevent an AI from misusing `--confirm`.
 The bounded Stop fallback also permits ending when a pause cannot be recorded.
+When the operator explicitly resumes, use `triage resume` with the same session, confirmation and an
+instruction object whose `kind` is `resume`. This removes the local exception and checks the original
+issue again; a status display alone never resumes paused work.
 
 Configure all four impacts explicitly with `triage configure --input MAPPING.json --confirm`.
 Each maps to a live open milestone number or explicit null (intentionally no milestone). The project-owned
@@ -70,9 +77,16 @@ invisibly, and concurrent creators can both pass deduplication. An ambiguous cre
 retried. Reconcile the same submission id, including closed issues; multiple matches need investigation.
 
 This is helper/producer validation and local session follow-through. Missing hooks disable automatic
-selection and Stop enforcement: disclose that and run `triage list` manually. #1093 owns direct-session
-routing enforcement; #914 owns future App/credential integration. Neither this CLI nor a future App
+selection and Stop enforcement: disclose that and run `triage list` manually. StarshipSuperjam/engine-template#1093 owns direct-session
+routing enforcement; StarshipSuperjam/engine-template#914 owns future App/credential integration. Neither this CLI nor a future App
 identity alone makes GitHub body updates transactional.
+
+## Done when
+
+The selected issue has a verified assessment, assignment repair, contract repair or substantive evidence-gap
+disposition, or the operator has explicitly paused this session. Remaining pending state stays on GitHub.
+
+## Notes
 
 Run the permanent offline demonstration with:
 

@@ -475,3 +475,20 @@ class IssueTriageFollowThrough(unittest.TestCase):
             promote.assert_not_called()
         self.assertEqual(len(self.client.issues), 1)
         self.assertEqual(self.triage.session_progress(self.client, self.sid)['state'], 'pending')
+
+    def test_pause_precedes_triage_until_explicit_resume(self):
+        import contextlib
+        from pathlib import Path
+        self.triage.start_session(self.client, self.sid, self.config)
+        directive = Path(self.directory.name) / 'directive.json'
+        with contextlib.redirect_stdout(io.StringIO()):
+            directive.write_text(json.dumps({'kind':'urgent-priority','instruction':'Handle the outage first.'}))
+            self.assertEqual(self.triage.main(['pause','--session',self.sid,'--input',str(directive),'--confirm']), 0)
+            before = len(self.client.calls)
+            self.assertEqual(self.triage.session_progress(self.client, self.sid)['state'], 'paused')
+            self.assertEqual(len(self.client.calls), before)
+            self.triage.start_session(self.client, self.sid, self.config)
+            self.assertEqual(self.triage.session_progress(self.client, self.sid)['state'], 'paused')
+            directive.write_text(json.dumps({'kind':'resume','instruction':'Resume triage now.'}))
+            self.assertEqual(self.triage.main(['resume','--session',self.sid,'--input',str(directive),'--confirm']), 0)
+            self.assertEqual(self.triage.session_progress(self.client, self.sid)['state'], 'pending')
