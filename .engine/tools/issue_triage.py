@@ -52,6 +52,10 @@ def validate(value: dict, definition: str = 'record') -> dict:
                 if not isinstance(disposition.get(key), str) or not disposition[key].strip():
                     raise TriageError(f'disposition requires {key}')
             prerequisite_value = disposition.get('prerequisite')
+            attempt = disposition.get('assignment_attempt')
+            if attempt is not None and (disposition['kind'] not in ('assess', 'assign')
+                    or not re.fullmatch(r'[0-9a-f]{32}', str(attempt))):
+                raise TriageError('invalid assignment attempt receipt')
             if prerequisite_value is not None:
                 if (not isinstance(prerequisite_value, dict)
                         or prerequisite_value.get('kind') not in ('milestone-config', 'issue-evidence')
@@ -417,7 +421,9 @@ def update_triage(client, number: int, *, expected: dict, assessment=None, defer
             return {'state':'unchanged','number':number,'reason':'An unchanged deferral gives no progress credit.'}
     else:
         updated['assignment']=resolve_assignment(client,updated,config,current=milestone_number(live))
+        import uuid
         updated['disposition']={'kind':'assess' if assessment is not None else 'assign','at':now,
+                                'assignment_attempt':uuid.uuid4().hex,
                                 'evidence':'Validated assessment and live milestone lookup.',
                                 'missing':updated['assignment']['reason'],'next_action':'Revisit outstanding assignment if needed.'}
     updated['revision']+=1;updated['updated_at']=now
@@ -487,7 +493,7 @@ def main(argv=None) -> int:
             print(json.dumps({'state':'resumed' if args.verb == 'resume' else 'paused','durable_pending':'unchanged',
                               'authority':'Explicit operator instruction; this CLI does not authenticate its author.'}))
             return 0
-        targets=issue_author.resolve_trusted_targets()
+        targets=issue_author.resolve_issue_repositories()
         repo=args.repository or (targets[0] if len(targets)==1 else None)
         repo=issue_author._matched_target(repo or '',targets)
         if repo is None:
@@ -574,6 +580,10 @@ def repair_record(client, number: int, *, expected_body_digest: str, data: dict,
     if fingerprint(body)!=expected_body_digest:
         return {'state':'conflict','number':number,'reason':'Body changed since show; no repair.'}
     record=new_record(data['assessment'],data['submission_id'],data['evidence'],now=now)
+    record['disposition'] = {'kind':'repair', 'at':now,
+                            'evidence':f'Restored the assessment contract from body {expected_body_digest}.',
+                            'missing':'Assessment or milestone follow-through remains outstanding.',
+                            'next_action':record['assessment'].get('next_action', 'Retry milestone assignment.')}
     if START in body or END in body:
         if body.count(START)!=1 or body.count(END)!=1 or body.index(END)<body.index(START):
             raise TriageError('Ambiguous section boundaries; preserve the body and inspect before repair.')
@@ -693,6 +703,9 @@ def session_progress(client, session_id):
             old = previous.get('disposition') or {}
             changed = (current['assessment'] != previous['assessment'] or
                        current['assignment'] != previous['assignment'] or
+                       (disposition and disposition.get('kind') in ('assess', 'assign')
+                        and disposition.get('assignment_attempt')
+                        and disposition['assignment_attempt'] != old.get('assignment_attempt')) or
                        (disposition and any(disposition.get(k) != old.get(k)
                                             for k in ('kind', 'evidence', 'missing', 'next_action'))))
             if disposition and changed and current['evidence'] == previous['evidence']:

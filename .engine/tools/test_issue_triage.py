@@ -337,5 +337,48 @@ class Qualification(unittest.TestCase):
         self.assertIn('budget', result['error'])
 
 
+class ReviewRegressions(unittest.TestCase):
+    def test_repeated_failed_lookup_counts_but_timestamp_edit_does_not(self):
+        import tempfile
+        from unittest.mock import patch
+        client = FakeGitHub(); client.lookup_status = 503
+        Filing().file(client)
+        with tempfile.TemporaryDirectory() as directory:
+            with patch.object(triage, '_session_path', side_effect=lambda sid, repo: Path(directory) / sid):
+                for index in (1, 2):
+                    session = f'session-{index}'
+                    triage.start_session(client, session, Filing.config)
+                    before = triage.observed_record(client.issues[0])
+                    calls = sum('/milestones/' in row[1] for row in client.calls)
+                    result = triage.update_triage(client, 1, expected=before, config=Filing.config,
+                                                 now=f'2026-09-12T0{index}:00:00Z')
+                    self.assertEqual(result['state'], 'updated')
+                    self.assertEqual(sum('/milestones/' in row[1] for row in client.calls), calls + 1)
+                    self.assertEqual(triage.session_progress(client, session)['state'], 'satisfied')
+                    self.assertTrue(result['outstanding'])
+                triage.start_session(client, 'timestamps-only', Filing.config)
+                edited = triage.observed_record(client.issues[0]); edited['revision'] += 1
+                edited['disposition']['at'] = edited['updated_at'] = '2026-09-12T03:00:00Z'
+                client.issues[0]['body'] = triage.with_record(client.issues[0]['body'], edited)
+                self.assertEqual(triage.session_progress(client, 'timestamps-only')['state'], 'pending')
+
+    def test_repair_advances_fairness_while_pending_survives(self):
+        client = FakeGitHub(); Filing().file(client)
+        client.issues[0]['body'] = 'Human report without its assessment.'
+        second = copy.deepcopy(client.issues[0]); second['number'] = 2
+        second['created_at'] = '2026-09-11T01:00:00Z'
+        second['body'] = triage.render(record(triage.pending('Remedy unknown.', 'Investigate.')))
+        client.issues.append(second)
+        self.assertEqual(triage.select_pending(triage.discover(client, Filing.config), Filing.config, client.repo)['number'], 1)
+        triage.repair_record(client, 1, expected_body_digest=triage.fingerprint(client.issues[0]['body']),
+                             data={'assessment':triage.pending('Remedy unknown.', 'Inspect failure.'),
+                                   'submission_id':'repaired-operation', 'evidence':['Restored report.']},
+                             config=Filing.config, now='2026-09-12T00:00:00Z')
+        discovery = triage.discover(client, Filing.config)
+        self.assertEqual(len(discovery['items']), 2)
+        self.assertEqual(triage.parse(client.issues[0]['body'])['disposition']['kind'], 'repair')
+        self.assertEqual(triage.select_pending(discovery, Filing.config, client.repo)['number'], 2)
+
+
 if __name__ == '__main__':
     unittest.main()

@@ -32,6 +32,7 @@ from __future__ import annotations
 import argparse
 import json
 import os
+import re
 from pathlib import Path
 import sys
 
@@ -142,6 +143,23 @@ def render(result: dict, repository: str, run_url: str | None = None) -> str:
         + "\n" + MARKER + "\n")
 
 
+def _failure_evidence(result: dict) -> dict:
+    """Keep failure identity and exit status; remove known display-only output variation.
+
+    Output remains inert data. Normalization cannot interpret arbitrary diagnostic prose;
+    only timestamp, temporary-path and whitespace variation is ignored.
+    """
+    failures = []
+    for failure in result.get('failures', []):
+        output = str(failure.get('output') or '')
+        output = re.sub(r'\x1b\[[0-9;]*m', '', output)
+        output = re.sub(r'\b\d{4}-\d{2}-\d{2}[T ]\d{2}:\d{2}:\d{2}(?:\.\d+)?(?:Z|[+-]\d{2}:\d{2})?', '<timestamp>', output)
+        output = re.sub(r'(?:/private)?/(?:tmp|var/folders)/[^\s\'"`]+', '<temporary-path>', output)
+        output = ' '.join(output.split())
+        failures.append({'demo':failure.get('demo'), 'exit_code':failure.get('exit_code'), 'output':output})
+    return {'failures':sorted(failures, key=lambda value: str(value['demo']))}
+
+
 def report(result: dict, issues_api, repository: str, run_url: str | None = None) -> dict:
     """Apply the singular-Issue rules. Returns what was done, for the workflow's step summary."""
     open_report = find_report(issues_api.list_open_engine_issues())
@@ -151,8 +169,7 @@ def report(result: dict, issues_api, repository: str, run_url: str | None = None
             return {"action": "closed", "issue": open_report["number"]}
         return {"action": "none"}
     body = render(result, repository, run_url)
-    evidence = {'failures': sorted(({'demo': f.get('demo'), 'output': f.get('output')}
-                                   for f in result.get('failures', [])), key=lambda f: str(f['demo']))}
+    evidence = _failure_evidence(result)
     body = telemetry.producer_body(body, evidence, moment.utc_now(),
                                    previous=(open_report.get('body') or '') if open_report else None,
                                    final_marker=MARKER)
@@ -161,7 +178,7 @@ def report(result: dict, issues_api, repository: str, run_url: str | None = None
         return {"action": "updated", "issue": open_report["number"]}
     issues_api.ensure_label()
     opened = issues_api.open_issue(f"{KIND}: {TITLE}", body)
-    return {"action": "filed", "issue": opened.get("number")}
+    return {"action": "filed", "issue": opened.get("number"), "triage": opened.get("triage")}
 
 
 def main(argv: list | None = None) -> int:

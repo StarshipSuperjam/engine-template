@@ -2272,6 +2272,20 @@ class TestProducerAssessment(unittest.TestCase):
         with self.assertRaises(telemetry.DegradedReadError):
             telemetry._replace_report(body, body)
 
+    def test_resolution_and_consolidation_preserve_text_added_since_listing(self):
+        for notice in (telemetry._capture_resolution_note(), telemetry._consolidation_note(42)):
+            with self.subTest(notice=notice):
+                fake = FakeGH(); client = gh(fake)
+                body = telemetry.producer_body('Failure', {'case':'a'}, '2026-09-10T00:00:00Z')
+                number = client.open_issue('Fix: failure', body)['number']
+                stale = fake.issues[number]['body']
+                live = 'Human note added after listing.\n' + stale + '\nHuman tail.'
+                fake.issues[number]['body'] = live
+                client.update_issue(number, notice + stale)
+                self.assertEqual(fake.issues[number]['body'], notice + live)
+                client.update_issue(number, notice + stale)
+                self.assertEqual(fake.issues[number]['body'], notice + live)
+
 
 if __name__ == "__main__":
     unittest.main()

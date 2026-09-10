@@ -184,6 +184,14 @@ class _CapturingIssues:
 
 
 class TestInputLoadingAndValidation(unittest.TestCase):
+    def test_malformed_configuration_diagnostic_survives_successful_filing(self):
+        import issue_triage
+        from unittest.mock import patch
+        with patch.object(issue_triage, 'load_config', side_effect=issue_triage.TriageError('invalid milestone configuration: missing patch')):
+            result = issue_author.create_issue_result(dict(_GOOD), env=_TRUSTED_ENV, issues_factory=_CapturingIssues)
+        self.assertEqual(result['filing'], 'created')
+        self.assertIn('missing patch', result['configuration_error'])
+
     def test_load_input_from_stdin_parses_object(self):
         data = issue_author.load_input("-", _stdin=io.StringIO(json.dumps(_GOOD)))
         self.assertEqual(data["title"], "A finding")

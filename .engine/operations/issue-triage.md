@@ -39,12 +39,15 @@ for session selection; changed mapping or evidence makes it eligible again. Omit
 or uncheckable evidence: the issue remains eligible in the fair queue. Never use a mapping prerequisite
 for an unrelated product question. A completed assessment with failed assignment is still pending work.
 
-At Stop, the Engine re-reads the selected issue. A verified assessment, assignment change, contract
+At Stop, the Engine re-reads the selected issue. A verified assessment, assignment retry, contract
 repair or substantive new evidence gap satisfies this session's obligation. Closing the issue or removing
 `engine` retires its obligation. Clearing the generic finding checklist cannot satisfy this check. The
 first Stop holds an unresolved turn; repeated Stop permits it to end and discloses the outstanding work.
 It never creates another issue to track this issue. An outage is unavailable, never completed or empty.
 The session checklist is disposable; the next session or clone rediscovers work from GitHub.
+An assignment command records a fresh attempt only after resolving the mapping and reading the live
+milestone where configured. That verified retry counts even if the same outage persists; editing only
+a disposition timestamp does not. Contract repair records a disposition so the fair queue advances.
 
 An explicit operator pause, cancellation or urgent priority overrides triage. Do not investigate against
 that instruction. Record the already-given instruction with `triage pause --session SESSION --input
@@ -58,6 +61,14 @@ instruction object whose `kind` is `resume`. This removes the local exception an
 issue again; a status display alone never resumes paused work.
 
 Configure all four impacts explicitly with `triage configure --input MAPPING.json --confirm`.
+`MAPPING.json` is a bare mapping, for example:
+
+```json
+{"none": null, "patch": 12, "minor": 13, "major": 14}
+```
+
+Replace these example numbers with open milestones in the selected repository. This command input
+does not contain `schema_version` or `repositories`; the tool writes that saved configuration wrapper.
 Each maps to a live open milestone number or explicit null (intentionally no milestone). The project-owned
 `.engine/operator-issue-triage.json` survives Engine updates. Do not copy the Engine home's milestone
 numbers or pre-v1 convention to deployed projects. Absent or broken configuration leaves assignment

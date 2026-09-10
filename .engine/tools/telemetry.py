@@ -643,11 +643,16 @@ class GitHubIssues:
     def open_issue(self, title: str, body: str) -> dict:
         """Compatibility issue-dict wrapper over the mandatory assessment filing operation."""
         import issue_triage
+        configuration_error = None
         try:
             config = issue_triage.load_config()
-        except issue_triage.TriageError:
+        except issue_triage.TriageError as exc:
             config = None
+            configuration_error = str(exc)
         result = self.file_assessed_issue(title, body, config=config)
+        if configuration_error:
+            result['configuration_error'] = configuration_error
+            print('Issue milestone configuration is invalid: ' + configuration_error, file=sys.stderr)
         if result['filing'] != 'created' or not result.get('number'):
             raise DegradedReadError(result['reason'])
         if result['assignment']['state'] not in issue_triage.TERMINAL_ASSIGNMENTS:
@@ -667,7 +672,20 @@ class GitHubIssues:
             if not issue_triage.scoped(live) or live.get('state') == 'closed':
                 raise DegradedReadError('Report left scope or closed before refresh; no write.')
             candidate = issue_triage.parse(body)
-            if candidate and REPORT_START in body and not body.startswith(('*Consolidated', '**Resolved')):
+            notice = None
+            consolidation = re.match(r'^\*Consolidated into #([1-9][0-9]*)', body)
+            if consolidation:
+                notice = _consolidation_note(int(consolidation.group(1)))
+            elif body.startswith('**Resolved'):
+                notice = _capture_resolution_note()
+            if notice is not None:
+                if not body.startswith(notice):
+                    raise DegradedReadError('Unrecognized resolution notice; no write.')
+                # The caller's listed body may already be stale. Only prepend the known
+                # notice to the body just read, retaining human text and current triage.
+                current_body = live.get('body') or ''
+                body = current_body if current_body.startswith(notice) else notice + current_body
+            elif candidate and REPORT_START in body:
                 current = issue_triage.parse(live.get('body') or '')
                 if current is None:
                     raise DegradedReadError('Report assessment disappeared; repair it before refreshing.')
