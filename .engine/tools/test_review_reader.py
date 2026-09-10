@@ -146,14 +146,14 @@ class ReaderTests(unittest.IsolatedAsyncioTestCase):
 
     async def test_registration_cannot_grant_external_path_or_symlink_escape(self):
         packet, supplement, companion = self.registered()
-        secret = self.base / "secret"
-        secret.write_text("secret")
+        outside_file = self.base / "outside.txt"
+        outside_file.write_text("unregistered outside fixture")
         record = json.loads(companion.read_text())
-        record["assignments"]["sa_test"]["packet_path"] = str(secret)
+        record["assignments"]["sa_test"]["packet_path"] = str(outside_file)
         companion.write_text(json.dumps(record))
-        await self.denied(secret)
+        await self.denied(outside_file)
         packet.unlink()
-        packet.symlink_to(secret)
+        packet.symlink_to(outside_file)
         await self.denied(packet)
 
     async def test_malformed_companion_is_visible_refusal(self):
@@ -167,16 +167,16 @@ class ReaderTests(unittest.IsolatedAsyncioTestCase):
         self.assertIn("Read refused", await self.denied(packet))
 
     def test_no_follow_open_rejects_swapped_file_and_parent(self):
-        secret = self.base / "secret"
-        secret.write_text("secret")
+        outside_file = self.base / "outside.txt"
+        outside_file.write_text("unregistered outside fixture")
         path = self.repo / "target"
-        path.symlink_to(secret)
+        path.symlink_to(outside_file)
         with self.assertRaises(OSError):
             reader._bytes(path, reader.MAX_BYTES)
         folder = self.repo / "folder"
         folder.symlink_to(self.base, target_is_directory=True)
         with self.assertRaises(OSError):
-            reader._bytes(folder / "secret", reader.MAX_BYTES)
+            reader._bytes(folder / "outside.txt", reader.MAX_BYTES)
 
     async def test_stdio_launch_inventory_and_source_read(self):
         # The child reads only its own script; never asks for canonical operator plan storage.

@@ -312,6 +312,32 @@
               }
             }
           }
+        },
+        "failed_launches": {
+          "description": "Observed definite capacity-rejected launches retained when permitting one bounded fresh retry; absent historical facts are never inferred.",
+          "type": "array",
+          "maxItems": 1,
+          "items": {
+            "type": "object",
+            "required": [
+              "call_id",
+              "provider",
+              "role",
+              "fresh",
+              "successful",
+              "input_digest",
+              "capacity_rejected",
+              "response"
+            ],
+            "properties": {
+              "capacity_rejected": {
+                "const": true
+              },
+              "successful": {
+                "const": false
+              }
+            }
+          }
         }
       }
     }

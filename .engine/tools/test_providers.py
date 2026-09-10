@@ -648,5 +648,69 @@ class TestReviewReaderEvidence(unittest.TestCase):
         self.assertFalse(providers.scoped_reads_path(payload, "/packets/b.md"))
 
 
+class ScopedControlReconciliation(unittest.TestCase):
+    def setUp(self):
+        self.initial = self.envelope("initial opaque")
+        self.transcript = {"child": "child", "root": "root", "name": "/root/assignment", "messages": [self.initial]}
+        self.continuation = {"sender": "root", "recipient": "child", "content": "opaque", "dispatched": True}
+        self.message = self.envelope("opaque")
+
+    @staticmethod
+    def envelope(content):
+        return {"author": "/root", "recipient": "/root/assignment", "content": [
+            {"type": "input_text", "text": "Same native header for initial and continuation"},
+            {"type": "encrypted_content", "encrypted_content": content}]}
+
+    def verified(self, continuations=()):
+        return providers.scoped_control_verified(self.transcript, root="root", child="child",
+            name="assignment", launch_digest=providers.scoped_control_digest("initial opaque"),
+            continuations=list(continuations))
+
+    def test_initial_launch_and_one_exact_continuation(self):
+        self.assertTrue(self.verified())
+        self.transcript["messages"] = [self.initial, self.message]
+        self.assertTrue(self.verified([self.continuation]))
+        self.assertFalse(self.verified())
+        self.transcript["messages"] = [self.initial]
+        self.assertFalse(self.verified([self.continuation]))
+        self.transcript["messages"] = []
+        self.assertFalse(self.verified())
+        self.transcript["messages"] = [self.message]
+        self.assertFalse(self.verified())  # arbitrary first message cannot stand in for launch
+
+    def test_duplicate_unknown_wrong_actor_and_missing_send_fail(self):
+        import copy
+        for change in (lambda m: m.update(author="/root/peer"),
+                       lambda m: m.update(recipient="/root/other"),
+                       lambda m: m.update(content=[]),
+                       lambda m: m.update(content=[{"type": "unknown", "text": "opaque"}]),
+                       lambda m: m.update(content=[*m["content"], *m["content"]])):
+            message = copy.deepcopy(self.message)
+            change(message)
+            self.transcript["messages"] = [self.initial, message]
+            self.assertFalse(self.verified([self.continuation]))
+        self.transcript["messages"] = [self.initial, self.message, self.message]
+        self.assertFalse(self.verified([self.continuation, self.continuation]))
+        self.transcript["messages"] = [self.message, self.initial]
+        self.assertFalse(self.verified([self.continuation]))
+        self.transcript["messages"] = [self.initial, self.message]
+        self.assertFalse(self.verified([{**self.continuation, "dispatched": False}]))
+        self.assertFalse(self.verified([{**self.continuation, "sender": "other"}]))
+        self.transcript["child"] = "wrong"
+        self.assertFalse(self.verified([self.continuation]))
+
+    def test_parser_refuses_duplicate_actor_metadata_and_malformed_payload(self):
+        import tempfile
+        from pathlib import Path
+        meta = {"type": "session_meta", "payload": {"id": "child", "source": {"subagent": {
+            "thread_spawn": {"parent_thread_id": "root", "agent_path": "/root/assignment"}}}}}
+        with tempfile.TemporaryDirectory() as temp:
+            path = Path(temp) / "child.jsonl"
+            for rows in ([meta, meta], [meta, {"type": "response_item", "payload": []}],
+                         [{"type": "session_meta", "payload": {"source": {"subagent": "bad"}}}]):
+                path.write_text("\n".join(json.dumps(row) for row in rows))
+                self.assertEqual(providers.scoped_transcript({"transcript_path": str(path)}, providers.CODEX), {})
+
+
 if __name__ == "__main__":
     unittest.main()

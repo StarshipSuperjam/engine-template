@@ -2591,6 +2591,58 @@ class ObservedPlanReview(_Governed):
         self.assertIn("unverified", self.run_command("show", slug)[1])
 
 
+    def test_new_seal_refuses_lost_or_damaged_execution_but_keeps_history_readable(self):
+        import scoped_agents
+        for loss in ("missing", "damaged", "packet"):
+            with self.subTest(loss=loss):
+                slug, _ = self._to_reviewed()
+                companion = scoped_agents.Store(self.lib, slug)
+                before = self.lib.read_record(slug)
+                if loss == "missing":
+                    companion.path.unlink()
+                elif loss == "damaged":
+                    companion.path.write_text("{}")
+                else:
+                    assignment = next(iter(companion.read()["assignments"].values()))
+                    Path(assignment["packet_path"]).write_text("changed packet")
+                code, _, err = self.run_command("seal", slug, "--operator-decided", observe=False)
+                self.assertEqual(code, 1, err)
+                self.assertIn("no verified execution evidence", err)
+                self.assertEqual(self.lib.read_record(slug), before)
+                self.assertEqual(self.run_command("show", slug)[0], 0)
+                # Each case owns its own real library and canonical plan identity.
+                self.lib = plan_store.PlanLibrary(self.root / loss)
+                self.root = self.lib.root
+
+    def test_imported_unsealed_review_does_not_gain_seal_authority(self):
+        slug, _ = self._to_reviewed()
+        bundle = Path(self._tmp.name) / "reviewed-bundle.json"
+        self.assertEqual(self.run_command("export", slug, "--output", str(bundle))[0], 0)
+        self.root = Path(self._tmp.name) / "arrival"
+        self.lib = plan_store.PlanLibrary(self.root)
+        code, _, err = self.run_command("import", "--bundle", str(bundle))
+        self.assertEqual(code, 0, err)
+        before = self.lib.read_record(slug)
+        code, _, err = self.run_command("seal", slug, "--operator-decided", observe=False)
+        self.assertEqual(code, 1, err)
+        self.assertIn("no verified execution evidence", err)
+        self.assertEqual(self.lib.read_record(slug), before)
+
+    def test_seal_rechecks_execution_under_the_plan_transaction_lock(self):
+        import scoped_agents
+        slug, _ = self._to_reviewed()
+        companion = scoped_agents.Store(self.lib, slug)
+        before = self.lib.read_record(slug)
+        original_update = self.lib.update_record
+        def lose_evidence_before_lock(*args, **kwargs):
+            companion.path.unlink()
+            return original_update(*args, **kwargs)
+        with mock.patch.object(plan_store.PlanLibrary, "update_record", side_effect=lose_evidence_before_lock):
+            code, _, err = self.run_command("seal", slug, "--operator-decided", observe=False)
+        self.assertEqual(code, 2, err)
+        self.assertIn("became unverified", err)
+        self.assertEqual(self.lib.read_record(slug), before)
+
     def test_clarification_completes_plan_review_without_a_second_child(self):
         import scoped_agents
         from test_build_coordinator import observe_review_execution, clarify_review_execution

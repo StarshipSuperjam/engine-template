@@ -49,7 +49,7 @@ class ScopedAssignments(unittest.TestCase):
         return self.store.observe(event, providers.normalize(event, payload))
 
     def launch(self, **overrides):
-        inp = {"task_name": self.a["id"], "agent_type": self.a["role"], "fork_turns": "none", **overrides}
+        inp = {"task_name": self.a["id"], "agent_type": self.a["role"], "fork_turns": "none", "message": "opaque launch", **overrides}
         result = self.observe("PreToolUse", "collaborationspawn_agent", inp)
         if result["action"] == "proceed":
             self.observe("PostToolUse", "collaborationspawn_agent", inp,
@@ -64,12 +64,129 @@ class ScopedAssignments(unittest.TestCase):
                 child=child, response={"exit_code": 0, "stdout": self.packet.read_text()})
 
     def stop(self, output="[]", messages=None):
-        with mock.patch.object(providers, "scoped_transcript", return_value={"final": output, "messages": messages or []}):
+        if messages is None:
+            messages = [{"author": "/root", "recipient": "/root/" + self.a["id"],
+                         "content": [{"type": "input_text", "text": "native header"},
+                                     {"type": "encrypted_content", "encrypted_content": c["content"]}]}
+                        for c in self.store.read()["assignments"][self.a["id"]]["continuations"] if c["dispatched"]]
+        messages = [{"author": "/root", "recipient": "/root/" + self.a["id"],
+                     "content": [{"type": "input_text", "text": "native header"},
+                                 {"type": "encrypted_content", "encrypted_content": "opaque launch"}]}] + messages
+        with mock.patch.object(providers, "scoped_transcript", return_value={"final": output, "messages": messages,
+                "child": "child-a", "root": "root-id", "name": "/root/" + self.a["id"]}):
             self.observe("SubagentStop", child="child-a")
 
     def verified(self):
         return self.store.verified_locked(owner=self.owner, root="root-id", lens="architecture",
                                           packet_digest=self.a["packet_digest"])
+
+    def test_generated_packet_mutation_cannot_receive_the_original_target_label(self):
+        expected = core.digest(self.packet.read_bytes())
+        before = self.store.path.read_bytes()
+        frozen = sorted(self.store.path.parent.joinpath("scoped-packets").iterdir())
+        self.packet.write_text("a different generated packet")
+        with self.assertRaisesRegex(scoped.EvidenceError, "changed before freezing"):
+            scoped.prepare_packets(self.library, self.store.slug, self.owner, "root-id", self.packet,
+                {"architecture": "logical-target-digest"}, {"architecture": self.a["role"]},
+                expected_file_digest=expected)
+        self.assertEqual(self.store.path.read_bytes(), before)
+        self.assertEqual(sorted(self.store.path.parent.joinpath("scoped-packets").iterdir()), frozen)
+
+    def test_generated_file_digest_is_distinct_from_lens_target_identity(self):
+        expected = core.digest(self.packet.read_bytes())
+        assignments = scoped.prepare_packets(self.library, self.store.slug, self.owner, "root-id", self.packet,
+            {"feasibility": "logical-lens-target"}, {"feasibility": "engine-design-review-feasibility"},
+            expected_file_digest=expected)
+        self.assertEqual(assignments[0]["file_digest"], expected)
+        self.assertEqual(assignments[0]["packet_digest"], "logical-lens-target")
+        self.assertEqual(Path(assignments[0]["packet_path"]).read_bytes(), self.packet.read_bytes())
+
+    def test_native_capacity_rejection_permits_one_fresh_retry_and_preserves_failure(self):
+        args = {"task_name": self.a["id"], "agent_type": self.a["role"], "fork_turns": "none", "message": "opaque launch"}
+        self.observe("PreToolUse", "spawn_agent", args, tool_use_id="failed-launch")
+        error = "collab spawn failed: agent thread limit reached"
+        self.observe("PostToolUse", "spawn_agent", args, tool_use_id="failed-launch", response=error, is_error=True)
+        self.assertEqual(self.observe("PreToolUse", "spawn_agent", args, tool_use_id="retry-launch")["action"], "proceed")
+        self.observe("PostToolUse", "spawn_agent", args, tool_use_id="retry-launch", response={"task_name": "/root/" + self.a["id"]})
+        self.child_read()
+        self.stop()
+        result = self.verified()
+        self.assertEqual(result["failed_launches"][0]["response"], error)
+        self.assertEqual(result["failed_launches"][0]["call_id"], "failed-launch")
+        self.assertEqual(result["launch"]["call_id"], "retry-launch")
+
+    def test_capacity_retry_is_bounded_and_missing_or_uncertain_errors_do_not_retry(self):
+        for outcome in (None, "transport failed", {"error": "agent thread limit reached"},
+                        "collab spawn failed: agent thread limit reached"):
+            self.a = self.register("architecture")
+            args = {"task_name": self.a["id"], "agent_type": self.a["role"], "fork_turns": "none", "message": "opaque launch"}
+            self.observe("PreToolUse", "spawn_agent", args, tool_use_id="first")
+            if outcome is not None:
+                self.observe("PostToolUse", "spawn_agent", args, tool_use_id="first", response=outcome, is_error=True)
+            result = self.observe("PreToolUse", "spawn_agent", args, tool_use_id="retry")
+            if outcome == "collab spawn failed: agent thread limit reached":
+                self.assertEqual(result["action"], "proceed")
+                self.observe("PostToolUse", "spawn_agent", args, tool_use_id="retry", response=outcome, is_error=True)
+                self.assertEqual(self.observe("PreToolUse", "spawn_agent", args, tool_use_id="third")["action"], "block")
+                self.assertEqual(len(self.store.read()["assignments"][self.a["id"]]["failed_launches"]), 1)
+            else:
+                self.assertEqual(result["action"], "block")
+
+    def test_uncertain_followup_transport_failure_remains_unverified_not_retryable(self):
+        self.launch()
+        self.child_read()
+        args = {"target": "child-a", "message": "opaque clarification"}
+        self.observe("PreToolUse", "followup_task", args, tool_use_id="first")
+        self.observe("PostToolUse", "followup_task", args, tool_use_id="first", response={"error": "transport failed"}, is_error=True)
+        self.assertEqual(self.observe("PreToolUse", "followup_task", args, tool_use_id="retry")["action"], "block")
+        self.stop(messages=[])
+        with self.assertRaises(scoped.EvidenceError):
+            self.verified()
+
+    def test_packet_and_supplement_utf8_limits_refuse_before_writes(self):
+        limit = providers.SCOPED_READ_MAX_BYTES
+        self.packet.write_text("é" * (limit // 2))
+        exact = self.register("architecture")
+        self.assertEqual(Path(exact["packet_path"]).stat().st_size, limit)
+        before = self.store.path.read_bytes()
+        existing = set(self.store.path.parent.rglob("*"))
+        self.packet.write_text("é" * (limit // 2) + "x")
+        with self.assertRaisesRegex(scoped.EvidenceError, "narrow the packet"):
+            self.register("architecture")
+        self.assertEqual(self.store.path.read_bytes(), before)
+        self.assertEqual(set(self.store.path.parent.rglob("*")), existing)
+        # Original assignment remains small and can stage exactly the reader's UTF-8 byte bound.
+        self.packet.write_text("Frozen obligations\nUnique packet content.\n")
+        self.launch()
+        self.child_read()
+        exact_supplement = self.store.clarify(self.a["id"], "root-id", "é" * (limit // 2))
+        self.assertEqual(Path(exact_supplement["path"]).stat().st_size, limit)
+        before = self.store.path.read_bytes()
+        existing = set(self.store.path.parent.rglob("*"))
+        with self.assertRaisesRegex(scoped.EvidenceError, "narrow the supplement"):
+            self.store.clarify(self.a["id"], "root-id", "é" * (limit // 2) + "x")
+        self.assertEqual(self.store.path.read_bytes(), before)
+        self.assertEqual(set(self.store.path.parent.rglob("*")), existing)
+
+    def test_corrupt_companion_cannot_disable_valid_guard_in_either_order(self):
+        import io
+        self.launch()
+        self.child_read()
+        for order in (("broken", "test-plan"), ("test-plan", "broken")):
+            with self.subTest(order=order):
+                broken = self.library.plan_dir("broken") / scoped.FILENAME
+                broken.parent.mkdir(exist_ok=True)
+                broken.write_text("{malformed")
+                payload = providers.normalize("PreToolUse", {"session_id": "root-id", "tool_use_id": "queue",
+                    "tool_name": "send_message", "tool_input": {"target": "child-a", "message": "queued"}})
+                notice = io.StringIO()
+                with mock.patch.object(self.library, "slugs", return_value=list(order)), mock.patch("sys.stderr", notice):
+                    result = scoped.handler("PreToolUse", payload, self.library)
+                self.assertEqual(result["action"], "block")
+                self.assertIn("unverified", notice.getvalue())
+                self.assertIn(str(broken), notice.getvalue())
+                self.assertEqual(broken.read_text(), "{malformed")
+                self.assertFalse(scoped.Store(self.library, "broken").receipt_verified({"lens": "architecture"}, self.owner))
 
     def test_worker_partial_status_is_not_finished_work(self):
         self.a = self.store.register(owner=self.owner, root="root-id", purpose="worker", lens=None,
@@ -158,6 +275,96 @@ class ScopedAssignments(unittest.TestCase):
         with self.assertRaises(scoped.EvidenceError):
             self.verified()
 
+    def test_unobserved_incoming_steering_cannot_earn_review_or_receipt_credit(self):
+        self.launch()
+        self.child_read()
+        self.stop('{"status":"needs_clarification"}')
+        incoming = {"author": "/root", "recipient": "/root/" + self.a["id"],
+                    "content": [{"type": "input_text", "text": "native header"}, {"type": "encrypted_content", "encrypted_content": "unobserved steering"}]}
+        self.stop(messages=[incoming])
+        with self.assertRaises(scoped.EvidenceError):
+            self.verified()
+        # Publishing an orphan acceptance cannot turn the missing send into verified coverage.
+        receipt = {"lens": "architecture"}
+        def orphan(data):
+            data["assignments"][self.a["id"]]["accepted"] = True
+            data["acceptances"][scoped.receipt_key(receipt)] = {"owner": self.owner,
+                "assignments": [self.a["id"]], "outputs": {self.a["id"]: core.digest("[]")}}
+        self.store.change(orphan)
+        self.assertFalse(self.store.receipt_verified(receipt, self.owner))
+
+    def test_supplement_path_delivery_requires_full_read_before_acceptance(self):
+        self.launch()
+        self.child_read()
+        supplement = self.store.clarify(self.a["id"], "root-id", "Immutable clarification body")
+        args = {"target": "child-a", "message": "Read " + supplement["path"]}
+        self.observe("PreToolUse", "followup_task", args, tool_use_id="clarify")
+        self.observe("PostToolUse", "followup_task", args, tool_use_id="clarify", response={"ok": True})
+        self.stop()
+        self.assertTrue(self.store.read()["assignments"][self.a["id"]]["continuations"][0]["delivered"])
+        with self.assertRaises(scoped.EvidenceError):
+            self.verified()
+        for child, body in (("child-b", "Immutable clarification body"), ("child-a", "Immutable")):
+            self.observe("PostToolUse", "Bash", {"command": "cat " + supplement["path"]}, child=child,
+                         response={"exit_code": 0, "stdout": body})
+            self.stop()
+            with self.assertRaises(scoped.EvidenceError):
+                self.verified()
+        self.observe("PostToolUse", "Bash", {"command": "cat " + supplement["path"]}, child="child-a",
+                     response={"exit_code": 0, "stdout": "Immutable clarification body"})
+        self.stop()
+        self.assertEqual(self.verified()["child"], "child-a")
+
+    def test_early_started_child_id_queue_is_blocked_in_either_event_order(self):
+        for start_first in (False, True):
+            with self.subTest(start_first=start_first):
+                self.a = self.register("architecture")
+                child = "early-child-" + str(start_first)
+                facts = {"child": child, "root": "root-id", "name": "/root/" + self.a["id"]}
+                if not start_first:
+                    self.launch()
+                with mock.patch.object(providers, "scoped_transcript", return_value=facts):
+                    self.observe("SubagentStart", child=child)
+                if start_first:
+                    self.launch()
+                observed = self.store.read()["assignments"][self.a["id"]]
+                self.assertEqual(observed["child"], child)
+                self.assertIsNone(observed["read"])
+                self.assertEqual(self.observe("PreToolUse", "send_message", {"target": child, "message": "queued"})["action"], "block")
+                with self.assertRaises(scoped.EvidenceError):
+                    self.verified()
+
+    def test_early_queue_guard_does_not_wait_for_launch_return_or_ambiguous_binding(self):
+        args = {"task_name": self.a["id"], "agent_type": self.a["role"], "fork_turns": "none", "message": "opaque launch"}
+        self.observe("PreToolUse", "spawn_agent", args)
+        for child in ("early-a", "early-b"):
+            facts = {"child": child, "root": "root-id", "name": "/root/" + self.a["id"]}
+            with mock.patch.object(providers, "scoped_transcript", return_value=facts):
+                self.observe("SubagentStart", child=child)
+            self.assertEqual(self.observe("PreToolUse", "send_message", {"target": child, "message": "queued"})["action"], "block")
+        self.observe("PostToolUse", "spawn_agent", args, response={"task_name": "/root/" + self.a["id"]})
+        self.assertIsNone(self.store.read()["assignments"][self.a["id"]]["child"])
+        for child in ("early-a", "early-b"):
+            self.assertEqual(self.observe("PreToolUse", "send_message", {"target": child, "message": "queued"})["action"], "block")
+
+    def test_unknown_or_wrong_early_child_identity_never_claims_user_task(self):
+        self.launch()
+        for facts in ({}, {"child": "child-a", "root": "wrong", "name": "/root/" + self.a["id"]},
+                      {"child": "child-a", "root": "root-id", "name": "/root/user-task"}):
+            with mock.patch.object(providers, "scoped_transcript", return_value=facts):
+                self.observe("SubagentStart", child="child-a")
+            self.assertIsNone(self.store.read()["assignments"][self.a["id"]]["child"])
+        self.assertEqual(self.observe("PreToolUse", "send_message", {"target": "user-task", "message": "hello"})["action"], "proceed")
+
+    def test_codex_old_stop_without_control_observation_remains_unverified(self):
+        self.launch()
+        self.child_read()
+        self.stop()
+        self.assertEqual(self.verified()["child"], "child-a")
+        self.store.change(lambda data: data["assignments"][self.a["id"]]["stops"][-1].pop("control_verified"))
+        with self.assertRaises(scoped.EvidenceError):
+            self.verified()
+
     def test_queue_is_denied_while_active_and_after_turn_end(self):
         self.launch()
         self.child_read()
@@ -186,7 +393,7 @@ class ScopedAssignments(unittest.TestCase):
         self.assertEqual(self.observe("PreToolUse", "collaborationfollowup_task", args, tool_use_id="clarify")["action"], "proceed")
         self.observe("PostToolUse", "collaborationfollowup_task", args, response={"task_name": "/root/" + self.a["id"]}, tool_use_id="clarify")
         message = {"author": "/root", "recipient": "/root/" + self.a["id"],
-                   "content": [{"type": "encrypted_text", "encrypted_content": args["message"]}]}
+                   "content": [{"type": "input_text", "text": "native header"}, {"type": "encrypted_content", "encrypted_content": args["message"]}]}
         self.stop(messages=[message])
         self.assertEqual(self.verified()["child"], "child-a")
         self.stop(messages=[message])
@@ -198,7 +405,7 @@ class ScopedAssignments(unittest.TestCase):
         args = {"target": "child-a", "message": "not delivered"}
         self.observe("PreToolUse", "followup_task", args)
         self.observe("PostToolUse", "followup_task", args, response={"success": True})
-        self.stop()
+        self.stop(messages=[])
         with self.assertRaises(scoped.EvidenceError):
             self.verified()
         self.assertEqual(self.observe("PreToolUse", "followup_task", args, tool_use_id="retry")["action"], "block")
@@ -303,7 +510,7 @@ class ScopedAssignments(unittest.TestCase):
     def test_duplicate_launch_observation_is_idempotent_but_new_launch_is_not(self):
         self.launch()
         self.assertEqual(self.launch()["action"], "proceed")
-        args = {"task_name": self.a["id"], "agent_type": self.a["role"], "fork_turns": "none"}
+        args = {"task_name": self.a["id"], "agent_type": self.a["role"], "fork_turns": "none", "message": "opaque launch"}
         self.assertEqual(self.observe("PreToolUse", "spawn_agent", args, tool_use_id="different-call")["action"], "block")
 
     def test_supplement_mutation_invalidates_completed_execution(self):

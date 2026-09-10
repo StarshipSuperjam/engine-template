@@ -138,6 +138,9 @@ def observe_review_execution(library, slug, owner, lens, digest, output, root="f
     transcript.write_text(json.dumps({"type": "session_meta", "payload": {"id": child,
         "source": {"subagent": {"thread_spawn": {"parent_thread_id": root,
             "agent_path": "/root/" + a["id"]}}}}}) + "\n" +
+        json.dumps({"type": "response_item", "payload": {"type": "agent_message", "author": "/root",
+            "recipient": "/root/" + a["id"], "content": [{"type": "input_text", "text": "native header"},
+            {"type": "encrypted_content", "encrypted_content": "opaque initial launch"}]}}) + "\n" +
         json.dumps({"type": "response_item", "payload": {"type": "message", "role": "assistant",
             "phase": "final_answer", "content": [{"type": "output_text", "text": json.dumps(output)}]}}) + "\n")
     def event(name, **fields):
@@ -145,7 +148,7 @@ def observe_review_execution(library, slug, owner, lens, digest, output, root="f
             return store.observe(name, providers.normalize(name, {"session_id": root,
                 "tool_use_id": a["id"], **fields}))
     launch = {"tool_name": "collaborationspawn_agent", "tool_input": {
-        "task_name": a["id"], "agent_type": role, "fork_turns": "none"}}
+        "task_name": a["id"], "agent_type": role, "fork_turns": "none", "message": "opaque initial launch"}}
     event("PreToolUse", **launch)
     event("PostToolUse", **launch, tool_response={"task_name": "/root/" + a["id"]})
     child_fields = {"agent_id": child, "agent_type": role, "agent_transcript_path": str(transcript)}
@@ -173,7 +176,15 @@ def clarify_review_execution(store, assignment, root="fixture-root"):
                 "tool_input": {"command": "cat " + supplement["path"]},
                 "tool_response": {"exit_code": 0, "stdout": Path(supplement["path"]).read_text()}}
         store.observe("PostToolUse", providers.normalize("PostToolUse", read))
-        store.observe("SubagentStop", providers.normalize("SubagentStop", {**child, "last_assistant_message": "[]"}))
+        transcript = next(path for path in store.path.parent.glob("*.jsonl")
+                          if '"id": "' + a["child"] + '"' in path.read_text())
+        with transcript.open("a") as handle:
+            handle.write(json.dumps({"type": "response_item", "payload": {"type": "agent_message",
+                "author": "/root", "recipient": "/root/" + a["id"], "content": [
+                    {"type": "input_text", "text": "native header"},
+                    {"type": "encrypted_content", "encrypted_content": call["tool_input"]["message"]}]}}) + "\n")
+        store.observe("SubagentStop", providers.normalize("SubagentStop", {**child,
+            "agent_transcript_path": str(transcript), "last_assistant_message": "[]"}))
     return store.read()["assignments"][a["id"]]
 
 

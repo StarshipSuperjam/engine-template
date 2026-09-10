@@ -32,6 +32,8 @@ import sys
 import tempfile
 import time
 
+SCOPED_READ_MAX_BYTES = 1024 * 1024
+
 CLAUDE = "claude"
 CODEX = "codex"
 
@@ -243,13 +245,17 @@ def scoped_transcript(payload: dict, provider: str) -> dict:
             row = json.loads(line)
             if not isinstance(row, dict):
                 return {}
-            data = row.get("payload") or {}
+            data = row.get("payload", {})
+            if not isinstance(data, dict):
+                return {}
             if provider == CODEX:
                 if row.get("type") == "event_msg" and data.get("type") == "task_started":
                     result["final"] = None
                 elif row.get("type") == "session_meta":
                     source = data.get("source") or {}
                     spawn = (source.get("subagent") or {}).get("thread_spawn") if isinstance(source, dict) else None
+                    if "child" in result:
+                        return {}  # duplicate/contradictory session metadata is not one actor
                     if isinstance(spawn, dict):
                         result.update(child=data.get("id"), root=spawn.get("parent_thread_id"),
                                       name=spawn.get("agent_path"))
@@ -266,9 +272,59 @@ def scoped_transcript(payload: dict, provider: str) -> dict:
                 elif row.get("type") == "user":
                     result["final"] = None
                     result["messages"].append(row)
-    except (OSError, ValueError, TypeError):
+    except (OSError, ValueError, TypeError, AttributeError):
         return {}
     return result
+
+
+def scoped_launch_capacity_rejected(payload: dict) -> bool:
+    """One qualified native failure proves the spawn was rejected before creating a child.
+
+    Measured native Codex function-call error, not a generic transport exception. Unknown failure
+    prose and structured shapes are deliberately not promoted to definite nonexecution.
+    """
+    return (payload.get("is_error") is True and
+            payload.get("tool_response") == "collab spawn failed: agent thread limit reached")
+
+
+def scoped_control_digest(content) -> str | None:
+    """Digest the exact observed opaque native message, never its interpreted meaning."""
+    return "sha256:" + hashlib.sha256(content.encode("utf-8")).hexdigest() if isinstance(content, str) and content else None
+
+
+def scoped_control_verified(transcript: dict, *, root: str, child: str, name: str,
+                            launch_digest: str | None, continuations: list[dict]) -> bool:
+    """Join one initial native launch envelope, then each continuation in dispatch order.
+
+    Native initial and followup headers are identical. Only the actual observed opaque payload
+    differentiates them; metadata prose or message position alone never proves the initial launch.
+    """
+    if not launch_digest or (transcript.get("root"), transcript.get("child"), transcript.get("name")) != (
+            root, child, "/root/" + name):
+        return False
+    messages = transcript.get("messages")
+    if not isinstance(messages, list) or len(messages) != 1 + len(continuations):
+        return False
+    expected = [launch_digest]
+    for c in continuations:
+        if c.get("sender") != root or c.get("recipient") != child or c.get("dispatched") is not True:
+            return False
+        expected.append(scoped_control_digest(c.get("content")))
+    if None in expected or len(set(expected)) != len(expected):
+        return False  # indistinguishable control payloads cannot establish separate deliveries
+    for message, digest in zip(messages, expected):
+        if (not isinstance(message, dict) or message.get("author") != "/root" or
+                message.get("recipient") != "/root/" + name):
+            return False
+        parts = message.get("content")
+        if (not isinstance(parts, list) or len(parts) != 2 or
+                not all(isinstance(p, dict) for p in parts) or
+                parts[0].get("type") != "input_text" or not isinstance(parts[0].get("text"), str) or
+                parts[1].get("type") != "encrypted_content"):
+            return False
+        if scoped_control_digest(parts[1].get("encrypted_content")) != digest:
+            return False
+    return True
 
 
 def scoped_launch_child(response):

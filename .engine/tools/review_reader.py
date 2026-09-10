@@ -20,9 +20,10 @@ from mcp_types import ToolAnnotations
 from pydantic import StrictInt
 
 import plan_store
+import providers
 
 ROOT = Path(__file__).resolve().parents[2]
-MAX_BYTES = 1024 * 1024
+MAX_BYTES = providers.SCOPED_READ_MAX_BYTES
 COMPANION_MAX_BYTES = 16 * MAX_BYTES
 server = MCPServer("engine-review-reader")
 

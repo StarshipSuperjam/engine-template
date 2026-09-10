@@ -1927,11 +1927,13 @@ def _packet(args, store: Snapshot | None) -> None:
         library = _library()
         slug = library.resolve(state["plan"]["plan_id"])
         source = library.plan_dir(slug) / "scoped-build-review-source.json"
-        core.write_private_path(source, json.dumps(packet, indent=2, sort_keys=True) + "\n")
+        packet_content = json.dumps(packet, indent=2, sort_keys=True) + "\n"
+        core.write_private_path(source, packet_content)
         assignments = scoped_agents.prepare_packets(
             library, slug, scoped_agents.build_owner(state), args.session, source,
             {c["lens"]: c["lens_packet_digest"] for c in contracts},
-            {c["lens"]: Path(c["path"]).stem for c in contracts})
+            {c["lens"]: Path(c["path"]).stem for c in contracts},
+            expected_file_digest=core.digest(packet_content.encode("utf-8")))
         print("Scoped assignments: " + json.dumps(assignments, sort_keys=True), file=sys.stderr)
     else:
         print("Execution freshness is unverified: prepare scoped assignments with --session before dispatch.",

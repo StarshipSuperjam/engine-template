@@ -22,7 +22,8 @@ Build authority and no review coverage.
 On Codex V2 use native `spawn_agent`, the assignment ID as `task_name`, the registered `agent_type`, and
 `fork_turns="none"`. On Claude use a fresh `Agent` with the registered custom `subagent_type`, without resume
 or fork, and include its unique immutable packet path in the prompt. Ask the child to read that entire file
-through a successful native read tool before working. A digest repeated in prose, a start event, or a caller's
+through a successful native read tool before working. Registration refuses packets and clarification
+supplements over 1 MiB before dispatch; narrow their contents first. A digest repeated in prose, a start event, or a caller's
 provider label cannot establish that read. Do not pass sibling findings or the controller's verdict.
 
 Codex registers the compact `engine-review-reader` at project level. The installed 0.153.4 role loader
@@ -51,6 +52,7 @@ Check `scoped_agents.py status --plan <plan-id> --session <root-session>` before
 On Codex, `reconcile --assignment <id> --transcript <actual-child-transcript>` with the same plan/session
 matches native sender, recipient and payload observations; it records delivery only, never inventing completion.
 On Claude, require the observed successful supplement read; an undocumented transcript envelope is not proof.
+A transport error does not prove nondelivery: reconcile actual child observations rather than blindly retrying.
 An uncertain dispatch or missing completion stays unverified. A blocked reviewer reports a small JSON status
 object such as `{"status":"needs_clarification","question":"..."}`; its eventual valid findings array is the
 one completed result. An empty findings array means no findings only after observed valid execution.
@@ -67,14 +69,16 @@ cleanup earns no review credit and does not authorize new unrelated messages.
 
 Record a review through its existing Project Manager or Build Coordinator `review record` command with
 `--session <root-session>` and the current packet identities. The shared validator requires fresh launch,
-actual child/role, frozen packet read, complete clarification evidence and a valid final output. Repeated
+actual child/role, frozen packet read, complete clarification evidence and a valid final output. Codex also
+reconciles the initial launch and every incoming control message against observed native sends, in order. Repeated
 observations count once. Missing or contradictory evidence refuses acceptance. For workers/scouts, `finish`
 with plan/session/assignment closes the owned assignment after inspecting its result; Build integration still
 has its own evidence requirements. `abandon --reason <reason>` forfeits an unaccepted assignment's review
 credit, but does not cancel native execution or drain pending messages.
 
 If hooks are absent, untrusted or fail, disclose execution as unverified. Do not silently replace these checks
-with attestations. Project trust is separate from individual hook approval. `/hooks` is the Codex CLI browser;
+with attestations. Existing unsealed plans need verified review companions before sealing; restore their
+original evidence or clone for fresh review. Already sealed historical records remain readable. Project trust is separate from individual hook approval. `/hooks` is the Codex CLI browser;
 do not promise a Desktop slash command or settings screen. The September 9 Desktop fixture needed individual
 approval and reopening the same task to load its configuration; verify an actual event afterward. That isolated
 qualification harness is not an Engine installation requirement. Claude 2.1.185 contract fixtures are offline

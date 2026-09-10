@@ -92,12 +92,16 @@ class Store:
                 self.write_locked(data)
             return result
 
-    def register(self, *, owner, root, purpose, lens, role, packet, packet_digest):
+    def register(self, *, owner, root, purpose, lens, role, packet, packet_digest, expected_file_digest=None):
         """Freeze a uniquely located packet before native dispatch. Provider is not caller-selected."""
         if not all(_text(x) for x in (root, purpose, role, packet_digest)) or not isinstance(owner, dict):
             raise EvidenceError("assignment requires explicit owner, root, purpose, role and packet identity")
         source = Path(packet).resolve()
         content = source.read_bytes()
+        if expected_file_digest is not None and core.digest(content) != expected_file_digest:
+            raise EvidenceError("Generated review packet changed before freezing; regenerate the packet before dispatch.")
+        if len(content) > providers.SCOPED_READ_MAX_BYTES:
+            raise EvidenceError(f"Review packet exceeds {providers.SCOPED_READ_MAX_BYTES} UTF-8 bytes; narrow the packet before dispatch.")
         token = "sa_" + uuid.uuid4().hex
         directory = self.path.parent / "scoped-packets"
         self.library._mkdir(directory)
@@ -116,6 +120,8 @@ class Store:
         """Stage the actual clarification privately; the native send still belongs to the controller."""
         if not _text(content):
             raise EvidenceError("clarification must contain useful non-empty text")
+        if len(content.encode("utf-8")) > providers.SCOPED_READ_MAX_BYTES:
+            raise EvidenceError(f"Clarification exceeds {providers.SCOPED_READ_MAX_BYTES} UTF-8 bytes; narrow the supplement before dispatch.")
         def update(data):
             a = data["assignments"].get(assignment_id)
             if not a or a["root"] != root or not a["child"] or a["accepted"]:
@@ -143,10 +149,36 @@ class Store:
             kind = call["kind"]
             if event == "SubagentStart" and _text(actor):
                 start = {"root": root, "child": actor, "role": call.get("role")}
+                transcript = providers.scoped_transcript(payload, call["provider"])
+                if (call["provider"] == providers.CODEX and _text(transcript.get("name")) and
+                        (transcript.get("child"), transcript.get("root")) == (actor, root)):
+                    start["name"] = transcript["name"]
                 previous = data["starts"].get(actor)
-                if previous is not None and previous != start:
+                if previous is not None and any(previous.get(k) != start.get(k) for k in ("root", "child", "role")):
                     raise EvidenceError("contradictory child start observations")
-                data["starts"][actor] = start
+                if previous and previous.get("name") and start.get("name") not in (None, previous["name"]):
+                    raise EvidenceError("contradictory child start identity")
+                data["starts"][actor] = {**(previous or {}), **start}
+
+            def bind_started_children():
+                # Prevention identity does not grant read or completion credit. Start may precede
+                # the launch's return, so reconcile on either observation without timing guesses.
+                for assignment in owned:
+                    launch = assignment["launch"] or {}
+                    if not (launch.get("provider") == providers.CODEX and launch.get("fresh") and launch.get("successful")):
+                        continue
+                    starts = [s for s in data["starts"].values() if s.get("root") == root
+                              and s.get("name") == "/root/" + assignment["id"] and s.get("role") == assignment["role"]]
+                    if len(starts) != 1:
+                        if len(starts) > 1 and "ambiguous child start identity" not in assignment["faults"]:
+                            assignment["faults"].append("ambiguous child start identity")
+                        continue
+                    start = starts[0]
+                    if (assignment["child"] in (None, start["child"]) and
+                            not any(other["child"] == start["child"] and other["id"] != assignment["id"] for other in owned)):
+                        assignment["child"] = start["child"]
+                        assignment["start"] = start
+            bind_started_children()
             if kind == "launch":
                 matches = [a for a in owned if call.get("name") == a["id"] or
                            (_text(call.get("prompt")) and a["packet_path"] in call["prompt"])]
@@ -158,26 +190,52 @@ class Store:
                 if event == "PreToolUse":
                     if a["launch"] and a["launch"]["call_id"] == call.get("call_id") and a["launch"]["input_digest"] == core.digest(call["input"]):
                         return hooks.proceed()  # repeat observation of the same native call
-                    if actor or not call.get("fresh") or call.get("role") != a["role"] or a["launch"]:
+                    retry = (a["launch"] and a["launch"].get("capacity_rejected") is True
+                             and call.get("call_id") != a["launch"]["call_id"]
+                             and not a.get("failed_launches") and a["child"] is None and a["read"] is None
+                             and not any(s.get("name") == "/root/" + a["id"] for s in data["starts"].values()))
+                    if actor or not call.get("fresh") or call.get("role") != a["role"] or (a["launch"] and not retry):
                         return hooks.block("This Engine assignment needs a fresh, fork-free agent of its registered role; use clarification only for its existing assignment.")
                     if not _text(call.get("call_id")):
                         return hooks.block("The native launch has no correlatable tool identity; fresh execution is unverified.")
+                    if retry:
+                        a.setdefault("failed_launches", []).append(copy.deepcopy(a["launch"]))
                     a["launch"] = {"call_id": call["call_id"], "provider": call["provider"],
                                    "role": call["role"], "fresh": True, "successful": False,
                                    "input_digest": core.digest(call["input"])}
+                    if call["provider"] == providers.CODEX:
+                        a["launch"]["control_digest"] = providers.scoped_control_digest(call["input"].get("message"))
                 elif event == "PostToolUse" and a["launch"] and a["launch"]["call_id"] == call.get("call_id"):
                     response = payload.get("tool_response")
+                    if (call["provider"] == providers.CODEX and providers.scoped_launch_capacity_rejected(payload)
+                            and not a["launch"]["successful"]):
+                        a["launch"]["capacity_rejected"] = True
+                        a["launch"]["response"] = response
                     if response is not None and not payload.get("is_error"):
+                        if a["launch"].get("capacity_rejected"):
+                            a["faults"].append("contradictory launch outcome")
                         a["launch"]["response"] = response
                         a["launch"]["successful"] = True
                         a["launch"]["returned_child"] = providers.scoped_launch_child(response)
+                        bind_started_children()
+                elif event == "PostToolUse":
+                    for failed in a.get("failed_launches", []):
+                        if failed["call_id"] == call.get("call_id") and not providers.scoped_launch_capacity_rejected(payload):
+                            a["faults"].append("contradictory failed launch observation")
                 return hooks.proceed()
 
             if kind in ("queue", "continue"):
                 target = call.get("target")
                 if not _text(target):
                     return hooks.proceed()
-                matches = [a for a in owned if target in (a["id"], a["child"], "/root/" + a["id"])]
+                def prevention_children(assignment):
+                    launch = assignment["launch"] or {}
+                    if launch.get("provider") != providers.CODEX or not launch.get("fresh"):
+                        return []
+                    return [s["child"] for s in data["starts"].values() if s.get("root") == root
+                            and s.get("name") == "/root/" + assignment["id"] and s.get("role") == assignment["role"]]
+                matches = [a for a in owned if target in (a["id"], a["child"], "/root/" + a["id"],
+                                                          *prevention_children(a))]
                 # A child may report to its own controller; peer traffic is not review work.
                 mine = [a for a in owned if actor and a["child"] == actor]
                 if mine:
@@ -289,6 +347,10 @@ class Store:
                     stop = {"child": actor, "output": final, "digest": core.digest(final),
                             "continuations": len(a["continuations"]),
                             "delivered": all(c["delivered"] for c in a["continuations"])}
+                    if call["provider"] == providers.CODEX:
+                        stop["control_verified"] = providers.scoped_control_verified(
+                            transcript, root=root, child=actor, name=a["id"],
+                            launch_digest=a["launch"].get("control_digest"), continuations=a["continuations"])
                     if stop not in a["stops"]:
                         a["stops"].append(stop)
             return hooks.proceed()
@@ -311,8 +373,12 @@ class Store:
                 continue
             if any(not c["dispatched"] or not c["delivered"] for c in a["continuations"]):
                 continue
-            if any(not s["call_id"] or core.digest(Path(s["path"]).read_bytes()) != s["digest"] for s in a["supplements"]):
+            if any(not s["call_id"] or core.digest(Path(s["path"]).read_bytes()) != s["digest"] or
+                   len([c for c in a["continuations"] if c["call_id"] == s["call_id"]
+                        and c.get("supplement_digest") == s["digest"]]) != 1 for s in a["supplements"]):
                 continue
+            if launch.get("provider") == providers.CODEX and a["stops"][-1].get("control_verified") is not True:
+                continue  # old stops are readable but never acquire unobserved traffic evidence
             if a["stops"][-1]["continuations"] != len(a["continuations"]):
                 continue
             if not a["stops"][-1]["delivered"]:
@@ -415,12 +481,13 @@ class Store:
             return False
 
 
-def prepare_packets(library, slug, owner, root, packet, digest_by_lens, roles):
+def prepare_packets(library, slug, owner, root, packet, digest_by_lens, roles, *, expected_file_digest):
     if not _text(root):
         raise EvidenceError("fresh review dispatch requires the current root session identity; supply --session")
     store = Store(library, slug)
     return [store.register(owner=owner, root=root, purpose="review", lens=lens, role=roles[lens],
-                           packet=packet, packet_digest=digest) for lens, digest in digest_by_lens.items()]
+                           packet=packet, packet_digest=digest, expected_file_digest=expected_file_digest)
+            for lens, digest in digest_by_lens.items()]
 
 
 def accept_plan(library, slug, record, receipt, lenses, root, prior_receipt=None):
@@ -447,14 +514,22 @@ def missing_build_evidence(library, state, receipts):
 
 def handler(event, payload, library=None):
     library = library or plan_store.PlanLibrary()
+    blocked = None
     for slug in library.slugs():
         store = Store(library, slug)
         if not store.path.exists():
             continue
-        decision = store.observe(event, payload)
-        if decision.get("action") == "block":
-            return decision
-    return hooks.proceed()
+        try:
+            decision = store.observe(event, payload)
+        except (OSError, ValueError, TypeError, KeyError, core.CoordinatorError) as exc:
+            # One broken historical record cannot disable another assignment's live guard.
+            # Preserve the damaged bytes and disclose the failed check even if another record blocks.
+            print(f"Engine agent checks could not read {store.path}: {exc}. "
+                  "That plan's execution and review freshness are unverified; other plans are still checked.", file=sys.stderr)
+            continue
+        if decision.get("action") == "block" and blocked is None:
+            blocked = decision
+    return blocked or hooks.proceed()
 
 
 def main(argv=None):

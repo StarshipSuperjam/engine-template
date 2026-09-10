@@ -765,7 +765,8 @@ def cmd_review_packet(args) -> int:
         core.atomic_write(source, header + packet, mode=0o600)
         assignments = scoped_agents.prepare_packets(library, slug, scoped_agents.plan_owner(record),
             args.session, source, {lens: packet_digest for lens in covering},
-            {lens: "engine-design-review-" + lens for lens in covering})
+            {lens: "engine-design-review-" + lens for lens in covering},
+            expected_file_digest=core.digest((header + packet).encode("utf-8")))
         print("\nFresh assignments (native task name, role and immutable packet):")
         for a in assignments:
             print(f"  {a['id']} | {a['role']} | {a['packet_path']}")
@@ -1144,6 +1145,11 @@ def seal_refusals(library: plan_store.PlanLibrary, slug: str) -> list:
         refusals.append(f"the review covers revision {review['revision']} but the approval covers "
                         f"revision {approval['revision']}")
     if review and required:
+        if not scoped_agents.Store(library, slug).receipt_verified(
+                review, scoped_agents.plan_owner(record, review)):
+            refusals.append("the recorded review has no verified execution evidence. Historical "
+                            "records remain readable, but cannot authorize a new seal. Restore the "
+                            "original companion and frozen packets, or clone the plan for fresh review.")
         gap = coverage_gap(depth, review.get("lenses", []))
         if gap:
             refusals.append(
@@ -1360,6 +1366,12 @@ def cmd_seal(args) -> int:
     def mint_seal(current):
         if current.get("seal"):          # re-asserted inside the lock; a seal is minted once
             raise ProjectManagerError("another session sealed this plan while this one was reading it")
+        current_review = current.get("plan_review")
+        if current_review and required_lenses(current["approval"]["depth"], installed_lenses()):
+            if not scoped_agents.Store(library, slug).receipt_verified(
+                    current_review, scoped_agents.plan_owner(current, current_review)):
+                raise ProjectManagerError("review execution became unverified before sealing; "
+                                          "preserve the record and restore evidence or clone for fresh review")
         current["seal"] = seal
         current.setdefault("consent", []).append(consent)
 
