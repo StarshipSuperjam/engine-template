@@ -1921,6 +1921,7 @@
           "operation:external-contribution-issue",
           "operation:external-contribution-submit",
           "operation:first-run",
+          "operation:issue-triage",
           "operation:knowledge-impact-check",
           "operation:memory-migration-trial",
           "operation:memory-recall",
@@ -1992,6 +1993,7 @@
           "operation:external-contribution-issue",
           "operation:external-contribution-submit",
           "operation:first-run",
+          "operation:issue-triage",
           "operation:knowledge-impact-check",
           "operation:memory-migration-trial",
           "operation:memory-recall",
@@ -5483,7 +5485,7 @@
       },
       "slug": "core",
       "source": {
-        "fingerprint": "sha256:a38e6b300fae713eb615200e133d5d5436868cee5a781581f9ec9272284991da",
+        "fingerprint": "sha256:2d1d9ba61f1ce2faf1e7c70c3187359c1f948fbe622b9a442e9288b589591d8f",
         "path": ".engine/modules/core/manifest.json"
       },
       "status": "required",
@@ -6236,6 +6238,26 @@
       "source": {
         "fingerprint": "sha256:b4fddea905dee4d623d3142f3b27de3dbe0dd3bde3ab9ec4edc7f43cecf79935",
         "path": ".engine/operations/first-run.md"
+      },
+      "status": "active",
+      "type": "operation"
+    },
+    {
+      "id": "operation:issue-triage",
+      "name": ".engine/operations/issue-triage.md",
+      "owner": "core",
+      "predicates": {
+        "governed_by": [
+          "schema:operation.v1"
+        ],
+        "provided_by": [
+          "module:core"
+        ]
+      },
+      "slug": "issue-triage",
+      "source": {
+        "fingerprint": "sha256:fde5d1f22fdcdaf6af861e2b2219649d6eeccf37885bd902648f50a8266b14b2",
+        "path": ".engine/operations/issue-triage.md"
       },
       "status": "active",
       "type": "operation"
@@ -7277,7 +7299,7 @@
       },
       "slug": "engine-issue-input.v1",
       "source": {
-        "fingerprint": "sha256:6affe98ba94c45e57b7cdf4bef82db0aec946721bbf00421563c3c95c1cc83aa",
+        "fingerprint": "sha256:4dc3166362d8ee14c2ca47af5051dd713d5ddc634aaf927a56f1c938430f6196",
         "path": ".engine/schemas/engine-issue-input.v1.json"
       },
       "status": "active",
@@ -7437,6 +7459,23 @@
       "type": "schema"
     },
     {
+      "id": "schema:issue-triage.v1",
+      "name": ".engine/schemas/issue-triage.v1.json",
+      "owner": "core",
+      "predicates": {
+        "provided_by": [
+          "module:core"
+        ]
+      },
+      "slug": "issue-triage.v1",
+      "source": {
+        "fingerprint": "sha256:ab604f3bfa0e61037c9dc24cf54608131264d724ff404ef1ad624bbd8d05027c",
+        "path": ".engine/schemas/issue-triage.v1.json"
+      },
+      "status": "active",
+      "type": "schema"
+    },
+    {
       "id": "schema:knowledge.v1",
       "name": ".engine/schemas/knowledge.v1.json",
       "owner": "core",
@@ -7517,6 +7556,23 @@
       "source": {
         "fingerprint": "sha256:7a2a7130a5e7ad3ffc9796f2ddca6cba7eb2bc501db2f81d4f712b2703671278",
         "path": ".engine/schemas/operation.v1.json"
+      },
+      "status": "active",
+      "type": "schema"
+    },
+    {
+      "id": "schema:operator-issue-triage.v1",
+      "name": ".engine/schemas/operator-issue-triage.v1.json",
+      "owner": "core",
+      "predicates": {
+        "provided_by": [
+          "module:core"
+        ]
+      },
+      "slug": "operator-issue-triage.v1",
+      "source": {
+        "fingerprint": "sha256:8ba8aa7b31814fdabcec20507d40dc6b29c6f74f754053153846e1836d60258b",
+        "path": ".engine/schemas/operator-issue-triage.v1.json"
       },
       "status": "active",
       "type": "schema"
@@ -7804,7 +7860,7 @@
       },
       "slug": "session-relay.v1",
       "source": {
-        "fingerprint": "sha256:fd78f819979ff94ac0a210ca9ca1f32f4c30648d73dcac410531727575c2301f",
+        "fingerprint": "sha256:081b0df2da3ddffaa863c5cfcf8cf78eff033e57b1000af7234d704f9fdefc7b",
         "path": ".engine/schemas/session-relay.v1.json"
       },
       "status": "active",
@@ -9450,6 +9506,7 @@
           "tool:greenfield_intake",
           "tool:hooks",
           "tool:hooks_path_health",
+          "tool:issue_triage",
           "tool:knowledge_gen",
           "tool:ledger_health",
           "tool:license_health",
@@ -9479,7 +9536,7 @@
       },
       "slug": "boot",
       "source": {
-        "fingerprint": "sha256:c735ac1635b58bfaa3708d5836b7e36b90c818612e8fe8ab2670769068f6286e",
+        "fingerprint": "sha256:3da1d9967b5254d995614c905762271bc64f3a7b493833f21e64b1d4cb53cd58",
         "path": ".engine/tools/boot.py"
       },
       "status": "active",
@@ -10267,6 +10324,7 @@
           "tool:boot",
           "tool:capture",
           "tool:hooks",
+          "tool:issue_triage",
           "tool:ledger",
           "tool:memory.__init__",
           "tool:moment",
@@ -10280,7 +10338,7 @@
       },
       "slug": "close",
       "source": {
-        "fingerprint": "sha256:731991b6e6427bf95e20467ac957b2dca23d94af018534ce5c27f8919933cdd5",
+        "fingerprint": "sha256:c605128a444600f1d451547cc9a6e77161928ed59168a210a94e695b8468542c",
         "path": ".engine/tools/close.py"
       },
       "status": "active",
@@ -12959,6 +13017,7 @@
         "imports": [
           "tool:checkout_health",
           "tool:issue_kind",
+          "tool:issue_triage",
           "tool:repo_identity",
           "tool:telemetry"
         ],
@@ -12968,7 +13027,7 @@
       },
       "slug": "issue_author",
       "source": {
-        "fingerprint": "sha256:e23d65bab7e06ea8e242ac4aed68af18d6f21ffe13e47680c6bd6919536d6830",
+        "fingerprint": "sha256:487d1ea0f601536798a7f120b57cb2efba7f5846d636c86cb9c911f61f4e53ae",
         "path": ".engine/tools/issue_author.py"
       },
       "status": "active",
@@ -12986,7 +13045,8 @@
           "tool:issue_author",
           "tool:issue_event",
           "tool:issue_gate",
-          "tool:issue_label_client"
+          "tool:issue_label_client",
+          "tool:issue_triage"
         ],
         "provided_by": [
           "module:core"
@@ -12994,7 +13054,7 @@
       },
       "slug": "issue_conformance_ci",
       "source": {
-        "fingerprint": "sha256:d6e3166609281386834108d6cfefd16a50220a4b3395b4c383e9886c95d4b2b3",
+        "fingerprint": "sha256:b0ba25db7e01197eeecbd9d41f75a0c5b580f08ef0f03d0f6fde48ed3983d5d3",
         "path": ".engine/tools/issue_conformance_ci.py"
       },
       "status": "active",
@@ -13134,6 +13194,33 @@
       },
       "status": "active",
       "summary": "The shared per-Issue label + minimal-mutation client — the ONE injectable-transport client the on:issues",
+      "type": "tool"
+    },
+    {
+      "entrypoint": "library",
+      "guarded": false,
+      "id": "tool:issue_triage",
+      "name": ".engine/tools/issue_triage.py",
+      "owner": "core",
+      "predicates": {
+        "imports": [
+          "tool:build_coordinator_core",
+          "tool:issue_author",
+          "tool:moment",
+          "tool:release_impact",
+          "tool:telemetry"
+        ],
+        "provided_by": [
+          "module:core"
+        ]
+      },
+      "slug": "issue_triage",
+      "source": {
+        "fingerprint": "sha256:08791dbae5be4e932b9e073118281d1a8a9d7ffe97b09bf9552c09ef51c02326",
+        "path": ".engine/tools/issue_triage.py"
+      },
+      "status": "active",
+      "summary": "Issue-owned release assessment and recovery, independent of final PR release impact.",
       "type": "tool"
     },
     {
@@ -13814,7 +13901,7 @@
       },
       "slug": "module_coherence",
       "source": {
-        "fingerprint": "sha256:ecaa040ce05044c946f350643791f75685f54231abb0efbe2d2cbb6fa2e20b45",
+        "fingerprint": "sha256:504a574a54d2d5b1074e15568d82e6c834c85784b97ac8a5a1aefad6299a4d0f",
         "path": ".engine/tools/module_coherence.py"
       },
       "status": "active",
@@ -14014,6 +14101,7 @@
       "predicates": {
         "imports": [
           "tool:issue_author",
+          "tool:moment",
           "tool:telemetry"
         ],
         "provided_by": [
@@ -14022,7 +14110,7 @@
       },
       "slug": "nightly_demo_report",
       "source": {
-        "fingerprint": "sha256:d3a955cbf6c38f7f4676c2f38a231927c1121f72d549f4ef61a909676ad8ce1b",
+        "fingerprint": "sha256:8bf6e8edeb758a07632e6e03df8b478e354f9e203ef70ba1cae8e8e997de78ae",
         "path": ".engine/tools/nightly_demo_report.py"
       },
       "status": "active",
@@ -15579,7 +15667,7 @@
       },
       "slug": "session_relay",
       "source": {
-        "fingerprint": "sha256:da21863b44451f45376cb0aece3ca49a61548756c8155cf3e436e15509aa5e5d",
+        "fingerprint": "sha256:0774f0be6f6533d8e4bf9d5f67d37ef966dcfcaf41d40d05ce180cab08a8bce0",
         "path": ".engine/tools/session_relay.py"
       },
       "status": "active",
@@ -15941,6 +16029,7 @@
           "tool:capture",
           "tool:github_client",
           "tool:issue_author",
+          "tool:issue_triage",
           "tool:moment",
           "tool:mutation_authority",
           "tool:repo_identity",
@@ -15953,7 +16042,7 @@
       },
       "slug": "telemetry",
       "source": {
-        "fingerprint": "sha256:e0691146d0c81e24e2a3feb3c8385dfcf98a0558186782961a9c0a4da828d294",
+        "fingerprint": "sha256:cbf6538378c907562db57ad21ef40dad7b93776c3d01b31f1bea6a468514e1a8",
         "path": ".engine/tools/telemetry.py"
       },
       "status": "active",
@@ -17028,15 +17117,17 @@
           "tool:capture",
           "tool:close",
           "tool:hooks",
+          "tool:issue_triage",
           "tool:ledger",
           "tool:modes",
           "tool:telemetry",
+          "tool:test_issue_triage",
           "tool:validate"
         ]
       },
       "slug": "test_close",
       "source": {
-        "fingerprint": "sha256:20ee3bf62480675f971154d0dafcfe3a134e4639035f99e88d82f29472083e9c",
+        "fingerprint": "sha256:0acb70b434c54b3ef2b70401b9bcfaec9205e46b62db4c633453b3ec2e35f9d2",
         "path": ".engine/tools/test_close.py"
       },
       "status": "active",
@@ -18257,12 +18348,13 @@
         "tests": [
           "tool:issue_author",
           "tool:issue_kind",
+          "tool:issue_triage",
           "tool:telemetry"
         ]
       },
       "slug": "test_issue_author",
       "source": {
-        "fingerprint": "sha256:f206df4b4b6238e2cb9432ea95a895e92aee4e89ff57b57f0dea13352a060bc4",
+        "fingerprint": "sha256:6011b2714237ae3274cce8368748004fa4ea61c7d63110dc62ef64441478fe97",
         "path": ".engine/tools/test_issue_author.py"
       },
       "status": "active",
@@ -18291,7 +18383,7 @@
       },
       "slug": "test_issue_conformance_ci",
       "source": {
-        "fingerprint": "sha256:e336253f6eaa98905eb2d8af226f9445db9af6bcb89498ca7021f10328d309b0",
+        "fingerprint": "sha256:a362a5e0fd964dd57b9254003914cb0b49bfcdced279078d26aca9369d5e2d55",
         "path": ".engine/tools/test_issue_conformance_ci.py"
       },
       "status": "active",
@@ -18424,6 +18516,31 @@
       },
       "status": "active",
       "summary": "Tests for issue_kind_label — the on:issues applicator that keeps the GitHub-native kind labels consistent.",
+      "type": "tool"
+    },
+    {
+      "entrypoint": "test",
+      "guarded": false,
+      "id": "tool:test_issue_triage",
+      "name": ".engine/tools/test_issue_triage.py",
+      "owner": "core",
+      "predicates": {
+        "provided_by": [
+          "module:core"
+        ],
+        "tests": [
+          "tool:issue_triage",
+          "tool:module_coherence",
+          "tool:release_impact"
+        ]
+      },
+      "slug": "test_issue_triage",
+      "source": {
+        "fingerprint": "sha256:1fc57e97a83f3ecd69646755cb34c141c078e1c5b0f67b91839f8a4308ea6636",
+        "path": ".engine/tools/test_issue_triage.py"
+      },
+      "status": "active",
+      "summary": "Regression tests for assessment, independent assignment and issue-owned recovery.",
       "type": "tool"
     },
     {
@@ -21014,7 +21131,7 @@
       },
       "slug": "test_session_relay",
       "source": {
-        "fingerprint": "sha256:43a50df5766800259244ee5065b5380205825f7da567d73c924f738f332872a2",
+        "fingerprint": "sha256:cb6aaf0d6bff3f6c6cdb55bcae309f03fcd8345a1e161fcecfec5ab656a35fd6",
         "path": ".engine/tools/test_session_relay.py"
       },
       "status": "active",
@@ -21348,6 +21465,7 @@
           "tool:boot",
           "tool:capture",
           "tool:github_client",
+          "tool:issue_triage",
           "tool:standing_situation",
           "tool:telemetry",
           "tool:validate"
@@ -21355,7 +21473,7 @@
       },
       "slug": "test_telemetry",
       "source": {
-        "fingerprint": "sha256:0cf51fe9977e4e23282a7e39d2f2a2473f9f225be1daffe1087bb44a75c60319",
+        "fingerprint": "sha256:d41c7433053c055d39bff8932489d5211fe2e89bd8980db7fda22248dee1da27",
         "path": ".engine/tools/test_telemetry.py"
       },
       "status": "active",
