@@ -43,7 +43,7 @@ class TestObsoleteSetupRoutes(unittest.TestCase):
         mid = "former-addon"
         rel = f".claude/skills/engine-setup-{mid}/SKILL.md"
         old = {"id": mid, "status": "default-on", "presentation": {"setup_trigger": "enable the fixture"}}
-        for shape in ("generated", "authored", "untracked", "still-offerable", "symlink"):
+        for shape in ("generated", "authored", "line-endings", "untracked", "still-offerable", "symlink"):
             with self.subTest(shape=shape), tempfile.TemporaryDirectory() as directory:
                 root, release = Path(directory) / "live", Path(directory) / "release"
                 release.mkdir()
@@ -51,6 +51,8 @@ class TestObsoleteSetupRoutes(unittest.TestCase):
                 target.parent.mkdir(parents=True)
                 body = setup_route_gen._render(mid, old["presentation"])
                 target.write_text(body + ("\nOperator notes.\n" if shape == "authored" else ""))
+                if shape == "line-endings":
+                    target.write_bytes(body.replace("\n", "\r\n").encode("utf-8"))
                 adjacent = target.parent / "operator.md"
                 adjacent.write_text("Keep my notes.\n")
                 if shape == "symlink":
@@ -74,7 +76,9 @@ class TestObsoleteSetupRoutes(unittest.TestCase):
                 self.assertEqual(adjacent.read_text(), "Keep my notes.\n")
                 if shape == "authored":
                     self.assertEqual(target.read_text(), body + "\nOperator notes.\n")
-                if shape in ("authored", "untracked", "symlink"):
+                if shape == "line-endings":
+                    self.assertEqual(target.read_bytes(), body.replace("\n", "\r\n").encode("utf-8"))
+                if shape in ("authored", "line-endings", "untracked", "symlink"):
                     self.assertTrue(removed["left_in_place"])
                 if shape == "symlink":
                     self.assertEqual(outside.read_text(), body)

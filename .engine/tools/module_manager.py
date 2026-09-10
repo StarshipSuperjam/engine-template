@@ -2987,8 +2987,8 @@ def _retire_obsolete_setup_routes(release_tree, candidates, old_by_id, tracked, 
             removed["left_in_place"].append(f"{rel} — left in place: the route is not a contained regular file.")
             continue
         try:
-            with open(target, encoding="utf-8") as handle:
-                unchanged = handle.read() == generated
+            with open(target, "rb") as handle:
+                unchanged = handle.read() == generated.encode("utf-8")
             if tracked is None or rel not in tracked or not unchanged:
                 removed["left_in_place"].append(
                     f"{rel} — left in place: the obsolete setup route is untracked or has authored changes.")
