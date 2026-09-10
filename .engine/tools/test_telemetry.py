@@ -2218,8 +2218,6 @@ class TestCaptureRecoveryResolve(unittest.TestCase):
         self.assertEqual(fake.issues[num]["body"].count("**Resolved"), 1)
 
 
-if __name__ == "__main__":
-    unittest.main()
 
 
 class TestProducerAssessment(unittest.TestCase):
@@ -2273,3 +2271,7 @@ class TestProducerAssessment(unittest.TestCase):
         body = telemetry.REPORT_END + 'human text' + telemetry.REPORT_START
         with self.assertRaises(telemetry.DegradedReadError):
             telemetry._replace_report(body, body)
+
+
+if __name__ == "__main__":
+    unittest.main()

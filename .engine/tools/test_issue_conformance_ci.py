@@ -507,8 +507,6 @@ class TestHelpNeverActs(unittest.TestCase):
         self.assertNotIn("Traceback", twice.stderr)
 
 
-if __name__ == "__main__":
-    unittest.main()
 
 
 class TestTriageOptIn(unittest.TestCase):
@@ -524,3 +522,7 @@ class TestTriageOptIn(unittest.TestCase):
         issue={'number':1,'labels':[{'name':'engine'}],'body':body}
         self.assertEqual(icc.reconcile(issue,client,require_triage=True),'flagged')
         client.add_label.assert_called_once()
+
+
+if __name__ == "__main__":
+    unittest.main()

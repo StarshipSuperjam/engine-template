@@ -7454,8 +7454,6 @@ class TestPreviouslySubmittedAdvisoryReachesBothSurfaces(unittest.TestCase):
         self.assertIn(shared, self._reground("ready"))
 
 
-if __name__ == "__main__":
-    unittest.main()
 
 
 class TestIssueTriageEnvelope(unittest.TestCase):
@@ -7471,3 +7469,7 @@ class TestIssueTriageEnvelope(unittest.TestCase):
         rendered = boot.session_relay.render(envelope)
         self.assertIn('Act on issue #1119', rendered)
         self.assertIn('Acknowledgement alone does not satisfy', rendered)
+
+
+if __name__ == "__main__":
+    unittest.main()

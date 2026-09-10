@@ -396,9 +396,6 @@ class TestBlockInvariant(CloseBase):
         self.assertEqual(findings, [])
 
 
-if __name__ == "__main__":
-    import unittest.mock  # noqa: E402  (imported lazily so the module body stays import-light)
-    unittest.main()
 
 
 class IssueTriageFollowThrough(unittest.TestCase):
@@ -492,3 +489,8 @@ class IssueTriageFollowThrough(unittest.TestCase):
             directive.write_text(json.dumps({'kind':'resume','instruction':'Resume triage now.'}))
             self.assertEqual(self.triage.main(['resume','--session',self.sid,'--input',str(directive),'--confirm']), 0)
             self.assertEqual(self.triage.session_progress(self.client, self.sid)['state'], 'pending')
+
+
+if __name__ == "__main__":
+    import unittest.mock  # noqa: E402  (imported lazily so the module body stays import-light)
+    unittest.main()

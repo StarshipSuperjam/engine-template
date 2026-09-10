@@ -572,8 +572,6 @@ class PreviouslySubmittedAdvisoryTests(unittest.TestCase):
             self.assertIn(line, out)
 
 
-if __name__ == "__main__":
-    unittest.main()
 
 
 class IssueTriageRelayTests(unittest.TestCase):
@@ -596,3 +594,7 @@ class IssueTriageRelayTests(unittest.TestCase):
         rendered = sr.render(envelope)
         self.assertIn('do not claim an empty queue', rendered)
         self.assertNotIn('Pending issues: 0', rendered)
+
+
+if __name__ == "__main__":
+    unittest.main()

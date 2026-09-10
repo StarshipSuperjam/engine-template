@@ -63,7 +63,7 @@ NEEDS_REAUTHORING_LABEL = "needs-reauthoring"
 # The label's colour + description are public so provisioning can mirror them into its one-place label set
 # (a drift-test in test_bootstrap holds the mirror equal to these). This module remains the canonical home.
 NEEDS_REAUTHORING_LABEL_COLOR = "d4c5f9"  # a calm lavender — distinct from the engine label's grey, never an alarm red
-NEEDS_REAUTHORING_LABEL_DESCRIPTION = "Engine-labelled issue needs its structure or assessment repaired on this issue."
+NEEDS_REAUTHORING_LABEL_DESCRIPTION = "Engine Issue not yet in the engine's standard format — the engine will re-file it."
 _LABEL_COLOR = NEEDS_REAUTHORING_LABEL_COLOR              # internal aliases (kept so existing call sites read unchanged)
 _LABEL_DESCRIPTION = NEEDS_REAUTHORING_LABEL_DESCRIPTION
 
