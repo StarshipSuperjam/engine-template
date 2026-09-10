@@ -6506,7 +6506,7 @@
       },
       "slug": "scoped-agent-orchestration",
       "source": {
-        "fingerprint": "sha256:7eb5bdb23e154583a4f00048b725b8c0eefeb4131a9d8b6de33966e0e26ee403",
+        "fingerprint": "sha256:b0d01c77bf86d7decc91939583efd5c5cd6e1629ce44ff49f0de35c4c5fd2a84",
         "path": ".engine/operations/scoped-agent-orchestration.md"
       },
       "status": "active",
@@ -7708,7 +7708,7 @@
       },
       "slug": "scoped-agent-evidence.v1",
       "source": {
-        "fingerprint": "sha256:66cfb0593fbd51b1eb2a55ac79c072d8153b7c0c0e39df3c8b93eea0671fcf82",
+        "fingerprint": "sha256:5e08c6a99743cf8ca38088dec5d8170a3f98fe654959c2894c6ba01c4027380a",
         "path": ".engine/schemas/scoped-agent-evidence.v1.json"
       },
       "status": "active",
@@ -9585,7 +9585,7 @@
       },
       "slug": "build_coordinator",
       "source": {
-        "fingerprint": "sha256:9f6662202f2d23321648625e8afb5238cb3098070e43156bdb000653b7b47df5",
+        "fingerprint": "sha256:e2d7db02d98f124e7740a359fc93136ecd96d2012be33b86110052b3178e78f0",
         "path": ".engine/tools/build_coordinator.py"
       },
       "status": "active",
@@ -14419,7 +14419,7 @@
       },
       "slug": "project_manager",
       "source": {
-        "fingerprint": "sha256:4583114200d7379a69449d490ec54fb330faa8383c91790255595adfe0f5d537",
+        "fingerprint": "sha256:f550d95f9ba972ead323567bb3a8e77aca39d61f215d8a34c41077fe7099c456",
         "path": ".engine/tools/project_manager.py"
       },
       "status": "active",
@@ -14561,7 +14561,7 @@
       },
       "slug": "providers",
       "source": {
-        "fingerprint": "sha256:5c11f4eeef3f1dcd061e03056de5f0c5ae651406599241aab51a44e6a392a002",
+        "fingerprint": "sha256:dce906685c428e12bfe57915679b90c3cd9479e304c06d613d8873f303452b68",
         "path": ".engine/tools/providers.py"
       },
       "status": "active",
@@ -15083,7 +15083,8 @@
       "owner": "core",
       "predicates": {
         "imports": [
-          "tool:plan_store"
+          "tool:plan_store",
+          "tool:providers"
         ],
         "provided_by": [
           "module:core"
@@ -15091,7 +15092,7 @@
       },
       "slug": "review_reader",
       "source": {
-        "fingerprint": "sha256:25516e5777292f21c3c71ac057040efc562905a3411d43f566a4bfa3591eef60",
+        "fingerprint": "sha256:b27ac550a8fbe8c4d0d9823bf22f06c8d063ca3d84f9f328c04463564d3213de",
         "path": ".engine/tools/review_reader.py"
       },
       "status": "active",
@@ -15262,7 +15263,7 @@
       },
       "slug": "scoped_agents",
       "source": {
-        "fingerprint": "sha256:f590618708f9d51b500ea28914752b13f10fb55728d3060d28637ca2fb8148c0",
+        "fingerprint": "sha256:a6bc0612f5a9076f50770136238072e958b4670bd82a89f94881b7eac48cf0bd",
         "path": ".engine/tools/scoped_agents.py"
       },
       "status": "active",
@@ -16379,7 +16380,7 @@
       },
       "slug": "test_build_coordinator",
       "source": {
-        "fingerprint": "sha256:aa2c116c517bbc1b7c41b8d8521dfdb67684e671a34ef5589a23d21dbf88311e",
+        "fingerprint": "sha256:7ea23b8eb2f73b2e313c922d8c7621cb2856a9bf4fbbdf6505220b84dd5ec5d1",
         "path": ".engine/tools/test_build_coordinator.py"
       },
       "status": "active",
@@ -19629,7 +19630,7 @@
       },
       "slug": "test_project_manager",
       "source": {
-        "fingerprint": "sha256:5a2523f3395a0d5073e08b85a278dc09072ec6fba1e40534cee167e012b086e7",
+        "fingerprint": "sha256:99abc8e9b66b1e9cf8d06d027e386301bbbe390428ef99f633a6f4e4a519a9ee",
         "path": ".engine/tools/test_project_manager.py"
       },
       "status": "active",
@@ -19709,7 +19710,7 @@
       },
       "slug": "test_providers",
       "source": {
-        "fingerprint": "sha256:e90382bc9a07baa52766710fe6464e75188a16c75f3dcdae75739b1a8ce1eece",
+        "fingerprint": "sha256:727c4a01d1c247f807755ee6475908c59258eb6ec19ab7aed5038f2e5fe2e60d",
         "path": ".engine/tools/test_providers.py"
       },
       "status": "active",
@@ -20280,7 +20281,7 @@
       },
       "slug": "test_review_reader",
       "source": {
-        "fingerprint": "sha256:ed6826118fb4ba190aa8c2b745d059f5cd550866b016f580f0b9d4429ef4c343",
+        "fingerprint": "sha256:940bc567849756666a68c61b12e5287879d58855615116a059e332321cbf5bbc",
         "path": ".engine/tools/test_review_reader.py"
       },
       "status": "active",
@@ -20483,7 +20484,7 @@
       },
       "slug": "test_scoped_agents",
       "source": {
-        "fingerprint": "sha256:9215a21ce9ca6f4488eb77de1444178e965bcc879d4bf1aae19e89e8c9d4cd08",
+        "fingerprint": "sha256:964aa573a7d89e5eaace5443fb64a3b25f8c66e14d82df721a03d09a89337e36",
         "path": ".engine/tools/test_scoped_agents.py"
       },
       "status": "active",
