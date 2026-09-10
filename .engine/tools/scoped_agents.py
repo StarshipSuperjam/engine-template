@@ -21,6 +21,7 @@ import hooks
 import moment
 import plan_store
 import providers
+import result_contracts
 
 VERSION = "scoped-agent-evidence.v1"
 FILENAME = "scoped-agent-evidence.v1.json"
@@ -120,6 +121,12 @@ class Store:
             raise EvidenceError("Generated review packet changed before freezing; regenerate the packet before dispatch.")
         if len(content) > providers.SCOPED_READ_MAX_BYTES:
             raise EvidenceError(f"Review packet exceeds {providers.SCOPED_READ_MAX_BYTES} UTF-8 bytes; narrow the packet before dispatch.")
+        from validate import frontmatter
+        persona = Path(__file__).resolve().parents[2] / ".claude/agents" / (role + ".md")
+        if not persona.is_file():
+            raise EvidenceError("registered persona is missing; cannot bind its result contract")
+        fields = frontmatter(str(persona))
+        binding = result_contracts.resolve(fields.get("output-contract"), role=fields.get("role"))
         token = "sa_" + uuid.uuid4().hex
         directory = self.path.parent / "scoped-packets"
         self.library._mkdir(directory)
@@ -127,6 +134,7 @@ class Store:
         core.atomic_write(location, content.decode("utf-8"), durable=True, mode=0o600)
         assignment = {"id": token, "owner": copy.deepcopy(owner), "root": root,
                       "purpose": purpose, "lens": lens, "role": role,
+                      "result_contract": binding,
                       "packet_path": str(location), "packet_digest": packet_digest,
                       "file_digest": core.digest(content), "created_at": moment.utc_now(),
                       "launch": None, "child": None, "start": None, "read": None,
@@ -443,6 +451,17 @@ class Store:
             raise EvidenceError(f"{lens}: fresh completed execution is unverified ({len(valid)} unambiguous candidates); preserve evidence and finish or replace the assignment")
         return valid[0]
 
+    def review_report(self, assignment, owner):
+        """Read the entire bound, observed report without changing acceptance metadata."""
+        try:
+            stop = assignment["stops"][-1]
+            if stop["digest"] != core.digest(stop["output"]):
+                result_contracts.reject("observed_digest", category="authority")
+            return result_contracts.ingest(stop["output"], assignment.get("result_contract"),
+                contract="plan-review-finding.v1" if owner["kind"] == "plan" else "pre-submission-review-finding.v1")
+        except result_contracts.Rejection as exc:
+            raise EvidenceError(str(exc)) from exc
+
     def accept_locked(self, *, owner, root, receipt, lenses, packet_digests, prior_receipt=None):
         """Called inside the existing plan/Build transaction, before publishing its receipt.
 
@@ -466,15 +485,13 @@ class Store:
         if len({a["child"] for a in assignments}) != len(assignments):
             raise EvidenceError("one child cannot satisfy several independent lenses")
         for a in assignments:
-            output = json.loads(a["stops"][-1]["output"])
-            schema = "plan-review-finding.v1.json" if owner["kind"] == "plan" else "pre-submission-review-finding.v1.json"
-            for finding in output:
-                core.validate(finding, Path(__file__).resolve().parents[1] / "schemas" / schema)
+            self.review_report(a, owner)
         data = self.read()
         key = receipt_key(receipt)
         for a in assignments:
             data["assignments"][a["id"]]["accepted"] = True
         data["acceptances"][key] = {"owner": owner, "assignments": [a["id"] for a in assignments],
+                                     "result_contracts": {a["id"]: a["result_contract"] for a in assignments},
                                      "outputs": {a["id"]: a["stops"][-1]["digest"] for a in assignments}}
         self.write_locked(data)
 
@@ -497,6 +514,11 @@ class Store:
                 return False
             for assignment_id in accepted["assignments"]:
                 a = data["assignments"][assignment_id]
+                # Historical facts remain readable, but missing contract evidence is unverified.
+                binding = a.get("result_contract")
+                result_contracts.validate_binding(binding)
+                if accepted.get("result_contracts", {}).get(assignment_id) != binding:
+                    return False
                 if a["owner"] != recorded or not a["accepted"] or a["faults"] or not a["stops"]:
                     return False
                 verified = self.verified_locked(owner=recorded, root=a["root"], lens=a["lens"],

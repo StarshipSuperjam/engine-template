@@ -9,6 +9,8 @@ has no backward dependency on the worker-persona surfaces rendered later.
 """
 from __future__ import annotations
 
+import result_contracts
+
 import re
 import secrets
 
@@ -292,6 +294,7 @@ def build_packet(plan: dict, state: dict, node_id: str, route: dict, base_sha: s
     item = node_item(plan, node_id)
     packet = {
         "schema_version": "build-work-packet.v2",
+        "result_contract": result_contracts.resolve("worker-result.v1", role="worker"),
         "build": {"repository": state["build"]["repository"], "pr": state["build"]["pr"]},
         "node": {"id": node_id, "description": item["description"], "paths": item["paths"],
                  "verification": item["verification"], "depends_on": item.get("depends_on", []),

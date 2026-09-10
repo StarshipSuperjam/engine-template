@@ -141,10 +141,12 @@
         "latest_failure": {"oneOf": [{"type": "null"}, {"$ref": "#/$defs/node_failure"}]}
       }
     },
+    "result_binding": {"type": "object", "additionalProperties": false, "required": ["id", "mode", "enforcement", "limits", "schema", "schema_digest"], "properties": {"id": {"type": "string"}, "mode": {"enum": ["structured", "prose"]}, "enforcement": {"enum": ["canonical-ingress", "validation-only", "prose-only"]}, "limits": {"type": "object", "additionalProperties": {"type": "integer", "minimum": 1}}, "schema": {"type": ["object", "boolean", "null"]}, "schema_digest": {"type": ["string", "null"], "pattern": "^sha256:[0-9a-f]{64}$"}}},
     "claim": {
       "type": "object", "additionalProperties": false,
       "required": ["attempt_id", "base_sha", "worktree", "acquired_resources", "requested_route", "worker_ref", "restored"],
       "properties": {
+        "result_contract": {"$ref": "#/$defs/result_binding"},
         "attempt_id": {"$ref": "#/$defs/attempt_id"},
         "base_sha": {"$ref": "#/$defs/commit"},
         "worktree": {"type": "string", "minLength": 1},
@@ -327,6 +329,7 @@
       "type": "object", "additionalProperties": false,
       "required": ["lens", "path", "digest", "lens_packet_digest"],
       "properties": {
+        "result_contract": {"$ref": "#/$defs/result_binding"},
         "lens": {"type": "string", "minLength": 1}, "path": {"type": "string", "minLength": 1},
         "digest": {"$ref": "#/$defs/digest"}, "lens_packet_digest": {"$ref": "#/$defs/digest"}
       }

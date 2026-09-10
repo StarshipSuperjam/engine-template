@@ -83,6 +83,9 @@ class TestWorkClaims(WorkCase):
         nw = self.state()["work"]["shared"]
         self.assertEqual(nw["attempt_count"], 1)
         self.assertEqual(nw["claim"]["attempt_id"], packet["attempt_id"])
+        import result_contracts
+        self.assertEqual(packet["result_contract"], result_contracts.resolve("worker-result.v1"))
+        self.assertEqual(nw["claim"]["result_contract"], packet["result_contract"])
 
     def test_claim_of_a_blocked_node_is_refused(self):
         with self.assertRaisesRegex(bc.CoordinatorError, "not claimable"):

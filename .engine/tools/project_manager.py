@@ -747,12 +747,15 @@ def cmd_review_packet(args) -> int:
     document = library.head(slug)
     packet = plan_projection.render_plan(document, record)
     packet_digest = core.digest(packet.encode("utf-8"))
+    import result_contracts
+    result_binding = result_contracts.resolve("plan-review-finding.v1", role="plan-review")
     covering = required_lenses(approval["depth"], installed_lenses())
     header = (f"Plan review packet — {record['plan_id']} revision {record['current']['revision']}\n"
               f"Plan digest: {record['current']['plan_digest']}\n"
               f"Packet digest: {packet_digest}\n"
               f"Required lenses: {', '.join(covering) or 'none at this depth'}\n"
               f"Depth: {approval['depth']} — {DEPTHS[approval['depth']]}\n"
+              f"Result contract: {json.dumps(result_binding, sort_keys=True)}\n"
               + "=" * 78 + "\n\n")
     if args.output:
         Path(args.output).write_text(header + packet, encoding="utf-8")

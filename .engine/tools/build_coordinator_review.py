@@ -5,6 +5,7 @@ from pathlib import Path
 
 import build_coordinator_core as core
 import close_linkage_preflight
+import result_contracts
 
 
 def installed(root: Path) -> list[dict]:
@@ -70,6 +71,8 @@ def lens_packet_digest(referent_digest: str, contract: dict) -> str:
 
 
 def lens_packets(referent_digest: str, contracts: list[dict]) -> list[dict]:
+    contracts = [{**c, "result_contract": result_contracts.resolve(
+        "pre-submission-review-finding.v1", role="pre-submission-review")} for c in contracts]
     return [
         {**contract, "lens_packet_digest": lens_packet_digest(referent_digest, contract)}
         for contract in contracts

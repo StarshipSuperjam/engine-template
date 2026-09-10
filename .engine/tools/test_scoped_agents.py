@@ -15,6 +15,7 @@ import build_coordinator_core as core
 import plan_store
 import providers
 import scoped_agents as scoped
+import result_contracts
 
 
 class ScopedAssignments(unittest.TestCase):
@@ -106,6 +107,25 @@ class ScopedAssignments(unittest.TestCase):
         self.assertEqual(assignments[0]["file_digest"], expected)
         self.assertEqual(assignments[0]["packet_digest"], "logical-lens-target")
         self.assertEqual(Path(assignments[0]["packet_path"]).read_bytes(), self.packet.read_bytes())
+
+    def test_result_binding_is_frozen_and_invalid_acceptance_does_not_mutate(self):
+        self.owner["kind"] = "plan"
+        self.a = self.register("architecture")
+        self.launch(); self.child_read(); self.stop()
+        binding = self.a["result_contract"]
+        self.assertEqual(binding, result_contracts.resolve("plan-review-finding.v1"))
+        receipt = {"lens": "architecture", "packet_digest": self.a["packet_digest"]}
+        for mutation in (None, {**binding, "schema_digest": "sha256:" + "0" * 64}):
+            def change(data):
+                data["assignments"][self.a["id"]].pop("result_contract", None)
+                if mutation is not None:
+                    data["assignments"][self.a["id"]]["result_contract"] = mutation
+            self.store.change(change)
+            before = self.store.path.read_bytes()
+            with self.assertRaises(scoped.EvidenceError):
+                self.store.accept_locked(owner=self.owner, root="root-id", receipt=receipt,
+                    lenses=["architecture"], packet_digests={"architecture": self.a["packet_digest"]})
+            self.assertEqual(before, self.store.path.read_bytes())
 
     def test_native_capacity_rejection_permits_one_fresh_retry_and_preserves_failure(self):
         args = {"task_name": self.a["id"], "agent_type": self.a["role"], "fork_turns": "none", "message": "opaque launch"}

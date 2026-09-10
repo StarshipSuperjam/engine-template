@@ -58,6 +58,12 @@
             "additionalProperties": {
               "type": "string"
             }
+          },
+          "result_contracts": {
+            "type": "object",
+            "additionalProperties": {
+              "$ref": "#/$defs/result_binding"
+            }
           }
         }
       }
@@ -338,6 +344,60 @@
               }
             }
           }
+        },
+        "result_contract": {
+          "$ref": "#/$defs/result_binding"
+        }
+      }
+    },
+    "result_binding": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "id",
+        "mode",
+        "enforcement",
+        "limits",
+        "schema",
+        "schema_digest"
+      ],
+      "properties": {
+        "id": {
+          "type": "string"
+        },
+        "mode": {
+          "enum": [
+            "structured",
+            "prose"
+          ]
+        },
+        "enforcement": {
+          "enum": [
+            "canonical-ingress",
+            "validation-only",
+            "prose-only"
+          ]
+        },
+        "limits": {
+          "type": "object",
+          "additionalProperties": {
+            "type": "integer",
+            "minimum": 1
+          }
+        },
+        "schema": {
+          "type": [
+            "object",
+            "boolean",
+            "null"
+          ]
+        },
+        "schema_digest": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "pattern": "^sha256:[0-9a-f]{64}$"
         }
       }
     }

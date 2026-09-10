@@ -4764,6 +4764,7 @@ def cmd_work_claim(args, store: Snapshot) -> None:
         nw["latest_failure"] = None
         state["work"][args.item] = nw
         emitted["packet"] = work.build_packet(plan, state, args.item, effective_route, base_sha, attempt_id, args.worktree)
+        nw["claim"]["result_contract"] = emitted["packet"]["result_contract"]
 
     _work_mutate(store, change)
     if "blocked" in emitted:
