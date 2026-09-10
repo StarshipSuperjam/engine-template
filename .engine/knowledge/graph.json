@@ -13285,7 +13285,7 @@
       },
       "slug": "issue_triage",
       "source": {
-        "fingerprint": "sha256:a4181c56ee95d15ae71506bcc94fa55cae3d2453a79e1d69d3c943255d7d3d9d",
+        "fingerprint": "sha256:82bbb8016d099a85cd49f05ce694505e516055ad7781e221e8058cbb1d73777a",
         "path": ".engine/tools/issue_triage.py"
       },
       "status": "active",
@@ -16136,7 +16136,7 @@
       },
       "slug": "telemetry",
       "source": {
-        "fingerprint": "sha256:a2356badfd301d8d0e7324aa33bf171e2147ec76a23d7d2b90337b4ed350f95c",
+        "fingerprint": "sha256:ff04dfd402a2fd59a6a0157909189a9bff74c45fd980dd60f52dc908faee49e8",
         "path": ".engine/tools/telemetry.py"
       },
       "status": "active",
@@ -18634,7 +18634,7 @@
       },
       "slug": "test_issue_triage",
       "source": {
-        "fingerprint": "sha256:80b9eb1dabc812db7db38587b635e503c6817aacea2c5cd76e392deadbf62f4b",
+        "fingerprint": "sha256:03d3166a996ded03aab87c697d2f31a7ceb5f01d955239ef7e1591f7c1298ffe",
         "path": ".engine/tools/test_issue_triage.py"
       },
       "status": "active",
@@ -21602,7 +21602,7 @@
       },
       "slug": "test_telemetry",
       "source": {
-        "fingerprint": "sha256:e28fba5dab0f19f83ea90803a10a6b2f6153bc424ed8163ced9b6abd1458697f",
+        "fingerprint": "sha256:eeb78484fa3fcb10272d7e058a8181c29e96949e8de0e3070de26c57d0fe660e",
         "path": ".engine/tools/test_telemetry.py"
       },
       "status": "active",
