@@ -891,20 +891,21 @@ def handler(payload: dict) -> dict:
     # The engine-Issue reroute — fires in Explore AND Build (the channel rule is unconditional), so it is
     # checked before the stance short-circuit. issue_gate holds the matcher; here we wrap its reason. It now
     # reroutes EVERY direct engine-labelled creation (Bash/API/connector) to the helper's create CLI.
-    reroute = issue_gate.reroute_reason(tool_name, tool_input)
+    cwd = payload.get("cwd") if isinstance(payload, dict) else None
+    reroute = issue_gate.reroute_reason(tool_name, tool_input, cwd=cwd)
     if reroute is not None:
         return hooks.decide("deny", reroute)
+    limitation = issue_gate.classification_limitation(tool_name, tool_input, cwd=cwd)
     # The protected-merge nudge — also STANCE-INDEPENDENT (the session never merges the protected branch in
     # any stance; that is the operator's consent act), so likewise checked before the stance short-circuit.
     if is_merge_action(tool_name, tool_input):
         return hooks.decide("deny", _MERGE_DENIAL)
     session_id = payload.get("session_id") if isinstance(payload, dict) else None
     if current_stance(session_id) != EXPLORE:
-        return hooks.proceed()                       # Build / Routine permit the write
+        return hooks.inject(limitation) if limitation else hooks.proceed()
     permission_mode = payload.get("permission_mode") if isinstance(payload, dict) else None
     import providers  # lazy: keep modes importable stand-alone in tests that stub the seam
     provider = providers.detect(payload)
-    cwd = payload.get("cwd") if isinstance(payload, dict) else None
     if is_building_action(tool_name, tool_input) \
             and not is_plan_artifact(tool_name, tool_input, permission_mode, cwd, provider) \
             and not is_harness_memory_write(tool_name, tool_input, cwd, provider):
@@ -917,8 +918,10 @@ def handler(payload: dict) -> dict:
             reason = _plan_mode_denial(cwd)
         else:
             reason = _DENIAL
+        if limitation:
+            reason += "\n\n" + limitation
         return hooks.decide("deny", reason)
-    return hooks.proceed()      # reads, tests, greps, an unlabelled/conforming gh issue, subagents, the plan file
+    return hooks.inject(limitation) if limitation else hooks.proceed()
 
 
 # ---- the native-plan intake adapters ------------------------------------------

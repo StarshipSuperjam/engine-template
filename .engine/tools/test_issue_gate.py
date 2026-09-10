@@ -13,6 +13,7 @@ from __future__ import annotations
 
 import shlex
 import unittest
+from unittest import mock
 
 import issue_author
 import issue_gate
@@ -24,9 +25,9 @@ CONFORMING = issue_author.render_engine_issue_body(what_this_is="a demo item", w
 FREE_TEXT = "just some free text with no contract markers at all"
 
 
-def _reason(command: str):
+def _reason(command: str, **kwargs):
     """The gate's verdict for a Bash command string: a reason str (reroute) or None (allow)."""
-    return issue_gate.reroute_reason("Bash", {"command": command})
+    return issue_gate.reroute_reason("Bash", {"command": command}, **kwargs)
 
 
 def _create(body: str, *, label: str | None = "engine", flag: str = "-b") -> str:
@@ -67,12 +68,16 @@ class TestEveryEngineCreationReroutes(unittest.TestCase):
     def test_chained_command_is_rerouted(self):
         self.assertIsNotNone(_reason("cd /tmp && " + _create(FREE_TEXT)))
 
-    def test_reason_names_the_create_cli_and_the_escape_hatch(self):
+    def test_reason_names_the_private_runtime_envelope_and_no_fallback(self):
         reason = _reason(_create(FREE_TEXT))
         self.assertIn(".engine/tools/issue_author.py", reason)   # the in-repo helper, not a cross-repo path
         self.assertIn("create", reason)                          # points at the supported create path
         self.assertIn("--confirm", reason)
-        self.assertIn("drop the `engine` label", reason)         # the not-an-engine-Issue escape hatch
+        self.assertIn("--frozen", reason)
+        self.assertIn("submission_id", reason)
+        self.assertIn("assessment", reason)
+        self.assertIn("Product scope", reason)
+        self.assertNotIn("drop the `engine` label", reason)
 
 
 class TestConnectorArm(unittest.TestCase):
@@ -98,6 +103,20 @@ class TestConnectorArm(unittest.TestCase):
     def test_connector_without_engine_label_is_allowed(self):
         self.assertIsNone(issue_gate.reroute_reason(
             "mcp__github__github_create_issue", {"title": "x", "labels": ["bug"]}))
+
+    def test_current_connector_repository_full_name_routes_unlabelled_trusted_create(self):
+        self.assertIsNotNone(issue_gate.reroute_reason(
+            "mcp__codex_apps__github_create_issue",
+            {"title": "x", "repository_full_name": "trusted/project"},
+            trusted_targets=["trusted/project"]))
+
+    def test_legacy_connector_owner_repo_and_external_repository_stay_distinct(self):
+        self.assertIsNotNone(issue_gate.reroute_reason(
+            "mcp__github__create_issue", {"owner": "trusted", "repo": "project"},
+            trusted_targets=["trusted/project"]))
+        self.assertIsNone(issue_gate.reroute_reason(
+            "mcp__github__create_issue", {"repository": "elsewhere/project"},
+            trusted_targets=["trusted/project"]))
 
     def test_connector_with_no_labels_field_is_allowed(self):
         self.assertIsNone(issue_gate.reroute_reason("some__github_create_issue", {"title": "x"}))
@@ -132,6 +151,78 @@ class TestAllows(unittest.TestCase):
         # command-position anchored: the verb inside an argument (echo/grep) is not a real invocation
         self.assertIsNone(_reason('echo gh issue create --label engine -b "free text"'))
         self.assertIsNone(_reason('grep "gh issue create" notes.md'))
+
+
+class TestTrustedTargetRouting(unittest.TestCase):
+    """Unlabelled direct creates route only after an offline trusted-target match."""
+
+    def test_porcelain_and_exact_rest_collection_route_trusted_targets(self):
+        targets = ["trusted/project"]
+        self.assertIsNotNone(_reason("gh issue create -R trusted/project -t x", trusted_targets=targets))
+        self.assertIsNotNone(_reason("gh api repos/trusted/project/issues -f title=x", trusted_targets=targets))
+
+    def test_explicit_get_item_comment_and_external_target_do_not_route(self):
+        targets = ["trusted/project"]
+        for command in (
+                "gh api -X GET repos/trusted/project/issues",
+                "gh api -X POST repos/trusted/project/issues/12",
+                "gh api -X POST repos/trusted/project/issues/12/comments",
+                "gh issue create -R elsewhere/project -t x"):
+            self.assertIsNone(_reason(command, trusted_targets=targets), command)
+
+    def test_command_boundaries_prevent_target_and_label_leaks(self):
+        targets = ["trusted/project"]
+        self.assertIsNone(_reason(
+            "gh issue create -R elsewhere/project -t x; echo --label engine",
+            trusted_targets=targets))
+        self.assertIsNone(_reason(
+            "gh api repos/elsewhere/project/issues -f title=x && echo --repo trusted/project",
+            trusted_targets=targets))
+
+    def test_opaque_or_dynamic_forms_fail_open(self):
+        targets = ["trusted/project"]
+        for command in ("eval 'gh issue create -R trusted/project'", "gh issue create -R $REPO -t x"):
+            self.assertIsNone(_reason(command, trusted_targets=targets), command)
+
+    def test_invalid_explicit_target_never_falls_back_to_checkout_origin(self):
+        with mock.patch.object(issue_gate, "_origin_for_directory", return_value="trusted/project"):
+            self.assertIsNone(_reason("gh issue create -R $REPO -t x", cwd="/session",
+                                      trusted_targets=["trusted/project"]))
+        self.assertEqual(issue_gate.classification_limitation(
+            "Bash", {"command": "gh issue create --repo https://evil.example/trusted/project -t x"},
+            cwd="/session"), issue_gate.CLASSIFICATION_LIMITATION)
+
+    def test_github_url_target_is_accepted_and_unresolved_forms_are_visible(self):
+        self.assertIsNotNone(_reason("gh issue create -R https://github.com/trusted/project -t x",
+                                     trusted_targets=["trusted/project"]))
+        self.assertEqual(issue_gate.classification_limitation(
+            "Bash", {"command": "gh issue create -R $REPO -t x"}, cwd="/session"),
+            issue_gate.CLASSIFICATION_LIMITATION)
+
+    def test_missing_origin_and_absent_session_context_are_visible_limitations(self):
+        with mock.patch.object(issue_gate, "_origin_for_directory", return_value=None):
+            self.assertEqual(issue_gate.classification_limitation(
+                "Bash", {"command": "gh issue create -t x"}, cwd="/known-checkout"),
+                issue_gate.CLASSIFICATION_LIMITATION)
+        self.assertEqual(issue_gate.classification_limitation(
+            "Bash", {"command": "gh issue create -R elsewhere/project -t x"}),
+            issue_gate.CLASSIFICATION_LIMITATION)
+
+    def test_body_label_text_and_api_input_filename_are_not_creation_metadata(self):
+        targets = ["trusted/project"]
+        self.assertIsNone(_reason(
+            "gh issue create -R elsewhere/project -b 'labels[]=engine'", trusted_targets=targets))
+        self.assertIsNone(_reason(
+            "gh api -X POST repos/elsewhere/project/issues/12/comments --input repos/trusted/project/issues",
+            trusted_targets=targets))
+
+    def test_command_checkout_resolves_target_but_never_enlarges_trust(self):
+        with mock.patch.object(issue_gate, "_origin_for_directory", return_value="elsewhere/project"):
+            self.assertIsNone(_reason("gh -C /other issue create -t x",
+                                      cwd="/session", trusted_targets=["trusted/project"]))
+        with mock.patch.object(issue_gate, "_origin_for_directory", return_value="trusted/project"):
+            self.assertIsNotNone(_reason("cd /trusted && gh issue create -t x",
+                                         cwd="/session", trusted_targets=["trusted/project"]))
 
 
 class TestLabelDetectionPrecise(unittest.TestCase):
