@@ -1906,6 +1906,20 @@ def kind_custom_script(rule, ctx):
         proc = subprocess.run([sys.executable, path], capture_output=True, text=True,
                               env=env, timeout=120)
     except Exception as exc:
+        # These two checks may be waiting for a just-applied acknowledgment. Keep the whole-process
+        # deadline and hard failure; a timeout is not evidence that every poll finished or consent exists.
+        ack_checks = {
+            ("engine/check/guardrail-weakening", ".engine/tools/weakening_guard.py"): "engine-guard",
+            ("engine/check/product-lock-integrity", ".engine/tools/product_design/lock_integrity.py"): "engine-ci",
+        }
+        retry_check = ack_checks.get((rule.get("id"), script))
+        if isinstance(exc, subprocess.TimeoutExpired) and retry_check:
+            return False, [finding("hard", f"Check '{rule.get('id')}' could not finish '{script}' "
+                           "within its 120-second execution limit (fails closed). Verification did not "
+                           f"finish; re-run {retry_check}. If you just applied the acknowledgment label, "
+                           "its record may still be landing. Do not remove and re-apply the label just "
+                           "to retry the check. If it keeps timing out, inspect the check log and the "
+                           "acknowledgment workflow. A new commit still needs its own acknowledgment.")]
         return False, [finding("hard", f"Check '{rule.get('id')}' could not run '{script}': "
                        f"{exc} (fails closed).")]
     if proc.returncode != 0:

@@ -115,8 +115,10 @@ _TRUSTED_CREATOR_SET = frozenset(login.casefold() for login in _ACK_TRUSTED_CREA
 # not re-trigger this check). When the label is present but the status has not landed yet, retry a bounded few
 # times before failing closed — sized to exceed the companion's post latency, and only when a status is actually
 # expected (the label is on the pull request), so a legitimately-unacked pull request is never padded with waits.
-_ACK_POLL_TRIES = 4
-_ACK_POLL_SLEEP = 3
+# Three reads at 0/30/60 seconds cover the observed late acknowledgment. This is a sleep budget,
+# not a runtime promise: API work also counts toward the validator's whole-process deadline.
+_ACK_POLL_TRIES = 3
+_ACK_POLL_SLEEP = 30
 # The guarded set is defined by a PROPERTY, not a path-prefix list: a committed file that constitutes
 # or configures an enforcement gate — one whose change could remove, disable, rename, or loosen a check, a
 # permission/enforcement hook, or a branch protection. Non-gate tooling (session boot, memory, telemetry, the
@@ -2701,12 +2703,16 @@ _ACK_APPLY_NOTE = (
     f"To approve this deliberately, apply the `{ACK_LABEL}` label to this pull request (one deliberate action, "
     "distinct from the merge click).")
 _ACK_REAPPLY_NOTE = (
-    f"To acknowledge THIS version, apply the `{ACK_LABEL}` label again. If the label is still attached from an "
-    "earlier version, remove it and re-apply it — an already-present label posts no fresh acknowledgment. If "
-    "you just applied it, the acknowledgment record may still be landing; re-run this check in a moment.")
+    "If you just applied the label to this version, the acknowledgment record may still be landing; "
+    "re-run this check in a moment. Do not remove and re-apply the label just to retry the check. "
+    "If a new commit was pushed since you acknowledged it, review this version before approving it: "
+    f"remove the old `{ACK_LABEL}` label and re-apply it to acknowledge THIS version. "
+    "An already-present label posts no fresh acknowledgment. If re-running still blocks, inspect this "
+    "commit's `engine-ack` status and the acknowledgment workflow for a failure or rejected approval.")
 _ACK_FAILCLOSED_NOTE = (
     "GUARDRAIL CHECK: could not read the acknowledgment status for this pull request's head; failing closed. "
-    f"Re-run this check; if it persists, re-apply the `{ACK_LABEL}` label to re-post the acknowledgment.")
+    "Re-run this check; if it persists, inspect the acknowledgment workflow and this commit's "
+    "`engine-ack` status. Do not remove and re-apply the label just to retry the check.")
 # Appended to a DOWNGRADE (the ack cleared a killswitch finding) so the operator is never misled about WHAT
 # the acknowledgment proves (StarshipSuperjam/engine-template#958). Deliberately tier-AGNOSTIC: it reads no
 # committed manifest, so the guard's verdict stays derived purely from the live file listing and the live
