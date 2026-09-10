@@ -453,7 +453,12 @@ def main(argv=None) -> int:
     args=parser.parse_args(argv)
     try:
         if args.verb == 'demo':
-            print(json.dumps(demo(expected_pending=args.expected_pending), indent=2))
+            try:
+                result = demo(expected_pending=args.expected_pending)
+            except AssertionError as exc:
+                print(f'Demo failed: {exc}', file=sys.stderr)
+                return 1
+            print(json.dumps(result, indent=2))
             return 0
         if args.verb == 'pause':
             if not args.session or not args.confirm or not args.input:

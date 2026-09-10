@@ -58,7 +58,8 @@ Use `create --retry` only to reconcile an uncertain operation; an absent or ambi
 another POST. Configure mappings and recover pending work through `triage`; see
 `.engine/operations/issue-triage.md`. Unlabelled human issues remain exempt, while adding `engine` opts in.
 The formatter functions above remain passive; these CLI and producer boundaries perform network writes.
-Direct-session routing enforcement (#1093) and App/credential integration (#914) remain separate work.
+Direct-session routing enforcement (StarshipSuperjam/engine-template#1093) and App/credential integration
+(StarshipSuperjam/engine-template#914) remain separate work.
 Run `triage demo` for the offline, asserted end-to-end behavior, or pass `--expected-pending 0` to
 demonstrate that an intentionally wrong expectation fails.
 
