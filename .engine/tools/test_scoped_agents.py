@@ -4,9 +4,12 @@ import copy
 import json
 import os
 from pathlib import Path
+import sys
 import tempfile
 import unittest
 from unittest import mock
+
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
 import build_coordinator_core as core
 import plan_store

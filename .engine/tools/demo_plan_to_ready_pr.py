@@ -20,7 +20,7 @@ with its own throwaway plan library, so no command can pass by leaning on this i
 and nothing here can touch your real plans, your real repository, or a real pull request. The Plan
 Coordinator and the Build Coordinator are both invoked as real subprocesses rooted in that copy.
 
-Two things are stood in for, and both are named rather than hidden:
+Three things are stood in for, and each is named rather than hidden:
 
   * GITHUB. A tiny fake `gh` models one pull request in a JSON file. CI cannot reach GitHub and must
     never mutate a real pull request, so the boundary the coordinator shells out to is faked — the same
@@ -28,8 +28,11 @@ Two things are stood in for, and both are named rather than hidden:
   * THE SUBMISSION ACCOUNTING. Reaching the ready gate honestly needs a full validation run (the CI
     suite and the self-tests, minutes of work) plus preflight results and a composed pull-request body.
     Those are seeded, exactly as demo_959 seeds them, because they are that demonstration's subject and
-    this one's is the ENTRY DOOR. What is not seeded is everything from `init` to `work integrate`:
-    that entire chain is the real tools, refusing and succeeding on their own terms.
+    this one's is the ENTRY DOOR.
+  * THE REVIEWER. Synthetic launch, packet-read and completed-output events in the throwaway library
+    stand in for one reviewer. The real review acceptance command consumes them; this demonstration
+    does not qualify any runtime's native agent execution. All entry and integration commands remain
+    the real tools, refusing and succeeding on their own terms.
 
 Run: uv run --directory .engine -- python tools/demo_plan_to_ready_pr.py
 """
@@ -193,6 +196,23 @@ def _plan_cmd(copy, env, *args):
     return _tool(copy, "project_manager.py", env, *args)
 
 
+def _observe_demo_review(copy, env, plan_id, digest):
+    """Simulate one reviewer only inside this demonstration's disposable library."""
+    script = """
+import sys
+import plan_store
+import scoped_agents
+from test_build_coordinator import observe_review_execution
+library = plan_store.PlanLibrary(sys.argv[1])
+slug = library.resolve(sys.argv[2])
+observe_review_execution(library, slug, scoped_agents.plan_owner(library.read_record(slug)),
+                         'architecture', sys.argv[3], [], root='demo-review-root')
+"""
+    return subprocess.run([sys.executable, "-c", script, env["ENGINE_PLAN_DIR"], plan_id, digest],
+                          cwd=os.path.join(copy, ".engine", "tools"), capture_output=True,
+                          text=True, env=env)
+
+
 def _build_cmd(copy, env, state_path, *args, ownership=None):
     expected = []
     if ownership is not None:
@@ -285,10 +305,13 @@ def _arc_one(copy, head, env, pr_state, holder):
     # what the reviewer actually read, which is why `review record` re-renders and compares.
     digest = next((line.split(":", 1)[1].strip() for line in packet.stdout.splitlines()
                    if line.startswith("Packet digest:")), "")
+    observed = _observe_demo_review(copy, env, gate_id, digest)
+    ok &= _pass("synthetic reviewer events are observed", observed.returncode == 0,
+                "disposable event fixture; no native runtime qualification is claimed")
     recorded = _plan_cmd(copy, env, "review", "record", gate_id, "--packet-digest", digest,
-                         "--lens", "architecture")
+                         "--lens", "architecture", "--session", "demo-review-root")
     ok &= _pass("one reviewer's review is recorded", recorded.returncode == 0,
-                "architecture read that plan; the others its level calls for did not")
+                "the architecture event fixture was accepted; the other required lenses are absent")
     short = _plan_cmd(copy, env, "seal", gate_id, "--delta-judgment", "none",
                            "--operator-decided")
     ok &= _pass("cannot seal a thorough plan one reviewer looked at", short.returncode != 0,
@@ -470,6 +493,7 @@ def main(_argv=None) -> int:
         return 1
     print("What this checks: a plan cannot be sealed before it is approved, cannot start a Build before")
     print("it is sealed, and — once it is — carries all the way to a pull request ready for you.\n")
+    print("GitHub, submission accounting and reviewer events are simulated; acceptance commands are real.\n")
     holder = tempfile.mkdtemp(prefix="entry-door-demo-")
     try:
         copy, head, env, pr_state = _throwaway(holder)

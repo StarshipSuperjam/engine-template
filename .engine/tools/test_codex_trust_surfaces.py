@@ -7,8 +7,11 @@ notices directly. Setup-only copy is tested in test_instantiator so this file su
 from __future__ import annotations
 import os
 import re
+import sys
 import unittest
 from unittest import mock
+
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
 import boot
 import validate

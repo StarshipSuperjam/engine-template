@@ -168,13 +168,21 @@ class TheFullDistance(_Dogfood):
         # review actually raised.
         findings_file = Path(self._tmp.name) / "findings.json"
         findings_file.write_text(json.dumps(REVIEW_FINDINGS), encoding="utf-8")
+        import scoped_agents
+        from test_build_coordinator import observe_review_execution
+        owner = scoped_agents.plan_owner(self.lib.read_record(slug))
+        digest = self._packet_digest(slug)
+        for lens in ("architecture", "feasibility", "product-intent", "risk-governance"):
+            output = [{"severity": f["severity"], "message": f["summary"], "location": None}
+                      for f in REVIEW_FINDINGS if f["lens"] == lens]
+            observe_review_execution(self.lib, slug, owner, lens, digest, output)
         _run(library + ["review", "record", slug,
                         "--lens", "architecture", "--lens", "feasibility",
                         "--lens", "product-intent", "--lens", "risk-governance",
                         # The receipt names the PACKET it read, and `review record` now re-renders and
                         # compares — the plan digest is a different thing and no longer stands in for it.
                         "--packet-digest", self._packet_digest(slug),
-                        "--findings", str(findings_file)])
+                        "--findings", str(findings_file), "--session", "fixture-root"])
         return slug, document
 
     def _dispose_all(self, slug):
