@@ -57,13 +57,10 @@ reference on the claim when the runtime can give one.
 ### Record and integrate the result
 
 `work result --item <id> --attempt <id> --plan <plan> --input <result.json>` binds a worker's result to its
-claim. The result is a complete `worker-result.v1` semantic report, validated against the binding frozen in the claim.
-The Engine supplies attempt and base identity; the model must not claim them. Every evidence array is required,
-and verification entries retain command, outcome and detail. A stale attempt or invalid report is refused
-without changing the claim or retry count. In accepted-candidate mode, stage the candidate before this command;
-the Engine observes the staged tree digest. Worker-commit mode requires `artifact_ref`.
-See [Executable persona result contracts](../docs/result-contracts.md) for exact shapes and the falsification demo. A returned result
-frees the worker slot but keeps the node's resources reserved.
+claim. The complete `worker-result.v1` report is validated against the frozen binding; the Engine supplies identity.
+Required evidence arrays preserve verification command, outcome and detail. Invalid reports change no claim or retry count.
+Stage accepted-candidate results before submission so the Engine observes the digest; worker-commit results require `artifact_ref`.
+A returned result frees the worker slot but reserves its resources. See [result contracts](../docs/result-contracts.md) for shapes and demo.
 
 `work integrate --item <id> --attempt <id> --commit <sha> --verification-input <summary>` is how a node reaches
 `complete`: the orchestrator inspected the returned artifact and applied it on the single PR branch, and the

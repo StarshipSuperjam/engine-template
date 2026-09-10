@@ -50,15 +50,7 @@ Only proven imported target ancestry and that exact automatic merge are exempt f
 A clean catch-up alone needs no receipt-loss flag or extra counted panel. Conflicts, extra merge edits, unrelated/octopus merges, missing objects, ambiguous targets or failed proof remain ordinary authored/unverified work; use the warranted scoped/full judgment.
 Failed remote verification grants no new exemption: check the clean checkout, pushed draft identity and fetched target, then retry. Intentional rebases use [Build continuity](build-continuity.md). Re-import final CI proof after later changes.
 
+See [Executable persona result contracts](../docs/result-contracts.md): dispatch binding, observed-report validation, substitution refusal, recovery and demo.
 ## Done when
 The final head has green candidate and imported CI evidence, every finding has a disposition, and every divergence has its proportional judgment and required receipts.
 Status reports submission-preflight and names [Build submission](build-submission.md).
-
-## Result contract at ingress
-
-Dispatch freezes the canonical result binding. Review acceptance validates the complete observed output and
-refuses a substituted caller copy before changing acceptance metadata. Original semantic reports remain in the
-private scoped companion; controller corrections and dispositions remain separate. Use strict raw report
-input for producer output, and the explicit controller path only for controller projections. See
-[Executable persona result contracts](../docs/result-contracts.md) for shapes, limits, legacy recovery and
-`demo_result_contracts.py`, the disposable positive/negative command demonstration.

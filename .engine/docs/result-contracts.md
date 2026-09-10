@@ -4,10 +4,14 @@ title: Executable persona result contracts
 
 # Executable persona result contracts
 
+## What this covers
+
 The Engine binds a versioned result contract to dispatch and validates the entire observed report
 before accepting it. JSON syntax alone earns no credit. The registry in
 `tools/result_contracts.py` names each schema, producer role, compiler, ingress handler and enforcement level.
 The agent-coherence check runs positive and deliberately invalid reports through every structured handler.
+
+## What you need to know
 
 | Producer | Contract | Enforcement |
 | --- | --- | --- |
@@ -23,7 +27,7 @@ enforcement level and limits. Worker claims and scoped assignments freeze that b
 changed binding refuses new acceptance. Native structured formatting is currently unqualified; the
 Engine makes no provider-format guarantee and always runs canonical ingress.
 
-## Reviewer reports
+### Reviewer reports
 
 Return a complete JSON array:
 
@@ -53,7 +57,7 @@ The private scoped companion retains validated semantic reports, original output
 linked to the published consumer receipt. `finding amend`, `finding dispose` and Build `finding record`
 remain separate controller corrections or adjudications. They do not rewrite the original report.
 
-## Worker reports
+### Worker reports
 
 ```json
 {
@@ -82,7 +86,7 @@ The trusted claim supplies attempt, base and route. Existing scope, ancestry, re
 checks still run at integration. A rejected report changes neither Build state nor retry count. There are
 no automatic retries or format-repair loops.
 
-## Limits, refusal and history
+### Limits, refusal and history
 
 Result files and stdin are read with a 1 MiB bound before decoding. JSON must be UTF-8, contain no duplicate
 keys or nonfinite numbers, and stay within depth 64, 10,000 values (including object keys), 1,000 items per
@@ -101,9 +105,9 @@ existing plan/Build lifecycle. A prior seal is not silently upgraded.
 Audit is narrower: the typed adapter distinguishes absent, rejected and valid full conformance blocks.
 Only valid divergences are promoted. Rejection is disclosed; the outer audit still strips the block and
 continues successfully, and independently derived degradation notices keep their policy. No audit result
-receipt or durable retention of every meets/unsure verdict is promised here; issue #815 owns that work.
+receipt or durable retention of every meets/unsure verdict is promised here; issue StarshipSuperjam/engine-template#815 owns that work.
 
-## Falsification demo
+### Falsification demo
 
 Run `uv run --directory .engine --frozen -- python tools/demo_result_contracts.py`.
 It executes real command handlers against disposable stores with synthetic transport observations.

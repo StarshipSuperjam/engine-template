@@ -167,7 +167,7 @@ class TheFullDistance(_Dogfood):
         # One cold panel, four lenses, against the approved revision — carrying the findings the real
         # review actually raised.
         findings_file = Path(self._tmp.name) / "findings.json"
-        findings_file.write_text(json.dumps(REVIEW_FINDINGS), encoding="utf-8")
+        findings_file.write_text(json.dumps(sorted(REVIEW_FINDINGS, key=lambda f: f["lens"])), encoding="utf-8")
         import scoped_agents
         from test_build_coordinator import observe_review_execution
         owner = scoped_agents.plan_owner(self.lib.read_record(slug))
@@ -182,7 +182,7 @@ class TheFullDistance(_Dogfood):
                         # The receipt names the PACKET it read, and `review record` now re-renders and
                         # compares — the plan digest is a different thing and no longer stands in for it.
                         "--packet-digest", self._packet_digest(slug),
-                        "--findings", str(findings_file), "--session", "fixture-root"])
+                        "--findings", str(findings_file), "--controller-findings", "--session", "fixture-root"])
         return slug, document
 
     def _dispose_all(self, slug):
