@@ -115,7 +115,7 @@ claims remain in `test_issue_triage.py`; the explicit duplicate-creation and los
 also remain regression tests. This demonstration makes no live GitHub writes and proves no live-service
 atomicity or provider hook qualification.
 
-## New submissions and durable recovery
+### New submissions and durable recovery
 
 The issue helper now owns complete creation, including explicit scope, trusted repository, rendering,
 assessment, assignment and durable send authorization. Legacy Engine input remains supported. Use

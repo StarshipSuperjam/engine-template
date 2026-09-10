@@ -9,7 +9,9 @@ The journal retains the intended content, stable submission identity, send claim
 A restart or an empty GitHub search never grants permission to replay a claimed send. Ordinary product
 issues use the helper's explicit product scope without Engine markers or this journal.
 
-## Before activation
+## Steps
+
+### 1. Check publication and permissions
 
 The journal lives on `refs/heads/codex/engine-issue-recovery`, an orphan data branch containing only
 `.engine/issue-recovery/journal.json`. Its content has the repository's visibility and remains in Git history.
@@ -25,7 +27,7 @@ It is preserved across upgrades and excluded from upstream contributions. A miss
 journal, invalid record, denied ref update or unavailable service holds new Engine creation. It never selects
 an older raw-create fallback. Existing report updates/closures and preview do not require activation.
 
-## Activate explicitly
+### 2. Activate explicitly
 
 After deploying the code, use an authorized isolated Build/setup worktree and the existing credential:
 
@@ -41,7 +43,7 @@ If initialization published the ref but local configuration could not be saved, 
 identity and restore explicitly with `init --genesis VERIFIED_SHA --repository-id VERIFIED_NUMERIC_ID --confirm`.
 Both values must come from inspected or backed-up activation evidence; restoration verifies the whole chain.
 
-## Inspect and recover
+### 3. Inspect and recover
 
 ```text
 uv run --directory .engine --frozen -- python tools/issue_author.py recovery list --repository OWNER/REPO
@@ -69,7 +71,15 @@ uv run --directory .engine --frozen -- python tools/issue_author.py recovery sup
 This records authorization and residual duplicate risk. It does not itself POST an issue. A later submission
 uses a new linked generation. There is no timeout, lease expiry or automatic reclamation of a send claim.
 
-## Failure and retention boundaries
+## Done when
+
+The trusted repository has its pinned activation, and each submission is confirmed or explicitly held with
+its existing identity. Recovery does not replay a consumed send. A supersede is recorded only after inspection
+and quiescing the prior writer; the residual duplicate risk remains visible.
+
+## Notes
+
+### Failure and retention boundaries
 
 The process that positively wins a new send claim receives a single-use, nonserializable permit. It consumes
 that permit before the one issue POST. Lost claim responses cannot be converted into permits by reading back
@@ -84,7 +94,7 @@ rewind relative to a previously observed tip; a fresh process cannot prove that 
 has not replaced history with a valid prefix rooted at the pinned genesis. This is recovery discipline among
 cooperating writers, not universal exactly-once issue creation or protection against arbitrary repository writers.
 
-## Roll back safely
+### Roll back safely
 
 Before deploying a version that predates this protocol, stop automatic creators and remove their write
 credentials or disable their reporting workflow. Quiesce local writers too. Older binaries do not understand
@@ -92,7 +102,7 @@ the journal and cannot be made safe merely by leaving a marker behind. Preserve 
 Restore a protocol-aware binary and verify the journal before re-enabling creators. Never use deletion of the
 journal as a way to clear an error or resume an uncertain submission.
 
-## Supported session entry points
+### Supported session entry points
 
 | Surface | Coverage and evidence |
 | --- | --- |
@@ -106,7 +116,7 @@ journal as a way to clear an error or resume an uncertain submission.
 Every recognized trusted-repository create requires explicit Engine/product scope, regardless of its label.
 An explicit Engine label also routes external requests to the helper, which refuses an untrusted target.
 Human GitHub UI creation remains outside this session gate: conformance opts in only through the Engine label.
-No live hook or live GitHub filing certification is claimed by these offline fixtures. App integration remains #914.
+No live hook or live GitHub filing certification is claimed by these offline fixtures. App integration remains StarshipSuperjam/engine-template#914.
 
 Run the permanent offline regression demonstration (fake Git/Issues service, real normalization and helper):
 
