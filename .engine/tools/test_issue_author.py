@@ -150,6 +150,9 @@ class TestSingleAuthoringPath(unittest.TestCase):
 
 
 _GOOD = {
+    "submission_id": "test-submission-1",
+    "assessment": {"state": "pending", "unknown": "The remedy is not established.",
+                   "next_action": "Inspect the failing check and identify the remedy."},
     "repository": "StarshipSuperjam/engine-template",
     "kind": "Fix",
     "title": "A finding",
@@ -340,7 +343,7 @@ class TestVerifiedHeadAtFiling(unittest.TestCase):
         self.assertEqual(issue_author.parse_verified_head(body), self._GOOD)   # last-match: the genuine trailer wins
 
     def test_schema_accepts_a_valid_value_and_threads_it_through_the_cli_path(self):
-        data = {"repository": "StarshipSuperjam/engine-template", "kind": "Fix", "title": "x",
+        data = {**_GOOD, "repository": "StarshipSuperjam/engine-template", "kind": "Fix", "title": "x",
                 "what_this_is": "a", "whats_next": "b", "verified_head": self._GOOD}
         issue_author.validate_input(data)                       # does not raise
         self.assertIn(f"<!-- verified-head: {self._GOOD} -->", issue_author.body_from_input(data))

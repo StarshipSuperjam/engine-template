@@ -249,6 +249,11 @@ def validate_input(data: dict) -> dict:
         first = errors[0]
         where = "/".join(str(p) for p in first.path) or "(root)"
         raise IssueInputError(f"the input does not match engine-issue-input.v1 at {where}: {first.message}")
+    import issue_triage
+    try:
+        issue_triage.validate(data['assessment'], 'assessment')
+    except issue_triage.TriageError as exc:
+        raise IssueInputError(str(exc)) from exc
     return data
 
 
@@ -298,9 +303,13 @@ def body_from_input(data: dict) -> str:
     self-healing. References carry (label, link) fields (engine-issue-input.v1) — mapped to the renderer's
     (label, url) pairs."""
     references = [(ref["label"], ref["link"]) for ref in data.get("references", [])] or None
-    return render_engine_issue_body(
+    body = render_engine_issue_body(
         what_this_is=data["what_this_is"], whats_next=data["whats_next"], references=references,
         urgency=data.get("urgency"), verified_head=data.get("verified_head"), kind=data["kind"])
+    import issue_triage
+    record = issue_triage.new_record(data['assessment'], data['submission_id'],
+                                    {'what_this_is': data['what_this_is'], 'whats_next': data['whats_next']})
+    return issue_triage.with_record(body, record)
 
 
 def _matched_target(requested: str, trusted_targets: list) -> "str | None":
@@ -349,6 +358,7 @@ def create_issue(data: dict, *, env=None, root: "str | None" = None, issues_fact
     the trusted target the input MATCHED (never a repository named only by the input). The `engine` label is
     applied by construction (telemetry.GitHubIssues' default). `issues_factory(repo, token)` is injectable so
     offline tests exercise the whole path without a network; production uses telemetry.GitHubIssues."""
+    validate_input(data)
     environ = os.environ if env is None else env
     trusted = resolve_trusted_targets(env=environ, root=root)
     if not trusted:
