@@ -11,10 +11,30 @@ import os
 import sys
 import tempfile
 import unittest
+from unittest import mock
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import agent_coherence_check as acc  # noqa: E402
 import validate  # noqa: E402
+
+
+class ResultProtocolCoherence(unittest.TestCase):
+    def test_all_live_contracts_have_real_positive_and_negative_ingress_witnesses(self):
+        self.assertEqual(acc.result_contract_findings(acc.engine_agents()), [])
+
+    def test_broken_registry_or_nonrejecting_handler_is_a_hard_finding(self):
+        import result_contracts as rc
+        import project_manager
+        persona = {"name": "review", "role": "plan-review", "output-contract": "plan-review-finding.v1"}
+        for change in [{"output-contract": "unknown"}, {"role": "worker"}]:
+            self.assertTrue(acc.result_contract_findings([{**persona, **change}]))
+        with mock.patch.object(rc, "_schema", return_value={"type": "unknown-type"}):
+            self.assertIn("invalid_schema", str(acc.result_contract_findings([persona])))
+        entry = rc.CONTRACTS[persona["output-contract"]]
+        with mock.patch.dict(entry, handler="project_manager.missing_handler"):
+            self.assertIn("missing_handler", str(acc.result_contract_findings([persona])))
+        with mock.patch.object(project_manager, "ingest_review_report", return_value={}):
+            self.assertIn("missing_rejection_witness", str(acc.result_contract_findings([persona])))
 
 
 def _write(path: str, text: str) -> None:

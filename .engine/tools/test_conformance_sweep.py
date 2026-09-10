@@ -224,6 +224,20 @@ class TestFeed(unittest.TestCase):
 
 
 class TestExtractBlock(unittest.TestCase):
+    def test_typed_adapter_preserves_all_verdicts_and_distinguishes_absence(self):
+        items = [_item(verdict=v) for v in ("diverges", "meets", "unsure")]
+        result, stripped = cs.extract_result(_block(items))
+        self.assertEqual(result, {"status": "valid", "report": {"kind": "product-conformance", "items": items}})
+        self.assertNotIn("<!--", stripped)
+        self.assertEqual(cs.extract_result("prose")[0], {"status": "absent"})
+        self.assertEqual(cs.extract_result(_block([]))[0]["status"], "valid")
+        for body in [_block(items) + _block([]), "prose <!-- conformance-verdicts.v1 broken",
+                     _block([{**items[0], "unknown": "must not vanish"}])]:
+            result, stripped = cs.extract_result(body)
+            self.assertEqual(result["status"], "rejected")
+            self.assertEqual(result["rejection"]["schema_version"], "result-rejection.v1")
+            self.assertNotIn("<!--", stripped)
+
     def test_one_valid_block_parses_and_strips(self):
         items, stripped = cs.extract_block(_block([_item()]))
         self.assertEqual(len(items), 1)
@@ -326,6 +340,19 @@ class TestLeakGuard(unittest.TestCase):
 
 
 class TestPromote(unittest.TestCase):
+    def test_rejected_model_block_is_disclosed_stripped_and_does_not_promote(self):
+        import contextlib
+        import io
+        body = self._body_file(_block([{**_item(), "unknown": 1}]))
+        root = _seed({})
+        self.addCleanup(__import__("shutil").rmtree, root, True)
+        error = io.StringIO()
+        with contextlib.redirect_stderr(error):
+            self.assertEqual(cs.promote(body, repo=None, token=None, root=root), (0, False))
+        self.assertIn("report rejected", error.getvalue())
+        with open(body) as stream:
+            self.assertNotIn("<!--", stream.read())
+
     def _body_file(self, text):
         d = tempfile.mkdtemp(prefix="engine-conformance-body-")
         self.addCleanup(__import__("shutil").rmtree, d, True)

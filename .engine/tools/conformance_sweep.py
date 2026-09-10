@@ -433,37 +433,39 @@ def emit_feed() -> int:
 
 # ---- the machine block: parse + strip (pure) ------------------------------------------------
 
-def extract_block(body: str):
-    """`(items, stripped_body)`. The block is the ONE trailing thing after the digest (the prompt fixes it
-    there), so the strip removes everything from the FIRST block marker to the end of the body — robust even
-    when a persona `note` itself contains `-->` (a naive `<!-- … -->` regex would stop at that inner `-->` and
-    leave a fragment in the committed digest). Return the conformance items ONLY when exactly one well-formed,
-    schema-valid, product-conformance block is present; zero / multiple / malformed / off-kind all yield [] (a
-    clean no-op — the digest prose stays the record)."""
+def validate_block(raw, binding=None):
+    """Validation-only adapter: full typed report or rejection, never durable acceptance."""
+    import result_contracts
+    try:
+        bound = binding if binding is not None else result_contracts.resolve("conformance-verdicts.v1")
+        report = result_contracts.ingest(raw, bound, contract="conformance-verdicts.v1", role="audit")
+        return {"status": "valid", "report": result_contracts.compile_audit(report)}
+    except result_contracts.Rejection as exc:
+        return {"status": "rejected", "rejection": exc.envelope}
+
+
+def extract_result(body: str):
+    """Strip the trailing channel while distinguishing absent, rejected and valid reports."""
+    import result_contracts
     body = body or ""
     count = body.count(_BLOCK_MARKER)
     if count == 0:
-        return [], body
+        return {"status": "absent"}, body
     start = body.index(_BLOCK_MARKER)
-    stripped = body[:start].rstrip()                       # the block is trailing: drop it and any trailing ws
-    if count != 1:
-        return [], stripped                                # ambiguous: no promote, but everything is stripped
+    stripped = body[:start].rstrip()
     region = body[start + len(_BLOCK_MARKER):]
-    close = region.rfind("-->")                            # the LAST '-->' is the real close (an inner one in a
-    if close == -1:                                        # note is inside a JSON string and precedes it)
-        return [], stripped
-    try:
-        data = json.loads(region[:close].strip())
-    except ValueError:
-        return [], stripped
-    try:
-        if _schema_errors(data, _load_schema(VERDICTS_SCHEMA_PATH)):
-            return [], stripped
-    except (OSError, ValueError):
-        return [], stripped
-    if data.get("kind") != "product-conformance":
-        return [], stripped
-    return data.get("items", []), stripped
+    close = region.rfind("-->")
+    if count != 1 or close == -1 or region[close + 3:].strip():
+        return {"status": "rejected", "rejection": result_contracts.Rejection(
+            "syntax", "ambiguous_block" if count != 1 else "block_delimiter",
+            contract="conformance-verdicts.v1").envelope}, stripped
+    return validate_block(region[:close].strip()), stripped
+
+
+def extract_block(body: str):
+    """Compatibility projection; the production adapter uses the typed result and discloses refusal."""
+    result, stripped = extract_result(body)
+    return (result["report"]["items"] if result["status"] == "valid" else []), stripped
 
 
 # ---- issue rendering (author-influenced text neutralised; carries the artifact-warrant honesty) ----
@@ -575,7 +577,11 @@ def promote(body_file: str, *, repo=_AMBIENT_CREDENTIAL, token=_AMBIENT_CREDENTI
     if body_file and os.path.isfile(body_file):
         with open(body_file, encoding="utf-8") as fh:
             body = fh.read()
-    items, stripped = extract_block(body)
+    result, stripped = extract_result(body)
+    items = result["report"]["items"] if result["status"] == "valid" else []
+    if result["status"] == "rejected":
+        print("Conformance report rejected (no model verdicts accepted): "
+              + json.dumps(result["rejection"], sort_keys=True), file=sys.stderr)
     if body_file and stripped != body:
         with open(body_file, "w", encoding="utf-8") as fh:
             fh.write(stripped)
