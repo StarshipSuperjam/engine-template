@@ -115,7 +115,10 @@ class ScopedAssignments(unittest.TestCase):
         binding = self.a["result_contract"]
         self.assertEqual(binding, result_contracts.resolve("plan-review-finding.v1"))
         receipt = {"lens": "architecture", "packet_digest": self.a["packet_digest"]}
-        for mutation in (None, {**binding, "schema_digest": "sha256:" + "0" * 64}):
+        changed_type = copy.deepcopy(binding)
+        changed_type["schema"]["items"]["additionalProperties"] = 0
+        self.assertEqual(changed_type, binding)  # Python equality must not authorize this change.
+        for mutation in (None, {**binding, "schema_digest": "sha256:" + "0" * 64}, changed_type):
             def change(data):
                 data["assignments"][self.a["id"]].pop("result_contract", None)
                 if mutation is not None:
