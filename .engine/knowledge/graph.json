@@ -19725,7 +19725,7 @@
       },
       "slug": "test_plan_lifecycle",
       "source": {
-        "fingerprint": "sha256:01b049931be16a2378cedf09a34bbda0f9022def95b0dd7359b9775ab07adb77",
+        "fingerprint": "sha256:781832fe5004d35df18126b31a061d9bbb92f074bcfe625e6c008321c74ba2ff",
         "path": ".engine/tools/test_plan_lifecycle.py"
       },
       "status": "active",
@@ -19992,7 +19992,7 @@
       },
       "slug": "test_project_manager",
       "source": {
-        "fingerprint": "sha256:45b7d12f5d3c945db379cadbfb41746941a7724b31a723007a597e31bef07760",
+        "fingerprint": "sha256:b5c2f20f47842aa680d41e12eb7d37ace8350b9a6259fabce4ad7d0c8dacfa96",
         "path": ".engine/tools/test_project_manager.py"
       },
       "status": "active",
@@ -20516,7 +20516,7 @@
       },
       "slug": "test_result_contracts",
       "source": {
-        "fingerprint": "sha256:29ef684b6fbb9820493bdd75dd6d60344137ab1201f39ecf6abaee5beed8ac54",
+        "fingerprint": "sha256:094d28f8b77b78ad6877526fcdc26edf694e128599e5a17230cdd9e20d459f82",
         "path": ".engine/tools/test_result_contracts.py"
       },
       "status": "active",

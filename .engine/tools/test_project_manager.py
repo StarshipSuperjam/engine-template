@@ -233,6 +233,39 @@ class LocationIngress(_Surface):
         sealed_bytes = record_path.read_bytes()
         self.assertEqual(self.run_command("reindex")[0], 0)
         self.assertEqual(record_path.read_bytes(), sealed_bytes)
+        bundle = Path(self._tmp.name) / "legacy-and-structured.json"
+        self.assertEqual(self.run_command("export", slug, "--output", str(bundle))[0], 0)
+        other = Path(self._tmp.name) / "imported"
+        with contextlib.redirect_stdout(io.StringIO()), contextlib.redirect_stderr(io.StringIO()):
+            code = project_manager.main(["--library", str(other), "import", "--bundle", str(bundle)])
+        self.assertEqual(code, 0)
+        imported = plan_store.PlanLibrary(other).read_record(slug)
+        self.assertEqual(imported, self.lib.read_record(slug))
+        self.assertEqual(record_path.read_bytes(), sealed_bytes)
+
+    def test_legacy_absent_location_is_readable_and_survives_bundle_transport(self):
+        slug = self.approved(); packet = self.packet(slug)
+        report = [{"severity": "nit", "message": "Historical finding", "location": None}]
+        self.observed(slug, "architecture", report, packet)
+        self.assertEqual(self.record(slug, packet, "architecture")[0], 0)
+        # Model the documented historical record format, never a new producer report.
+        self.lib.update_record(slug, lambda r: r["plan_review"]["findings"][0].pop("location"))
+        before = self.lib.read_record(slug)
+        bundle = Path(self._tmp.name) / "absent-location.json"
+        self.assertEqual(self.run_command("export", slug, "--output", str(bundle))[0], 0)
+        other = Path(self._tmp.name) / "imported-absent"
+        with contextlib.redirect_stdout(io.StringIO()), contextlib.redirect_stderr(io.StringIO()):
+            self.assertEqual(project_manager.main(["--library", str(other), "import", "--bundle", str(bundle)]), 0)
+        self.assertEqual(plan_store.PlanLibrary(other).read_record(slug), before)
+
+
+class LocationDemonstration(_Surface):
+    def test_demo_passes_and_deliberately_broken_versions_fail(self):
+        for flag, expected in [(None, 0), ("--break-preservation", 1), ("--break-ingress", 1)]:
+            args = ["demo-locations"] + ([flag] if flag else [])
+            code, out, _ = self.run_command(*args)
+            self.assertEqual(code, expected, out)
+            self.assertIn("temporary libraries", out)
 
 
 class Selection(_Surface):

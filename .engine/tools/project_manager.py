@@ -2024,7 +2024,7 @@ def cmd_import(args) -> int:
     record = plan_store.forward_migrate_record(raw_record)
     # Shape first. The record's own schema pattern-constrains `slug` and every `snapshot`, so this one
     # call is what stops a crafted bundle choosing where the store writes.
-    core.validate(record, plan_store.RECORD_SCHEMA)
+    core.validate(record, plan_store.RECORD_SCHEMA, local_refs=True)
     recomputed = core.digest({"record": raw_record, "revisions": revisions})
     if recomputed != bundle.get("bundle_digest"):
         raise ProjectManagerError(
@@ -2210,12 +2210,45 @@ def _consent_argument(command, gate: str) -> None:
              "is the gate and the moment, never their words; the gate refuses without it.")
 
 
+def cmd_demo_locations(args) -> int:
+    """Exercise actual recording commands against disposable, synthetic review observations."""
+    import contextlib
+    import unittest
+    from unittest import mock
+    import result_contracts
+
+    names = ["test_project_manager.LocationIngress." + name for name in (
+        "test_all_producer_locations_persist_exactly_through_record_and_amend",
+        "test_invalid_raw_inputs_leave_record_and_acceptance_unchanged",
+        "test_invalid_observed_report_is_not_an_empty_review")]
+    print("Plan location demonstration: exact file/line and whole-plan locations; "
+          "invalid reports leave records unchanged. Uses temporary libraries and synthetic "
+          "transport evidence, never live reviewer qualification.", flush=True)
+    original = result_contracts.compile_review
+    if args.break_preservation:
+        fault = mock.patch.object(result_contracts, "compile_review",
+                                  side_effect=lambda report, *, lens, **kw: original(report, lens=lens))
+    elif args.break_ingress:
+        fault = mock.patch.object(result_contracts, "ingest", side_effect=lambda raw, *a, **kw: json.loads(raw))
+    else:
+        fault = contextlib.nullcontext()
+    with fault:
+        result = unittest.TextTestRunner(stream=sys.stdout, verbosity=1).run(
+            unittest.defaultTestLoader.loadTestsFromNames(names))
+    return 0 if result.wasSuccessful() else 1
+
+
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         prog="project_manager.py",
         description="The planning half of the coordinator pair: durable, local, and nothing auto-selects.")
     parser.add_argument("--library", help="path to the plan library (defaults to this instance's own)")
     sub = parser.add_subparsers(dest="command", required=True)
+    demo = sub.add_parser("demo-locations", help="demonstrate exact location recording and invalid-report refusal in temporary stores")
+    broken = demo.add_mutually_exclusive_group()
+    broken.add_argument("--break-preservation", action="store_true", help="Deliberately flatten locations in memory; the demonstration must fail.")
+    broken.add_argument("--break-ingress", action="store_true", help="Deliberately bypass raw validation in memory; the demonstration must fail.")
+    demo.set_defaults(func=cmd_demo_locations)
 
     init = sub.add_parser("init", help="mint a plan from a validated engine-plan.v1 revision")
     init.add_argument("--document", required=True)
