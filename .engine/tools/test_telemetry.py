@@ -2244,3 +2244,32 @@ class TestProducerAssessment(unittest.TestCase):
         again=telemetry.producer_body('new\n'+marker+'\n',{'failure':'b'},'2026-09-11T00:00:00Z',previous=body,final_marker=marker)
         self.assertTrue(again.endswith(marker+'\n'))
         self.assertEqual(telemetry.producer_body('new legacy report',{},'2026-09-10T00:00:00Z',previous='legacy'),'new legacy report')
+
+    def test_refresh_and_closure_recheck_engine_scope(self):
+        fake = FakeGH(); client = gh(fake)
+        body = telemetry.producer_body('Failure', {'case':'a'}, '2026-09-10T00:00:00Z')
+        number = client.open_issue('Fix: failure', body)['number']
+        fake.issues[number]['labels'] = []
+        fake.calls.clear()
+        for action in (lambda: client.update_issue(number, body), lambda: client.close_issue(number)):
+            with self.assertRaises(telemetry.DegradedReadError):
+                action()
+        self.assertFalse(any(method=='PATCH' for method, _ in fake.calls))
+
+    def test_refresh_readback_detects_a_server_that_drops_the_body(self):
+        fake = FakeGH(); client = gh(fake)
+        body = telemetry.producer_body('Failure', {'case':'a'}, '2026-09-10T00:00:00Z')
+        number = client.open_issue('Fix: failure', body)['number']
+        def transport(method, path, payload):
+            if method == 'PATCH':
+                return 200, fake.issues[number]
+            return fake.transport(method, path, payload)
+        client._transport = transport
+        changed = telemetry.producer_body('Changed failure', {'case':'b'}, '2026-09-11T00:00:00Z', previous=body)
+        with self.assertRaisesRegex(telemetry.DegradedReadError, 'readback'):
+            client.update_issue(number, changed)
+
+    def test_reversed_owned_markers_refuse_without_mangling_human_text(self):
+        body = telemetry.REPORT_END + 'human text' + telemetry.REPORT_START
+        with self.assertRaises(telemetry.DegradedReadError):
+            telemetry._replace_report(body, body)

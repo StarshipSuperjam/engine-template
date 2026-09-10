@@ -532,7 +532,8 @@ REPORT_END = '<!-- /engine-report-content -->'
 def _replace_report(previous: str, candidate: str) -> str:
     """Preserve user text outside the producer-owned content section."""
     for body in (previous, candidate):
-        if body.count(REPORT_START) != 1 or body.count(REPORT_END) != 1:
+        if (body.count(REPORT_START) != 1 or body.count(REPORT_END) != 1
+                or body.index(REPORT_END) < body.index(REPORT_START)):
             raise DegradedReadError('The report content boundaries are missing or ambiguous; inspect the existing issue.')
     a, b = previous.index(REPORT_START), previous.index(REPORT_END) + len(REPORT_END)
     x, y = candidate.index(REPORT_START), candidate.index(REPORT_END) + len(REPORT_END)
@@ -661,12 +662,12 @@ class GitHubIssues:
     def update_issue(self, number: int, body: str) -> dict:
         import issue_triage
         try:
+            path = f'/repos/{self.repo}/issues/{number}'
+            live = issue_triage.read_api(self, path)
+            if not issue_triage.scoped(live) or live.get('state') == 'closed':
+                raise DegradedReadError('Report left scope or closed before refresh; no write.')
             candidate = issue_triage.parse(body)
             if candidate and REPORT_START in body and not body.startswith(('*Consolidated', '**Resolved')):
-                path = f'/repos/{self.repo}/issues/{number}'
-                live = issue_triage.read_api(self, path)
-                if not issue_triage.scoped(live) or live.get('state') == 'closed':
-                    raise DegradedReadError('Report left scope or closed before refresh; no write.')
                 current = issue_triage.parse(live.get('body') or '')
                 if current is None:
                     raise DegradedReadError('Report assessment disappeared; repair it before refreshing.')
@@ -676,16 +677,26 @@ class GitHubIssues:
                     candidate['revision'] = current['revision'] + 1
                     candidate['superseded'] = {'assessment': current['assessment'], 'evidence': current['evidence']}
                 body = issue_triage.with_record(_replace_report(live['body'], body), candidate)
-                if issue_triage.read_api(self, path) != live:
-                    raise DegradedReadError('Issue changed before refresh; no write.')
+            if issue_triage.read_api(self, path) != live:
+                raise DegradedReadError('Issue changed before refresh; no write.')
             status, data = self._transport('PATCH', f'/repos/{self.repo}/issues/{number}', {'body': body})
             if status >= 400:
                 raise DegradedReadError(f'GitHub returned {status} updating engine issue #{number}')
+            after = issue_triage.read_api(self, path)
+            if (not issue_triage.scoped(after) or after.get('state') == 'closed'
+                    or after.get('body') != body or after.get('milestone') != live.get('milestone')):
+                raise DegradedReadError('Refresh readback differs; inspect the issue before retrying.')
             return data or {'number': number}
         except issue_triage.TriageError as exc:
             raise DegradedReadError(str(exc)) from exc
 
     def close_issue(self, number: int) -> dict:
+        import issue_triage
+        live = issue_triage.read_api(self, f'/repos/{self.repo}/issues/{number}')
+        if not issue_triage.scoped(live):
+            raise DegradedReadError('Report left engine scope before closure; no write.')
+        if live.get('state') == 'closed':
+            return live
         status, data = self._transport("PATCH", f"/repos/{self.repo}/issues/{number}", {"state": "closed"})
         if status >= 400:
             raise DegradedReadError(f"GitHub returned {status} closing engine issue #{number}")
