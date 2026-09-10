@@ -73,3 +73,16 @@ This is helper/producer validation and local session follow-through. Missing hoo
 selection and Stop enforcement: disclose that and run `triage list` manually. #1093 owns direct-session
 routing enforcement; #914 owns future App/credential integration. Neither this CLI nor a future App
 identity alone makes GitHub body updates transactional.
+
+Run the permanent offline demonstration with:
+
+```text
+uv run --directory .engine --frozen -- python tools/issue_author.py triage demo
+uv run --directory .engine --frozen -- python tools/issue_author.py triage demo --expected-pending 0
+```
+
+The first command asserts known impact, next-session assessment, human exemption, outage recovery and
+ambiguous-create reconciliation. The second deliberately fails its pending-count assertion. These
+claims remain in `test_issue_triage.py`; the explicit duplicate-creation and lost-update race witnesses
+also remain regression tests. This demonstration makes no live GitHub writes and proves no live-service
+atomicity or provider hook qualification.

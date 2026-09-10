@@ -50,7 +50,17 @@ resolves the TRUSTED target repository from engine config, and prints the reposi
 (applied by construction), the title, and the rendered body — WITHOUT any network call. `create` does the
 same, then (only with `--confirm`) files the Issue through the supported GitHub boundary
 (`telemetry.GitHubIssues` → `github_client.json_request`), applying the `engine` label by construction, and
-prints the link.
+prints separate JSON outcomes for filing, assessment and milestone assignment. Input must include
+`submission_id` (a stable operation id reused after uncertainty) and `assessment`: either assessed with
+canonical impact, remedy, rationale and evidence, or pending with the unknown and concrete next action.
+Absent assessment is rejected before any POST. Issue kind and severity never choose release impact.
+Use `create --retry` only to reconcile an uncertain operation; an absent or ambiguous match refuses
+another POST. Configure mappings and recover pending work through `triage`; see
+`.engine/operations/issue-triage.md`. Unlabelled human issues remain exempt, while adding `engine` opts in.
+The formatter functions above remain passive; these CLI and producer boundaries perform network writes.
+Direct-session routing enforcement (#1093) and App/credential integration (#914) remain separate work.
+Run `triage demo` for the offline, asserted end-to-end behavior, or pass `--expected-pending 0` to
+demonstrate that an intentionally wrong expectation fails.
 
 AUTHORITY BOUNDARY (why the input's `repository` cannot steer the filing). The input NAMES an intended
 repository, but the create path RESOLVES the actual target from trusted config (this checkout's own

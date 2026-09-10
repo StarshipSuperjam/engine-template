@@ -272,7 +272,7 @@ def discover(client, config: dict | None, *, max_seconds=10) -> dict:
         return {'complete': False, 'items': items, 'error': str(exc)}
 
 
-def matching_submission(client, submission_id: str) -> list:
+def matching_submission(client, submission_id: str, *, strict=True) -> list:
     """Search open AND closed records before retry; unavailability never licenses a fresh POST."""
     matches = []
     for issue in pages(client, f'/repos/{client.repo}/issues?state=all&labels=engine'):
@@ -281,8 +281,11 @@ def matching_submission(client, submission_id: str) -> list:
         try:
             record = parse(issue.get('body') or '')
         except TriageError:
-            # Corruption can hide the id: do not pretend reconciliation proved absence.
-            raise TriageError('A malformed triage record prevents reliable submission reconciliation.')
+            # Explicit recovery must not infer absence through corruption. A fresh unrelated
+            # operation should still be fileable when another issue needs contract repair.
+            if strict or submission_id in (issue.get('body') or ''):
+                raise TriageError('A malformed triage record prevents reliable submission reconciliation.')
+            continue
         if record and record['submission_id'] == submission_id:
             matches.append(issue)
     return matches
@@ -337,7 +340,7 @@ def file_issue(client, title: str, body: str, *, config=None, retry=False) -> di
         raise TriageError('Issue submission requires an explicit assessment and stable submission id.')
     sid = record['submission_id']
     try:
-        matches = matching_submission(client, sid)
+        matches = matching_submission(client, sid, strict=retry)
     except Exception as exc:
         return filing_result(client.repo,sid,'creation-uncertain',record,reason=f'Reconciliation unavailable: {exc}. Retain input and retry reconciliation, not creation.')
     if len(matches) == 1:
@@ -437,7 +440,9 @@ def main(argv=None) -> int:
     import issue_author
     import telemetry
     parser=argparse.ArgumentParser(description='Investigate issue impact and recover milestone assignment. Best-effort GitHub writes; direct-session routing and App authority are separate work.')
-    parser.add_argument('verb',choices=('list','show','configure','assess','assign','defer','repair','pause'))
+    parser.add_argument('verb',choices=('list','show','configure','assess','assign','defer','repair','pause','demo'))
+    parser.add_argument('--expected-pending',type=int,default=1,
+                        help='Offline demo assertion; change it to make a wrong expectation fail.')
     parser.add_argument('--session')
     parser.add_argument('--repository')
     parser.add_argument('--issue',type=int)
@@ -447,6 +452,9 @@ def main(argv=None) -> int:
     parser.add_argument('--confirm',action='store_true')
     args=parser.parse_args(argv)
     try:
+        if args.verb == 'demo':
+            print(json.dumps(demo(expected_pending=args.expected_pending), indent=2))
+            return 0
         if args.verb == 'pause':
             if not args.session or not args.confirm or not args.input:
                 raise TriageError('pause requires --session, --input with the explicit operator instruction, and --confirm.')
@@ -673,3 +681,91 @@ def session_progress(client, session_id):
         return {'state': 'pending', 'number': number}
     except Exception:
         return {'state': 'unavailable', 'number': number}
+
+
+def demo(*, expected_pending=1):
+    """Offline behavioral witness. Only GitHub transport is fake; assertions are permanent tests."""
+    import tempfile
+    import uuid
+    class Network:
+        repo = 'demo/project'
+        def __init__(self):
+            self.issues = []
+            self.calls = []
+            self.outage = False
+            self.lose_response = False
+        def _transport(self, method, path, data=None):
+            self.calls.append((method, path, copy.deepcopy(data)))
+            if '/milestones/' in path:
+                return (503, None) if self.outage else (200, {'number': 7, 'state': 'open'})
+            if method == 'GET' and '/issues?' in path:
+                rows = [v for v in self.issues if scoped(v)]
+                if 'state=open' in path:
+                    rows = [v for v in rows if v['state'] == 'open']
+                return 200, copy.deepcopy(rows)
+            if method == 'POST':
+                number = len(self.issues) + 1
+                issue = {'id':number, 'number':number, 'state':'open',
+                         'created_at':'2026-09-10T00:00:00Z',
+                         'html_url':f'https://github.com/{self.repo}/issues/{number}', **copy.deepcopy(data)}
+                issue['milestone'] = {'number':data['milestone']} if data.get('milestone') else None
+                self.issues.append(issue)
+                if self.lose_response:
+                    raise TimeoutError('fixture: accepted request, response lost')
+                return 201, copy.deepcopy(issue)
+            number = int(path.rsplit('/', 1)[-1])
+            issue = self.issues[number - 1]
+            if method == 'PATCH':
+                issue.update(copy.deepcopy(data))
+                if 'milestone' in data:
+                    issue['milestone'] = {'number':data['milestone']}
+            return 200, copy.deepcopy(issue)
+    client = Network()
+    now = '2026-09-10T00:00:00Z'
+    config = {'schema_version':'operator-issue-triage.v1', 'repositories':{client.repo:{
+        'activated_at':now, 'milestones':{k:7 for k in ('none','patch','minor','major')}}}}
+    assessment = {'state':'assessed','impact':'patch','remedy':'Restore the documented return value.',
+                  'rationale':'The failing fixture violates the unchanged public contract.',
+                  'evidence':['Regression fixture establishes the previous documented result.']}
+    def file(value, operation):
+        body = with_record('Demo report', new_record(value, operation, {'case':operation}, now=now))
+        return file_issue(client, 'Fix: demo report', body, config=config), body
+    known, _ = file(assessment, 'demo-known-operation')
+    assert known['filing'] == 'created' and known['assignment']['state'] == 'assigned'
+    unknown, _ = file(pending('The remedy has not been investigated.', 'Inspect the failing assertion.'), 'demo-pending-operation')
+    assert unknown['assessment'] == 'pending'
+    session = 'engine-issue-triage-demo-' + uuid.uuid4().hex
+    try:
+        relay = start_session(client, session, config)
+        assert relay['selected_issue'] == unknown['number']
+        assert session_progress(client, session)['state'] == 'pending'
+        current = observed_record(client.issues[unknown['number'] - 1])
+        result = update_triage(client, unknown['number'], expected=current, assessment=assessment,
+                               config=config, now='2026-09-10T01:00:00Z')
+        assert result['state'] == 'updated' and session_progress(client, session)['state'] == 'satisfied'
+    finally:
+        _session_path(session, client.repo).unlink(missing_ok=True)
+    human = {'number':len(client.issues)+1,'body':'A human submission with no milestone.',
+             'labels':[],'milestone':None,'state':'open','created_at':now}
+    client.issues.append(copy.deepcopy(human))
+    assert all(v['number'] != human['number'] for v in discover(client, config)['items'])
+    assert client.issues[-1] == human
+    client.outage = True
+    outage, _ = file(assessment, 'demo-outage-operation')
+    assert outage['filing'] == 'created' and outage['assignment']['state'] == 'resolution-failed'
+    client.outage = False
+    current = observed_record(client.issues[outage['number']-1])
+    fixed = update_triage(client, outage['number'], expected=current, config=config, now='2026-09-10T02:00:00Z')
+    assert fixed['state'] == 'updated' and not fixed['outstanding']
+    client.lose_response = True
+    ambiguous, body = file(pending('Remedy unknown.', 'Inspect the report.'), 'demo-ambiguous-operation')
+    assert ambiguous['filing'] == 'creation-uncertain'
+    posts = sum(v[0] == 'POST' for v in client.calls)
+    client.lose_response = False
+    recovered = file_issue(client, 'Fix: demo report', body, config=config, retry=True)
+    assert recovered['filing'] == 'created' and sum(v[0] == 'POST' for v in client.calls) == posts
+    count = len(discover(client, config)['items'])
+    assert count == expected_pending, f'Expected {expected_pending} pending issue(s), observed {count}'
+    return {'known':'assigned', 'unknown':'assessed in next session', 'human':'unchanged',
+            'outage':'recovered without reclassification', 'ambiguous':'reconciled without another POST',
+            'pending':count, 'network':'offline fixture; no live GitHub writes'}

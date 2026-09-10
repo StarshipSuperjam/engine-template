@@ -1,5 +1,6 @@
 """Regression tests for assessment, independent assignment and issue-owned recovery."""
 import copy
+import json
 import sys
 import unittest
 from pathlib import Path
@@ -69,7 +70,6 @@ class Contract(unittest.TestCase):
         self.assertTrue(result.endswith('\nHuman suffix\n<!-- source -->\n'))
         self.assertEqual(triage.parse(result)['revision'],2)
 
-if __name__=='__main__': unittest.main()
 
 
 class Discovery(unittest.TestCase):
@@ -219,3 +219,105 @@ class Filing(unittest.TestCase):
         client.before_patch=race
         result=triage.update_triage(client,1,expected=old,config=self.config,now='2026-09-12T00:00:00Z')
         self.assertEqual(result['state'],'updated');self.assertNotIn('Concurrent human text',client.issues[0]['body'])
+
+
+class Qualification(unittest.TestCase):
+    def test_demo_asserts_real_path_and_deliberately_wrong_expectation_fails(self):
+        self.assertEqual(triage.demo()['pending'], 1)
+        with self.assertRaisesRegex(AssertionError, 'Expected 0'):
+            triage.demo(expected_pending=0)
+
+    def test_two_creators_can_both_observe_absence_and_create(self):
+        from concurrent.futures import ThreadPoolExecutor
+        from threading import Barrier, Lock
+        barrier, lock = Barrier(2), Lock()
+        class Race(FakeGitHub):
+            def _transport(self, method, path, data=None):
+                if method == 'GET' and '/issues?' in path:
+                    snapshot = copy.deepcopy(self.issues)
+                    barrier.wait(timeout=5)
+                    return 200, snapshot
+                with lock:
+                    if method == 'GET' and '/issues/' in path:
+                        return 200, copy.deepcopy(self.issues[int(path.rsplit('/',1)[-1])-1])
+                    result = super()._transport(method, path, data)
+                    if method == 'POST':
+                        self.issues[-1]['number'] = len(self.issues)
+                        self.issues[-1]['id'] = 100 + len(self.issues)
+                        self.issues[-1]['html_url'] = f'https://github.com/o/r/issues/{len(self.issues)}'
+                        return 201, copy.deepcopy(self.issues[-1])
+                    return result
+        client = Race()
+        body = triage.render(record())
+        with ThreadPoolExecutor(max_workers=2) as executor:
+            futures = [executor.submit(triage.file_issue, client, 'Fix: report', body, config=Filing.config)
+                       for _ in range(2)]
+            results = [future.result(timeout=10) for future in futures]
+        self.assertEqual(len(client.issues), 2)  # Accepted limitation, not an assertion of zero duplicates.
+        self.assertEqual([v['filing'] for v in results], ['created', 'created'])
+        self.assertEqual(len({triage.parse(v['body'])['submission_id'] for v in client.issues}), 1)
+
+    def test_post_preflight_human_milestone_can_be_lost_invisibly(self):
+        client = FakeGitHub(); client.lookup_status = 503
+        Filing().file(client); client.lookup_status = 200
+        old = triage.observed_record(client.issues[0])
+        client.before_patch = lambda c: c.issues[0].update(milestone={'number':99})
+        result = triage.update_triage(client, 1, expected=old, config=Filing.config,
+                                     now='2026-09-12T00:00:00Z')
+        self.assertEqual(result['state'], 'updated')
+        self.assertEqual(client.issues[0]['milestone']['number'], 16)  # Witness the unsupported remote CAS.
+
+    def test_post_preflight_label_removal_is_observed_but_write_already_happened(self):
+        client = FakeGitHub(); client.lookup_status = 503
+        Filing().file(client); old = triage.observed_record(client.issues[0])
+        client.before_patch = lambda c: c.issues[0].update(labels=[])
+        result = triage.update_triage(client, 1, expected=old, config=Filing.config,
+                                     now='2026-09-12T00:00:00Z')
+        self.assertEqual(result['state'], 'conflict')
+        self.assertTrue(any(v[0]=='PATCH' for v in client.calls))
+        self.assertEqual(client.issues[0]['labels'], [])
+
+    def test_fresh_unrelated_filing_survives_another_corrupt_issue_but_retry_refuses(self):
+        client = FakeGitHub()
+        client.issues.append({'number':20,'state':'open','labels':['engine'],'body':triage.START+'broken'})
+        self.assertEqual(triage.matching_submission(client, 'fresh-operation-id', strict=False), [])
+        with self.assertRaises(triage.TriageError):
+            triage.matching_submission(client, 'fresh-operation-id', strict=True)
+
+    def test_missing_section_repair_preserves_human_body_on_same_issue(self):
+        client = FakeGitHub(); Filing().file(client)
+        client.issues[0]['body'] = 'Human text\n<!-- final-source -->'
+        body = client.issues[0]['body']
+        result = triage.repair_record(client, 1, expected_body_digest=triage.fingerprint(body),
+                                     data={'assessment':assessed(),'submission_id':'repair-operation-id','evidence':['repair']},
+                                     config=Filing.config, now='2026-09-12T00:00:00Z')
+        self.assertEqual(result['state'], 'updated')
+        self.assertTrue(client.issues[0]['body'].endswith(body))
+        self.assertEqual(len(client.issues), 1)
+
+    def test_explicit_operator_exception_preserves_remote_pending(self):
+        import contextlib, io, tempfile
+        from unittest.mock import patch
+        client = FakeGitHub()
+        Filing().file(client, triage.pending('No remedy yet.', 'Inspect the report.'))
+        with tempfile.TemporaryDirectory() as directory:
+            session_path = Path(directory) / 'session.json'
+            directive = Path(directory) / 'directive.json'
+            directive.write_text(json.dumps({'kind':'pause','instruction':'Pause this work now.'}))
+            with patch.object(triage, '_session_path', return_value=session_path), contextlib.redirect_stdout(io.StringIO()):
+                triage.start_session(client, 'session', Filing.config)
+                before = copy.deepcopy(client.issues)
+                self.assertEqual(triage.main(['pause','--session','session','--input',str(directive),'--confirm']), 0)
+                self.assertEqual(triage.session_progress(client, 'session')['state'], 'paused')
+                self.assertEqual(client.issues, before)
+                self.assertEqual(len(triage.discover(client, Filing.config)['items']), 1)
+
+    def test_discovery_budget_and_failure_are_not_empty_success(self):
+        client = FakeGitHub()
+        result = triage.discover(client, Filing.config, max_seconds=0)
+        self.assertFalse(result['complete'])
+        self.assertIn('budget', result['error'])
+
+
+if __name__ == '__main__':
+    unittest.main()
