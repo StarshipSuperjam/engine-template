@@ -5059,7 +5059,7 @@ def handler(payload: dict) -> dict:
         pass
     # use_ledger=True: this is the real SessionStart path, so apply the collapse (an unchanged
     # standing alarm relays terse) via the deterministic ledger. fail-toward-full lives inside decide().
-    # Read-only GitHub discovery, with one disposable session obligation. No raw issue text
+    # Read-only GitHub discovery supplies disposable, task-subordinate context. No raw issue text
     # enters the trusted relay, and a child agent never enrolls the parent's queue.
     if session_id and not payload.get('agent_id'):
         try:

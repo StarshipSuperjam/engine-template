@@ -720,7 +720,7 @@ def repair_record(client, number: int, *, expected_body_digest: str, data: dict,
         return {'state':'write-uncertain','number':number,'reason':str(exc)}
 
 
-# The issue is durable; this disposable checklist only binds one session to its observed baseline.
+# The issue is durable; this disposable observation never binds the session to issue work.
 def _session_path(session_id, repository):
     import tempfile
     if not isinstance(session_id, str) or not session_id:
@@ -785,19 +785,31 @@ def select_pending(discovery, config, repository):
 
 
 def start_session(client, session_id, config):
-    """Only SessionStart enrolls; rendering a status page never creates an obligation."""
+    """Refresh advisory context; no selection authorizes work or binds the active task."""
     discovery = discover(client, config)
     selected = select_pending(discovery, config, client.repo)
-    existing = _read_session(session_id, client.repo)
-    # A resume cannot erase the original baseline just by displaying the list again.
-    if existing is None or (not existing.get('selected') and existing.get('complete') is False):
-        existing = {**(existing or {}), 'repository': client.repo,
-                    'selected': selected, 'complete': discovery['complete']}
-        _write_session(session_id, client.repo, existing)
-    selected = existing.get('selected')
+    try:
+        existing = _read_session(session_id, client.repo) or {}
+    except TriageError:
+        existing = {}  # Disposable corruption cannot control the task or hide durable issues.
+    exception = existing.get('operator_exception')
+    paused = (isinstance(exception, dict)
+              and exception.get('kind') in ('pause', 'cancel', 'urgent-priority')
+              and bool(str(exception.get('instruction') or '').strip()))
+    previous = existing.get('selected')
+    # Preserve a current baseline only while fresh evidence still selects that enrolled issue.
+    if (existing.get('schema_version') == 'issue-triage-session.v2'
+            and isinstance(previous, dict) and previous.get('enrollment') == 'required'
+            and selected and selected['number'] == previous.get('number')):
+        selected = previous
+    observation = {'schema_version': 'issue-triage-session.v2', 'repository': client.repo,
+                   'selected': selected, 'complete': discovery['complete']}
+    if paused:
+        observation['operator_exception'] = exception
+    _write_session(session_id, client.repo, observation)
     return {'state': 'available' if discovery['complete'] else 'unavailable',
-            'pending_count': len(discovery['items']),
-            'selected_issue': selected['number'] if selected else None}
+            'pending_count': discovery['pending_count'], 'unknown_count': discovery['unknown_count'],
+            'selected_issue': selected['number'] if selected and not paused else None, 'paused': paused}
 
 
 def session_progress(client, session_id):

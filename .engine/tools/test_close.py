@@ -425,7 +425,7 @@ class IssueTriageFollowThrough(unittest.TestCase):
              unittest.mock.patch.object(close, '_trigger_ambient_capture'), \
              unittest.mock.patch.object(close, '_run_preclose_advisory'), \
              unittest.mock.patch.object(close, '_promote') as promote:
-            self.assertEqual(close.handler({'session_id':self.sid})['action'], 'block')
+            self.assertNotEqual(close.handler({'session_id':self.sid}).get('action'), 'block')
             self.assertNotEqual(close.handler({'session_id':self.sid, 'stop_hook_active':True}).get('action'), 'block')
             promote.assert_not_called()
         relay = self.triage.start_session(self.client, self.sid, self.config)
@@ -485,7 +485,7 @@ class IssueTriageFollowThrough(unittest.TestCase):
              unittest.mock.patch.object(close, '_trigger_ambient_capture'), \
              unittest.mock.patch.object(close, '_run_preclose_advisory'), \
              unittest.mock.patch.object(close, '_promote') as promote:
-            self.assertEqual(close.handler({'session_id':self.sid})['action'], 'block')
+            self.assertNotEqual(close.handler({'session_id':self.sid}).get('action'), 'block')
             close.handler({'session_id':self.sid, 'stop_hook_active':True})
             promote.assert_not_called()
         self.assertEqual(len(self.client.issues), 1)
@@ -507,6 +507,56 @@ class IssueTriageFollowThrough(unittest.TestCase):
             directive.write_text(json.dumps({'kind':'resume','instruction':'Resume triage now.'}))
             self.assertEqual(self.triage.main(['resume','--session',self.sid,'--input',str(directive),'--confirm']), 0)
             self.assertEqual(self.triage.session_progress(self.client, self.sid)['state'], 'pending')
+
+
+
+class TriageDoesNotInterrupt(CloseBase):
+    def test_old_and_corrupt_sessions_never_block_or_read_github_at_stop(self):
+        import issue_triage
+        from pathlib import Path
+        with tempfile.TemporaryDirectory() as directory, \
+             unittest.mock.patch.object(issue_triage, '_session_path', side_effect=lambda sid, repo: Path(directory) / sid), \
+             unittest.mock.patch.object(close, '_github', side_effect=AssertionError('triage must not contact GitHub at Stop')), \
+             unittest.mock.patch.object(close, '_trigger_ambient_capture') as capture, \
+             unittest.mock.patch.object(close, '_run_preclose_advisory'):
+            for index, value in enumerate(({'repository':'o/r','selected':{'number':221,'enrollment':'unknown'},'complete':True},
+                                           {'repository':'o/r','selected':{'number':222,'enrollment':'required'},'complete':False},
+                                           {'operator_exception':{'kind':'pause','instruction':'Pause'},'selected':{'number':221}},
+                                           'malformed json')):
+                sid = self.sid + str(index)
+                (Path(directory) / sid).write_text(json.dumps(value) if isinstance(value,dict) else value)
+                for repeated in (False, True, False, False):
+                    code, out, err = _stop({'session_id':sid,'stop_hook_active':repeated})
+                    self.assertEqual(code, 0)
+                    self.assertNotIn('triage', out + err)
+            self.assertEqual(capture.call_count, 16)
+            finding = close.record_finding(self.sid, 'Independent unresolved finding')
+            code, out, err = _stop({'session_id':self.sid})
+            self.assertEqual(code, 2)
+            self.assertIn('Independent unresolved finding', err)
+            close.dispose(self.sid, finding, 'fixed')
+            self.assertEqual(_stop({'session_id':self.sid})[0], 0)
+
+    def test_fresh_discovery_replaces_unknown_selection_and_preserves_pause(self):
+        import issue_triage
+        from pathlib import Path
+        from test_issue_triage import FakeGitHub, Filing
+        client = FakeGitHub()
+        client.issues = [{'number':221,'labels':['engine'],'body':'Legacy','created_at':'2026-06-23T00:00:00Z'}]
+        with tempfile.TemporaryDirectory() as directory, \
+             unittest.mock.patch.object(issue_triage, '_session_path', side_effect=lambda sid, repo: Path(directory) / sid):
+            for sid in ('old-one', 'old-two'):
+                issue_triage._write_session(sid, client.repo, {'repository':client.repo,'selected':{'number':221},
+                    'complete':True,'operator_exception':{'kind':'pause','instruction':'Pause triage'}})
+                for _ in range(2):
+                    relay = issue_triage.start_session(client, sid, None)
+                    self.assertIsNone(relay['selected_issue'])
+                    self.assertTrue(relay['paused']); self.assertEqual(relay['unknown_count'], 1)
+                    self.assertEqual(relay['pending_count'], 0)
+                    self.assertIsNone(issue_triage._read_session(sid)['selected'])
+            (Path(directory) / 'corrupt').write_text('{broken')
+            self.assertIsNone(issue_triage.start_session(client, 'corrupt', None)['selected_issue'])
+            self.assertTrue(all(call[0] == 'GET' for call in client.calls))
 
 
 if __name__ == "__main__":
