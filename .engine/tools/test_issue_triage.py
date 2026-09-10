@@ -443,3 +443,17 @@ class ReviewRegressions(unittest.TestCase):
 
 if __name__ == '__main__':
     unittest.main()
+
+
+class SendBoundary(unittest.TestCase):
+    def test_injected_sender_is_called_once_and_never_falls_back(self):
+        client = FakeGitHub()
+        sent = []
+        def send(request):
+            sent.append(request)
+            raise TimeoutError('The response was lost.')
+        result = triage.file_issue(client, 'Fix: report', triage.render(record()), send=send)
+        self.assertEqual(result['filing'], 'creation-uncertain')
+        self.assertEqual(len(sent), 1)
+        self.assertEqual(sent[0]['labels'], ['engine'])
+        self.assertFalse(any(call[0] == 'POST' for call in client.calls))
