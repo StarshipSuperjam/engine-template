@@ -13,7 +13,7 @@ Engine release `0.6.3` · identity `solo`
 
 ## Surfaces
 
-Every kind of file the engine governs — its home and authority, and the schema and template that govern it (14 surfaces).
+Every kind of file the engine governs — its home and authority, and the schema and template that govern it (13 surfaces).
 
 | surface | purpose | home | authority | lifecycle | class | governing schema | template |
 | --- | --- | --- | --- | --- | --- | --- | --- |
@@ -25,7 +25,6 @@ Every kind of file the engine governs — its home and authority, and the schema
 | `doc` | Operator-facing, hand-authored plain-language explanations of the engine — written for the human, not the AI. | `.engine/docs/` | mechanics-and-guidance | artifact | prose | `doc.v1.json` | `../templates/doc.md` |
 | `executors` | Executor-qualification records — the Engine's versioned, observed account of an external build-executor's three qualification gates (protocol, containment, capability) and fail-closed dispatch witnesses; distinct from the runtime-environment store at .engine/state/execution.json. | `.engine/executors/` | mechanics-and-guidance | artifact | structured | `executor-qualification.v1.json` | (none) |
 | `interface` | Protocol contracts — a stable callable boundary a swappable implementation satisfies; implementations bind by presence, resolve single-active, and name a fallback. | `.engine/interfaces/` | mechanics-and-guidance | artifact | structured | `interface.v1.json` | (none) |
-| `issue-recovery` | Remote-only Engine submission journal on refs/heads/codex/engine-issue-recovery; intended content and recovery records, never a source-branch file. Activation is the operator-owned .engine/operator-issue-recovery.json (operator-issue-recovery.v1); upgrades preserve it. Git history retains publication metadata. | `.engine/issue-recovery/` | mechanics-and-guidance | artifact | structured | `issue-recovery.v1.json` | (none) |
 | `operation` | The authoritative steps of a multi-step engine procedure performed by reading-and-following; one procedure, one home, referenced by its invokers rather than restated. | `.engine/operations/` | mechanics-and-guidance | artifact | prose | `operation.v1.json` | `../templates/operation.md` |
 | `policy` | Standing rules — ongoing directives that govern behavior across sessions; the highest declared authority tier. | `.engine/policies/` | standing-rules | decision | prose | `policy.v1.json` | `../templates/policy.md` |
 | `schema` | Structural contracts — JSON Schema (2020-12) declaring the shape of structured files and of prose frontmatter. | `.engine/schemas/` | mechanics-and-guidance | artifact | structured | `https://json-schema.org/draft/2020-12/schema` | (none) |

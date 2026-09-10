@@ -6280,7 +6280,7 @@
       },
       "slug": "issue-recovery",
       "source": {
-        "fingerprint": "sha256:2f04bd80948561fea0b59ac59fd5b099ba01aa42192d97066f22fc66a156c3c2",
+        "fingerprint": "sha256:6d29d0742d767ea3bccd397ee68faa8c5023229407c2340f4ef6f187283feb27",
         "path": ".engine/operations/issue-recovery.md"
       },
       "status": "active",
@@ -6300,7 +6300,7 @@
       },
       "slug": "issue-triage",
       "source": {
-        "fingerprint": "sha256:37ed74faed4ef7c3b24903c8506c5b3964902c68e3c67e18aefa9c66087ea9b4",
+        "fingerprint": "sha256:fc2433c8045965251a2e9b8730d2e536352728ad800083fd43d243a7d8139b6a",
         "path": ".engine/operations/issue-triage.md"
       },
       "status": "active",
@@ -6440,7 +6440,7 @@
       },
       "slug": "operating-modes",
       "source": {
-        "fingerprint": "sha256:e7ec5eabfb97c5b3c7a8eb341f09d3d1462732fede02e7244ed9aa3f0ed8b1d6",
+        "fingerprint": "sha256:4769e544b5b1b0c833683f2353a3b560282f4afe9e90deb04152c1e9354025fb",
         "path": ".engine/operations/operating-modes.md"
       },
       "status": "active",
@@ -8040,7 +8040,7 @@
       },
       "slug": "surface-catalog",
       "source": {
-        "fingerprint": "sha256:c6615b323d7c2826c91b715a58f523efef9b805e7d497794a5e3c4a5f70c784e",
+        "fingerprint": "sha256:93e2127b9ef7d9206ab25b52a69f8e66a44713c65df955c6b54dd7cd81468a24",
         "path": ".engine/schemas/surface-catalog.json"
       },
       "status": "active",
@@ -13170,7 +13170,7 @@
       },
       "slug": "issue_author",
       "source": {
-        "fingerprint": "sha256:a329e5ed08a7f501b72b759c907c82ca8c0860aa2aee85728f1ecb95ba641576",
+        "fingerprint": "sha256:a58b078e6839194fa6d8a766fb2505443e734f130b942882b0cde58cf08be8c3",
         "path": ".engine/tools/issue_author.py"
       },
       "status": "active",
