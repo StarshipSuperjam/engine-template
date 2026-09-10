@@ -60,7 +60,7 @@ class _Ceremony(unittest.TestCase):
             for lens in lenses:
                 if controller:
                     output = [{"severity": f["severity"], "message": f["summary"],
-                               "location": {"file": f["location"]} if f.get("location") else None}
+                               "location": f.get("location")}
                               for f in supplied if f["lens"] == lens]
                 else:
                     output = supplied
@@ -113,7 +113,7 @@ class _Ceremony(unittest.TestCase):
 
     def finding(self, id_="ARCH-1", severity="serious", lens=None):
         return {"id": id_, "lens": lens or self.covering()[0], "severity": severity,
-                "summary": "The store's first write precedes its fence."}
+                "summary": "The store's first write precedes its fence.", "location": None}
 
 
 class D1PartialReviewIsNoLongerPermanent(_Ceremony):
@@ -183,7 +183,7 @@ class D3TheTwoFindingShapesTranslate(_Ceremony):
         self.assertEqual(code, 0)
         recorded = self.lib.read_record(slug)["plan_review"]["findings"][0]
         self.assertEqual(recorded["summary"], persona["message"])
-        self.assertEqual(recorded["location"], persona["location"]["file"])
+        self.assertEqual(recorded["location"], persona["location"])
         self.assertEqual(recorded["lens"], "architecture")
         self.assertEqual(recorded["id"], "A-1")
 
@@ -205,35 +205,38 @@ class D3TheTwoFindingShapesTranslate(_Ceremony):
                 lenses=["architecture", "feasibility"])
         self.assertIn("carry no lens of their own", str(caught.exception))
 
-    def test_persona_location_object_with_line_renders_as_file_colon_line(self):
+    def test_persona_location_object_with_line_is_preserved(self):
         translated = plan_lifecycle.translate_findings(
             [{"severity": "nit", "message": "msg", "location": {"file": "path/to/file.py", "line": 42}}],
             lenses=["architecture"])
-        self.assertEqual(translated[0]["location"], "path/to/file.py:42")
+        self.assertEqual(translated[0]["location"], {"file": "path/to/file.py", "line": 42})
 
-    def test_persona_location_object_without_line_renders_as_file_path(self):
+    def test_persona_location_object_without_line_is_preserved(self):
         translated = plan_lifecycle.translate_findings(
             [{"severity": "nit", "message": "msg", "location": {"file": "path/to/file.py"}}],
             lenses=["architecture"])
-        self.assertEqual(translated[0]["location"], "path/to/file.py")
+        self.assertEqual(translated[0]["location"], {"file": "path/to/file.py"})
 
-    def test_persona_location_object_with_null_line_renders_as_file_path(self):
+    def test_persona_location_object_with_null_line_is_preserved(self):
         translated = plan_lifecycle.translate_findings(
             [{"severity": "nit", "message": "msg", "location": {"file": "path/to/file.py", "line": None}}],
             lenses=["architecture"])
-        self.assertEqual(translated[0]["location"], "path/to/file.py")
+        self.assertEqual(translated[0]["location"], {"file": "path/to/file.py", "line": None})
 
-    def test_persona_null_location_renders_as_the_plan_as_a_whole(self):
+    def test_persona_null_location_remains_null(self):
         translated = plan_lifecycle.translate_findings(
             [{"severity": "nit", "message": "msg", "location": None}],
             lenses=["architecture"])
-        self.assertEqual(translated[0]["location"], "the plan as a whole")
+        self.assertIsNone(translated[0]["location"])
 
-    def test_persona_string_location_passes_through_unchanged(self):
-        translated = plan_lifecycle.translate_findings(
-            [{"severity": "nit", "message": "msg", "location": "some location string"}],
-            lenses=["architecture"])
-        self.assertEqual(translated[0]["location"], "some location string")
+    def test_persona_string_location_refuses_but_legacy_record_string_survives(self):
+        with self.assertRaises(plan_lifecycle.PlanLifecycleError):
+            plan_lifecycle.translate_findings(
+                [{"severity": "nit", "message": "msg", "location": "some location string"}],
+                lenses=["architecture"])
+        legacy = {"id": "A-1", "lens": "architecture", "severity": "nit",
+                  "summary": "msg", "location": "some location string"}
+        self.assertEqual(plan_lifecycle.translate_findings([legacy], lenses=["architecture"]), [legacy])
 
 
 class D11DepthChoiceClosesAtTheSeal(unittest.TestCase):

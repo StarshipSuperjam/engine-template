@@ -346,7 +346,7 @@ class PlanLibrary:
 
     def read_record(self, slug: str) -> dict:
         record = self._read_record_unchecked(slug)
-        core.validate(record, RECORD_SCHEMA)
+        core.validate(record, RECORD_SCHEMA, local_refs=True)
         return record
 
     def read_revision(self, slug: str, revision: int) -> dict:
@@ -512,7 +512,7 @@ class PlanLibrary:
             }
             if intake:
                 record["intake"] = intake
-            core.validate(record, RECORD_SCHEMA)
+            core.validate(record, RECORD_SCHEMA, local_refs=True)
             self._write_json(self._record_path(slug), record)
         return slug
 
@@ -563,7 +563,7 @@ class PlanLibrary:
             # is DERIVED (approved, never reviewed, and the head has moved since) rather than erased.
             # Deriving it keeps the evidence: an operator can still see what was approved and when,
             # which is exactly what they need in order to decide whether re-approving is warranted.
-            core.validate(record, RECORD_SCHEMA)
+            core.validate(record, RECORD_SCHEMA, local_refs=True)
             self._write_json(self._record_path(slug), record)
             return record
 
@@ -583,7 +583,7 @@ class PlanLibrary:
             core.assert_revision(record["current"]["revision"], expected_revision, "plan",
                                  "another session revised this plan; re-read it and re-apply your change")
             change(record)
-            core.validate(record, RECORD_SCHEMA)
+            core.validate(record, RECORD_SCHEMA, local_refs=True)
             self._write_json(self._record_path(slug), record)
             return record
 
@@ -596,7 +596,7 @@ class PlanLibrary:
         """
         if record['plan_id'] != self.read_record(slug)['plan_id']:
             raise PlanStoreError('a Build transaction cannot change the plan identity')
-        core.validate(record, RECORD_SCHEMA)
+        core.validate(record, RECORD_SCHEMA, local_refs=True)
         core.atomic_write(self._record_path(slug),
                           json.dumps(record, indent=2, sort_keys=True) + '\n',
                           durable=True, mode=FILE_MODE, require_directory_flush=True)
@@ -633,7 +633,7 @@ class PlanLibrary:
                 self._unlink_body(path)
                 if reason.strip() != entry["redacted"]["reason"]:
                     entry["redacted"]["reason"] = reason.strip()
-                    core.validate(record, RECORD_SCHEMA)
+                    core.validate(record, RECORD_SCHEMA, local_refs=True)
                     self._write_json(self._record_path(slug), record)
                 self._clear_intent(slug, entry)
                 return record
@@ -657,7 +657,7 @@ class PlanLibrary:
             self._write_intent(slug, entry, reason.strip())
             self._unlink_body(path)
             entry["redacted"] = {"at": _now(), "reason": reason.strip()}
-            core.validate(record, RECORD_SCHEMA)
+            core.validate(record, RECORD_SCHEMA, local_refs=True)
             self._write_json(self._record_path(slug), record)
             self._clear_intent(slug, entry)
             return record

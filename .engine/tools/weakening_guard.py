@@ -1376,7 +1376,7 @@ ENFORCEMENT_SOURCE_INVENTORY = {'.engine/tools/agent_bindings.py': {'dependencie
                                                        '.engine/tools/validate.py'),
                                       'exclusions': {}},
  '.engine/tools/wiring.py': {'dependencies': ('.engine/tools/validate.py',), 'exclusions': {}},
- '.engine/tools/build_coordinator_core.py': {'dependencies': (), 'exclusions': {}},
+ '.engine/tools/build_coordinator_core.py': {'dependencies': ('.engine/tools/result_contracts.py',), 'exclusions': {}},
  '.engine/tools/build_coordinator_review.py': {'dependencies': ('.engine/tools/build_coordinator_core.py',
                                                                 '.engine/tools/result_contracts.py'),
                                                'exclusions': {'.engine/tools/close_linkage_preflight.py': 'agent_coherence '
