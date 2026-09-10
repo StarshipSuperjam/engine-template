@@ -121,11 +121,22 @@ class ResultContracts(unittest.TestCase):
             self.assertNotIn(secret, json.dumps(error))
 
     def test_lossless_review_compiler_retains_location_semantics(self):
-        for loc in [None, {"file": "a:b"}, {"file": "a", "line": None}, {"file": "a", "line": 3}]:
+        for loc in [None, {"file": ""}, {"file": "a:3"}, {"file": "a", "line": None}, {"file": "a", "line": 3}]:
             original = self.ingest([{**self.finding, "location": loc}])
-            compiled = rc.compile_review(original, lens="architecture")
+            compiled = rc.compile_review(original, lens="architecture", contract="plan-review-finding.v1")
             self.assertEqual(compiled["report"], original)
             self.assertEqual(compiled["findings"][0]["id"], "A-1")
+            self.assertEqual(compiled["findings"][0]["location"], loc)
+            if loc is not None:
+                compiled["findings"][0]["location"]["file"] = "controller correction"
+                self.assertEqual(compiled["report"], original)
+
+    def test_deliverable_compilation_keeps_its_existing_location_representation(self):
+        for loc, expected in [(None, "the plan as a whole"), ({"file": "a"}, "a"),
+                              ({"file": "a", "line": None}, "a"),
+                              ({"file": "a", "line": 3}, "a:3")]:
+            report = [{**self.finding, "location": loc}]
+            self.assertEqual(rc.compile_review(report, lens="usability")["findings"][0]["location"], expected)
 
     def test_worker_failure_evidence_survives_canonical_conversion(self):
         bound = rc.resolve("worker-result.v1", role="worker")

@@ -201,8 +201,18 @@ def parse(raw, *, contract=None):
 
 def _schema(reference, root):
     """Expand only bounded local schema references; recursive result schemas are refused."""
-    directory = (Path(root) / ".engine/schemas").resolve()
+    return local_schema(reference, Path(root) / ".engine/schemas")
+
+
+def local_schema(reference, directory):
+    """Resolve a schema or fragment inside one explicit directory, without network access.
+
+    Durable plan validation opts into this same bounded resolver. Other durable schemas keep
+    their existing validator, and result bindings retain the exact same expanded JSON.
+    """
+    directory = Path(directory).resolve()
     budget = [0, 0]
+    documents = {}
 
     def load(ref, source=None, chain=()):
         if not isinstance(ref, str):
@@ -219,9 +229,10 @@ def _schema(reference, root):
         if key in chain:
             reject("recursive_schema", category="authority")
         try:
-            with path.open("rb") as handle:
-                document = parse(handle.read(LIMITS["bytes"] + 1))
-            value = document
+            if path not in documents:
+                with path.open("rb") as handle:
+                    documents[path] = parse(handle.read(LIMITS["bytes"] + 1))
+            value = documents[path]
             if fragment:
                 if not fragment.startswith("/"):
                     raise ValueError()
@@ -313,14 +324,19 @@ def require_observed_report(supplied, observed):
         reject("observed_report_mismatch", category="authority")
 
 
-def compile_review(report, *, lens):
+def compile_review(report, *, lens, contract="pre-submission-review-finding.v1"):
+    if contract not in ("plan-review-finding.v1", "pre-submission-review-finding.v1"):
+        reject("review_compiler_contract", category="authority", contract=contract)
     prefix = "".join(p[0] for p in lens.replace("_", "-").split("-") if p).upper() or "F"
     findings = []
     for i, item in enumerate(report, 1):
         loc = item["location"]
-        where = "the plan as a whole" if loc is None else loc["file"]
-        if loc is not None and loc.get("line") is not None:
-            where += ":" + str(loc["line"])
+        if contract == "plan-review-finding.v1":
+            where = copy.deepcopy(loc)
+        else:
+            where = "the plan as a whole" if loc is None else loc["file"]
+            if loc is not None and loc.get("line") is not None:
+                where += ":" + str(loc["line"])
         findings.append({"id": f"{prefix}-{i}", "lens": lens, "severity": item["severity"],
                          "summary": item["message"], "location": where})
     return {"findings": findings, "report": copy.deepcopy(report)}
