@@ -142,8 +142,13 @@
                              "description": "The operator-safe sentence published on the merge surface. Required by `finding dispose` when a BLOCKING finding is not left blocking, because that is the disagreement an operator must meet at merge rather than discover afterwards."},
         "blocks_this_pr": {"type": "boolean",
                            "description": "Whether this plan finding still blocks the pull request it authorized. Recorded here rather than mirrored into Build state, so the disclosure cannot be stripped by the Build's own receipt bookkeeping."},
-        "location": {"type": "string", "minLength": 1,
-                     "description": "Where in the plan the finding lands, carried through from the reviewer shape (plan-review-finding.v1) rather than dropped in translation. It is usually the most actionable part of a finding, and a record that discarded it made the reviewer's own output worse than what they wrote."}
+        "location": {
+          "oneOf": [
+            {"$ref": "plan-review-finding.v1.json#/properties/location"},
+            {"type": "string", "minLength": 1}
+          ],
+          "description": "New observed plan findings preserve the producer's exact file/line object or null. The string branch is legacy durable compatibility and explicit controller correction only; it does not permit string locations in raw reviewer reports. Historical strings and absent locations are never inferred, migrated, or rewritten."
+        }
       }
     },
     "attestation": {

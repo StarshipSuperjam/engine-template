@@ -165,7 +165,7 @@ def _validate_findings(findings: list) -> None:
     """Each translated finding against the record's own finding definition, at read time."""
     schema = Path(__file__).resolve().parents[2] / ".engine" / "schemas" / "plan-record.v1.json"
     for finding in findings:
-        core.validate_part(finding, schema, "#/$defs/finding", "plan-review finding")
+        core.validate_part(finding, schema, "#/$defs/finding", "plan-review finding", local_refs=True)
 
 
 def available_depths(roster: list[dict], protocol: dict | None = None,
@@ -784,7 +784,7 @@ def ingest_review_report(raw, binding, *, lens, envelope_key=None):
     try:
         report = result_contracts.ingest(raw, binding, contract="plan-review-finding.v1",
                                          role="plan-review", envelope_key=envelope_key)
-        return result_contracts.compile_review(report, lens=lens)
+        return result_contracts.compile_review(report, lens=lens, contract="plan-review-finding.v1")
     except result_contracts.Rejection as exc:
         raise ProjectManagerError(str(exc)) from exc
 
