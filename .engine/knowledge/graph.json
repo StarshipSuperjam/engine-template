@@ -5766,7 +5766,7 @@
       },
       "slug": "build-kickoff",
       "source": {
-        "fingerprint": "sha256:450f5b3dd2bfa48947e06a89f6f4297954a76afeac352e123a0c0c22fcebd3e0",
+        "fingerprint": "sha256:c50a996e0e0a557a9cf8ad901a9517247913e5f8f1e427de58d3e0d8787cd6f6",
         "path": ".engine/operations/build-kickoff.md"
       },
       "status": "active",
