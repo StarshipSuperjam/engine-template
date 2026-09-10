@@ -241,6 +241,9 @@ class Qualification(unittest.TestCase):
         self.assertEqual(triage.demo()['pending'], 1)
         with self.assertRaisesRegex(AssertionError, 'Expected 0'):
             triage.demo(expected_pending=0)
+        import contextlib, io
+        with contextlib.redirect_stderr(io.StringIO()):
+            self.assertEqual(triage.main(['demo', '--expected-pending', '0']), 1)
 
     def test_two_creators_can_both_observe_absence_and_create(self):
         from concurrent.futures import ThreadPoolExecutor
