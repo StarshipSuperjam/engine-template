@@ -3363,12 +3363,69 @@ class TestHeadAckRead(unittest.TestCase):
             weakening_guard._latest_engine_ack_state("o/r", "HEAD", "t")
 
     def test_retry_polls_when_asked_then_gives_up(self):
-        orig_sleep = weakening_guard.time.sleep
-        weakening_guard.time.sleep = lambda *_: None  # don't actually wait
-        self.addCleanup(lambda: setattr(weakening_guard.time, "sleep", orig_sleep))
         calls = self._fake_pages({self._P1: ([], None)})  # persistently absent
-        self.assertFalse(weakening_guard._head_ack_success("o/r", "HEAD", "t", retry=True))
-        self.assertEqual(len(calls), weakening_guard._ACK_POLL_TRIES)  # polled the full budget
+        with mock.patch.object(weakening_guard.time, "sleep") as sleep:
+            self.assertFalse(weakening_guard._head_ack_success("o/r", "HEAD", "t", retry=True))
+        self.assertEqual(len(calls), 3)
+        self.assertEqual(sleep.call_args_list, [mock.call(30), mock.call(30)])
+
+    def test_delayed_success_on_each_poll_and_after_the_window(self):
+        for arrival, expected, reads in ((0, True, [0]), (20, True, [0, 30]),
+                                          (38, True, [0, 30, 60]), (61, False, [0, 30, 60])):
+            with self.subTest(arrival=arrival):
+                clock, observed = [0], []
+
+                def sleep(seconds):
+                    clock[0] += seconds
+
+                def page(url, token, **kwargs):
+                    self.assertEqual(url, self._P1)  # never poll a different commit or the rollup
+                    observed.append(clock[0])
+                    status = [{"context": "engine-ack", "state": "success", "creator": self._BOT}]
+                    return (status if clock[0] >= arrival else []), None
+
+                with mock.patch.object(weakening_guard, "get_page", side_effect=page), \
+                        mock.patch.object(weakening_guard.time, "sleep", side_effect=sleep):
+                    self.assertEqual(weakening_guard._head_ack_success("o/r", "HEAD", "t", retry=True), expected)
+                self.assertEqual(observed, reads)
+
+    def test_explicit_states_and_read_errors_do_not_wait(self):
+        for state in ("success", "failure", "pending", "error"):
+            with self.subTest(state=state):
+                statuses = [{"context": "engine-ack", "state": state, "creator": self._BOT},
+                            {"context": "engine-ack", "state": "success", "creator": self._BOT}]
+                with mock.patch.object(weakening_guard, "get_page", return_value=(statuses, None)) as page, \
+                        mock.patch.object(weakening_guard.time, "sleep") as sleep:
+                    self.assertEqual(weakening_guard._resolve_ack("o/r", "HEAD", "t", True),
+                                     "fresh" if state == "success" else "stale")
+                self.assertEqual(page.call_count, 1)
+                sleep.assert_not_called()
+        with mock.patch.object(weakening_guard, "get_page", side_effect=OSError("unavailable")), \
+                mock.patch.object(weakening_guard.time, "sleep") as sleep:
+            self.assertEqual(weakening_guard._resolve_ack("o/r", "HEAD", "t", True), "error")
+        sleep.assert_not_called()
+
+    def test_untrusted_or_other_head_success_never_clears_polling(self):
+        for untrusted in (False, True):
+            with self.subTest(untrusted=untrusted):
+                def page(url, token, **kwargs):
+                    self.assertEqual(url, self._P1)
+                    statuses = [{"context": "engine-ack", "state": "success",
+                                 "creator": {"login": "untrusted"}}] if untrusted else []
+                    return statuses, None
+                with mock.patch.object(weakening_guard, "get_page", side_effect=page) as reader, \
+                        mock.patch.object(weakening_guard.time, "sleep") as sleep:
+                    self.assertFalse(weakening_guard._head_ack_success("o/r", "HEAD", "t", retry=True))
+                self.assertEqual(reader.call_count, 3)
+                self.assertEqual(sleep.call_count, 2)
+
+    def test_no_label_or_missing_head_never_waits(self):
+        with mock.patch.object(weakening_guard, "get_page", return_value=([], None)) as reader, \
+                mock.patch.object(weakening_guard.time, "sleep") as sleep:
+            self.assertEqual(weakening_guard._resolve_ack("o/r", "HEAD", "t", False), "absent")
+            self.assertEqual(weakening_guard._resolve_ack("o/r", "", "t", True), "nohead")
+        self.assertEqual(reader.call_count, 1)
+        sleep.assert_not_called()
 
 
 class TestAckTrustedCreatorInvariant(unittest.TestCase):
