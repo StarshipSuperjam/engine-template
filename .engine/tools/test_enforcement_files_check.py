@@ -104,9 +104,30 @@ class TestImportExtraction(unittest.TestCase):
         ):
             with self.subTest(text=text):
                 _, literal, unsupported, unresolved = self.scan(text)
-                self.assertEqual(len(unsupported), 2)
-                self.assertEqual(unsupported[0], unsupported[1])
+                expected = 3 if 'loader =' in text else 4
+                self.assertEqual(len(unsupported), expected)
+                selector = ast.dump(ast.parse('getattr(importlib, method)').body[0].value,
+                                    include_attributes=False)
+                self.assertIn(selector, unsupported)
                 self.assertEqual((literal, unresolved), ([], []))
+
+    def test_standard_identity_cannot_suppress_nonstandard_loader_exception(self):
+        text = ('from runpy import run_path as load\n'
+                'def unused():\n from importlib import import_module as load\n'
+                'load("json")\n')
+        _, literal, unsupported, unresolved = self.scan(text)
+        self.assertEqual((literal, unresolved), ([], []))
+        self.assertEqual(unsupported, [ast.dump(ast.parse('load("json")').body[0].value,
+                                              include_attributes=False)])
+
+    def test_known_and_dynamic_loader_identity_keeps_both_expressions_reviewed(self):
+        text = ('import importlib\nloader = importlib.import_module\n'
+                'loader = getattr(importlib, method)\nloader("gate")\n')
+        _, literal, unsupported, unresolved = self.scan(text)
+        expected = [ast.dump(ast.parse(call).body[0].value, include_attributes=False)
+                    for call in ('getattr(importlib, method)', 'loader("gate")')]
+        self.assertEqual(unsupported, sorted(expected))
+        self.assertEqual((literal, unresolved), ([], []))
 
     def test_unresolved_literal_loader_is_not_silently_ignored(self):
         self.assertEqual(self.scan('__import__("missing_gate")')[3], ['missing_gate'])
@@ -278,6 +299,21 @@ class TestCandidateInventory(unittest.TestCase):
         self.loaders[self.SOURCE]['calls'] = [call, call]
         self.source = '__import__(module_name)\n' * 2
         self.assertEqual(self.findings(), [])
+
+    def test_changed_dynamic_selector_invalidates_reviewed_loader_multiset(self):
+        self.source = 'import importlib\nloader = getattr(importlib, method)\nloader("json")\n'
+        calls = guard._ast_import_edges(self.SOURCE, self.source, {})[2]
+        self.assertEqual(len(calls), 2)
+        self.loaders = {self.SOURCE: {'source': self.SOURCE,
+            'reason': 'Explicit runtime selection exercised by this fixture', 'calls': calls}}
+        self.assertEqual(self.findings(), [])
+        self.source = self.source.replace('method)', 'other_method)')
+        self.assertTrue(self.findings())
+
+    def test_mixed_loader_identity_cannot_bypass_candidate_exception(self):
+        self.source = ('from runpy import run_path as load\n'
+            'def unused():\n from importlib import import_module as load\nload("json")\n')
+        self.assertTrue(self.findings())
 
     def test_malformed_loader_data_is_a_finding_never_a_crash(self):
         for loaders in ([], {self.SOURCE: []}, {self.SOURCE: {'source': self.SOURCE, 'reason': '', 'calls': []}},

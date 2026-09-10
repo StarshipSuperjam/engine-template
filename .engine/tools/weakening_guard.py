@@ -1572,6 +1572,10 @@ def _ast_import_edges(source: str, text: str, index: dict) -> tuple[set, list, l
                     if item.name != '*' and (child in index or namespace(child)):
                         add_module(child)
         elif isinstance(node, ast.Call):
+            # A dynamic selector is itself part of the reviewed expression,
+            # even when its result is assigned before it is invoked.
+            if '__loader__.unknown' in spellings(node):
+                unsupported.append(ast.dump(node, include_attributes=False))
             names = spellings(node.func)
             possible_loaders = names & loader_names
             nonstandard = ('__loader__.unknown' in names or
@@ -1579,7 +1583,7 @@ def _ast_import_edges(source: str, text: str, index: dict) -> tuple[set, list, l
             if not possible_loaders and not nonstandard:
                 continue
             dump = ast.dump(node, include_attributes=False)
-            if not possible_loaders:
+            if nonstandard or not possible_loaders:
                 unsupported.append(dump)
                 continue
             # If both import APIs are possible, only their common one-argument
