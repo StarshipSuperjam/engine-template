@@ -10,6 +10,7 @@ import os
 import re
 import subprocess
 import json
+import time
 
 import build_coordinator_core as core
 import moment
@@ -121,6 +122,7 @@ def mentioned_issues(text, repository):
 
 def _open_prs(root, repository):
     try:
+        deadline = time.monotonic() + 45
         result = subprocess.run(["gh", "api", "--paginate", "--slurp",
             f"repos/{repository}/pulls?state=open&per_page=100"], cwd=root, text=True,
             capture_output=True, timeout=45, env=dict(os.environ, GH_PROMPT_DISABLED="1"))
@@ -133,8 +135,52 @@ def _open_prs(root, repository):
         if any(not isinstance(row, dict) or not isinstance(row.get("number"), int)
                or not isinstance(row.get("head"), dict) or 'body' not in row or 'title' not in row for row in rows):
             raise ValueError("incomplete PR observation")
+        owner, name = repository.split("/", 1)
+        query = """query($owner:String!,$name:String!,$number:Int!,$endCursor:String) {
+          repository(owner:$owner,name:$name) { pullRequest(number:$number) {
+            closingIssuesReferences(first:100,after:$endCursor) {
+              nodes { number url } pageInfo { hasNextPage endCursor }
+            }
+          } }
+        }"""
+        for row in rows:
+            # REST's PR list omits sidebar-linked issues. Page the structured connection too,
+            # within one total observation budget; missing pages are never an empty issue set.
+            remaining = deadline - time.monotonic()
+            if remaining <= 0:
+                raise ValueError("PR issue observation timed out")
+            linked = subprocess.run(["gh", "api", "graphql", "--paginate", "--slurp",
+                "-f", "query=" + query, "-f", "owner=" + owner, "-f", "name=" + name,
+                "-F", "number=" + str(row["number"])], cwd=root, text=True,
+                capture_output=True, timeout=remaining, env=dict(os.environ, GH_PROMPT_DISABLED="1"))
+            if linked.returncode:
+                raise ValueError("PR issue observation failed")
+            connections = json.loads(linked.stdout)
+            if not isinstance(connections, list) or not connections:
+                raise ValueError("missing PR issue pages")
+            refs = []
+            cursors = set()
+            for index, page in enumerate(connections):
+                if not isinstance(page, dict) or page.get("errors"):
+                    raise ValueError("failed PR issue page")
+                connection = page["data"]["repository"]["pullRequest"]["closingIssuesReferences"]
+                info = connection["pageInfo"]
+                more = info["hasNextPage"]
+                if not isinstance(more, bool) or more != (index < len(connections) - 1):
+                    raise ValueError("incomplete PR issue pagination")
+                if more:
+                    cursor = info.get("endCursor")
+                    if not isinstance(cursor, str) or not cursor or cursor in cursors:
+                        raise ValueError("invalid PR issue cursor")
+                    cursors.add(cursor)
+                nodes = connection["nodes"]
+                if not isinstance(nodes, list):
+                    raise ValueError("invalid PR issue nodes")
+                refs.extend(nodes)
+            row["closingIssuesReferences"] = refs
+            issue_numbers({}, None, row, repository)  # Validate every identity before claiming coverage.
         return rows
-    except (OSError, subprocess.TimeoutExpired, ValueError) as exc:
+    except (OSError, subprocess.TimeoutExpired, ValueError, KeyError, TypeError, core.CoordinatorError) as exc:
         raise core.CoordinatorError("open pull requests could not be completely observed") from exc
 
 
@@ -202,7 +248,8 @@ def overlap_observation(root, library, repository, issues, *, identity=None, can
                         and head.get("sha") == candidate["head"]
                         and repo_identity.slug_eq((head.get("repo") or {}).get("full_name"), candidate["head_repository"])):
                     continue
-                referenced = mentioned_issues((pr.get("title") or "") + "\n" + (pr.get("body") or ""), repository)
+                referenced = set(issue_numbers({}, None, pr, repository))
+                referenced.update(mentioned_issues((pr.get("title") or "") + "\n" + (pr.get("body") or ""), repository))
                 for issue in sorted(set(issues) & referenced):
                     matches.append(f"pr:{repository.lower()}#{pr['number']}:issue#{issue}")
         except core.CoordinatorError as exc:

@@ -338,6 +338,7 @@ class TestIssueWorktreePreflight(unittest.TestCase):
 
     def collision(self):
         self.remote_prs.return_value = [{"number": 77, "title": "Fix #42", "body": "",
+                                        "closingIssuesReferences": [],
                                         "head": {"ref": "peer-work", "sha": "a" * 40}}]
 
     def assert_no_worktree(self, name):

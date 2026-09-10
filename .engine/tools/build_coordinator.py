@@ -12,6 +12,7 @@ import os
 from pathlib import Path
 import re
 import secrets
+import shlex
 import stat
 import subprocess
 import sys
@@ -598,11 +599,35 @@ def _receipt_crosscheck(plan: dict, state: dict) -> dict:
             "attributed_commits": sorted(covered), "disagreements": disagreements}
 
 
+def _recovery_instructions(plan: dict, state: dict) -> dict:
+    """Expose the original opaque identity needed to resume interrupted reverification."""
+    events = state.get("rewrite_recoveries", [])
+    if not events:
+        return {}
+    event = events[-1]
+    result = {}
+    for item in plan["work_items"]:
+        node_id = item["id"]
+        if node_id not in event["invalidated_nodes"] or state["work"].get(node_id, {}).get("integration"):
+            continue
+        original = event["prior_work"].get(node_id, {}).get("integration")
+        if not original:
+            continue
+        attempt, head = original["attempt_id"], event["to_commit"]
+        command = ("work integrate --item " + shlex.quote(node_id) + " --attempt " + shlex.quote(attempt)
+                   + " --plan <payload.json> --commit " + head
+                   + " --recovery --verification-input '<fresh check and result>'")
+        result[node_id] = {"attempt_id": attempt, "commit": head,
+                           "depends_on": item.get("depends_on", []), "command": command}
+    return result
+
+
 def _work_projection(plan: dict, state: dict) -> dict:
     """The DAG status section for a v2 Build: ready/claimable sets, per-node state, capacity, holders."""
     lifecycle = dag.derive_lifecycle(plan, state)
     parallelism = plan.get("parallelism", {"mode": "serial", "max_concurrency": 1})
     nodes = {}
+    recoveries = _recovery_instructions(plan, state)
     for node_id, node in lifecycle.items():
         nw = (state.get("work") or {}).get(node_id) or {}
         claim = nw.get("claim") or {}
@@ -617,6 +642,7 @@ def _work_projection(plan: dict, state: dict) -> dict:
             "integration_commit": integration.get("commit"),
             "focused_verification": integration.get("focused_verification"),
             "artifact_digest": result.get("artifact_digest"),
+            "recovery": recoveries.get(node_id),
             # A returned result's unresolved concerns are surfaced here for the integrator's judgment
             # (obligation 2): they never auto-block and never auto-redispatch, but they are not silent.
             "unresolved_concerns": (result.get("evidence") or {}).get("unresolved_concerns", []),
@@ -1743,6 +1769,8 @@ def cmd_status(args, store: Snapshot) -> None:
                     reason = reason[:157] + "..."
                 line += f" [failure: {reason}]"
             print(line)
+            if node.get("recovery"):
+                print("    reverify dependencies first; with current identity flags: " + node["recovery"]["command"])
         if w["resource_holders"]:
             print("  resources held by: " + ", ".join(sorted(w["resource_holders"])))
         crosscheck = w.get("receipt_crosscheck")
@@ -3202,7 +3230,16 @@ def _apply_unreviewed_rewrite(store, state, plan):
                for e in state.get("rewrite_recoveries", [])):
             print("this history rewrite is already recorded")
             return
-        raise CoordinatorError("no prepared rewrite: return to the original line and run reconcile --prepare before rebasing")
+        raise CoordinatorError(
+            "no prepared rewrite; no evidence changed. In this clean isolated Build worktree only, "
+            "preserve the recovered work first with `git branch codex/recovery-rescue-" + head[:12] + " HEAD`. "
+            "Inspect `git reflog show " + shlex.quote(branch) + "` and verify the pre-rewrite tip; "
+            "do not guess it from the current base or delete the rescue branch. After verifying that tip, "
+            "return this Build branch with `git reset --keep <verified-pre-rewrite-tip>`, restore its matching "
+            "draft PR head (if already pushed, inspect the remote and use an exact force-with-lease), then "
+            "run reconcile --prepare before rebasing again. Reapply any needed resolution from the retained "
+            "rescue branch. If the original objects cannot be verified, recover them from backup; never "
+            "edit the snapshot or replace the plan. These are manual recovery steps, not actions performed here.")
     if preparation["identity"] != _rewrite_identity(state, branch) or state["revision"] != preparation["prepared_revision"]:
         raise CoordinatorError("rewrite preparation no longer matches this Build revision and identity; preserve both histories and recover the original preparation")
     source, base, target = preparation["source_head"], preparation["source_base"], preparation["target_tip"]
@@ -3255,6 +3292,8 @@ def _apply_unreviewed_rewrite(store, state, plan):
     store.mutate(change, from_revision=state["revision"])
     print("unreviewed rewrite recorded; original evidence retained; " +
           ("reverify affected nodes: " + ", ".join(affected) if affected else "contribution unchanged"))
+    for node_id, recovery in _recovery_instructions(plan, store.read()).items():
+        print(node_id + ": reverify dependencies first; with current identity flags: " + recovery["command"])
 
 
 def cmd_reconcile(args, store: Snapshot) -> None:

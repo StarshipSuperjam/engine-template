@@ -22,7 +22,7 @@ For an unbound branch carrying work, rebase onto `origin/<target>`, resolve conf
 Bind fetches again; dirty/mid-operation checkouts, stale target ancestry, failed fetches and mismatched PR repository/ref/head/base refuse before accepted work.
 Fix the named condition and retry. Active-branch catch-up and intentional history rewrites use the continuity procedure instead of this fresh-entry remedy.
 
-Issues come from the sealed plan, authorizing Issue and PR's structured closing references. The shared preflight checks nonterminal local claims across worktrees, all open draft/ready PR pages, and recognized `claude/`/`codex/` issue branches.
+Issues come from the sealed plan, authorizing Issue and PR's structured closing references. The shared preflight checks nonterminal local claims across worktrees, all open draft/ready PR pages including paginated sidebar links, and recognized `claude/`/`codex/` issue branches.
 The exact verified candidate PR/head is excluded even on first admission; competing work is not. No issue identity records overlap as not applicable. Missing results are incomplete, never an empty scan.
 A collision or incomplete lookup names its evidence and digest. Only on the operator's explicit acceptance, add the following to the same bind:
 ```text

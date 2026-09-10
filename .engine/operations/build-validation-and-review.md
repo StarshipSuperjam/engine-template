@@ -45,7 +45,7 @@ build_coordinator.py <identity flags> validate --plan <payload.json>
 git push origin <build-branch>
 build_coordinator.py <identity flags> repair assess --judgment none --rationale "<why direct verification suffices>"
 ```
-The coordinator observes the exact draft head and verified default-target repository/ref/tip. It requires two parents with that target second and an actual merge tree matching `git merge-tree --write-tree`.
+The coordinator observes the exact draft head and verified default-target repository/ref/tip. It requires two parents with that target second and an actual merge tree matching `git merge-tree --write-tree` in an isolated object-only repository, excluding local configuration, attributes and replacement refs.
 Only proven imported target ancestry and that exact automatic merge are exempt from unread work; local commits before/after still need coverage. Original receipts/read ranges remain unchanged. The PR records target tip, merge, automatic tree and validated HEAD, not a claim that combined behavior is unchanged.
 A clean catch-up alone needs no receipt-loss flag or extra counted panel. Conflicts, extra merge edits, unrelated/octopus merges, missing objects, ambiguous targets or failed proof remain ordinary authored/unverified work; use the warranted scoped/full judgment.
 Failed remote verification grants no new exemption: check the clean checkout, pushed draft identity and fetched target, then retry. Intentional rebases use [Build continuity](build-continuity.md). Re-import final CI proof after later changes.

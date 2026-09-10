@@ -37,7 +37,11 @@ counts as authored — the fail-toward-more-review direction.
 from __future__ import annotations
 
 from pathlib import Path
+import json
+import os
 import re
+import subprocess
+import tempfile
 
 import build_coordinator_core as core
 
@@ -160,17 +164,39 @@ def prove_base_advance(root: Path, merge: str, target: dict) -> dict | None:
         if (not target.get("target_repository") or not target.get("target_ref")
                 or not re.fullmatch(r"[0-9a-f]{40}", target.get("target_tip", ""))):
             return None
-        parents = _git(root, ["rev-list", "--parents", "-n", "1", merge]).split()
-        if len(parents) != 3 or parents[0] != merge or parents[2] != target["target_tip"]:
+        if not re.fullmatch(r"[0-9a-f]{40}", merge):
             return None
-        tree = _git(root, ["merge-tree", "--write-tree", parents[1], parents[2]]).splitlines()[0]
-        if not re.fullmatch(r"[0-9a-f]{40}", tree):
-            return None
-        if tree != _git(root, ["rev-parse", merge + "^{tree}"]).strip():
-            return None
+        # Reproduce only committed Git objects. A kept checkout's info/attributes, config,
+        # replacement refs or environment can otherwise install a custom merge driver that
+        # manufactures a manually resolved tree and falsely turns authored work into coverage.
+        with tempfile.TemporaryDirectory(prefix="engine-merge-proof-") as directory:
+            env = {k: v for k, v in os.environ.items() if not k.startswith("GIT_")}
+            env.update(HOME=directory, XDG_CONFIG_HOME=directory, GIT_CONFIG_NOSYSTEM="1",
+                       GIT_CONFIG_SYSTEM=os.devnull, GIT_CONFIG_GLOBAL=os.devnull,
+                       GIT_ATTR_NOSYSTEM="1", GIT_TERMINAL_PROMPT="0")
+
+            def git(where, *args):
+                result = subprocess.run(["git", "--no-replace-objects", *args], cwd=where,
+                    env=env, text=True, capture_output=True, timeout=45)
+                if result.returncode:
+                    raise RangeUnreadable("isolated automatic merge proof failed")
+                return result.stdout.strip()
+
+            objects = Path(git(root, "rev-parse", "--path-format=absolute", "--git-path", "objects"))
+            git(directory, "init", "--bare", "--template=", ".")
+            # Quoted alternate paths protect separators and unusual checkout path characters.
+            env["GIT_ALTERNATE_OBJECT_DIRECTORIES"] = json.dumps(str(objects), ensure_ascii=False)
+            parents = git(directory, "rev-list", "--parents", "-n", "1", merge).split()
+            if len(parents) != 3 or parents[0] != merge or parents[2] != target["target_tip"]:
+                return None
+            tree = git(directory, "merge-tree", "--write-tree", parents[1], parents[2]).splitlines()[0]
+            if not re.fullmatch(r"[0-9a-f]{40}", tree):
+                return None
+            if tree != git(directory, "rev-parse", merge + "^{tree}"):
+                return None
         return {key: target[key] for key in ("target_repository", "target_ref", "target_tip")} | {
             "merge_commit": merge, "first_parent": parents[1], "merge_tree": tree}
-    except (RangeUnreadable, IndexError):
+    except (RangeUnreadable, IndexError, OSError, subprocess.TimeoutExpired):
         return None
 
 

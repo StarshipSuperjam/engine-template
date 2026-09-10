@@ -193,7 +193,7 @@ class TestIssueOverlapAdmission(unittest.TestCase):
                      "authorizing_issue": 12}, **over)
 
     def pr(self, number=7, ref="codex/12-work", repository="owner/repo", body="Fixes #12"):
-        return {"number": number, "title": "work", "body": body,
+        return {"number": number, "title": "work", "body": body, "closingIssuesReferences": [],
                 "head": {"ref": ref, "sha": "a" * 40, "repo": {"full_name": repository}}}
 
     def observe(self, *, issues=None, rows=None, branches="", candidate=True):
@@ -230,14 +230,19 @@ class TestIssueOverlapAdmission(unittest.TestCase):
     def test_pr_transport_slurps_every_page_and_later_competitor_is_observed(self):
         pages = [[self.pr()], [self.pr(number=8, ref="other")]]
         result = subprocess.CompletedProcess([], 0, stdout=json.dumps(pages), stderr="")
-        with mock.patch.object(entry.subprocess, "run", return_value=result) as run, \
+        links = subprocess.CompletedProcess([], 0, stdout=json.dumps([{"data": {"repository": {
+            "pullRequest": {"closingIssuesReferences": {"nodes": [],
+                "pageInfo": {"hasNextPage": False, "endCursor": None}}}}}}]), stderr="")
+        with mock.patch.object(entry.subprocess, "run", side_effect=[result, links, links]) as run, \
                 mock.patch.object(entry, "_git", return_value=""):
             observed = entry.overlap_observation("/tmp/entry", self.library, "owner/repo", [12],
                                                    candidate=self.candidate)
-        argv = run.call_args.args[0]
+        argv = run.call_args_list[0].args[0]
         self.assertIn("--paginate", argv)
         self.assertIn("--slurp", argv)
         self.assertIn("per_page=100", argv[-1])
+        self.assertEqual(len(run.call_args_list), 3)
+        self.assertEqual(observed["coverage"], "complete")
         self.assertEqual(observed["matches"], ["pr:owner/repo#8:issue#12"])
         with self.assertRaises(core.CoordinatorError):
             entry.accept_overlap("owner/repo", [12], observed)
@@ -342,6 +347,42 @@ class TestIssueOverlapAdmission(unittest.TestCase):
             with self.subTest(data=data), mock.patch.object(entry.subprocess, "run", return_value=result), \
                     self.assertRaisesRegex(core.CoordinatorError, "completely observed"):
                 entry._open_prs("/tmp/entry", "owner/repo")
+
+    def test_sidebar_link_without_text_or_numbered_branch_requires_override(self):
+        pr = self.pr(number=8, ref="feature/cache", body="")
+        pr["closingIssuesReferences"] = [{"number": 12, "url": "https://github.com/owner/repo/issues/12"}]
+        observed = self.observe(rows=[pr])
+        self.assertEqual(observed["coverage"], "complete")
+        self.assertEqual(observed["matches"], ["pr:owner/repo#8:issue#12"])
+        with self.assertRaisesRegex(core.CoordinatorError, "overlapping issue"):
+            entry.accept_overlap("owner/repo", [12], observed)
+
+    def test_structured_links_are_fully_paged_and_partial_or_failed_pages_refuse(self):
+        pr = self.pr(number=8, ref="feature/cache", body="")
+        def page(number, more=False, cursor=None):
+            return {"data": {"repository": {"pullRequest": {"closingIssuesReferences": {
+                "nodes": [{"number": number, "url": f"https://github.com/owner/repo/issues/{number}"}],
+                "pageInfo": {"hasNextPage": more, "endCursor": cursor}}}}}}
+        def result(value):
+            return subprocess.CompletedProcess([], 0, stdout=json.dumps(value), stderr="")
+        with mock.patch.object(entry.subprocess, "run", side_effect=[
+                result([[pr]]), result([page(13, True, "next"), page(12)])]) as run:
+            rows = entry._open_prs("/tmp/entry", "owner/repo")
+        self.assertEqual([item["number"] for item in rows[0]["closingIssuesReferences"]], [13, 12])
+        self.assertIn("--paginate", run.call_args_list[1].args[0])
+        self.assertLessEqual(run.call_args_list[1].kwargs["timeout"], 45)
+        self.assertEqual(self.observe(rows=rows)["matches"], ["pr:owner/repo#8:issue#12"])
+        for links in ([page(12, True, "next")], [{"errors": [{"message": "unavailable"}]}],
+                      [{"data": {"repository": None}}], [], [page(12), page(13)]):
+            with self.subTest(links=links), mock.patch.object(entry.subprocess, "run",
+                    side_effect=[result([[pr]]), result(links)]), \
+                    self.assertRaisesRegex(core.CoordinatorError, "completely observed"):
+                entry._open_prs("/tmp/entry", "owner/repo")
+
+    def test_missing_competing_structured_links_is_incomplete_not_clear(self):
+        pr = self.pr(number=8, ref="feature/cache", body="")
+        del pr["closingIssuesReferences"]
+        self.assertEqual(self.observe(rows=[pr])["coverage"], "incomplete")
 
 
 if __name__ == "__main__":

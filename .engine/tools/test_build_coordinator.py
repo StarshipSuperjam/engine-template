@@ -389,7 +389,7 @@ class TestPlanAndSnapshot(CoordinatorCase):
         value["intent_source"] = {"kind": "issue", "issue": 12}
         draft = {"headRefOid": HEAD_A, "baseRefOid": BASE, "headRefName": "codex/12-work",
                  "closingIssuesReferences": []}
-        rows = [{"number": 7, "title": "Fix #12", "body": "", "head": {
+        rows = [{"number": 7, "title": "Fix #12", "body": "", "closingIssuesReferences": [], "head": {
             "ref": "codex/12-work", "sha": HEAD_A, "repo": {"full_name": "owner/repo"}}}]
         library = mock.Mock()
         library.slugs.return_value = []
@@ -401,7 +401,7 @@ class TestPlanAndSnapshot(CoordinatorCase):
             self.assertEqual(admission["material"]["overlap"]["coverage"], "complete")
             self.assertEqual(admission["material"]["overlap"]["matches"], [])
             self.assertIsNone(admission["material"]["override"])
-            rows.append({"number": 8, "title": "Fix #12", "body": "", "head": {
+            rows.append({"number": 8, "title": "Fix #12", "body": "", "closingIssuesReferences": [], "head": {
                 "ref": "claude/12-work", "sha": HEAD_B, "repo": {"full_name": "owner/repo"}}})
             with self.assertRaisesRegex(bc.CoordinatorError, "overlapping issue work"):
                 bc._observe_admission(self.bind_args(), value, draft, library)
@@ -6624,9 +6624,10 @@ class TestPreparedUnreviewedRewrite(unittest.TestCase):
         with mock.patch.object(bc, "_verify_draft", return_value={
                 "baseRefName": "main", "headRefName": "codex/recovery", "headRefOid": self.source}), \
                 mock.patch.object(bc.repo_identity, "origin_slug", return_value="owner/repo"), \
-                contextlib.redirect_stdout(io.StringIO()):
+                contextlib.redirect_stdout(io.StringIO()) as out:
             bc.verify_resume(self.store, args)
             bc.cmd_reconcile(args, self.store)
+        return out.getvalue()
 
     def _assert_refused_without_mutation(self, needle):
         before = self.store.read()
@@ -6734,11 +6735,143 @@ class TestPreparedUnreviewedRewrite(unittest.TestCase):
         self.assertEqual(recovered["rewrite_recoveries"][-1]["prior_work"], self.original["work"])
         bc._verify_recovered_progress(recovered, rewritten)
 
+    def test_divergent_recovery_preserves_unaffected_node_through_canonical_handoff(self):
+        """SC-L1-6-001: one changed node must not retire unrelated completed work."""
+        from test_plan_store import _document
+        import plan_contract
+        self.plan["work_items"].append(_work_item_v2("unaffected", []))
+        self.plan_path.write_text(json.dumps(self.plan), encoding="utf-8")
+        previous = self.source
+        self.source = self.repo.commit_file(".engine/tools/unaffected.py", "untouched contribution\n", "independent work")
+        initial = self.store.read()
+        receipt = bc._compute_receipt(self.repo.path, self.plan, initial, "unaffected", previous,
+                                      self.source, "worker-commit")
+        initial["work"]["unaffected"] = {**bc.work.empty_node(), "attempt_count": 1,
+            "integration": {"attempt_id": "3" * 32, "commit": self.source,
+                            "focused_verification": "independent original verification", "receipt": receipt}}
+        initial["progress"]["completed"].append({"id": "unaffected", "commit": self.source})
+        initial["plan"].update(digest=bc._digest(self.plan), bound_head=self.source)
+        initial["approval"]["plan_digest"] = bc._digest(self.plan)
+        library = plan_store.PlanLibrary(Path(self.tmp.name) / "independent-plans")
+        doc = _document(build_plan=self.plan)
+        slug = library.create(doc)
+        record = library.read_record(slug)
+        seal = {"revision": 1, "reviewed_digest": record["current"]["plan_digest"],
+                "sealed_digest": record["current"]["plan_digest"],
+                "build_plan_digest": plan_contract.build_plan_digest(doc),
+                "at": "2026-09-08T00:00:00Z", "delta_judgment": "none"}
+        library.update_record(slug, lambda r: r.update(seal=seal,
+            consent=[{"gate": "seal", "at": seal["at"]}]))
+        initial.pop("ownership")
+        initial["plan"]["sealed_digest"] = seal["sealed_digest"]
+        claim = build_state_store.reserve_build(library, slug, initial,
+            consent={"gate": "bind", "at": seal["at"]})
+        identity = build_state_store.claim_identity(claim)
+        build_state_store.finish_binding(library, slug, identity, initial, bc._state_schema_for)
+        self.store = build_state_store.ClaimedBuildStore(library, slug, bc._state_schema_for, identity=identity)
+        original = self.store.read()
+        self._advance_target(conflict=True)
+        self._reconcile(prepare=True)
+        conflict = subprocess.run(["git", "-C", self.repo.path, "rebase", "origin/main"],
+                                 env=self.repo.env, text=True, capture_output=True)
+        self.assertNotEqual(conflict.returncode, 0)
+        self.assertIn("CONFLICT", conflict.stdout)
+        self.repo.write(".engine/tools/shared.py", "resolved shared contribution\n")
+        self.repo.git("add", ".engine/tools/shared.py")
+        self.repo.git("-c", "core.editor=true", "rebase", "--continue")
+        reconcile_output = self._reconcile()
+        rewritten = self.repo.git("rev-parse", "HEAD")
+        recovered = self.store.read()
+        self.assertEqual(recovered["rewrite_recoveries"][-1]["invalidated_nodes"], ["adapter", "shared"])
+        self.assertEqual(recovered["work"]["unaffected"], original["work"]["unaffected"])
+        self.assertEqual(recovered["progress"]["completed"], [{"id": "unaffected", "commit": self.source}])
+        bc._verify_recovered_progress(recovered, rewritten)
+        def cold_status():
+            cold = build_state_store.ClaimedBuildStore(library, slug, bc._state_schema_for, identity=identity)
+            with contextlib.redirect_stdout(io.StringIO()) as out:
+                bc.cmd_status(argparse.Namespace(plan=str(self.plan_path), json=True), cold)
+            return json.loads(out.getvalue())["work"]["nodes"]
+        pending = cold_status()
+        for node in ("shared", "adapter"):
+            instruction = pending[node]["recovery"]
+            self.assertEqual(instruction["attempt_id"], original["work"][node]["integration"]["attempt_id"])
+            self.assertEqual(instruction["commit"], rewritten)
+            self.assertEqual(instruction["depends_on"], ["shared"] if node == "adapter" else [])
+            self.assertIn(instruction["attempt_id"], instruction["command"])
+            self.assertIn("--recovery", instruction["command"])
+            self.assertIn(instruction["command"], reconcile_output)
+        self.assertIsNone(pending["unaffected"]["recovery"])
+        with contextlib.redirect_stdout(io.StringIO()) as human:
+            bc.cmd_status(argparse.Namespace(plan=str(self.plan_path), json=False), self.store)
+        for node in ("shared", "adapter"):
+            self.assertIn(pending[node]["recovery"]["command"], human.getvalue())
+        for node in ("shared", "adapter"):
+            self.assertIsNone(recovered["work"][node]["integration"])
+            args = argparse.Namespace(plan=str(self.plan_path), item=node, recovery=True,
+                attempt=original["work"][node]["integration"]["attempt_id"], commit=rewritten,
+                verification_input="fresh verification after resolving shared conflict")
+            with contextlib.redirect_stdout(io.StringIO()):
+                bc.cmd_work_integrate(args, self.store)
+            refreshed = cold_status()
+            self.assertIsNone(refreshed[node]["recovery"])
+            self.assertIsNone(refreshed["unaffected"]["recovery"])
+            if node == "shared":
+                self.assertEqual(refreshed["adapter"]["recovery"], pending["adapter"]["recovery"])
+            else:
+                self.assertIsNone(refreshed["shared"]["recovery"])
+        after_verification = self.store.read()
+        for node in ("shared", "adapter", "unaffected"):
+            self.assertEqual(after_verification["work"][node]["integration"]["receipt"],
+                             original["work"][node]["integration"]["receipt"])
+        self.assertEqual(after_verification["reviews"], original["reviews"])
+        self.assertEqual(after_verification["rewrite_recoveries"][-1]["prior_work"], original["work"])
+        bc.verify_resume(self.store, argparse.Namespace(command="approve"))
+        with contextlib.redirect_stdout(io.StringIO()), contextlib.redirect_stderr(io.StringIO()):
+            bc.cmd_approve(argparse.Namespace(plan=str(self.plan_path), depth="thorough"), self.store)
+        output = Path(self.tmp.name) / "independent-handoff.json"
+        with mock.patch.object(bc, "_library", return_value=library), \
+                mock.patch.object(bc.repo_identity, "origin_slug", return_value="owner/repo"), \
+                mock.patch.object(bc.github, "pr_state", return_value={
+                    "number": 7, "state": "OPEN", "headRefOid": rewritten}), \
+                contextlib.redirect_stdout(io.StringIO()):
+            bc.cmd_handoff_export(argparse.Namespace(output=str(output)), self.store)
+            bc.cmd_handoff_restore(argparse.Namespace(input=str(output)), self.store)
+        final = self.store.read()
+        self.assertEqual(final["ownership"], identity)
+        self.assertEqual(final["work"]["unaffected"]["integration"]["receipt"], receipt)
+        self.assertEqual({p["id"] for p in final["progress"]["completed"]}, {"shared", "adapter", "unaffected"})
+        bc._verify_recovered_progress(final, rewritten)
+
     def test_unprepared_rebase_refuses(self):
         self._advance_target()
         self.repo.git("fetch", "origin")
         self.repo.git("rebase", "origin/main")
-        self._assert_refused_without_mutation("no prepared rewrite")
+        rescued_tip = self.repo.git("rev-parse", "HEAD")
+        before_snapshot = self.store.path.read_bytes()
+        before_refs = self.repo.git("show-ref")
+        before_reflog = self.repo.git("reflog", "show", "codex/recovery")
+        with self.assertRaisesRegex(bc.CoordinatorError, "no prepared rewrite") as caught:
+            self._reconcile()
+        message = str(caught.exception)
+        rescue_branch = "codex/recovery-rescue-" + rescued_tip[:12]
+        for instruction in ("git branch " + rescue_branch + " HEAD", "git reflog show codex/recovery",
+                            "git reset --keep <verified-pre-rewrite-tip>", "exact force-with-lease",
+                            "reconcile --prepare", "backup", "manual recovery steps"):
+            self.assertIn(instruction, message)
+        self.assertEqual(self.store.path.read_bytes(), before_snapshot)
+        self.assertEqual(self.repo.git("show-ref"), before_refs)
+        self.assertEqual(self.repo.git("reflog", "show", "codex/recovery"), before_reflog)
+        # Execute the offered recovery only in this disposable repo, using the fixture's known source.
+        self.repo.git("branch", rescue_branch, "HEAD")
+        self.assertIn(self.source, self.repo.git("reflog", "show", "--format=%H", "codex/recovery"))
+        self.repo.git("cat-file", "-e", self.source + "^{commit}")
+        self.repo.git("reset", "--keep", self.source)
+        self._reconcile(prepare=True)
+        self.repo.git("rebase", "origin/main")
+        self._reconcile()
+        self.assertEqual(self.repo.git("rev-parse", rescue_branch), rescued_tip)
+        self.assertEqual(self.store.read()["work"], self.original["work"])
+        bc.verify_resume(self.store, argparse.Namespace(command="checkpoint"))
 
     def test_prepared_unrelated_reset_refuses(self):
         self._advance_target()

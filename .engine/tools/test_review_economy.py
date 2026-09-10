@@ -21,6 +21,7 @@ import json
 import os
 from pathlib import Path
 import shutil
+import shlex
 import subprocess
 import sys
 import tempfile
@@ -236,6 +237,67 @@ class TheCleanTargetMergeProof(_RealRepo):
         merge = self.commit("seed.txt", "manually chosen resolution")
         self.assertIsNone(ranges.prove_base_advance(self.repo, merge, self.target(target)))
         self.assertTrue(ranges.authored_between(self.repo, build, merge))
+
+    def _install_untracked_merge_driver(self, pattern, resolution):
+        """A harmless reproducer: if executed, it writes only its result and a private sentinel."""
+        marker = self.repo.parent / "custom-driver-ran"
+        script = self.repo.parent / "custom-driver.sh"
+        script.write_text("#!/bin/sh\nprintf %s " + shlex.quote(resolution) + " > \"$1\"\n"
+                          "printf ran > " + shlex.quote(str(marker)) + "\n")
+        self.git("config", "merge.injected.driver", "sh " + shlex.quote(str(script)) + " %A")
+        (self.repo / ".git" / "info" / "attributes").write_text(pattern + " merge=injected\n")
+        global_config = self.repo.parent / "untrusted-global.gitconfig"
+        global_config.write_text("[merge \"injected\"]\n\tdriver = sh " + str(script) + " %A\n")
+        return marker, global_config
+
+    def test_conflict_cannot_gain_clean_proof_from_untracked_attributes_and_driver(self):
+        """SG-1: local attributes once laundered a manual resolution into automatic coverage."""
+        self.git("checkout", "-q", "-b", "build")
+        first_parent = self.commit("seed.txt", "ours")
+        self.git("checkout", "-q", "main")
+        target = self.commit("seed.txt", "theirs")
+        self.git("checkout", "-q", "build")
+        conflict = subprocess.run(["git", "-C", str(self.repo), "merge", "--no-ff", "main"],
+                                  env=self.env, capture_output=True, text=True)
+        self.assertNotEqual(conflict.returncode, 0)
+        self.assertIn("CONFLICT", conflict.stdout)
+        merged = self.commit("seed.txt", "manually chosen resolution")
+        marker, config = self._install_untracked_merge_driver("seed.txt", "manually chosen resolution\n")
+        # Establish that mutable Git inputs really reproduce the maliciously claimed automatic tree.
+        poisoned_tree = self.git("merge-tree", "--write-tree", first_parent, target).splitlines()[0]
+        self.assertEqual(poisoned_tree, self.git("rev-parse", merged + "^{tree}"))
+        self.assertTrue(marker.exists())
+        marker.unlink()
+        with mock.patch.dict(os.environ, {"GIT_CONFIG_GLOBAL": str(config), "GIT_CONFIG_SYSTEM": str(config),
+                "GIT_CONFIG_COUNT": "1", "GIT_CONFIG_KEY_0": "merge.default", "GIT_CONFIG_VALUE_0": "injected"}):
+            self.assertIsNone(ranges.prove_base_advance(self.repo, merged, self.target(target)))
+        self.assertFalse(marker.exists(), "proof verification must never execute a locally selected merge driver")
+        self.assertEqual((self.repo / ".git" / "info" / "attributes").read_text(), "seed.txt merge=injected\n")
+
+    def test_clean_merge_proof_ignores_mutable_attributes_and_environment_without_driver_execution(self):
+        self.commit("seed.txt", "one\ntwo\nthree\nfour\nfive\nsix")
+        self.git("checkout", "-q", "-b", "build")
+        self.commit("seed.txt", "ONE\ntwo\nthree\nfour\nfive\nsix")
+        self.git("checkout", "-q", "main")
+        target = self.commit("seed.txt", "one\ntwo\nthree\nfour\nfive\nSIX")
+        self.git("checkout", "-q", "build")
+        self.git("merge", "--no-ff", "--no-edit", "main")
+        merged = self.git("rev-parse", "HEAD")
+        original_proof = ranges.prove_base_advance(self.repo, merged, self.target(target))
+        self.assertIsNotNone(original_proof)
+        marker, config = self._install_untracked_merge_driver("seed.txt", "untrusted replacement\n")
+        with mock.patch.dict(os.environ, {"GIT_CONFIG_GLOBAL": str(config), "GIT_CONFIG_SYSTEM": str(config),
+                "GIT_CONFIG_COUNT": "1", "GIT_CONFIG_KEY_0": "merge.default", "GIT_CONFIG_VALUE_0": "injected"}):
+            self.assertEqual(ranges.prove_base_advance(self.repo, merged, self.target(target)), original_proof)
+        self.assertFalse(marker.exists())
+
+    def test_replacement_refs_cannot_change_a_real_merge_proof(self):
+        _, repaired, target, merged, _, _ = self.clean_merge()
+        original = ranges.prove_base_advance(self.repo, merged, self.target(target))
+        self.assertIsNotNone(original)
+        self.git("replace", merged, repaired)
+        self.assertEqual(ranges.prove_base_advance(self.repo, merged, self.target(target)), original)
+        self.assertEqual(self.git("for-each-ref", "--format=%(objectname)", "refs/replace/"), repaired)
 
     def test_unrelated_target_missing_object_and_tampered_proof_do_not_cover(self):
         reviewed, repaired, target, merge, _, _ = self.clean_merge()

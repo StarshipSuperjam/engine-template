@@ -93,6 +93,15 @@ if argv and argv[0] == "api" and any("/pulls?" in arg for arg in argv):
     print(json.dumps([[own], pr.get("demo_competitors", [])]))
     sys.exit(0)
 
+if argv[:2] == ["api", "graphql"]:
+    number = int(next(arg.split("=", 1)[1] for arg in argv if arg.startswith("number=")))
+    row = pr if number == pr["number"] else next(item for item in pr.get("demo_competitors", [])
+                                               if item["number"] == number)
+    print(json.dumps([{"data": {"repository": {"pullRequest": {"closingIssuesReferences": {
+        "nodes": row.get("closingIssuesReferences", []),
+        "pageInfo": {"hasNextPage": False, "endCursor": None}}}}}}]))
+    sys.exit(0)
+
 # Everything else the coordinator may try (labels, edits, api reads) is a no-op here: this demo is
 # about the entry door, and a fake that failed on an unrelated call would look like a real refusal.
 print("{}")

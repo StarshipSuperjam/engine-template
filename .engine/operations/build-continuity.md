@@ -29,7 +29,7 @@ build_coordinator.py <identity flags> reconcile --plan <payload.json>
 Preparation retains source objects under `refs/engine/build-recovery/` and pins identity, plan, revision and target. Finish conflicts before apply.
 Apply verifies completed-rebase provenance and contribution; the PR must retain source or recovered HEAD. Missing/ambiguous proof refuses; recover evidence, never hand-edit anchors or replace plans.
 Clean recovery preserves the ledger. Divergence archives original receipts and invalidates affected nodes/dependents without inventing review evidence.
-Re-run checks and reverify original attempts at recovered HEAD in dependency order; finish before another rewrite, validation and approved review:
+Re-run checks and reverify original attempts at recovered HEAD in dependency order; reconcile and `status` print each exact attempt/commit and command. Finish before another rewrite, validation and approved review:
 ```text
 build_coordinator.py <identity flags> work integrate --item <node> --attempt <original-attempt> --plan <payload.json> --commit <recovered-head> --recovery --verification-input "<fresh check and result>"
 ```
