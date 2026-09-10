@@ -5866,7 +5866,7 @@
       },
       "slug": "build-validation-and-review",
       "source": {
-        "fingerprint": "sha256:e357e26d9862550d5cba104e060b3104cb2cd7d337c0913c832674d283eeda03",
+        "fingerprint": "sha256:2c82061d8c9512240e5dcbdf7d2c663b06450d54ebb7fcb974d7af6faedf3097",
         "path": ".engine/operations/build-validation-and-review.md"
       },
       "status": "active",
@@ -5966,7 +5966,7 @@
       },
       "slug": "codex-settings",
       "source": {
-        "fingerprint": "sha256:fd02dde33b966f49bf18062c31b6ad7e1ac6968c2e46b6c08a2e882bbc44d6f9",
+        "fingerprint": "sha256:536a8fe79441a521c235affb18f254ae5a85043690580362f5c0af547fb32926",
         "path": ".engine/operations/codex-settings.md"
       },
       "status": "active",
@@ -11545,7 +11545,7 @@
       },
       "slug": "demo_plan_to_ready_pr",
       "source": {
-        "fingerprint": "sha256:28ac022ec162df4ac91ae71c04bc2d44b3549e520efc2fd0f9b1f2410465ea63",
+        "fingerprint": "sha256:847ba61092f26578db1b8d944120f816f3c8044fa380d9731769c8caedf1bfa3",
         "path": ".engine/tools/demo_plan_to_ready_pr.py"
       },
       "status": "active",
@@ -15243,7 +15243,7 @@
     },
     {
       "entrypoint": "hook",
-      "guarded": false,
+      "guarded": true,
       "id": "tool:scoped_agents",
       "name": ".engine/tools/scoped_agents.py",
       "owner": "core",
@@ -17045,7 +17045,7 @@
       },
       "slug": "test_codex_trust_surfaces",
       "source": {
-        "fingerprint": "sha256:89d2eda9804d8cd214034dedfabebe34bfc82d85c5de9430cc13601fb2940cc9",
+        "fingerprint": "sha256:a0800724e21954cf0adcbcb65ca21367c6778fa4e6277bc600ad08cb971e5031",
         "path": ".engine/tools/test_codex_trust_surfaces.py"
       },
       "status": "active",
@@ -19324,12 +19324,14 @@
           "tool:plan_program",
           "tool:plan_projection",
           "tool:plan_store",
-          "tool:project_manager"
+          "tool:project_manager",
+          "tool:scoped_agents",
+          "tool:test_build_coordinator"
         ]
       },
       "slug": "test_plan_dogfood",
       "source": {
-        "fingerprint": "sha256:650969f25f6f169b9b636ed5ddefe285fe2bcad4fa933380893211b05147712e",
+        "fingerprint": "sha256:bf694dde60703fa35dc4fc5dedafbcec2a911e64e285c7e9ff051c0f347098fd",
         "path": ".engine/tools/test_plan_dogfood.py"
       },
       "status": "active",
@@ -19354,12 +19356,14 @@
           "tool:plan_store",
           "tool:program_manager",
           "tool:project_manager",
+          "tool:scoped_agents",
+          "tool:test_build_coordinator",
           "tool:test_plan_store"
         ]
       },
       "slug": "test_plan_lifecycle",
       "source": {
-        "fingerprint": "sha256:8f23b2c2340693d739bca75cfd1bd5c80b7cddf452c329d81ba2bce4be392280",
+        "fingerprint": "sha256:d264414e490eb456047be8c9e98119e375054e6fd5d533bd00afc1dba302c180",
         "path": ".engine/tools/test_plan_lifecycle.py"
       },
       "status": "active",
@@ -20479,7 +20483,7 @@
       },
       "slug": "test_scoped_agents",
       "source": {
-        "fingerprint": "sha256:8eedcf444c89852f3abd05fd8e82bdac7a7b37864273e2a3a0fdf404345a7a21",
+        "fingerprint": "sha256:9215a21ce9ca6f4488eb77de1444178e965bcc879d4bf1aae19e89e8c9d4cd08",
         "path": ".engine/tools/test_scoped_agents.py"
       },
       "status": "active",
@@ -21977,7 +21981,7 @@
       },
       "slug": "weakening_guard",
       "source": {
-        "fingerprint": "sha256:335ec5ceecd05eed82e7fb0f46a495e9f36e74ec8a3442cd4a1fafa326dc0678",
+        "fingerprint": "sha256:6b5b58699736a4397790c4100bb2201aa74016a2a161bee978984ebad0d76dd3",
         "path": ".engine/tools/weakening_guard.py"
       },
       "status": "active",
