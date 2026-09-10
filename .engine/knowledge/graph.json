@@ -20782,7 +20782,7 @@
       },
       "slug": "test_seed",
       "source": {
-        "fingerprint": "sha256:918e4edec88c1891ba9682faf6953063a738afb18435b7d2c42ff41fe9bcd329",
+        "fingerprint": "sha256:09b3729bfe368864632f54d206126c51dd8370f38d61007acc758a2802528211",
         "path": ".engine/tools/test_seed.py"
       },
       "status": "active",
@@ -21653,12 +21653,14 @@
           "tool:build_protocol",
           "tool:execution_environment",
           "tool:github_client",
-          "tool:validate"
+          "tool:lock_integrity",
+          "tool:validate",
+          "tool:weakening_guard"
         ]
       },
       "slug": "test_validate",
       "source": {
-        "fingerprint": "sha256:ce7ec565b76c1da1ff407488c9d9ff5573d5ca72e9f0e1b0289988e3230ad76e",
+        "fingerprint": "sha256:0616123b3479abaffadba5f6e809bbf82c595a754fd745e9f7dbf93bfb920fe1",
         "path": ".engine/tools/test_validate.py"
       },
       "status": "active",
@@ -22079,7 +22081,7 @@
       },
       "slug": "validate",
       "source": {
-        "fingerprint": "sha256:df5ea35e885bee207b47dd469945493b9da7eb1c663fa2b4917c0e4713c6334d",
+        "fingerprint": "sha256:c03a9a3ed0f6eb614fd8ff66466aa9279331fb3ff56b9e5bc7e4e7de10d54c68",
         "path": ".engine/tools/validate.py"
       },
       "status": "active",
@@ -22121,7 +22123,7 @@
       },
       "slug": "weakening_guard",
       "source": {
-        "fingerprint": "sha256:917f8ab0c10399e7475dcb4fd042e630dfe0f2f168fbe22a45473fbb7e3e95ee",
+        "fingerprint": "sha256:da4ac7386c7fc8806716abb82f9459b0452a9b277eee789682ee8ceb5ae84b6b",
         "path": ".engine/tools/weakening_guard.py"
       },
       "status": "active",
