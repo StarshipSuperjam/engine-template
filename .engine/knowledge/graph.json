@@ -6733,7 +6733,7 @@
       },
       "slug": "model-routing",
       "source": {
-        "fingerprint": "sha256:422829ebd2711fe6933b1767831160a3444e5a9e9ba4b632fbf08ea6a2e2a0f0",
+        "fingerprint": "sha256:c9e88742b1443431583eaa2c4accb7d56dabd8f103b5ecbce40aa52bd40e5e4b",
         "path": ".engine/policies/model-routing.md"
       },
       "status": "active",
@@ -7436,7 +7436,7 @@
       },
       "slug": "model-bindings.v1",
       "source": {
-        "fingerprint": "sha256:68cc7d8e38514ccc8f5a0938e7e63d6567c83913911c0e5ee8a9e172aaf5d16c",
+        "fingerprint": "sha256:254baa04c13e5447624d46697b230be9a491ecb0364525459c892666fc6458ea",
         "path": ".engine/schemas/model-bindings.v1.json"
       },
       "status": "active",
@@ -9162,7 +9162,7 @@
       },
       "slug": "agent_bindings",
       "source": {
-        "fingerprint": "sha256:ca3d8788b31b6e9dfc5e3ab43c3a55531d70177eb1dda804d7c2e1d61f5cee85",
+        "fingerprint": "sha256:44101c891f95756b6b5ce0bf38396a92c690c5e56fc70c184d8d8e4a66a27731",
         "path": ".engine/tools/agent_bindings.py"
       },
       "status": "active",
@@ -16049,7 +16049,7 @@
       },
       "slug": "test_agent_bindings",
       "source": {
-        "fingerprint": "sha256:6e9752c95a0911543ce54d29f687e5281ab0a705fa97cf7c46100bd0a01a23cd",
+        "fingerprint": "sha256:e81a25775a42b866b73411d37513b65df69f118105aee3c95e6d96ee8993d930",
         "path": ".engine/tools/test_agent_bindings.py"
       },
       "status": "active",
@@ -16597,7 +16597,7 @@
       },
       "slug": "test_build_coordinator_work",
       "source": {
-        "fingerprint": "sha256:edd1ced4bcb4ee0354522d973bec6029596758d213336db9d97f48f2196f6575",
+        "fingerprint": "sha256:b923d07f05db10c4527ad0f10cb9b6e84a44ced9cf97f4e38ac86c6473555c9a",
         "path": ".engine/tools/test_build_coordinator_work.py"
       },
       "status": "active",
@@ -17025,6 +17025,7 @@
           "module:core"
         ],
         "tests": [
+          "tool:agent_bindings",
           "tool:codex_agent_coherence_check",
           "tool:codex_gen",
           "tool:codex_skill_coherence_check",
@@ -17033,7 +17034,7 @@
       },
       "slug": "test_codex_gen",
       "source": {
-        "fingerprint": "sha256:9a481866fdd636633adc0f3d61aae737ff5545bf8ff827b681a8d78a5fdc10f4",
+        "fingerprint": "sha256:29ec0df5f7929aa4eaa36bdb25e92fa1ea834e8b7f6aad5b9190094c465cfd1b",
         "path": ".engine/tools/test_codex_gen.py"
       },
       "status": "active",

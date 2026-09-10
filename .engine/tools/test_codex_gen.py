@@ -18,6 +18,7 @@ import unittest
 from unittest import mock
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+import agent_bindings as ab  # noqa: E402
 import codex_gen   # noqa: E402
 import codex_agent_coherence_check as cac   # noqa: E402
 import validate    # noqa: E402
@@ -119,6 +120,54 @@ class TestWorkerRenders(unittest.TestCase):
         self.assertEqual(data["model_reasoning_effort"], "medium")
         self.assertIn("scoped write", data["developer_instructions"])
 
+
+
+class TestHigherEffortRendering(unittest.TestCase):
+    def test_execution_effort_and_reviewer_omission_survive_both_renderers(self):
+        for effort in ("xhigh", "max", "ultra"):
+            for role in ("audit", "worker", "plan-review", "pre-submission-review"):
+                with self.subTest(effort=effort, role=role), tempfile.TemporaryDirectory() as root:
+                    worker = role == "worker"
+                    name = "engine-worker-widget" if worker else "qa-review-widget"
+                    source = WORKER_SRC if worker else AGENT_SRC.replace(
+                        "role: pre-submission-review", f"role: {role}")
+                    binding = json.loads(WORKER_BINDINGS)
+                    binding["tiers"]["judgment"]["effort"] = effort
+                    binding["providers"] = {"codex": {"tiers": {
+                        "judgment": {"model": "gpt-fixture", "effort": effort},
+                        "mechanical": {"model": "gpt-small", "effort": "low"}}}}
+                    for provider in ("claude", "codex"):
+                        binding["implementation_classes"]["builder"][provider]["effort"] = effort
+                    src = os.path.join(root, ".claude", "agents", name + ".md")
+                    dst = os.path.join(root, ".codex", "agents", name + ".toml")
+                    _write(src, source)
+                    _write(os.path.join(root, ".engine", "policies", "model-bindings.json"), json.dumps(binding))
+                    ab.render(root)
+                    codex_gen.generate(root)
+                    claude = validate.read(src)
+                    codex = validate.read(dst)
+                    data = tomllib.loads(codex)
+                    reviewer = role in ("plan-review", "pre-submission-review")
+                    if reviewer:
+                        self.assertNotIn("effort:", claude)
+                        self.assertNotIn("model_reasoning_effort", data)
+                    else:
+                        self.assertIn(f"effort: {effort}", claude)
+                        self.assertEqual(data["model_reasoning_effort"], effort)
+                    self.assertEqual(ab.check(root), [])
+                    with mock.patch.object(validate, "ROOT", root):
+                        self.assertEqual(cac.findings("hard", os.path.dirname(dst)), [])
+                    self.assertEqual(ab.render(root), [])
+                    codex_gen.generate(root)
+                    self.assertEqual(validate.read(src), claude)
+                    self.assertEqual(validate.read(dst), codex)
+                    if reviewer:
+                        _write(src, claude.replace("model: opus", f"model: opus\neffort: {effort}"))
+                        self.assertTrue(ab.check(root))
+                        _write(dst, codex + f'\nmodel_reasoning_effort = "{effort}"\n')
+                        with mock.patch.object(validate, "ROOT", root):
+                            self.assertTrue(any("reviewer effort" in f["message"]
+                                                for f in cac.findings("hard", os.path.dirname(dst))))
 
 class TestWorkerFloorScoping(unittest.TestCase):
     """The role-scoped Codex coherence floor: worker renders must carry a matching model and a

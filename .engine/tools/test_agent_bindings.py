@@ -285,5 +285,82 @@ class TestProviderPersonaBindings(unittest.TestCase):
         self.assertTrue(_errors(data))
 
 
+
+
+class TestHigherEffortVocabulary(unittest.TestCase):
+    def bindings(self):
+        return {"schema_version": 1,
+                "tiers": {"judgment": {"model": "opus", "effort": "high"},
+                          "mechanical": {"model": "haiku", "effort": "low"}},
+                "overrides": {"audit": {"model": "sonnet", "effort": "medium"}},
+                "providers": {"codex": {
+                    "tiers": {"judgment": {"model": "gpt-test", "effort": "high"},
+                              "mechanical": {"model": "gpt-small", "effort": "low"}},
+                    "overrides": {"audit": {"model": "gpt-override", "effort": "medium"}}}},
+                "implementation_classes": {cls: {provider: {"model": "test", "effort": "medium"}
+                    for provider in ("claude", "codex")} for cls in ("builder", "bounded")}}
+
+    def locations(self):
+        for prefix in ((), ("providers", "codex")):
+            for tier in ("judgment", "mechanical"):
+                yield prefix + ("tiers", tier)
+            yield prefix + ("overrides", "audit")
+        for cls in ("builder", "bounded"):
+            for provider in ("claude", "codex"):
+                yield ("implementation_classes", cls, provider)
+
+    def test_schema_accepts_exact_vocabulary_at_every_binding_location(self):
+        for path in self.locations():
+            for effort in ("low", "medium", "high", "xhigh", "max", "ultra",
+                           "", "maximum", "none", "minimal", None, 1, True, [], {}):
+                with self.subTest(path=path, effort=effort):
+                    bindings = self.bindings()
+                    slot = bindings
+                    for key in path:
+                        slot = slot[key]
+                    slot["effort"] = effort
+                    self.assertEqual(not _errors(bindings),
+                                     isinstance(effort, str) and effort in
+                                     ("low", "medium", "high", "xhigh", "max", "ultra"))
+
+    def test_resolver_preserves_tiers_and_override_precedence(self):
+        for provider in ("claude", "codex"):
+            for effort in ("xhigh", "max", "ultra"):
+                with self.subTest(provider=provider, effort=effort):
+                    bindings = self.bindings()
+                    selected = bindings if provider == "claude" else bindings["providers"]["codex"]
+                    selected["tiers"]["judgment"]["effort"] = effort
+                    self.assertEqual(ab.resolve("plain", "judgment", bindings, provider)["effort"], effort)
+                    self.assertEqual(ab.resolve("audit", "judgment", bindings, provider)["effort"], "medium")
+                    selected["overrides"]["audit"]["effort"] = effort
+                    self.assertEqual(ab.resolve("audit", "judgment", bindings, provider)["effort"], effort)
+                    del selected["overrides"]["audit"]["effort"]
+                    self.assertEqual(ab.resolve("audit", "judgment", bindings, provider)["effort"], effort)
+
+    def test_resolver_rejects_invalid_effort_and_accepts_workers(self):
+        for provider in ("claude", "codex"):
+            for effort in ("xhigh", "max", "ultra", "", "maximum", None, 1, True, [], {}):
+                for kind in ("tier", "override", "builder", "bounded"):
+                    with self.subTest(provider=provider, effort=effort, kind=kind):
+                        bindings = self.bindings()
+                        selected = bindings if provider == "claude" else bindings["providers"]["codex"]
+                        if kind in ("builder", "bounded"):
+                            bindings["implementation_classes"][kind][provider]["effort"] = effort
+                            fm = {"role": "worker", "implementation-class": kind}
+                            run = lambda: ab.resolve_persona(fm, bindings, provider)
+                        else:
+                            selected["tiers"]["judgment"]["effort"] = effort if kind == "tier" else "high"
+                            if kind == "override":
+                                selected["overrides"]["audit"]["effort"] = effort
+                            run = lambda: ab.resolve("audit", "judgment", bindings, provider)
+                        if isinstance(effort, str) and effort in ("xhigh", "max", "ultra"):
+                            result = run()
+                            expected = "medium" if kind == "tier" else effort
+                            self.assertEqual(result["effort"], expected)
+                        else:
+                            with self.assertRaises(ValueError):
+                                run()
+
+
 if __name__ == "__main__":
     unittest.main()
