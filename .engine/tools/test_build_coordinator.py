@@ -131,6 +131,8 @@ def observe_review_execution(library, slug, owner, lens, digest, output, root="f
     packet.write_text("Synthetic frozen reviewer obligations: " + digest)
     store = scoped_agents.Store(library, slug)
     role = "engine-qa-review-" + lens if owner["kind"] == "build" else "engine-design-review-" + lens
+    if purpose == "worker":
+        role = "engine-worker-builder"
     a = store.register(owner=owner, root=root, purpose=purpose, lens=lens, role=role,
                        packet=packet, packet_digest=digest)
     child = "child-" + a["id"]

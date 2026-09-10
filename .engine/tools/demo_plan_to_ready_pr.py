@@ -442,12 +442,12 @@ def _arc_one(copy, head, env, pr_state, holder):
     with open(os.path.join(copy, ".engine", "tools", "widget_cache.py"), "w", encoding="utf-8") as fh:
         fh.write("CACHE = {}\n\n\ndef get(key, load):\n    if key not in CACHE:\n        CACHE[key] = load(key)\n    return CACHE[key]\n")
     _git(copy, "add", "-A")
-    staged = build("work", "stage-digest", "--item", "W1", "--plan", payload)
-    tree_digest = json.loads(staged.stdout)["tree_digest"] if staged.returncode == 0 else ""
     result = _write(os.path.join(holder, "w1-result.json"),
-                    {"outcome": "returned", "base_sha": head, "artifact_digest": tree_digest,
+                    {"outcome": "returned",
                      "evidence": {"changed_paths": [".engine/tools/widget_cache.py"],
-                                  "verification_results": ["Demo fixture source inspected: cache retains loaded keys; no test-run claim."]}})
+                                  "verification_results": [{"command": "Inspect fixture cache source",
+                                      "outcome": "passed", "detail": "Cache retains loaded keys; no test runner claimed."}],
+                                  "assumptions": [], "unresolved_concerns": []}})
     build("work", "result", "--item", "W1", "--attempt", attempt,
                "--plan", payload, "--input", result)
     _git(copy, "-c", "user.email=e@x", "-c", "user.name=n", "commit", "-q", "-m", "Add the widget cache")
@@ -651,10 +651,11 @@ def _arc_three(copy, head, env, pr_state, holder):
     work_path = ".engine/tools/widget_cache.py"
     Path(copy, work_path).write_text("CACHE = {'local': 1}\n")
     _require(_git(copy, "add", "-A"), "stage fixture work")
-    digest = json.loads(_require(build("work", "stage-digest", "--item", "W1", "--plan", payload), "stage digest"))["tree_digest"]
-    result_path = _write(os.path.join(holder, "recovery-result.json"), {"outcome": "returned", "base_sha": head,
-        "artifact_digest": digest, "evidence": {"changed_paths": [work_path],
-            "verification_results": ["Fixture inspection: CACHE contains local key; no test runner claimed."]}})
+    result_path = _write(os.path.join(holder, "recovery-result.json"), {"outcome": "returned",
+        "evidence": {"changed_paths": [work_path],
+            "verification_results": [{"command": "Inspect fixture cache source",
+                "outcome": "passed", "detail": "CACHE contains local key; no test runner claimed."}],
+            "assumptions": [], "unresolved_concerns": []}})
     _require(build("work", "result", "--item", "W1", "--attempt", attempt, "--plan", payload,
                    "--input", result_path), "record fixture result")
     _require(_git(copy, "commit", "-q", "-m", "Disposable cache implementation"), "commit fixture work")
