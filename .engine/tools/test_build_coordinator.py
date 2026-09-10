@@ -229,9 +229,12 @@ class CoordinatorCase(unittest.TestCase):
             state = store.read()
         args.session = "fixture-root"
         findings = bc._receipt_finding_ids(args)
+        batch = getattr(args, "findings_from_file", None)
+        entries = bc._findings_batch(batch, args.stage, args.lens) if batch else None
         observe_review_execution(self.review_library, self.review_slug, scoped_agents.build_owner(state),
             args.lens, args.lens_packet_digest,
-            [{"severity": "nit", "message": fid, "location": None} for fid in findings])
+            [{"severity": f["severity"], "message": f["summary"], "location": None} for f in entries]
+            if entries is not None else [{"severity": "nit", "message": fid, "location": None} for fid in findings])
         return bc.cmd_review_record(args, store)
 
     def write_plan(self, value):
@@ -4651,9 +4654,11 @@ class TestV2CompletionGate(CoordinatorCase):
         claim = bc.work.new_claim("1" * 32, HEAD_A, "/tmp/wt", [], {"executor_class": "builder",
                                  "provider": "claude", "model": "sonnet", "effort": "medium", "inline": False})
         item = next(i for i in self.v2["work_items"] if i["id"] == "shared")
-        payload = {"outcome": "returned", "base_sha": HEAD_A, "artifact_ref": HEAD_A,
+        claim["result_contract"] = bc.work.result_contracts.resolve("worker-result.v1")
+        payload = {"outcome": "returned", "artifact_ref": HEAD_A,
                    "evidence": {"changed_paths": [".engine/tools/shared.py"],
-                                "verification_results": ["focused tests green"]}}
+                                "verification_results": [{"command": "focused", "outcome": "passed", "detail": "green"}],
+                                "assumptions": [], "unresolved_concerns": []}}
         def stage_returned_attempt(state):
             nw = state["work"].setdefault("shared", bc.work.empty_node())
             nw["attempt_count"] = 1
@@ -7240,19 +7245,23 @@ class EnforcementCase(unittest.TestCase):
                  "model": "inherit" if inline else "sonnet",
                  "effort": "inherit" if inline else "medium", "inline": inline}
         item_def = bc.work.node_item(self.plan, item)
-        payload = {"outcome": "returned", "base_sha": base,
+        payload = {"outcome": "returned",
                    "evidence": {"changed_paths": changed or [item_def["paths"][0]],
-                                "verification_results": ["ok"]}}
+                                "verification_results": [{"command": "fixture-check", "outcome": "passed", "detail": "ok"}],
+                                "assumptions": [], "unresolved_concerns": []}}
         if artifact_ref:
             payload["artifact_ref"] = artifact_ref
-        if artifact_digest:
-            payload["artifact_digest"] = artifact_digest
 
         def change(state):
             nw = state["work"].setdefault(item, bc.work.empty_node())
             nw["attempt_count"] = 1
             nw["claim"] = bc.work.new_claim("1" * 32, base, "/tmp/wt", [], route)
-            nw["latest_result"] = bc.work.bind_result(nw, item_def, "1" * 32, base, payload)
+            nw["claim"]["result_contract"] = bc.work.result_contracts.resolve("worker-result.v1")
+            nw["latest_result"] = bc.work.bind_result(nw, item_def, "1" * 32, base, payload,
+                                                     observed_digest=artifact_digest if inline else None)
+            if artifact_digest and not inline:
+                # Deliberately corrupt trusted metadata to exercise integration's independent check.
+                nw["latest_result"]["artifact_digest"] = artifact_digest
         self.store.mutate(change)
         return "1" * 32
 
@@ -7425,10 +7434,12 @@ class EnforcementCase(unittest.TestCase):
             nw["claim"] = bc.work.new_claim("1" * 32, self.base, "/tmp/wt", [],
                 {"executor_class": "builder", "provider": "claude", "model": "sonnet",
                  "effort": "medium", "inline": False})
+            nw["claim"]["result_contract"] = bc.work.result_contracts.resolve("worker-result.v1")
             nw["latest_result"] = bc.work.bind_result(nw, item_def, "1" * 32, self.base,
-                {"outcome": "returned", "base_sha": self.base, "artifact_ref": commit,
+                {"outcome": "returned", "artifact_ref": commit,
                  "evidence": {"changed_paths": [".engine/tools/shared.py"],
-                              "verification_results": ["ok"],
+                              "verification_results": [{"command": "fixture", "outcome": "passed", "detail": "ok"}],
+                              "assumptions": [],
                               "unresolved_concerns": ["scope_boundary looks tight for this node"]}})
         self.store.mutate(change)
         out = self._integrate("shared", "1" * 32, commit)

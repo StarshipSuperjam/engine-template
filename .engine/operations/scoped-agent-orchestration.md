@@ -118,3 +118,12 @@ failures and consume accidentally queued fixture mail through legitimate continu
 The operator can vary witnesses, inputs and ordering to challenge the result. Fixture receipts never
 satisfy production review. Run Claude documented contracts through the real Engine hook runner before
 merge; the separately approved live Claude follow-up remains September 12 afternoon.
+
+## Result contract at ingress
+
+Dispatch freezes the canonical result binding. Review acceptance validates the complete observed output and
+refuses a substituted caller copy before changing acceptance metadata. Original semantic reports remain in the
+private scoped companion; controller corrections and dispositions remain separate. Use strict raw report
+input for producer output, and the explicit controller path only for controller projections. See
+[Executable persona result contracts](../docs/result-contracts.md) for shapes, limits, legacy recovery and
+`demo_result_contracts.py`, the disposable positive/negative command demonstration.

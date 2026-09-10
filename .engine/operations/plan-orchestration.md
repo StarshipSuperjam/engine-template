@@ -149,3 +149,12 @@ Both are the same failure: treating the lifecycle as a sequence to complete rath
 have. The mechanics cannot catch it — a rushed plan and a considered one reach the seal by identical moves.
 
 Before any scoped agent dispatch or review acceptance, follow [Scoped native agents](scoped-agent-orchestration.md). Prepare an immutable assignment packet, use a fresh context for each new assignment, and permit recorded same-assignment clarification. Missing observed execution cannot earn independent review coverage.
+
+## Result contract at ingress
+
+Dispatch freezes the canonical result binding. Review acceptance validates the complete observed output and
+refuses a substituted caller copy before changing acceptance metadata. Original semantic reports remain in the
+private scoped companion; controller corrections and dispositions remain separate. Use strict raw report
+input for producer output, and the explicit controller path only for controller projections. See
+[Executable persona result contracts](../docs/result-contracts.md) for shapes, limits, legacy recovery and
+`demo_result_contracts.py`, the disposable positive/negative command demonstration.

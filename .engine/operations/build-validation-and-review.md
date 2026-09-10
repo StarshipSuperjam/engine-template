@@ -53,3 +53,12 @@ Failed remote verification grants no new exemption: check the clean checkout, pu
 ## Done when
 The final head has green candidate and imported CI evidence, every finding has a disposition, and every divergence has its proportional judgment and required receipts.
 Status reports submission-preflight and names [Build submission](build-submission.md).
+
+## Result contract at ingress
+
+Dispatch freezes the canonical result binding. Review acceptance validates the complete observed output and
+refuses a substituted caller copy before changing acceptance metadata. Original semantic reports remain in the
+private scoped companion; controller corrections and dispositions remain separate. Use strict raw report
+input for producer output, and the explicit controller path only for controller projections. See
+[Executable persona result contracts](../docs/result-contracts.md) for shapes, limits, legacy recovery and
+`demo_result_contracts.py`, the disposable positive/negative command demonstration.

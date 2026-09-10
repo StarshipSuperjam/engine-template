@@ -11,6 +11,13 @@ import result_contracts as rc
 
 
 class ResultContracts(unittest.TestCase):
+    def test_disposable_demo_succeeds_and_deliberate_bypass_fails(self):
+        import contextlib
+        import demo_result_contracts
+        with contextlib.redirect_stdout(io.StringIO()):
+            self.assertEqual(demo_result_contracts.main([]), 0)
+            self.assertEqual(demo_result_contracts.main(["--break-ingress"]), 1)
+
     def setUp(self):
         self.review = rc.resolve("plan-review-finding.v1", role="plan-review")
         self.finding = {"severity": "blocking", "message": "A real failure", "location": None}
