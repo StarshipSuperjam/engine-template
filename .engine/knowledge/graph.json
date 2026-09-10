@@ -12262,7 +12262,7 @@
       },
       "slug": "derived_state",
       "source": {
-        "fingerprint": "sha256:a5ff73b021c1c5173f63fc527ce55ad621ef34f5918a03ce9f28617296eb943f",
+        "fingerprint": "sha256:4fd3879c2e80c59a0f254b79ec551842ec10a29c72a9c181606b33f1ca009c75",
         "path": ".engine/tools/derived_state.py"
       },
       "status": "active",
@@ -14017,7 +14017,7 @@
       },
       "slug": "module_manager",
       "source": {
-        "fingerprint": "sha256:f9cb91495392479d54cd10af86a074e25872b7ca37bb546804a89b48a9b6b820",
+        "fingerprint": "sha256:50b938944d73c6b529f3622d323adc80f8738a50c879b3cbd84eff06e85adeb2",
         "path": ".engine/tools/module_manager.py"
       },
       "status": "active",
@@ -14992,7 +14992,7 @@
       },
       "slug": "release_gate",
       "source": {
-        "fingerprint": "sha256:576b5aadd066f302d181ba141ed689fd15bf7589ffc3ae3ce3cac296b0cb3215",
+        "fingerprint": "sha256:7d6bfa222aac0af62717043bd40654e8119bbdfea16f580d5c44227e4e96bb5b",
         "path": ".engine/tools/release_gate.py"
       },
       "status": "active",
@@ -15687,8 +15687,12 @@
       "owner": "core",
       "predicates": {
         "imports": [
+          "tool:build_coordinator",
+          "tool:hooks_path_health",
           "tool:module_coherence",
+          "tool:project_manager",
           "tool:repo_identity",
+          "tool:scoped_agents",
           "tool:validate"
         ],
         "provided_by": [
@@ -15697,7 +15701,7 @@
       },
       "slug": "selftest_support",
       "source": {
-        "fingerprint": "sha256:36343ddbb5c7b6a2abfd105681ea025d6b485215fe5c987322f12500ef87e985",
+        "fingerprint": "sha256:a59e3e694574eb2bd4f1e1634dd143555a8c239bff580c3a082da3808a7aadff",
         "path": ".engine/tools/selftest_support.py"
       },
       "status": "active",
@@ -16255,12 +16259,13 @@
         ],
         "tests": [
           "tool:agent_coherence_check",
+          "tool:selftest_support",
           "tool:validate"
         ]
       },
       "slug": "test_agent",
       "source": {
-        "fingerprint": "sha256:172bcedbb60f1db9a0c2359c0ed44e49c93e6d7039c479bcfdc1d447dde52154",
+        "fingerprint": "sha256:c24220dd5c8eb7f89da5a4f0d483378c588543c3a494971a4bcde4b28c041fa3",
         "path": ".engine/tools/test_agent.py"
       },
       "status": "active",
@@ -16521,7 +16526,7 @@
       },
       "slug": "test_boot",
       "source": {
-        "fingerprint": "sha256:908a174fcceac154ca96ac6a6f7670c225087500a559250cba46467ecd761f72",
+        "fingerprint": "sha256:821a84b0324535885c5f2068bf0822f7f5a6e2acc2e8b86282cdc08b1a6544c3",
         "path": ".engine/tools/test_boot.py"
       },
       "status": "active",
@@ -16597,6 +16602,7 @@
           "tool:integration_queue_backend",
           "tool:issue_conformance_ci",
           "tool:protection_guard",
+          "tool:selftest_support",
           "tool:telemetry",
           "tool:transaction",
           "tool:transaction_adapters_controlplane",
@@ -16605,7 +16611,7 @@
       },
       "slug": "test_bootstrap",
       "source": {
-        "fingerprint": "sha256:1c5248a16590b5ed68896ab083e5bd5c5416cda9b44aca8e6caad3add9c67969",
+        "fingerprint": "sha256:8af82989d835fdc35b46fefebbb1260d61e3975443acb889f6cf538b67d7c96f",
         "path": ".engine/tools/test_bootstrap.py"
       },
       "status": "active",
@@ -16649,7 +16655,7 @@
       },
       "slug": "test_build_coordinator",
       "source": {
-        "fingerprint": "sha256:2d66046ed556c4bbfd88d20b782a396c2eaea028c584700ee14efb1b5b9b5996",
+        "fingerprint": "sha256:f28237c5bd68a01c1309694d4f2a9cb05079a1c07f2027f4eb25a6b6018388df",
         "path": ".engine/tools/test_build_coordinator.py"
       },
       "status": "active",
@@ -16970,7 +16976,7 @@
       },
       "slug": "test_candidate_invocation",
       "source": {
-        "fingerprint": "sha256:64fd242799a9aba576a31ac6641a1d5a6479b2d583b465f782412895d6a9717e",
+        "fingerprint": "sha256:253a6519126accfd1b56f3a810c60641443ba8a4b261bfaf50a7f65df99bbe08",
         "path": ".engine/tools/memory/test_candidate_invocation.py"
       },
       "status": "active",
@@ -17581,14 +17587,13 @@
           "tool:module_coherence",
           "tool:module_manager",
           "tool:pr_reconcile",
-          "tool:self_map",
           "tool:selftest_support",
           "tool:setup_route_gen"
         ]
       },
       "slug": "test_derived_state",
       "source": {
-        "fingerprint": "sha256:dfee8de982c51f1e9cfeae5745490f919b7eba57137a0553b019795c8971b22e",
+        "fingerprint": "sha256:b11c82d13ce15c7ea18415850947a889122653db6ec463790121e860fa49b701",
         "path": ".engine/tools/test_derived_state.py"
       },
       "status": "active",
@@ -18217,6 +18222,7 @@
           "tool:modes",
           "tool:module_catalog",
           "tool:qualification_health",
+          "tool:selftest_support",
           "tool:telemetry",
           "tool:validate",
           "tool:wiring"
@@ -18224,7 +18230,7 @@
       },
       "slug": "test_hooks",
       "source": {
-        "fingerprint": "sha256:28d8d19c3a3997cb98579f8937667fdd2651a6b80fb944dce2d9945e522c490c",
+        "fingerprint": "sha256:6041d2e2af2225cc644a7c4bfac6dd774f0ad9cbe5026a2f3dd20f6b454c1e0e",
         "path": ".engine/tools/test_hooks.py"
       },
       "status": "active",
@@ -18242,12 +18248,13 @@
           "module:core"
         ],
         "tests": [
-          "tool:hooks_path_health"
+          "tool:hooks_path_health",
+          "tool:selftest_support"
         ]
       },
       "slug": "test_hooks_path_health",
       "source": {
-        "fingerprint": "sha256:2e4dffe741796038ce2f5599b06a826da258227ece28f296b9d7992e5b923e3c",
+        "fingerprint": "sha256:b1bec60dd8afd9e8bb3738211006fe5509ed70078fde6de7531c80e4fd531ca3",
         "path": ".engine/tools/test_hooks_path_health.py"
       },
       "status": "active",
@@ -19207,6 +19214,7 @@
           "tool:release_source",
           "tool:restore_vault",
           "tool:selftest_support",
+          "tool:setup_route_gen",
           "tool:telemetry",
           "tool:validate",
           "tool:wiring"
@@ -19214,7 +19222,7 @@
       },
       "slug": "test_module_manager",
       "source": {
-        "fingerprint": "sha256:3c165b6c01b28782ce4c058838a881f7f337cc5b16a1b706de5dc8bda47ccca7",
+        "fingerprint": "sha256:8764f8c23ec1f5700eccef7008be70c241568348855664ad0f04b36ea6d40e2e",
         "path": ".engine/tools/test_module_manager.py"
       },
       "status": "active",
@@ -19431,12 +19439,13 @@
           "module:core"
         ],
         "tests": [
+          "tool:selftest_support",
           "tool:validate"
         ]
       },
       "slug": "test_operation",
       "source": {
-        "fingerprint": "sha256:cd1824751b0a4fdd3b8bad2002050f54bb41a87c0bfca12f25a0f3c6b7fa9bfc",
+        "fingerprint": "sha256:595895f49378c2ae907cf96e4762fb09dd5833f501b0ff6193fb1f0208333d59",
         "path": ".engine/tools/test_operation.py"
       },
       "status": "active",
@@ -19454,12 +19463,13 @@
           "module:core"
         ],
         "tests": [
+          "tool:selftest_support",
           "tool:validate"
         ]
       },
       "slug": "test_operation_length",
       "source": {
-        "fingerprint": "sha256:38e431aa49e6318b72df3cc03865688bd7f873483235172f5916d9aaf4e2474d",
+        "fingerprint": "sha256:01c810980ec29c5bcd1454670729b90b1204c8b479fdd78b00b9267ab5a25f1f",
         "path": ".engine/tools/test_operation_length.py"
       },
       "status": "active",
@@ -19684,12 +19694,13 @@
           "tool:plan_store",
           "tool:project_manager",
           "tool:scoped_agents",
+          "tool:selftest_support",
           "tool:test_build_coordinator"
         ]
       },
       "slug": "test_plan_dogfood",
       "source": {
-        "fingerprint": "sha256:7cf3668c7e470ae41aadceab3e8a1fbbd1473bc469f6338d09288506126fb6c8",
+        "fingerprint": "sha256:4306bad2cd3caabbf1430d5dd4929235323fd2084d03bff1bf8d5dd995b7c803",
         "path": ".engine/tools/test_plan_dogfood.py"
       },
       "status": "active",
@@ -19715,13 +19726,14 @@
           "tool:program_manager",
           "tool:project_manager",
           "tool:scoped_agents",
+          "tool:selftest_support",
           "tool:test_build_coordinator",
           "tool:test_plan_store"
         ]
       },
       "slug": "test_plan_lifecycle",
       "source": {
-        "fingerprint": "sha256:01b049931be16a2378cedf09a34bbda0f9022def95b0dd7359b9775ab07adb77",
+        "fingerprint": "sha256:2a1f5602644de5ef5a44387f8130ff6e72dff2b85c7f39b05a3303cc84292407",
         "path": ".engine/tools/test_plan_lifecycle.py"
       },
       "status": "active",
@@ -19744,12 +19756,13 @@
           "tool:plan_store",
           "tool:program_manager",
           "tool:project_manager",
+          "tool:selftest_support",
           "tool:test_plan_store"
         ]
       },
       "slug": "test_plan_program",
       "source": {
-        "fingerprint": "sha256:3eec217a06cc7fd694c15c4e8e9b0a13af616ffb630712409ba508141c60803d",
+        "fingerprint": "sha256:258749c453124c8efbc32cb98a1c7e2a5c9f38c3a9793dafb7e25d7d2a737d06",
         "path": ".engine/tools/test_plan_program.py"
       },
       "status": "active",
@@ -19981,6 +19994,7 @@
           "tool:project_manager",
           "tool:result_contracts",
           "tool:scoped_agents",
+          "tool:selftest_support",
           "tool:test_build_coordinator",
           "tool:test_plan_store",
           "tool:validate"
@@ -19988,7 +20002,7 @@
       },
       "slug": "test_project_manager",
       "source": {
-        "fingerprint": "sha256:45b7d12f5d3c945db379cadbfb41746941a7724b31a723007a597e31bef07760",
+        "fingerprint": "sha256:d36ca34f54c0867e1a56787c736ba4e7434711aa4b71b325f41fdc1bff6963a8",
         "path": ".engine/tools/test_project_manager.py"
       },
       "status": "active",
@@ -20228,7 +20242,7 @@
       },
       "slug": "test_release_gate",
       "source": {
-        "fingerprint": "sha256:da8689e711b5207080cf74cebddf8c86f82095c797d0b1e87d920e2452a7e74c",
+        "fingerprint": "sha256:a9f137cfb871dfbacc1da8c7ed64cdd523f3a01809cec5fa4d792a79845ee5bd",
         "path": ".engine/tools/test_release_gate.py"
       },
       "status": "active",
@@ -20613,12 +20627,14 @@
           "tool:build_review_range",
           "tool:demo_v1_plan_sunset_refused",
           "tool:quiet_call",
+          "tool:selftest_support",
+          "tool:test_agent",
           "tool:test_build_coordinator"
         ]
       },
       "slug": "test_review_economy",
       "source": {
-        "fingerprint": "sha256:f77d52c6182d57af3624e053def1bb27b20539f0876a27676e47bb756eec70d1",
+        "fingerprint": "sha256:d4815d55d1bdd72fff4bc3fd2ec6fee04ab939405423ecfe5d20e2978d79f629",
         "path": ".engine/tools/test_review_economy.py"
       },
       "status": "active",
@@ -20864,12 +20880,13 @@
           "tool:plan_store",
           "tool:providers",
           "tool:result_contracts",
-          "tool:scoped_agents"
+          "tool:scoped_agents",
+          "tool:selftest_support"
         ]
       },
       "slug": "test_scoped_agents",
       "source": {
-        "fingerprint": "sha256:5f6d42356cd9e43f0b33c2b921d56ee2b5fd11ab48aaee36969582260358b6eb",
+        "fingerprint": "sha256:588b79882f73470a870ef0a4cc04f109fe93ac3376839d8788f71efac4549d67",
         "path": ".engine/tools/test_scoped_agents.py"
       },
       "status": "active",
@@ -21153,12 +21170,13 @@
           "tool:module_coherence",
           "tool:selftest",
           "tool:selftest_select",
+          "tool:selftest_support",
           "tool:validate"
         ]
       },
       "slug": "test_selftest_select",
       "source": {
-        "fingerprint": "sha256:92fe014ddd37bfa157acc09aa337e345ee4805e8f78b126dab8c895d79d14e28",
+        "fingerprint": "sha256:620d48161fe2d314519df7cd3762172d19f353527d5b8bcd08d87abf92c511fa",
         "path": ".engine/tools/test_selftest_select.py"
       },
       "status": "active",
@@ -21176,14 +21194,18 @@
           "module:core"
         ],
         "tests": [
+          "tool:plan_store",
+          "tool:project_manager",
           "tool:release_gate",
+          "tool:result_contracts",
+          "tool:scoped_agents",
           "tool:selftest",
           "tool:selftest_support"
         ]
       },
       "slug": "test_selftest_support",
       "source": {
-        "fingerprint": "sha256:1b4d5fc17e98eccfc02d6bd97ef8513a41be51402ab93c6d15193e2640925ea7",
+        "fingerprint": "sha256:f187366f72cbfd59eb5fc1defa80a91c7eaeef02c93f64c703ba23c23370e47c",
         "path": ".engine/tools/test_selftest_support.py"
       },
       "status": "active",
@@ -21620,13 +21642,14 @@
           "module:core"
         ],
         "tests": [
+          "tool:selftest_support",
           "tool:transaction",
           "tool:transaction_envelope"
         ]
       },
       "slug": "test_transaction",
       "source": {
-        "fingerprint": "sha256:13bda2f98c78e3fa174f7d8c0b2fae05e98a0074e62439dc7457d0689134a548",
+        "fingerprint": "sha256:027e7ade618b55d7004580402cb641e3f561a559c0849222b2fcc73d14f90c67",
         "path": ".engine/tools/test_transaction.py"
       },
       "status": "active",
@@ -21901,13 +21924,14 @@
           "tool:execution_environment",
           "tool:github_client",
           "tool:lock_integrity",
+          "tool:selftest_support",
           "tool:validate",
           "tool:weakening_guard"
         ]
       },
       "slug": "test_validate",
       "source": {
-        "fingerprint": "sha256:0616123b3479abaffadba5f6e809bbf82c595a754fd745e9f7dbf93bfb920fe1",
+        "fingerprint": "sha256:07b1e0adc6990fba39f320d069adb28fc01705baaaf0c75a98a5a2fdfabd0c75",
         "path": ".engine/tools/test_validate.py"
       },
       "status": "active",
