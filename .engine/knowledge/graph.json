@@ -5305,7 +5305,7 @@
       },
       "slug": "result-contracts",
       "source": {
-        "fingerprint": "sha256:545d5f2aa607a2fa83a18a4ded93aa3f70d8fa14ac7d03a03e80f816e493019b",
+        "fingerprint": "sha256:fedcc1cdd298be8c38b6de20843e7e33d3ecbbee063b3add379a79eecbd8c165",
         "path": ".engine/docs/result-contracts.md"
       },
       "status": "active",
@@ -7661,7 +7661,7 @@
       },
       "slug": "plan-record.v1",
       "source": {
-        "fingerprint": "sha256:42e99f4da04dab43a73634ea380abc952d9da7c4d57d01bc9b81d4fa21b6384f",
+        "fingerprint": "sha256:1928e3dfbab5f9c5b4fba031cc1f53de5913965323048719878344f3fef6e56a",
         "path": ".engine/schemas/plan-record.v1.json"
       },
       "status": "active",
@@ -9754,13 +9754,16 @@
       "name": ".engine/tools/build_coordinator_core.py",
       "owner": "core",
       "predicates": {
+        "imports": [
+          "tool:result_contracts"
+        ],
         "provided_by": [
           "module:core"
         ]
       },
       "slug": "build_coordinator_core",
       "source": {
-        "fingerprint": "sha256:d887383744461663f5e7e92b693bac4c259c33a58c7dbce943544efced2a8deb",
+        "fingerprint": "sha256:09f7a09df4ff3e793ab70b44a6a56b9023500e21963cf41d78589dd09f389fae",
         "path": ".engine/tools/build_coordinator_core.py"
       },
       "status": "active",
@@ -14396,7 +14399,8 @@
       "predicates": {
         "imports": [
           "tool:build_coordinator_core",
-          "tool:plan_store"
+          "tool:plan_store",
+          "tool:result_contracts"
         ],
         "provided_by": [
           "module:core"
@@ -14404,7 +14408,7 @@
       },
       "slug": "plan_lifecycle",
       "source": {
-        "fingerprint": "sha256:f205ecbb09e1a7a3cc3623b8446c822a89dc2d8dd59b14c9cc47e50c87a5fab1",
+        "fingerprint": "sha256:61b1ffb3c34abb635a465841eaf8c7511f3682365e3355140fda716f7d33fca8",
         "path": ".engine/tools/plan_lifecycle.py"
       },
       "status": "active",
@@ -14481,7 +14485,7 @@
       },
       "slug": "plan_store",
       "source": {
-        "fingerprint": "sha256:cffd3e4009f998be155e1a92da8f7a68c0039ecb9c21a1362db8f08803e7cf80",
+        "fingerprint": "sha256:6f3afac04ca67464c4b117e8f88e813a3fcb70e66418c80f2e4fc495e0aef95b",
         "path": ".engine/tools/plan_store.py"
       },
       "status": "active",
@@ -14661,7 +14665,7 @@
       },
       "slug": "project_manager",
       "source": {
-        "fingerprint": "sha256:36708e428cb13d5960ab05077effea7fd9f4d94e1dcc63fdcfff1db5401e4b55",
+        "fingerprint": "sha256:3c01023850175707a93946d3fc1b05ef8adeabe8e25eb1434d9dd67a716b1ed8",
         "path": ".engine/tools/project_manager.py"
       },
       "status": "active",
@@ -15286,7 +15290,7 @@
       },
       "slug": "result_contracts",
       "source": {
-        "fingerprint": "sha256:78c521e784d6a841d132885433bb504d9734e14bfab73918e27e8baf4a5cf73c",
+        "fingerprint": "sha256:bb38e29499dcb04e21c2c00ad0e7526ad19700592fb3a41c4890fb230eab7c5d",
         "path": ".engine/tools/result_contracts.py"
       },
       "status": "active",
@@ -15529,7 +15533,7 @@
       },
       "slug": "scoped_agents",
       "source": {
-        "fingerprint": "sha256:d185acdbb7bd033aabc1bddaa41494b965bda4fbfe582b100fe23d575a99d555",
+        "fingerprint": "sha256:84248c962734bd74b78df5ec4dd183e463a4e39b46d912f5485c8fe6000b7287",
         "path": ".engine/tools/scoped_agents.py"
       },
       "status": "active",
@@ -16708,7 +16712,7 @@
       },
       "slug": "test_build_coordinator_core",
       "source": {
-        "fingerprint": "sha256:4ef32e70c0038cc0a0faf50d8f3aab093e63058a72d7c93f0873060539f4303d",
+        "fingerprint": "sha256:6cf406751f46130b0f6a548c21f7fb7f616d6e588129abb64d83fa5f4a264b1f",
         "path": ".engine/tools/test_build_coordinator_core.py"
       },
       "status": "active",
@@ -19700,7 +19704,7 @@
       },
       "slug": "test_plan_dogfood",
       "source": {
-        "fingerprint": "sha256:4306bad2cd3caabbf1430d5dd4929235323fd2084d03bff1bf8d5dd995b7c803",
+        "fingerprint": "sha256:8eaf43d48c933e26f5d3fad540bca4f9efe42d176c61e12a9406270c85b7c77c",
         "path": ".engine/tools/test_plan_dogfood.py"
       },
       "status": "active",
@@ -19733,7 +19737,7 @@
       },
       "slug": "test_plan_lifecycle",
       "source": {
-        "fingerprint": "sha256:2a1f5602644de5ef5a44387f8130ff6e72dff2b85c7f39b05a3303cc84292407",
+        "fingerprint": "sha256:0b258f12b33632824467055f262c44d950c8d5a71777707bf6afc0acca2ac98e",
         "path": ".engine/tools/test_plan_lifecycle.py"
       },
       "status": "active",
@@ -20002,7 +20006,7 @@
       },
       "slug": "test_project_manager",
       "source": {
-        "fingerprint": "sha256:102762b70ab2207acc13fdb5b21aafc891934ceb6320884b9688654ea92ed784",
+        "fingerprint": "sha256:7f2bbf25d31693ef2b20ddd500e35313b9d4ba01c220100df334624cd37b5f67",
         "path": ".engine/tools/test_project_manager.py"
       },
       "status": "active",
@@ -20526,7 +20530,7 @@
       },
       "slug": "test_result_contracts",
       "source": {
-        "fingerprint": "sha256:29ef684b6fbb9820493bdd75dd6d60344137ab1201f39ecf6abaee5beed8ac54",
+        "fingerprint": "sha256:094d28f8b77b78ad6877526fcdc26edf694e128599e5a17230cdd9e20d459f82",
         "path": ".engine/tools/test_result_contracts.py"
       },
       "status": "active",
@@ -22394,7 +22398,7 @@
       },
       "slug": "weakening_guard",
       "source": {
-        "fingerprint": "sha256:cc8912f2e64d862d793001a9b6c57ca7121175d04ff126662b249544d2d5f806",
+        "fingerprint": "sha256:c4aeb27c4cfb10c6df8ea3bda6ac8e73be88a06d8700d21e8fc1e95e72e28094",
         "path": ".engine/tools/weakening_guard.py"
       },
       "status": "active",
