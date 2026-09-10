@@ -51,6 +51,33 @@ judgment; `none` is valid and terminates the loop — and because it also clears
 repair packet requires validation for the repaired commit. If target-branch reconciliation happens after
 review, validate it and make the same nature-based judgment.
 
+### A clean merge of the target after review
+
+Fetch and merge the recorded target in the active isolated branch, resolve authored conflicts deliberately,
+and regenerate derived outputs with `sync-artifacts` after committing source changes. Validate the actual
+merged HEAD and push it to the draft PR, then assess the divergence:
+
+```text
+build_coordinator.py <identity flags> validate --plan <payload.json>
+git push origin <build-branch>
+build_coordinator.py <identity flags> repair assess --judgment none --rationale "<why direct verification is sufficient>"
+```
+
+Receipt preservation is earned by a separate proof: the coordinator observes the exact draft head and
+verified default-target repository/ref/tip, requires exactly two merge parents with that target as the second,
+and compares the actual merge tree to `git merge-tree --write-tree`. Only the proven imported target ancestry
+and that exact automatic merge are excluded from unread authored work. A reviewer still owes any local work
+before or after the merge. Original receipts and read ranges remain byte-identical, and the PR discloses the
+target tip, merge commit, automatic tree and validated HEAD. The proof does not claim the combined behavior
+is unchanged: the current-head validation and proportional judgment still matter.
+
+A clean catch-up alone needs no `--accept-receipt-loss` and spends no additional counted panel round; an
+already-spent round is never refunded. Conflicts, edits in the merge commit, unrelated or octopus merges,
+unreadable objects, ambiguous targets and failed proof remain ordinary authored/unverified work. Use the
+existing scoped/full judgment when a further read is warranted. If remote verification is unavailable, push
+or repair the reported identity and retry; it grants no clean-merge exemption. Re-import final CI evidence
+for the actual submitted HEAD after every later change.
+
 **A large or behaviour-changing repair after a lighter depth signals the depth was under-chosen.** A Standard
 review then a repair that fixes a serious-or-blocking finding *and* changes behaviour — or a large divergence —
 leans `scoped`/`full` over `none`: the fix-diff is evidence the change outgrew its depth. Depth stays the orchestrator's judgment, never a mechanical threshold; continuing is bounded by what rounds SPEND. A round that dispatches two or more cold lenses is counted; three counted rounds is the budget, and six rounds of any kind is the absolute ceiling. Either stop refuses until `--guidance` records the operator's answer, and prints the trajectory — including a highlight when a round moved more code and guarded surface than the one before it, the sign a fix broke something past the finding it answered. A `none` judgment and a single cold check on a low-yield change are recorded and disclosed but spend no counted budget; by convention that cheap check is one lens on a minimal model, because its whole value is the cold context — a convention, not a mechanism, so the honest worst case these two bounds allow is three full panels plus three further single-lens rounds on any model. Each round is classified from the previous round's end, not from the reviewed commit, and the rounds record reaches the operator at merge. The spend-based stops bound cost; coverage and lens count stay uncapped. One design panel per Build: a completed panel freezes the plan, and `plan revise` names the ways on.

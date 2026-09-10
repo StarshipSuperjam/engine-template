@@ -3258,21 +3258,17 @@ def _apply_unreviewed_rewrite(store, state, plan):
 
 
 def cmd_reconcile(args, store: Snapshot) -> None:
-    """Re-anchor the deliverable review's commit bindings after a diff-preserving history rewrite.
+    """Recover a deliberately rewritten Build without inventing or discarding its evidence.
 
-    The merge-freshness floor and a linear-history ruleset together make a rebase the required reconcile
-    for an already-reviewed branch, and a rebase rewrites the very SHAs the review evidence is bound to
-    (StarshipSuperjam/engine-template#1000). The receipts themselves survive -- they bind to packet
-    digests -- so what breaks is narrower than the audit trail: the coordinator can no longer tell what
-    the branch contributed, and demands a fresh judgment for a diff nobody changed.
+    Ordinary target catch-up can merge: protect-main does not require linear history. An unreviewed
+    rewrite first freezes source/target identity with --prepare, then verifies retained objects and
+    completed-rebase provenance before re-anchoring. Clean contribution keeps the original ledger;
+    divergent contribution archives it and requires affected nodes and dependents to be reverified.
 
-    There are exactly two outcomes and no operator-typed escape between them. When the branch's own
-    contribution is provably identical, the bindings move to the new head and the reconcile is published.
-    When it is not -- or cannot be measured -- the bindings move only as far as the NEW BASE, which leaves
-    `reviewed_commit != head` and hands the session straight back to `repair assess`, now against a
-    meaningful `base_after..head` diff instead of an orphaned one. That path consumes a repair round, arms
-    the escalation gate, and publishes the reviewed-vs-submitted line, so the weaker outcome is the one
-    carrying MORE scrutiny, not less. A session cannot spend a string to skip re-review here."""
+    Reviewed recovery keeps its existing contribution comparison. An identical contribution moves
+    review bindings; a differing or unmeasurable one anchors at the new base and requires the ordinary
+    proportional repair judgment. Neither path creates review receipts or replaces the approved plan.
+    """
     head = _head()
     state = store.read()
     revision = state["revision"]
@@ -3642,7 +3638,11 @@ def _observe_base_advances(state: dict, reviewed: str, head: str) -> list[dict]:
         repo, number = state["build"]["repository"], state["build"]["pr"]
         observed = entry.observe_fresh(ROOT, repo, number, github.pr_state(ROOT, repo, number))
     except CoordinatorError:
-        # Ordinary proportional review still applies; an unavailable remote is never a proof.
+        # Admission's stale-branch remedy is for UNBOUND work, so do not relay that rebase advice
+        # to an active Build. Ordinary proportional review still applies without remote proof.
+        print("clean target-merge coverage could not be verified: check the clean worktree, current "
+              "pushed draft head and fetched default target; merge target catch-up normally and retry. "
+              "No new merge exemption was granted.", file=sys.stderr)
         return list(prior)
     proofs = [proof for merge in merges
               if (proof := ranges.prove_base_advance(ROOT, merge, observed["material"]))]

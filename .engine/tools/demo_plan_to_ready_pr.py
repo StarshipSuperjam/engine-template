@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Demo — a plan goes from written, to sealed, to built, to a pull request ready for you to merge.
 
-This is the new front door, run end to end for the first time. Two arcs:
+Three independent disposable arcs exercise the entry door and evidence continuity:
 
   ARC 1 — the ordinary one. A plan is written into the Project Manager, read whole, approved with a
   care level, sealed, and only then handed to a Build. The Build binds to that seal, does the work,
@@ -15,6 +15,11 @@ This is the new front door, run end to end for the first time. Two arcs:
   importing rather than building straight away. Then it is filled in, approved, sealed, and bound, so
   the arc ends where arc 1 begins: a real Build, running on a real seal.
 
+  ARC 3 — fresh admission refuses stale target ancestry and overlapping work, a scoped decision
+  survives an interrupted preparation, and real conflicting and clean rebases preserve the original
+  integration history through canonical handoff. A real clean target merge retains completed repair
+  receipts only after explicitly labeled synthetic current-head candidate accounting is supplied.
+
 How it runs, and why it is trustworthy. Everything happens inside a THROWAWAY COPY of this repository
 with its own throwaway plan library, so no command can pass by leaning on this instance's own state —
 and nothing here can touch your real plans, your real repository, or a real pull request. The Plan
@@ -22,7 +27,10 @@ Coordinator and the Build Coordinator are both invoked as real subprocesses root
 
 Three things are stood in for, and each is named rather than hidden:
 
-  * GITHUB. A tiny fake `gh` models one pull request in a JSON file. CI cannot reach GitHub and must
+  * TRANSPORT IDENTITY. A private Git wrapper substitutes only the exact origin-identity query,
+    exposing the logical GitHub URL while insteadOf sends actual git transport to a local bare remote.
+    All other git commands, including fetch, merge-tree, rebase and merge, run the saved real Git binary.
+  * GITHUB. A tiny fake `gh` models the candidate and configurable competing pull requests in JSON. CI cannot reach GitHub and must
     never mutate a real pull request, so the boundary the coordinator shells out to is faked — the same
     seam its own tests stub, and the same one demo_959_finalize_ready_transition.py uses.
   * THE SUBMISSION ACCOUNTING. Reaching the ready gate honestly needs a full validation run (the CI
@@ -39,8 +47,10 @@ Run: uv run --directory .engine -- python tools/demo_plan_to_ready_pr.py
 from __future__ import annotations
 
 import io
+import hashlib
 import json
 import os
+import re
 import shutil
 import stat
 import subprocess
@@ -74,6 +84,13 @@ if argv[:2] == ["pr", "ready"]:
     pr["isDraft"] = "--undo" in argv
     with open(state_path, "w") as fh:
         json.dump(pr, fh)
+    sys.exit(0)
+
+if argv and argv[0] == "api" and any("/pulls?" in arg for arg in argv):
+    own = {"number": pr["number"], "title": pr.get("title", "Demo #12"), "body": pr["body"],
+           "head": {"ref": pr["headRefName"], "sha": pr["headRefOid"],
+                    "repo": {"full_name": pr["headRepository"]["nameWithOwner"]}}}
+    print(json.dumps([[own], pr.get("demo_competitors", [])]))
     sys.exit(0)
 
 # Everything else the coordinator may try (labels, edits, api reads) is a no-op here: this demo is
@@ -137,7 +154,7 @@ def _document(plan_id, title, revision=1, payload=None, **over):
 def _demo_env():
     # git -C alone does not override inherited repository/config selectors.
     env = {k: v for k, v in os.environ.items() if not k.startswith("GIT_")}
-    env.update(GIT_CONFIG_NOSYSTEM="1", GIT_CONFIG_GLOBAL=os.devnull)
+    env.update(GIT_CONFIG_NOSYSTEM="1", GIT_CONFIG_GLOBAL=os.devnull, GIT_OPTIONAL_LOCKS="0")
     return env
 
 
@@ -155,17 +172,45 @@ def _copy_ignore(directory, names):
 
 
 def _throwaway(holder):
-    """A committed git copy of this repo, a throwaway plan library, and a fake `gh` on PATH."""
+    """A committed git copy, a bare remote, and private transport/PR fixture boundaries."""
+    os.makedirs(holder, exist_ok=True)
     copy = os.path.join(holder, "repo")
     shutil.copytree(validate.ROOT, copy, symlinks=True,
                     ignore=_copy_ignore)
     _git(copy, "init", "-q", "-b", "main")
+    _git(copy, "config", "user.email", "demo@example.invalid")
+    _git(copy, "config", "user.name", "Disposable demo")
+    _git(copy, "config", "commit.gpgsign", "false")
+    _git(copy, "config", "core.hooksPath", os.devnull)
     _git(copy, "add", "-A")
     _git(copy, "-c", "user.email=e@x", "-c", "user.name=n", "commit", "-q", "-m", "seed (copy of this repo)")
     head = _git(copy, "rev-parse", "HEAD").stdout.strip()
+    remote = os.path.join(holder, "origin.git")
+    _git(copy, "clone", "--bare", copy, remote)
+    logical = "https://github.com/" + REPO + ".git"
+    _git(copy, "config", "url." + Path(remote).as_uri() + ".insteadOf", logical)
+    _git(copy, "remote", "add", "origin", logical)
+    _git(copy, "fetch", "origin")
+    _git(copy, "symbolic-ref", "refs/remotes/origin/HEAD", "refs/remotes/origin/main")
+    _git(copy, "checkout", "-q", "-b", "codex/demo")
 
     bin_dir = os.path.join(holder, "bin")
     os.makedirs(bin_dir, exist_ok=True)
+    real_git = shutil.which("git")
+    if not real_git or not os.path.isabs(real_git):
+        raise RuntimeError("demo needs an absolute real git executable before installing its wrapper")
+    # `remote get-url` expands insteadOf; this exact identity query reports the logical configured
+    # GitHub URL. Fetch/ls-remote and every history command still execute real Git offline.
+    git_wrapper = os.path.join(bin_dir, "git")
+    with open(git_wrapper, "w", encoding="utf-8") as fh:
+        fh.write("#!/usr/bin/env python3\nimport os, sys, subprocess\n"
+                 "args = sys.argv[1:]\n"
+                 "prefix = args[:2] if len(args) >= 2 and args[0] == '-C' else []\n"
+                 "query = args[len(prefix):]\n"
+                 "if query == ['remote', 'get-url', 'origin']:\n"
+                 "    raise SystemExit(subprocess.call([" + repr(real_git) + ", *prefix, 'config', '--get', 'remote.origin.url']))\n"
+                 "os.execv(" + repr(real_git) + ", [" + repr(real_git) + ", *args])\n")
+    os.chmod(git_wrapper, 0o700)
     gh = os.path.join(bin_dir, "gh")
     with open(gh, "w", encoding="utf-8") as fh:
         fh.write(_FAKE_GH)
@@ -174,7 +219,9 @@ def _throwaway(holder):
     pr_state = os.path.join(holder, "pr.json")
     with open(pr_state, "w", encoding="utf-8") as fh:
         json.dump({"number": PR, "state": "OPEN", "isDraft": True, "headRefOid": head,
-                   "baseRefOid": head, "mergeable": "MERGEABLE", "body": BODY,
+                   "baseRefOid": head, "baseRefName": "main", "headRefName": "codex/demo",
+                   "headRepository": {"nameWithOwner": REPO}, "closingIssuesReferences": [],
+                   "mergeable": "MERGEABLE", "body": BODY,
                    "statusCheckRollup": [{"name": "engine-ci", "status": "COMPLETED",
                                           "conclusion": "SUCCESS",
                                           "completedAt": "2026-08-25T00:00:00Z"}]}, fh)
@@ -184,11 +231,28 @@ def _throwaway(holder):
     env["DEMO_PR_STATE"] = pr_state
     env["ENGINE_PLAN_DIR"] = os.path.join(holder, "plans")
     env.pop("GITHUB_EVENT_PATH", None)
+    identity_query = subprocess.run([git_wrapper, "-C", copy, "remote", "get-url", "origin"],
+        capture_output=True, text=True, env=env)
+    forwarded_query = subprocess.run([git_wrapper, "-C", copy, "rev-parse", "HEAD"],
+        capture_output=True, text=True, env=env)
+    expanded_query = subprocess.run([git_wrapper, "-C", copy, "remote", "get-url", "--all", "origin"],
+        capture_output=True, text=True, env=env)
+    if (identity_query.stdout.strip() != logical or forwarded_query.stdout.strip() != head
+            or expanded_query.stdout.strip() != Path(remote).as_uri()):
+        raise RuntimeError("fixture Git wrapper must substitute only the exact logical identity query")
     return copy, head, env, pr_state
 
 
 def _tool(copy, name, env, *args):
-    return subprocess.run([sys.executable, os.path.join(copy, ".engine", "tools", name), *args],
+    command = [sys.executable, os.path.join(copy, ".engine", "tools", name), *args]
+    if name == "build_coordinator.py" and env.get("DEMO_INTERRUPT_PREPARATION"):
+        # A disposable crash injection at the persistence seam; the real CLI/parser/admission run.
+        code = ("import sys; sys.path.insert(0, " + repr(os.path.join(copy, ".engine", "tools")) + "); "
+                "import build_coordinator as b; "
+                "b.build_state_store.finish_binding=lambda *a, **k: (_ for _ in ()).throw(OSError('demo interruption after reservation')); "
+                "raise SystemExit(b.main(sys.argv[1:]))")
+        command = [sys.executable, "-c", code, *args]
+    return subprocess.run(command,
                           cwd=os.path.join(copy, ".engine"), capture_output=True, text=True, env=env)
 
 
@@ -331,6 +395,8 @@ def _arc_one(copy, head, env, pr_state, holder):
                            "--operator-decided")
     ok &= _pass("sealed", sealed.returncode == 0, "the plan is now read-only and can start a Build")
 
+    _update_pr(pr_state, closingIssuesReferences=[{
+        "number": 12, "url": "https://github.com/" + REPO + "/issues/12"}])
     bound = _build_cmd(copy, env, state_path, "plan", "bind", "--plan", plan_id,
                        "--repository", REPO, "--pr", str(PR),
                        "--operator-decided")
@@ -342,6 +408,10 @@ def _arc_one(copy, head, env, pr_state, holder):
     binding = json.loads(bound.stdout)
     state_path = binding["state"]
     ownership = binding["ownership"]
+    admission = json.loads(Path(state_path).read_text())["admission"]["material"]
+    ok &= _pass("own issue-linked PR binds without an override", admission["issues"] == [12]
+        and admission["overlap"]["coverage"] == "complete" and not admission["overlap"]["matches"]
+        and admission["override"] is None, "the exact first-bind PR is self-excluded")
 
     def build(*args):
         return _build_cmd(copy, env, state_path, *args, ownership=ownership)
@@ -368,7 +438,7 @@ def _arc_one(copy, head, env, pr_state, holder):
     result = _write(os.path.join(holder, "w1-result.json"),
                     {"outcome": "returned", "base_sha": head, "artifact_digest": tree_digest,
                      "evidence": {"changed_paths": [".engine/tools/widget_cache.py"],
-                                  "verification_results": ["The widget-cache tests pass."]}})
+                                  "verification_results": ["Demo fixture source inspected: cache retains loaded keys; no test-run claim."]}})
     build("work", "result", "--item", "W1", "--attempt", attempt,
                "--plan", payload, "--input", result)
     _git(copy, "-c", "user.email=e@x", "-c", "user.name=n", "commit", "-q", "-m", "Add the widget cache")
@@ -380,7 +450,7 @@ def _arc_one(copy, head, env, pr_state, holder):
         json.dump(pr, fh)
     integrated = build("work", "integrate", "--item", "W1",
                             "--attempt", attempt, "--commit", new_head, "--plan", payload,
-                            "--verification-input", "The widget-cache tests pass at this commit.")
+                            "--verification-input", "Demo fixture source inspected at this commit; no test-run claim.")
     ok &= _pass("the work is integrated", integrated.returncode == 0,
                 "one node, done and proven on the branch by an Engine-computed receipt")
 
@@ -396,13 +466,8 @@ def _arc_one(copy, head, env, pr_state, holder):
 def _arc_two(copy, head, env, holder, pr_state):
     print("\n  ARC 2 — a plan you ACCEPTED, imported as a draft, and only then made real.\n")
     ok = True
-    # Arc 1 legitimately turned the fixture pull request ready, and a Build binds only to a DRAFT.
-    # Reset it, so arc 2 starts where a second Build really would rather than tripping over arc 1.
-    with open(pr_state, encoding="utf-8") as fh:
-        pr = json.load(fh)
-    pr["isDraft"] = True
-    with open(pr_state, "w", encoding="utf-8") as fh:
-        json.dump(pr, fh)
+    _update_pr(pr_state, closingIssuesReferences=[{
+        "number": 12, "url": "https://github.com/" + REPO + "/issues/12"}])
     native = os.path.join(holder, "native.md")
     with open(native, "w", encoding="utf-8") as fh:
         fh.write("# Cache the widgets\n\nLooking them up is slow, so cache them.\n")
@@ -412,6 +477,10 @@ def _arc_two(copy, head, env, holder, pr_state):
     ok &= _pass("accepted, and imported as a draft", imported.returncode == 0,
                 imported.stdout.strip().splitlines()[0] if imported.returncode == 0 else "refused")
     plan_id = imported.stdout.split()[1] if imported.returncode == 0 else ""
+    imported_records = [json.loads(p.read_text()) for p in Path(env["ENGINE_PLAN_DIR"]).glob("*/record.json")]
+    ok &= _pass("native acceptance did not start a Build", not any(
+        (record.get("build_lease") or {}).get("current") for record in imported_records),
+        "the independent plan library contains drafts, not a Build claim")
 
     refused = _plan_cmd(copy, env, "seal", plan_id, "--delta-judgment", "none",
                            "--operator-decided")
@@ -441,6 +510,230 @@ def _arc_two(copy, head, env, holder, pr_state):
                        "--operator-decided")
     ok &= _pass("and drives a running Build", bound.returncode == 0,
                 "the arc ends where arc 1 began: a Build anchored to a seal")
+    return ok
+
+
+def _update_pr(path, **updates):
+    value = json.loads(Path(path).read_text())
+    value.update(updates)
+    _write(path, value)
+    return value
+
+
+def _publish_head(copy, pr_state, head):
+    _require(_git(copy, "push", "--force", "origin", "codex/demo"), "publish disposable Build head")
+    return _update_pr(pr_state, headRefOid=head)
+
+
+def _require(result, label):
+    if result.returncode:
+        raise RuntimeError(label + " failed: " + (result.stdout + result.stderr)[-4000:])
+    return result.stdout
+
+
+def _commit(copy, path, content, message):
+    target = Path(copy) / path
+    target.parent.mkdir(parents=True, exist_ok=True)
+    target.write_text(content)
+    _require(_git(copy, "add", "-A"), message + " stage")
+    _require(_git(copy, "commit", "-q", "-m", message), message)
+    return _git(copy, "rev-parse", "HEAD").stdout.strip()
+
+
+def _advance(copy, pr_state, path, content):
+    _require(_git(copy, "checkout", "-q", "main"), "target fixture checkout")
+    target = _commit(copy, path, content, "Disposable upstream advance")
+    _require(_git(copy, "push", "origin", "main"), "publish disposable target")
+    _require(_git(copy, "checkout", "-q", "codex/demo"), "restore disposable Build branch")
+    _update_pr(pr_state, baseRefOid=target)
+    return target
+
+
+def _normal_payload():
+    value = _payload()
+    value.update(profile="normal", interpretation="Exercise admission and recovery with real git evidence.",
+        evidence=[{"claim": "The fixture owns an offline bare remote.", "basis": "Demo setup", "kind": "observed"}],
+        assumptions=[{"claim": "Git history is disposable.", "status": "verified"}],
+        scope_boundary=["Disposable widget cache"], non_goals=["Real deployment"],
+        risks=["Fixture interruption must preserve its claim."],
+        review_strategy="Seed explicitly labeled downstream review accounting for the recovery witness.")
+    return value
+
+
+def _seal_fixture(copy, env, holder, plan_id, payload):
+    doc = _write(os.path.join(holder, "recovery-plan.json"), _document(plan_id, "Recover the widget cache", payload=payload))
+    for args in (("init", "--document", doc), ("preview", plan_id),
+                 ("approve", plan_id, "--depth", "quick", "--operator-decided"),
+                 ("seal", plan_id, "--delta-judgment", "none", "--operator-decided")):
+        _require(_plan_cmd(copy, env, *args), "seal fixture " + args[0])
+    return _write(os.path.join(holder, "recovery-payload.json"), payload)
+
+
+def _seed_candidate_fixture(state_path, head):
+    """Accounting fixture only. This does not represent a validation run or CI evidence."""
+    store = bc.StateStore(state_path)
+    state = store.read()
+    store.mutate(lambda s: s.update(validation={"commit": head, "results": [{
+        "id": "fixture-candidate", "commit": head, "passed": True,
+        "summary": "DEMO FIXTURE ONLY: synthetic green candidate accounting; no validation run claimed"}]}),
+        from_revision=state["revision"])
+
+
+def _arc_three(copy, head, env, pr_state, holder):
+    print("\n  ARC 3 — fresh admission, interrupted ownership, real rebase recovery and clean merge coverage.\n")
+    print("      Validation/review accounting below is explicitly seeded fixture data, not a test-run claim.")
+    ok = True
+    plan_id = "pln_" + "3" * 12
+    payload = _seal_fixture(copy, env, holder, plan_id, _normal_payload())
+    locator = os.path.join(holder, "recovery-locator.json")
+    bind_args = ("plan", "bind", "--plan", plan_id, "--repository", REPO,
+                 "--pr", str(PR), "--operator-decided")
+    refs = [{"number": 12, "url": "https://github.com/" + REPO + "/issues/12"}]
+    _update_pr(pr_state, closingIssuesReferences=refs)
+    target = _advance(copy, pr_state, "upstream-before-bind.txt", "first target advance\n")
+    stale = _build_cmd(copy, env, locator, *bind_args)
+    records = list(Path(env["ENGINE_PLAN_DIR"]).glob("*/record.json"))
+    plan_record = next(p for p in records if json.loads(p.read_text())["plan_id"] == plan_id)
+    ok &= _pass("stale branch refuses before ownership", stale.returncode != 0 and
+        not (json.loads(plan_record.read_text()).get("build_lease") or {}).get("current") and not Path(locator).exists(),
+        "fresh target is required; no claim or locator exists")
+    _require(_git(copy, "rebase", "origin/main"), "synchronize isolated unbound branch")
+    head = _git(copy, "rev-parse", "HEAD").stdout.strip()
+    _publish_head(copy, pr_state, head)
+    competitor = {"number": PR + 1, "title": "Competing #12", "body": "Fixes #12",
+                  "head": {"ref": "claude/12-other", "sha": "b" * 40, "repo": {"full_name": REPO}}}
+    _update_pr(pr_state, demo_competitors=[competitor])
+    collision = _build_cmd(copy, env, locator, *bind_args)
+    scope = re.search(r"--overlap-override (sha256:[0-9a-f]{64})", collision.stdout + collision.stderr)
+    ok &= _pass("real competitor refuses before ownership", collision.returncode != 0 and bool(scope)
+        and not (json.loads(plan_record.read_text()).get("build_lease") or {}).get("current"),
+        "the own source PR is excluded; the separate PR is named")
+    if not scope:
+        return False
+    override = ("--overlap-override", scope[1], "--overlap-reason", "Disposable fixture explicitly accepts this observed competitor")
+    interrupted_env = dict(env, DEMO_INTERRUPT_PREPARATION="1")
+    interrupted = _build_cmd(copy, interrupted_env, locator, *bind_args, *override)
+    claim = json.loads(plan_record.read_text())["build_lease"]["current"]
+    original_record = plan_record.read_bytes()
+    ok &= _pass("interrupted bind preserves frozen preparation", interrupted.returncode != 0 and
+        claim["state"] == "preparing" and not Path(claim["snapshot"]).exists(), "reservation exists; activation did not run")
+    _update_pr(pr_state, closingIssuesReferences=refs + [{"number": 13,
+        "url": "https://github.com/" + REPO + "/issues/13"}])
+    changed = _build_cmd(copy, env, locator, *bind_args, *override)
+    ok &= _pass("changed admission cannot replace preparation", changed.returncode != 0 and
+        plan_record.read_bytes() == original_record, "normalized issue set changed; original claim bytes survived")
+    _update_pr(pr_state, closingIssuesReferences=refs)
+    binding = json.loads(_require(_build_cmd(copy, env, locator, *bind_args, *override), "matching preparation retry"))
+    state_path, identity = binding["state"], binding["ownership"]
+    read = lambda: json.loads(Path(state_path).read_text())
+    ok &= _pass("matching retry preserves admission timestamp", read()["admission"] == claim["admission"],
+                "the first observation, ownership and consent remain the authority")
+    def build(*args):
+        return _build_cmd(copy, env, state_path, *args, ownership=identity)
+    before = Path(state_path).read_bytes()
+    continued = build(*bind_args)
+    ok &= _pass("active bind continues without new admission", continued.returncode == 0 and
+        json.loads(continued.stdout).get("continuation") and Path(state_path).read_bytes() == before,
+        "same canonical Build, unchanged evidence")
+    _require(build("approve", "--plan", payload, "--depth", "quick"), "approve fixture Build")
+    claim_result = json.loads(_require(build("work", "claim", "--item", "W1", "--provider", "claude",
+        "--plan", payload, "--worktree", copy), "claim fixture work"))
+    attempt = claim_result["attempt_id"]
+    work_path = ".engine/tools/widget_cache.py"
+    Path(copy, work_path).write_text("CACHE = {'local': 1}\n")
+    _require(_git(copy, "add", "-A"), "stage fixture work")
+    digest = json.loads(_require(build("work", "stage-digest", "--item", "W1", "--plan", payload), "stage digest"))["tree_digest"]
+    result_path = _write(os.path.join(holder, "recovery-result.json"), {"outcome": "returned", "base_sha": head,
+        "artifact_digest": digest, "evidence": {"changed_paths": [work_path],
+            "verification_results": ["Fixture inspection: CACHE contains local key; no test runner claimed."]}})
+    _require(build("work", "result", "--item", "W1", "--attempt", attempt, "--plan", payload,
+                   "--input", result_path), "record fixture result")
+    _require(_git(copy, "commit", "-q", "-m", "Disposable cache implementation"), "commit fixture work")
+    implemented = _git(copy, "rev-parse", "HEAD").stdout.strip()
+    _publish_head(copy, pr_state, implemented)
+    _require(build("work", "integrate", "--item", "W1", "--attempt", attempt, "--commit", implemented,
+        "--plan", payload, "--verification-input", "Fixture source inspected: local cache key present."), "integrate actual receipt")
+    original = read()
+    _advance(copy, pr_state, work_path, "CACHE = {'upstream': 2}\n")
+    _require(build("reconcile", "--plan", payload, "--prepare"), "prepare divergent rebase")
+    conflicted = _git(copy, "rebase", "origin/main")
+    ok &= _pass("rebase reaches a real conflict", conflicted.returncode != 0 and
+                "CONFLICT" in conflicted.stdout, "both histories added different widget-cache content")
+    Path(copy, work_path).write_text("CACHE = {'local': 1, 'upstream': 2}\n")
+    _require(_git(copy, "add", work_path), "stage deliberate conflict resolution")
+    _require(_git(copy, "-c", "core.editor=true", "rebase", "--continue"), "finish conflict rebase")
+    rebased = _git(copy, "rev-parse", "HEAD").stdout.strip()
+    _publish_head(copy, pr_state, rebased)
+    _require(build("reconcile", "--plan", payload), "apply divergent recovery")
+    recovered = read()
+    ok &= _pass("divergent recovery preserves history and invalidates completion", not recovered["work"]["W1"]["integration"]
+        and recovered["rewrite_recoveries"][-1]["prior_work"] == original["work"]
+        and recovered["reviews"] == original["reviews"], "review fields remain empty; original receipt survives in canonical history")
+    _require(build("work", "integrate", "--recovery", "--item", "W1", "--attempt", attempt,
+        "--commit", rebased, "--plan", payload,
+        "--verification-input", "Fixture reinspection: resolved cache contains both local and upstream keys."), "reverify resolved integration")
+    _advance(copy, pr_state, "second-upstream.txt", "clean second advance\n")
+    _require(build("reconcile", "--plan", payload, "--prepare"), "prepare clean recovery")
+    _require(_git(copy, "rebase", "origin/main"), "clean second rebase")
+    clean_head = _git(copy, "rev-parse", "HEAD").stdout.strip()
+    _publish_head(copy, pr_state, clean_head)
+    _require(build("reconcile", "--plan", payload), "apply clean recovery")
+    handoff = os.path.join(holder, "canonical-handoff.json")
+    before_handoff = read()
+    _require(build("handoff", "export", "--output", handoff), "export recovered canonical evidence")
+    _require(build("handoff", "restore", "--input", handoff), "restore recovered canonical evidence")
+    after_handoff = read()
+    ok &= _pass("clean recovery exports and restores canonical history", after_handoff["ownership"] == identity
+        and after_handoff["rewrite_recoveries"] == before_handoff["rewrite_recoveries"]
+        and after_handoff["work"]["W1"]["integration"]["receipt"] == original["work"]["W1"]["integration"]["receipt"],
+        "original commit receipt is re-derived, private recovery records stay canonical")
+    _require(build("approve", "--plan", payload, "--depth", "quick"), "ordinary mutation after restore")
+    # Explicitly synthetic completed-review bookkeeping. The merge and assess verbs remain real.
+    store = bc.StateStore(state_path)
+    current = store.read()
+    store.mutate(lambda s: s["reviews"]["deliverable"].update(reviewed_commit=clean_head,
+        base_commit=s["build"]["base_at_bind"]), from_revision=current["revision"])
+    repaired = _commit(copy, work_path, "CACHE = {'local': 1, 'upstream': 2, 'repair': 3}\n", "Disposable authored repair")
+    _publish_head(copy, pr_state, repaired)
+    _require(build("repair", "assess", "--judgment", "scoped", "--lens", "usability", "--lens", "spec-conformance",
+        "--rationale", "DEMO FIXTURE: seed completed downstream repair panel accounting"), "assess authored repair")
+    receipts = [{"lens": lens, "packet_digest": "sha256:" + "1" * 64, "commit": repaired,
+        "finding_ids": [], "code_execution": "none", "reviewed_range": {"base": clean_head, "tip": repaired}}
+        for lens in ("usability", "spec-conformance")]
+    current = store.read()
+    store.mutate(lambda s: s["repair"].update(receipts=receipts), from_revision=current["revision"])
+    _advance(copy, pr_state, "merge-upstream.txt", "target to merge\n")
+    _require(_git(copy, "merge", "--no-ff", "--no-edit", "origin/main"), "merge current target")
+    merged = _git(copy, "rev-parse", "HEAD").stdout.strip()
+    _publish_head(copy, pr_state, merged)
+    before_validation = Path(state_path).read_bytes()
+    refused = build("repair", "assess", "--judgment", "none", "--rationale", "Only target ancestry changed")
+    ok &= _pass("merge preservation requires current candidate accounting", refused.returncode != 0
+        and Path(state_path).read_bytes() == before_validation, "actual merged head has no candidate result yet")
+    _seed_candidate_fixture(state_path, merged)
+    before_merge_assess = read()
+    _require(build("repair", "assess", "--judgment", "none", "--rationale", "Automatic target merge; fixture candidate accounting is current"),
+        "retain receipts across clean target merge")
+    final = read()
+    prior_receipt_bytes = json.dumps(before_merge_assess["repair"]["receipts"], sort_keys=True).encode()
+    current_receipt_bytes = json.dumps(final["repair"]["receipts"], sort_keys=True).encode()
+    ok &= _pass("clean target merge retains prior receipts without another panel", current_receipt_bytes == prior_receipt_bytes
+        and len(final["repair_rounds"]) == len(before_merge_assess["repair_rounds"])
+        and sum(bc._round_counted(r) for r in final["repair_rounds"]) ==
+            sum(bc._round_counted(r) for r in before_merge_assess["repair_rounds"])
+        and final["base_advances"][-1]["validated_head"] == merged,
+        "no accept-receipt-loss flag; receipt JSON bytes and counted-panel sum are unchanged")
+    # Pure real composer, with the existing clearly synthetic claim/evidence fixture: no PR apply.
+    import build_coordinator_contract as composer
+    from test_build_coordinator_contract import _good_claim, _good_evidence
+    narrative = _good_claim()
+    narrative["purpose"]["thesis"] = "DEMO FIXTURE: disclose the observed clean target merge."
+    narrative["validation"]["caveats"] = ["Synthetic demonstration accounting; no validation execution claimed."]
+    body = composer.compose(narrative, dict(_good_evidence(), drift_line=bc._drift_line(final, merged)))
+    proof = final["base_advances"][-1]
+    ok &= _pass("real PR composer discloses the pinned merge proof", all(value in body for value in (
+        proof["target_tip"], proof["merge_commit"], proof["validated_head"], REPO, "without restamping")),
+        "target tip, merged head and validation head reach the composed body")
     return ok
 
 
@@ -483,6 +776,20 @@ class _IsolationTests(unittest.TestCase):
 
 
 
+def _source_snapshot():
+    """Read-only source checkout invariant; no setup or Git mutation touches this checkout."""
+    root = str(validate.ROOT)
+    index_name = _git(root, "rev-parse", "--git-path", "index").stdout.strip()
+    index = Path(index_name)
+    if not index.is_absolute():
+        index = Path(root) / index
+    return {"head": _git(root, "rev-parse", "HEAD").stdout,
+            "branch": _git(root, "symbolic-ref", "HEAD").stdout,
+            "origin": _git(root, "remote", "get-url", "origin").stdout,
+            "porcelain": _git(root, "status", "--porcelain=v1").stdout,
+            "index_digest": hashlib.sha256(index.read_bytes()).hexdigest() if index.is_file() else None}
+
+
 def main(_argv=None) -> int:
     # This setup-only demo owns its isolation regressions and retires with them.
     diagnostics = io.StringIO()
@@ -493,12 +800,24 @@ def main(_argv=None) -> int:
         return 1
     print("What this checks: a plan cannot be sealed before it is approved, cannot start a Build before")
     print("it is sealed, and — once it is — carries all the way to a pull request ready for you.\n")
-    print("GitHub, submission accounting and reviewer events are simulated; acceptance commands are real.\n")
+    print("GitHub, submission accounting and reviewer events are simulated; acceptance commands are real.")
+    print("The exact logical-origin identity query is also a fixture substitution.")
+    print("All fetching, ancestry, rebasing, merging and ownership persistence use the real tools.\n")
     holder = tempfile.mkdtemp(prefix="entry-door-demo-")
     try:
-        copy, head, env, pr_state = _throwaway(holder)
-        ok = _arc_one(copy, head, env, pr_state, holder)
-        ok &= _arc_two(copy, head, env, holder, pr_state)
+        operator_before = _source_snapshot()
+        first = os.path.join(holder, "arc1")
+        copy, head, env, pr_state = _throwaway(first)
+        ok = _arc_one(copy, head, env, pr_state, first)
+        second = os.path.join(holder, "arc2")
+        copy, head, env, pr_state = _throwaway(second)
+        ok &= _arc_two(copy, head, env, second, pr_state)
+        third = os.path.join(holder, "arc3")
+        copy, head, env, pr_state = _throwaway(third)
+        ok &= _arc_three(copy, head, env, pr_state, third)
+        operator_after = _source_snapshot()
+        ok &= _pass("operator checkout is unchanged", operator_before == operator_after,
+                    "head, branch, origin, working-tree status and index digest stayed identical")
         print("\n  Every command above ran inside a throwaway copy with its own throwaway plan library.")
         print("  Your plans, this repository and any real pull request were never touched.")
         if not ok:

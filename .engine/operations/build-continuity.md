@@ -37,6 +37,65 @@ uv run --directory .engine --frozen -- python tools/demo_build_resumes_after_a_k
 ```
 Permanent tests vary interruptions and break fencing/exclusivity. This models interruption, not power loss.
 
+### Catch up or deliberately rewrite history
+
+An active Build can catch up by fetching and merging its recorded target, then regenerating derived files
+through `sync-artifacts` after committing any authored resolution. The live protect-main policy permits
+merge, squash and rebase; it has no `required_linear_history` rule. Do not manufacture a rebase requirement.
+Honor an explicit operator request to rebase. A merge preserves history; an intentional rewrite uses the
+recovery procedure below instead. All coordinator mutations carry the caller-held Build ID, generation and
+current revision described above, plus the exact bound payload where shown.
+
+For an **unreviewed** Build, finish or abandon outstanding node claims, commit and push the current head,
+then prepare *before* rewriting:
+
+```text
+build_coordinator.py <identity flags> reconcile --plan <payload.json> --prepare
+git rebase <prepared-target-tip>
+build_coordinator.py <identity flags> reconcile --plan <payload.json>
+```
+
+Preparation fetches and pins the target, records the source HEAD, plan and ownership tuple, and retains source
+objects under `refs/engine/build-recovery/`. Rebase onto that exact pinned target; do not refetch and substitute
+a later target mid-preparation. Resolve any conflicts and finish the rebase before applying recovery. Keep the
+PR's pre-rewrite source head or push the recovered head as instructed by the identity check. The apply checks
+completed rebase provenance and the original contribution before advancing the same Build's history anchor.
+
+Clean recovery preserves the original work ledger and receipts. Divergent unreviewed recovery preserves the
+resolved work and archives the original evidence, but marks affected nodes and their dependent closure as
+needing verification. It creates no review receipts. Re-run the appropriate checks and, in dependency order,
+record each original attempt at the recovered HEAD:
+
+```text
+build_coordinator.py <identity flags> work integrate --item <node> --attempt <original-attempt> --plan <payload.json> --commit <recovered-head> --recovery --verification-input "<fresh check and result>"
+```
+
+The old integration receipt remains historical evidence; a separate recovery verification records what was
+checked now. No fresh claim or invented completion substitutes for this transition. Complete reverification
+before another rewrite, then earn current-head validation and the normally approved deliverable review.
+`reconcile --plan <payload.json> --cancel-preparation` cancels only on the original, unchanged history;
+retained source objects remain available. An interrupted apply can be retried against matching canonical
+identity/revision. Missing preparation, retained objects or unambiguous rebase provenance refuses: recover the
+original evidence/history, never manually move the Build anchor or replace its plan.
+
+After **reviewed** history is rewritten, the existing `reconcile --plan <payload.json>` path compares the
+branch contribution. An identical contribution re-anchors the review bindings; a differing or unmeasurable
+contribution requires the existing proportional repair judgment against the new base. Original receipts are
+not fabricated or restamped.
+
+A recovered Build can export and restore a handoff only against the surviving canonical snapshot. Push the
+recovered PR head first, using an explicit lease on the recorded remote source when replacing rewritten history:
+
+```text
+git push --force-with-lease=refs/heads/<build-branch>:<recorded-source-head> origin HEAD:refs/heads/<build-branch>
+build_coordinator.py <identity flags> handoff export --output <new-file-outside-library>
+build_coordinator.py <identity flags> handoff restore --input <export-file>
+```
+
+If that lease refuses, inspect the competing remote change; do not broaden the force push. Restoration re-derives the original integration receipts from retained objects and
+verifies identity-bound recovery provenance; a portable export cannot create that exception by itself. Keep
+source objects and canonical private evidence available through completion.
+
 ## Done when
 
 The verified plan and caller-held identity match; status names the next runbook and mutation verifies again.
