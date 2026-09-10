@@ -586,6 +586,7 @@ def main(argv=None) -> int:
     parser.add_argument('verb',choices=('list','show','configure','assess','assign','defer','repair','pause','resume','demo'))
     parser.add_argument('--expected-pending',type=int,default=1,
                         help='Offline demo assertion; change it to make a wrong expectation fail.')
+    parser.add_argument('--continuity', action='store_true', help='Also run the committed offline hook-continuity fixture (Engine source checkout).')
     parser.add_argument('--session')
     parser.add_argument('--repository')
     parser.add_argument('--issue',type=int)
@@ -600,7 +601,10 @@ def main(argv=None) -> int:
         if args.verb == 'demo':
             try:
                 result = demo(expected_pending=args.expected_pending)
-            except AssertionError as exc:
+                if args.continuity:
+                    from test_close import triage_continuity_demo
+                    result['continuity'] = triage_continuity_demo()
+            except (AssertionError, ImportError) as exc:
                 print(f'Demo failed: {exc}', file=sys.stderr)
                 return 1
             print(json.dumps(result, indent=2))
@@ -611,10 +615,10 @@ def main(argv=None) -> int:
             directive = issue_author.load_input(args.input)
             kinds = ('resume',) if args.verb == 'resume' else ('pause', 'cancel', 'urgent-priority')
             if directive.get('kind') not in kinds or not str(directive.get('instruction') or '').strip():
-                raise TriageError('Only an explicit operator pause, cancellation or urgent priority may defer this session obligation.')
+                raise TriageError("Only an explicit operator pause, cancellation or urgent priority may pause this session context.")
             obligation = _read_session(args.session)
             if obligation is None:
-                raise TriageError('No session obligation exists.')
+                raise TriageError('No triage session observation exists.')
             if args.verb == 'resume':
                 obligation.pop('operator_exception', None)
             else:

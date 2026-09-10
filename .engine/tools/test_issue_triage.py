@@ -535,6 +535,23 @@ class ConfigurationUpgrade(unittest.TestCase):
             with self.assertRaisesRegex(triage.TriageError, 'disagree'):
                 triage.load_config()
 
+    def test_same_repository_concurrent_update_refuses_stale_writer(self):
+        import multiprocessing
+        context=multiprocessing.get_context('spawn')
+        barrier=context.Barrier(2); outcomes=context.Queue()
+        self.write(self.canonical,self.config)
+        processes=[context.Process(target=_configure_race,args=(str(self.root),'o/r',barrier,outcomes)) for _ in range(2)]
+        for process in processes: process.start()
+        try:
+            results=[outcomes.get(timeout=20) for _ in processes]
+            for process in processes:
+                process.join(10); self.assertEqual(process.exitcode,0)
+        finally:
+            for process in processes:
+                if process.is_alive(): process.terminate(); process.join()
+        self.assertEqual(sorted(state for _,state in results),['changed','configured'])
+        self.assertEqual(triage.load_config(self.root)['repositories']['o/r']['activated_at'],Discovery.settings['activated_at'])
+
     def test_two_processes_refuse_stale_preflight_and_retry_preserves_both_mappings(self):
         import multiprocessing
         context = multiprocessing.get_context('spawn')

@@ -7593,7 +7593,7 @@
       },
       "slug": "operator-issue-triage.v1",
       "source": {
-        "fingerprint": "sha256:8ba8aa7b31814fdabcec20507d40dc6b29c6f74f754053153846e1836d60258b",
+        "fingerprint": "sha256:72419e7c900952c173f3fe7737164e42f82cf0f3829bbefa269e7573311e8144",
         "path": ".engine/schemas/operator-issue-triage.v1.json"
       },
       "status": "active",
@@ -7899,7 +7899,7 @@
       },
       "slug": "session-relay.v1",
       "source": {
-        "fingerprint": "sha256:081b0df2da3ddffaa863c5cfcf8cf78eff033e57b1000af7234d704f9fdefc7b",
+        "fingerprint": "sha256:ab60c898d8e1826210e04c16793abb6afee47acfcc6e911e7f2e8d195427782f",
         "path": ".engine/schemas/session-relay.v1.json"
       },
       "status": "active",
@@ -9580,7 +9580,7 @@
       },
       "slug": "boot",
       "source": {
-        "fingerprint": "sha256:3da1d9967b5254d995614c905762271bc64f3a7b493833f21e64b1d4cb53cd58",
+        "fingerprint": "sha256:1c6fb88bf6444b2780c3423fa7c1d9838380b48fb24df1a65c5410aefdf4084b",
         "path": ".engine/tools/boot.py"
       },
       "status": "active",
@@ -10225,7 +10225,7 @@
       },
       "slug": "checkout_health",
       "source": {
-        "fingerprint": "sha256:782ee534ff327062d9125557f448c3c5e06361a0af46d669ebf4e26bf46b2348",
+        "fingerprint": "sha256:ef81880ffc73d0786cd48f62030b60137c5bf5879ae1fca1c5f684f5fb0cf6e1",
         "path": ".engine/tools/checkout_health.py"
       },
       "status": "active",
@@ -10371,7 +10371,6 @@
           "tool:boot",
           "tool:capture",
           "tool:hooks",
-          "tool:issue_triage",
           "tool:ledger",
           "tool:memory.__init__",
           "tool:moment",
@@ -10385,7 +10384,7 @@
       },
       "slug": "close",
       "source": {
-        "fingerprint": "sha256:c605128a444600f1d451547cc9a6e77161928ed59168a210a94e695b8468542c",
+        "fingerprint": "sha256:d09b30fd3f439a5ff549253780308688dd0290e1cb94a57d154e1567839aa182",
         "path": ".engine/tools/close.py"
       },
       "status": "active",
@@ -12790,7 +12789,7 @@
       },
       "slug": "github_client",
       "source": {
-        "fingerprint": "sha256:75f919b1bb0648fae9e044a2aacbc5a6bd7cbc1f3e2bfbf262477c57be42c7dc",
+        "fingerprint": "sha256:b3c0464fc60da388e5963e917ac1325245699b6b60b1e77fb517c7bcdbd641f8",
         "path": ".engine/tools/github_client.py"
       },
       "status": "active",
@@ -13274,6 +13273,8 @@
       "predicates": {
         "imports": [
           "tool:build_coordinator_core",
+          "tool:checkout_health",
+          "tool:github_client",
           "tool:issue_author",
           "tool:moment",
           "tool:release_impact",
@@ -13285,7 +13286,7 @@
       },
       "slug": "issue_triage",
       "source": {
-        "fingerprint": "sha256:82bbb8016d099a85cd49f05ce694505e516055ad7781e221e8058cbb1d73777a",
+        "fingerprint": "sha256:c052afaa447804efe815f60d6893a0eb5f47a639fa9bcdc6539d076414af97aa",
         "path": ".engine/tools/issue_triage.py"
       },
       "status": "active",
@@ -15761,7 +15762,7 @@
       },
       "slug": "session_relay",
       "source": {
-        "fingerprint": "sha256:0774f0be6f6533d8e4bf9d5f67d37ef966dcfcaf41d40d05ce180cab08a8bce0",
+        "fingerprint": "sha256:2d4d7510c93f13cf64fd71962b48008713a35ccd97f8ff0ecdb865bca6327742",
         "path": ".engine/tools/session_relay.py"
       },
       "status": "active",
@@ -16521,7 +16522,7 @@
       },
       "slug": "test_boot",
       "source": {
-        "fingerprint": "sha256:908a174fcceac154ca96ac6a6f7670c225087500a559250cba46467ecd761f72",
+        "fingerprint": "sha256:5e69cb21fe0c4255399b4123ddb375f2b54e996b6791835bcf332b2f4515b35d",
         "path": ".engine/tools/test_boot.py"
       },
       "status": "active",
@@ -17224,7 +17225,7 @@
       },
       "slug": "test_close",
       "source": {
-        "fingerprint": "sha256:8b1ec29c8877a7c10310c98e46bb634b0bdea255c610a2cb174b4268c32c002c",
+        "fingerprint": "sha256:a1501c6ae374a6897e43cab3cab16198b29b909a394641c7c0d59ef7a724ed9c",
         "path": ".engine/tools/test_close.py"
       },
       "status": "active",
@@ -18145,7 +18146,7 @@
       },
       "slug": "test_github_client",
       "source": {
-        "fingerprint": "sha256:7618ad3b96d33dffc47064969310a2d1556486cd9ab98907568335d405d13e7c",
+        "fingerprint": "sha256:2a15090322820538f10be16c7c7e036a9e23867498487e2a9be671cd5224f0a5",
         "path": ".engine/tools/test_github_client.py"
       },
       "status": "active",
@@ -18473,6 +18474,7 @@
           "tool:issue_author",
           "tool:issue_conformance_ci",
           "tool:issue_gate",
+          "tool:issue_triage",
           "tool:module_coherence",
           "tool:module_manager",
           "tool:quiet_call",
@@ -18481,7 +18483,7 @@
       },
       "slug": "test_issue_conformance_ci",
       "source": {
-        "fingerprint": "sha256:2d1a577216cddb8dcf045eedf29955cfe88056a5ca6ab7eda33a874051b65055",
+        "fingerprint": "sha256:f24617badf04280f1ed815a92941de622d69c665e60249d4dc925b03e23438f3",
         "path": ".engine/tools/test_issue_conformance_ci.py"
       },
       "status": "active",
@@ -18627,14 +18629,17 @@
           "module:core"
         ],
         "tests": [
+          "tool:github_client",
+          "tool:issue_author",
           "tool:issue_triage",
           "tool:module_coherence",
-          "tool:release_impact"
+          "tool:release_impact",
+          "tool:telemetry"
         ]
       },
       "slug": "test_issue_triage",
       "source": {
-        "fingerprint": "sha256:03d3166a996ded03aab87c697d2f31a7ceb5f01d955239ef7e1591f7c1298ffe",
+        "fingerprint": "sha256:0ab2eeb63338670d494d333e5522e524979fa8a002d3a2efaf43a7840421c0c9",
         "path": ".engine/tools/test_issue_triage.py"
       },
       "status": "active",
@@ -21260,7 +21265,7 @@
       },
       "slug": "test_session_relay",
       "source": {
-        "fingerprint": "sha256:41251bdb0e0cef6565ee3356544ce3bc96b8035b0ccd059fe62c75c6c1190ee3",
+        "fingerprint": "sha256:ed7f5ecd79f5c49057f15281f39e1298e8498cf09ca78f4b741eae2dfa7dcbae",
         "path": ".engine/tools/test_session_relay.py"
       },
       "status": "active",
