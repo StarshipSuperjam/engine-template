@@ -399,3 +399,79 @@ class TestBlockInvariant(CloseBase):
 if __name__ == "__main__":
     import unittest.mock  # noqa: E402  (imported lazily so the module body stays import-light)
     unittest.main()
+
+
+class IssueTriageFollowThrough(unittest.TestCase):
+    def setUp(self):
+        import issue_triage
+        from test_issue_triage import FakeGitHub, Filing, record
+        self.triage = issue_triage
+        self.client = FakeGitHub()
+        self.config = Filing.config
+        self.sid = 'triage-follow-through-test'
+        self.directory = tempfile.TemporaryDirectory()
+        self.addCleanup(self.directory.cleanup)
+        self.patch = unittest.mock.patch.object(issue_triage, '_session_path',
+                            return_value=__import__('pathlib').Path(self.directory.name) / 'session.json')
+        self.patch.start(); self.addCleanup(self.patch.stop)
+        self.initial = record(issue_triage.pending('The remedy is unknown.', 'Inspect the failing test.'))
+        issue_triage.file_issue(self.client, 'Fix: report', issue_triage.render(self.initial), config=self.config)
+
+    def test_background_to_fresh_session_to_verified_assignment(self):
+        from test_issue_triage import assessed
+        relay = self.triage.start_session(self.client, self.sid, self.config)
+        self.assertEqual(relay['selected_issue'], 1)
+        self.assertEqual(self.triage.session_progress(self.client, self.sid)['state'], 'pending')
+        close.clear(self.sid)  # Generic finding disposal cannot satisfy triage.
+        self.assertEqual(self.triage.session_progress(self.client, self.sid)['state'], 'pending')
+        current = self.triage.observed_record(self.client.issues[0])
+        result = self.triage.update_triage(self.client, 1, expected=current, assessment=assessed(),
+                                         config=self.config, now='2026-09-12T00:00:00Z')
+        self.assertEqual(result['state'], 'updated')
+        self.assertEqual(self.triage.session_progress(self.client, self.sid)['state'], 'satisfied')
+        self.assertEqual(self.triage.discover(self.client, self.config)['items'], [])
+
+    def test_evidence_gap_ends_turn_but_survives_and_config_change_reactivates(self):
+        self.triage.start_session(self.client, self.sid, self.config)
+        current = self.triage.observed_record(self.client.issues[0])
+        gap = {'evidence':'Inspected all project mappings; none names the target release.',
+               'missing':'Operator must select the release mapping.', 'next_action':'Inspect mapping after setup.',
+               'prerequisite':'milestone-config'}
+        result = self.triage.update_triage(self.client, 1, expected=current, defer=gap,
+                                         config=self.config, now='2026-09-12T00:00:00Z')
+        self.assertEqual(result['state'], 'updated')
+        self.assertEqual(self.triage.session_progress(self.client, self.sid)['state'], 'satisfied')
+        queue = self.triage.discover(self.client, self.config)
+        self.assertEqual(len(queue['items']), 1)
+        self.assertIsNone(self.triage.select_pending(queue, self.config, self.client.repo))
+        changed = json.loads(json.dumps(self.config))
+        changed['repositories']['o/r']['milestones']['patch'] = 99
+        self.assertEqual(self.triage.select_pending(queue, changed, self.client.repo)['number'], 1)
+
+    def test_fair_selection_moves_undispositioned_ahead_of_deferred(self):
+        import copy
+        self.triage.start_session(self.client, self.sid, self.config)
+        old = self.triage.observed_record(self.client.issues[0])
+        gap = {'evidence':'Read the failing assertion and traced its caller.',
+               'missing':'Production response sample is unavailable.', 'next_action':'Ask for the failing response sample.'}
+        self.triage.update_triage(self.client, 1, expected=old, defer=gap, config=self.config,
+                                 now='2026-09-12T00:00:00Z')
+        second = copy.deepcopy(self.client.issues[0]); second['number'] = 2
+        second['body'] = self.triage.render(self.initial)
+        self.client.issues.append(second)
+        queue = self.triage.discover(self.client, self.config)
+        self.assertEqual(self.triage.select_pending(queue, self.config, self.client.repo)['number'], 2)
+        self.assertEqual(self.triage.select_pending({'items':queue['items'][:1]}, self.config, self.client.repo)['number'], 1)
+
+    def test_resume_does_not_reset_baseline_and_stop_never_promotes_triage(self):
+        self.triage.start_session(self.client, self.sid, self.config)
+        self.triage.start_session(self.client, self.sid, self.config)
+        with unittest.mock.patch.object(close, '_github', return_value=self.client), \
+             unittest.mock.patch.object(close, '_trigger_ambient_capture'), \
+             unittest.mock.patch.object(close, '_run_preclose_advisory'), \
+             unittest.mock.patch.object(close, '_promote') as promote:
+            self.assertEqual(close.handler({'session_id':self.sid})['action'], 'block')
+            close.handler({'session_id':self.sid, 'stop_hook_active':True})
+            promote.assert_not_called()
+        self.assertEqual(len(self.client.issues), 1)
+        self.assertEqual(self.triage.session_progress(self.client, self.sid)['state'], 'pending')

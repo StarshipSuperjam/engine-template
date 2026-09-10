@@ -386,6 +386,8 @@ def update_triage(client, number: int, *, expected: dict, assessment=None, defer
     if old is None or old != expected:
         return {'state':'conflict','number':number,'reason':'Issue assessment changed or is missing; show it again before updating.'}
     updated=copy.deepcopy(old)
+    if assessment is None and defer is None and old['assessment']['state'] == 'pending':
+        raise TriageError('Investigate and assess, or record a specific evidence gap; assignment alone cannot classify a pending issue.')
     if assessment is not None:
         updated['assessment']=copy.deepcopy(validate(assessment,'assessment'))
     if defer is not None:
@@ -395,6 +397,10 @@ def update_triage(client, number: int, *, expected: dict, assessment=None, defer
         if all(defer[k].strip().lower() in ('seen','later','unknown','none','n/a') for k in ('evidence','missing','next_action')):
             raise TriageError('Acknowledgement is not an evidence-gap disposition.')
         updated['disposition']={**defer,'kind':'defer','at':now}
+        if defer.get('prerequisite') is not None:
+            kind = defer['prerequisite']
+            updated['disposition']['prerequisite'] = {
+                'kind': kind, 'observed': prerequisite(old, config, client.repo, kind)}
         if old.get('disposition') and all(old['disposition'].get(k)==defer[k] for k in ('evidence','missing','next_action')):
             return {'state':'unchanged','number':number,'reason':'An unchanged deferral gives no progress credit.'}
     else:
@@ -431,7 +437,8 @@ def main(argv=None) -> int:
     import issue_author
     import telemetry
     parser=argparse.ArgumentParser(description='Investigate issue impact and recover milestone assignment. Best-effort GitHub writes; direct-session routing and App authority are separate work.')
-    parser.add_argument('verb',choices=('list','show','configure','assess','assign','defer','repair'))
+    parser.add_argument('verb',choices=('list','show','configure','assess','assign','defer','repair','pause'))
+    parser.add_argument('--session')
     parser.add_argument('--repository')
     parser.add_argument('--issue',type=int)
     parser.add_argument('--input')
@@ -440,6 +447,20 @@ def main(argv=None) -> int:
     parser.add_argument('--confirm',action='store_true')
     args=parser.parse_args(argv)
     try:
+        if args.verb == 'pause':
+            if not args.session or not args.confirm or not args.input:
+                raise TriageError('pause requires --session, --input with the explicit operator instruction, and --confirm.')
+            directive = issue_author.load_input(args.input)
+            if directive.get('kind') not in ('pause', 'cancel', 'urgent-priority') or not str(directive.get('instruction') or '').strip():
+                raise TriageError('Only an explicit operator pause, cancellation or urgent priority may defer this session obligation.')
+            obligation = _read_session(args.session)
+            if obligation is None:
+                raise TriageError('No session obligation exists.')
+            obligation['operator_exception'] = directive
+            _write_session(args.session, obligation['repository'], obligation)
+            print(json.dumps({'state':'paused','durable_pending':'unchanged',
+                              'authority':'Explicit operator instruction; this CLI does not authenticate its author.'}))
+            return 0
         targets=issue_author.resolve_trusted_targets()
         repo=args.repository or (targets[0] if len(targets)==1 else None)
         repo=issue_author._matched_target(repo or '',targets)
@@ -542,3 +563,113 @@ def repair_record(client, number: int, *, expected_body_digest: str, data: dict,
         return {'state':'updated','number':number,'record':record,'outstanding':True}
     except Exception as exc:
         return {'state':'write-uncertain','number':number,'reason':str(exc)}
+
+
+# The issue is durable; this disposable checklist only binds one session to its observed baseline.
+def _session_path(session_id, repository):
+    import tempfile
+    if not isinstance(session_id, str) or not session_id:
+        return None
+    key = hashlib.sha256(session_id.encode()).hexdigest()
+    return Path(tempfile.gettempdir()) / f'engine-issue-triage-session-{key}.json'
+
+
+def _read_session(session_id, repository=None):
+    path = _session_path(session_id, repository)
+    if path is None or not path.exists():
+        return None
+    try:
+        value = json.loads(path.read_text())
+        if not isinstance(value, dict) or (repository is not None and value.get('repository') != repository):
+            raise ValueError('bad session checklist')
+        return value
+    except (ValueError, OSError) as exc:
+        raise TriageError('Issue triage session checklist is unreadable; rediscover it.') from exc
+
+
+def has_session_obligation(session_id):
+    value = _read_session(session_id)
+    return bool(value and value.get('selected'))
+
+
+def _write_session(session_id, repository, value):
+    path = _session_path(session_id, repository)
+    if path is not None:
+        from build_coordinator_core import atomic_write
+        atomic_write(path, json.dumps(value), mode=0o600)
+
+
+def prerequisite(record, config, repository, kind):
+    if kind == 'milestone-config':
+        return fingerprint(repo_config(config, repository))
+    if kind == 'issue-evidence':
+        return record['evidence']
+    raise TriageError('Unknown checkable prerequisite; omit it for an external evidence gap.')
+
+
+def select_pending(discovery, config, repository):
+    """Never-dispositioned first, then least recently dispositioned; stable across clones."""
+    eligible = []
+    for item in discovery['items']:
+        record = item.get('record') or {}
+        disposition = record.get('disposition') or {}
+        blocked = disposition.get('prerequisite')
+        if disposition.get('kind') == 'defer' and isinstance(blocked, dict):
+            try:
+                if prerequisite(record, config, repository, blocked['kind']) == blocked['observed']:
+                    continue
+            except (KeyError, TriageError):
+                pass  # Unknown/uncheckable prerequisites stay eligible, never disappear silently.
+        eligible.append(item)
+    def order(item):
+        d = (item.get('record') or {}).get('disposition') or {}
+        return (bool(d), d.get('at', ''), item.get('created_at') or '', item['number'])
+    return min(eligible, key=order) if eligible else None
+
+
+def start_session(client, session_id, config):
+    """Only SessionStart enrolls; rendering a status page never creates an obligation."""
+    discovery = discover(client, config)
+    selected = select_pending(discovery, config, client.repo)
+    existing = _read_session(session_id, client.repo)
+    # A resume cannot erase the original baseline just by displaying the list again.
+    if existing is None:
+        existing = {'repository': client.repo, 'selected': selected, 'complete': discovery['complete']}
+        _write_session(session_id, client.repo, existing)
+    selected = existing.get('selected')
+    return {'state': 'available' if discovery['complete'] else 'unavailable',
+            'pending_count': len(discovery['items']),
+            'selected_issue': selected['number'] if selected else None}
+
+
+def session_progress(client, session_id):
+    """Credit only live, substantive state changes, never generic checklist disposition."""
+    obligation = _read_session(session_id, client.repo)
+    if not obligation or not obligation.get('selected'):
+        return {'state': 'none'}
+    if obligation.get('operator_exception'):
+        return {'state': 'paused'}
+    selected = obligation['selected']
+    number = selected['number']
+    try:
+        issue = read_api(client, f'/repos/{client.repo}/issues/{number}')
+        if not scoped(issue) or issue.get('state') == 'closed':
+            return {'state': 'satisfied', 'number': number}
+        current = observed_record(issue)
+        previous = selected.get('record')
+        if current is not None and not outstanding(current):
+            return {'state': 'satisfied', 'number': number}
+        if current is not None and previous is None:
+            return {'state': 'satisfied', 'number': number}  # A verified contract repair is real progress.
+        if current and previous and current['revision'] > previous['revision']:
+            disposition = current.get('disposition')
+            old = previous.get('disposition') or {}
+            changed = (current['assessment'] != previous['assessment'] or
+                       current['assignment'] != previous['assignment'] or
+                       (disposition and any(disposition.get(k) != old.get(k)
+                                            for k in ('kind', 'evidence', 'missing', 'next_action'))))
+            if disposition and changed and current['evidence'] == previous['evidence']:
+                return {'state': 'satisfied', 'number': number}
+        return {'state': 'pending', 'number': number}
+    except Exception:
+        return {'state': 'unavailable', 'number': number}

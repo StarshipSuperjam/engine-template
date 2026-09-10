@@ -417,6 +417,19 @@ def _run_preclose_advisory() -> None:
 
 # ---- the turn-close Stop gate ---------------------------------------------------------------
 
+def _triage_progress(session_id):
+    import issue_triage
+    try:
+        if not issue_triage.has_session_obligation(session_id):
+            return {'state': 'none'}
+        client = _github()
+        if client is None:
+            return {'state': 'unavailable'}
+        return issue_triage.session_progress(client, session_id)
+    except Exception:
+        return {'state': 'unavailable'}
+
+
 def handler(payload):
     """The turn-close `Stop` gate. FIRST trigger ambient memory capture (live since memory shipped; never
     gates). Then read the undispositioned findings:
@@ -431,6 +444,19 @@ def handler(payload):
     _trigger_ambient_capture(payload)
     session_id = payload.get("session_id")
     open_findings = pending(session_id)
+    triage = _triage_progress(session_id)
+    if triage['state'] in ('pending', 'unavailable'):
+        notice = ('Issue release triage is still pending' if triage['state'] == 'pending'
+                  else 'Issue release triage could not be verified')
+        if triage.get('number'):
+            notice += f" for #{triage['number']}"
+        notice += ('. Read .engine/operations/issue-triage.md and investigate or record a specific '
+                   'evidence gap on that issue. Acknowledgement is insufficient. Explicit operator '
+                   'pause, cancellation or urgent priority takes precedence; do not start unrelated '
+                   'work against that instruction. The original issue remains the durable record.')
+        if payload.get('stop_hook_active') is not True:
+            return hooks.block(notice)
+        sys.stderr.write(notice + ' The bounded check now allows this turn to end.\n')
     if not open_findings:
         _reset_blocks(session_id)                         # a clean turn ends the block streak (no-op if no record)
         _run_preclose_advisory()                          # local full-suite ADVICE; never gates (see below)

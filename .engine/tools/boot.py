@@ -2021,6 +2021,7 @@ def gather_signals(session_id: str | None = None, payload: dict | None = None) -
         # silent on later sessions; ordinary status collection remains a read-only snapshot for every other caller.
         "automatic_checkout": automatic_checkout,
         "qualification_notices": qualification_notices,
+        "issue_triage": (payload or {}).get("_issue_triage"),
         # the off-main Stage-1 signal (StarshipSuperjam/engine-template#342): the top-level checkout is parked on a non-default branch (offline,
         # gentle, collapse-eligible), or None. behind_origin above is its online Stage-2 escalation.
         "off_main": off_main,
@@ -3738,6 +3739,8 @@ def _envelope_from_signals(s: dict, session_id: str | None, *, use_ledger: bool)
         "standing_directives": standing_directives,
         "pointers": pointers,
     }
+    if isinstance(s.get('issue_triage'), dict):
+        envelope['issue_triage'] = s['issue_triage']
     session_relay.validate(envelope)
     return envelope
 
@@ -5056,6 +5059,19 @@ def handler(payload: dict) -> dict:
         pass
     # use_ledger=True: this is the real SessionStart path, so apply the collapse (an unchanged
     # standing alarm relays terse) via the deterministic ledger. fail-toward-full lives inside decide().
+    # Read-only GitHub discovery, with one disposable session obligation. No raw issue text
+    # enters the trusted relay, and a child agent never enrolls the parent's queue.
+    if session_id and not payload.get('agent_id'):
+        try:
+            import issue_triage
+            repo, token = repo_slug(), gh_token()
+            if not repo or not token:
+                raise issue_triage.TriageError('GitHub unavailable')
+            payload['_issue_triage'] = issue_triage.start_session(
+                telemetry.GitHubIssues(repo, token), session_id, issue_triage.load_config())
+        except Exception:
+            payload['_issue_triage'] = {'state': 'unavailable', 'pending_count': 0,
+                                        'selected_issue': None}
     pack = assemble_pack(session_id, use_ledger=True, payload=payload)
     return hooks.inject(pack) if pack else hooks.proceed()
 
