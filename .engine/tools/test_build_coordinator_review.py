@@ -379,7 +379,9 @@ class TestObservedExecutionIngress(CoordinatorCase):
         from test_build_coordinator import observe_review_execution
         companion, assignment = observe_review_execution(self.review_library, self.review_slug,
             scoped_agents.build_owner(self.state()), self.args.lens, self.args.lens_packet_digest,
-            [], purpose="worker")
+            {"outcome": "failed", "reason": "Cannot complete", "evidence": {
+                "changed_paths": [], "verification_results": [], "assumptions": [],
+                "unresolved_concerns": []}}, purpose="worker")
         with self.assertRaisesRegex(bc.CoordinatorError, "worker/scout"):
             self.record()
         with mock.patch.object(scoped_agents.plan_store, "PlanLibrary", return_value=self.review_library), \
