@@ -22121,7 +22121,7 @@
       },
       "slug": "weakening_guard",
       "source": {
-        "fingerprint": "sha256:b33a1f78da3e0834c7fadf51def70bce2803d9c3a76ab17c86318753baa64c5c",
+        "fingerprint": "sha256:917f8ab0c10399e7475dcb4fd042e630dfe0f2f168fbe22a45473fbb7e3e95ee",
         "path": ".engine/tools/weakening_guard.py"
       },
       "status": "active",
