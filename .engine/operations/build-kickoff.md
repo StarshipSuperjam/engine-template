@@ -43,15 +43,15 @@ Binding freezes admission material before activation. Matching interrupted retri
 Restore matching inputs or explicitly retire that preparation through continuity. A matching active bind is continuation, not a new certificate or consent event. Legacy active entry stays honestly unverified; ambiguous legacy preparation refuses.
 Full snapshots live at `builds/<build-id>/snapshot.json` in the local plan library. External `--state` files are private locators. Continuity owns adoption, migration and retirement.
 
-The seal hands back before Build as described in plan orchestration. Bind records agreement to begin, not proof that the hand-back occurred or the plan is sound.
+The seal hands back before Build: an offer, not a gate, as described in plan orchestration. Bind records agreement to begin, not proof that the hand-back occurred or the plan is sound.
 Plan lifecycle events stay local. Fresh admission needs live verification; the operator-typed start command's local stance step remains network-independent.
 Native plan acceptance still imports an Explore draft and grants no Build authority. An Issue never replaces the local sealed plan.
 
 ### 4. Carry the approved depth into Build
-Risk and depth were settled before sealing. Run the knowledge impact check through plan orchestration, which owns `.engine/templates/risk-assessment.md`, care recommendation and operator approval.
+Risk and depth were settled before sealing. Run the knowledge impact check through plan orchestration, which owns `.engine/templates/risk-assessment.md`, one-line care recommendation and operator approval.
 Offer only installed depths (only Quick without reviewers). No installed reviewer is a disclosed no-extra-review result, never a false green.
 That one choice covers both design and deliverable gates. `approve --plan <payload.json> --depth <approved-depth>` records it against the bound payload; changing depth clears review coverage, and progress prose does not.
-The seal already required the installed cold plan lenses. Build adds no extra plan-review gate or waiver; lifecycle decisions attest that the operator was asked, not that the choice was sound.
+The seal already required one cold plan review through the installed lenses. Build adds no extra plan-review gate or waiver; lifecycle decisions attest that the operator was asked, not that the choice was sound.
 
 The trivial profile requires raw intent, objective, one success obligation, one reversible item and no-spec disclosure. Same-session quick depth, no cold lenses and one commit preserve its reduced ceremony; validation and human merge remain.
 Guarded enforcement, guardrail weakening, another item/commit, settled referent or cold continuation require normal-profile revision and renewed approval.
