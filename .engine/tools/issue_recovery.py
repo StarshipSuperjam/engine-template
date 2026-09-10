@@ -16,6 +16,10 @@ NOTICE = ('Engine creation publishes the intended issue content and recovery met
           'Contents write is repository-wide. Preview stores nothing. Never put secrets in issue content.')
 
 
+class SetupRequired(RecoveryError):
+    """This trusted repository has no recovery activation; existing updates remain available."""
+
+
 def digest(value):
     return hashlib.sha256(json.dumps(value, sort_keys=True, separators=(',', ':'), ensure_ascii=False).encode()).hexdigest()
 
@@ -64,7 +68,7 @@ def load_activation(repository, root=None):
     try:
         config = validate(_decode_json(path.read_text()), 'operator-issue-recovery.v1')
     except FileNotFoundError:
-        raise RecoveryError('Recovery setup required: run issue_author.py recovery preview, then explicit recovery init --confirm.') from None
+        raise SetupRequired('Recovery setup required: run issue_author.py recovery preview, then explicit recovery init --confirm.') from None
     except (OSError, ValueError) as exc:
         raise RecoveryError('Recovery configuration is unreadable; restore the existing activation.') from exc
     names = list(config['repositories'])
@@ -72,7 +76,7 @@ def load_activation(repository, root=None):
         raise RecoveryError('Recovery configuration repeats a repository identity.')
     activation = next((v for k, v in config['repositories'].items() if k.casefold() == repository.casefold()), None)
     if activation is None:
-        raise RecoveryError('Recovery setup required for the trusted target repository.')
+        raise SetupRequired('Recovery setup required for the trusted target repository.')
     return activation
 
 

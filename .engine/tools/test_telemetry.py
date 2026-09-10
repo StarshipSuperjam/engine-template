@@ -161,6 +161,64 @@ def _seed_issue(client, title, body):
         raise telemetry.DegradedReadError(result['reason'])
     return {'number': result['number'], 'triage': result}
 
+
+class TestAutomaticRecoveryBeforeTelemetryDecisions(unittest.TestCase):
+    """The real run caller reconciles retained sends even when it has no new creation to plan."""
+
+    def test_uncertain_post_then_empty_observation_recovers_without_a_second_post(self):
+        fake = FakeGH()
+        original = fake.transport
+        lost = {'once': True}
+
+        def transport(method, path, body):
+            result = original(method, path, body)
+            if method == 'POST' and path.endswith('/issues') and lost['once']:
+                lost['once'] = False
+                raise TimeoutError('response lost after accepted POST')
+            return result
+
+        client = telemetry.GitHubIssues('you/proj', 'tok', transport=transport,
+                                        recovery_store=fake.recovery_store)
+        with tempfile.TemporaryDirectory() as directory:
+            cache = telemetry.Cache(os.path.join(directory, 'streams.json'))
+            first = run(client, [rec('recovery/green', telemetry.TRUST_CRITICAL)], cache, TH, T[0])
+            self.assertTrue(first.degraded)
+            self.assertEqual(len([c for c in fake.calls if c == ('POST', '/repos/you/proj/issues')]), 1)
+            later = telemetry.GitHubIssues('you/proj', 'tok', transport=transport,
+                                           recovery_store=fake.recovery_store)
+            second = run(later, [], cache, TH, T[1])
+        self.assertFalse(second.degraded)
+        self.assertEqual(second.recovery['state'], 'recovered')
+        self.assertEqual(len([c for c in fake.calls if c == ('POST', '/repos/you/proj/issues')]), 1)
+
+    def test_explicit_store_recovers_without_reading_local_activation(self):
+        import issue_author
+        fake = FakeGH()
+        client = gh(fake)
+        with mock.patch('issue_recovery.load_activation', side_effect=AssertionError('must not read local setup')):
+            result = issue_author.recover_producer_records(
+                'telemetry', client, observation=T[0], recovery_store=fake.recovery_store)
+        self.assertEqual(result['state'], 'none')
+
+    def test_unknown_producer_is_held_without_a_journal_read(self):
+        import issue_author
+        result = issue_author.recover_producer_records('unknown', gh(FakeGH()), observation=T[0])
+        self.assertEqual(result['state'], 'held')
+        self.assertIn('unknown automatic producer', result['reason'])
+
+    def test_run_cli_prints_recovery_hold_without_claiming_github_is_down(self):
+        held = {'state': 'held', 'reason': 'Recovery is held: journal verification is incomplete.'}
+        report = telemetry.Report(degraded=False, opened=0, updated=0, closed=0, recovery=held)
+        out = io.StringIO()
+        with mock.patch.dict(os.environ, {'GITHUB_REPOSITORY': 'you/proj', 'GITHUB_TOKEN': 'tok'}, clear=False), \
+             mock.patch.object(telemetry.repo_identity, 'resolve_default_branch', return_value='main'), \
+             mock.patch.object(telemetry, 'derive_ci_records', return_value=([], frozenset())), \
+             mock.patch.object(telemetry, 'run', return_value=report), \
+             contextlib.redirect_stderr(out):
+            self.assertEqual(telemetry._run_cli([]), 0)
+        self.assertIn('Engine Issue recovery is held', out.getvalue())
+        self.assertNotIn('Could not reach GitHub', out.getvalue())
+
 class TestSeverityRank(unittest.TestCase):
     """severity_rank grades a tracked finding's severity CLASS into the numeric severity attention's
     debt-blocking rule ranks on (#394). Telemetry owns the class, so it GRADES; whether a grade blocks is

@@ -501,13 +501,15 @@ def initialize(client):
     probe.activation = {"repository_id": repository_id, "genesis": "0" * 40}
     root = probe._write_tree(_initial(repository_id))
     commit = probe._post_commit(root, [], _INITIAL_MESSAGE)
-    status, data = probe._call("POST", probe._path("/git/refs"), {"ref": REF, "sha": commit})
-    returned = data.get("object", {}).get("sha") if isinstance(data, dict) and isinstance(data.get("object"), dict) else None
-    if status not in (200, 201) or returned != commit:
-        raise RecoveryError("recovery journal ref creation is unavailable or ambiguous")
+    try:
+        probe._call("POST", probe._path("/git/refs"), {"ref": REF, "sha": commit})
+    except RecoveryError:
+        # Genesis creation carries no send permit. Its exact known commit may
+        # therefore be verified after response loss; a claim PATCH may not.
+        pass
     activation = {"repository_id": repository_id, "genesis": commit}
     verifier = GitStore(client, activation)
-    if verifier._ref() != commit:
+    verified_tip, _snapshot_value = verifier.load()
+    if verified_tip != commit:
         raise RecoveryError("recovery journal ref readback did not match creation")
-    verifier._verify_chain(commit)
     return activation

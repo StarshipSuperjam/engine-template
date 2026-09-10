@@ -91,28 +91,37 @@ _failure_evidence = issue_author.nightly_failure_evidence
 
 def report(result: dict, issues_api, repository: str, run_url: str | None = None) -> dict:
     """Apply the singular-Issue rules. Returns what was done, for the workflow's step summary."""
+    now = moment.utc_now()
+    recovery = issue_author.recover_producer_records(
+        'nightly', issues_api, source_key='engine-nightly-demos:v1', observation=now)
+    def outcome(value):
+        # Preserve the long-standing terse result for inactive/empty journals, while a real
+        # recovery or a held activated journal remains visible to the workflow.
+        if recovery['state'] not in ('none', 'unactivated'):
+            return {**value, 'recovery': recovery}
+        return value
     open_report = find_report(issues_api.list_open_engine_issues())
     if result.get("ok"):
         if open_report:
             issues_api.close_issue(open_report["number"])
-            return {"action": "closed", "issue": open_report["number"]}
-        return {"action": "none"}
+            return outcome({"action": "closed", "issue": open_report["number"]})
+        return outcome({"action": "none"})
     if not open_report:
         issues_api.ensure_label()
-        outcome = issue_author.create_producer_result('nightly',
-            {'result': result, 'run_url': run_url, 'now': moment.utc_now()}, issues_api)
-        if outcome['filing'] != 'created':
-            return {'action': 'held', 'issue': None, 'triage': outcome}
-        return {'action': 'filed' if outcome.get('newly_created') else 'recovered',
-                'issue': outcome['number'], 'triage': outcome}
+        created = issue_author.create_producer_result('nightly',
+            {'result': result, 'run_url': run_url, 'now': now}, issues_api)
+        if created['filing'] != 'created':
+            return outcome({'action': 'held', 'issue': None, 'triage': created})
+        return outcome({'action': 'filed' if created.get('newly_created') else 'recovered',
+                        'issue': created['number'], 'triage': created})
     body = render(result, repository, run_url)
     evidence = _failure_evidence(result)
-    body = telemetry.producer_body(body, evidence, moment.utc_now(),
+    body = telemetry.producer_body(body, evidence, now,
                                    previous=(open_report.get('body') or '') if open_report else None,
                                    final_marker=MARKER)
     if open_report:
         issues_api.update_issue(open_report["number"], body)
-        return {"action": "updated", "issue": open_report["number"]}
+        return outcome({"action": "updated", "issue": open_report["number"]})
     raise AssertionError("Unreachable: all new reports use the complete helper operation.")
 
 

@@ -215,6 +215,30 @@ class RecoveryTests(unittest.TestCase):
         return recovery.submit(client, data, prepare, producer=producer, source_key='stable-signal' if producer != 'manual' else data['submission_id'],
                                observation=observation, store=store or self.store())
 
+    def test_genesis_response_loss_recovers_only_the_exact_created_root(self):
+        for wrong_ref in (False, True):
+            with self.subTest(wrong_ref=wrong_ref):
+                remote = Remote()
+                client = remote.client()
+                def lost(method, path, body):
+                    answer = remote.call(method, path, body)
+                    if method == 'POST' and path.endswith('/git/refs'):
+                        if wrong_ref:
+                            remote.ref = 'f' * 40
+                        raise TimeoutError('reference response lost')
+                    return answer
+                client._transport = lost
+                if wrong_ref:
+                    with self.assertRaises(storage.RecoveryError):
+                        storage.initialize(client)
+                else:
+                    activation = storage.initialize(client)
+                    self.assertEqual(activation['genesis'], remote.ref)
+                    self.assertEqual(storage.GitStore(remote.client(), activation).load()[1]['records'], {})
+                self.assertEqual(remote.posts, 0)
+                self.assertEqual(sum(method == 'POST' and path.endswith('/git/refs')
+                                     for method, path, _body in remote.calls), 1)
+
     def test_full_helper_requires_setup_and_accepts_activated_store(self):
         with tempfile.TemporaryDirectory() as root:
             with self.assertRaises(issue_author.IssueInputError):
@@ -604,6 +628,26 @@ state['remote']=remote.__dict__;open(p,'w').write(json.dumps(state));print(resul
 
 
 class OperatorConfiguration(unittest.TestCase):
+    def test_only_absent_activation_is_setup_required(self):
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / recovery.CONFIG_NAME
+            with self.assertRaises(recovery.SetupRequired):
+                recovery.load_activation(REPO, root=directory)
+            path.parent.mkdir()
+            path.write_text(json.dumps({'schema_version': 'operator-issue-recovery.v1', 'repositories': {}}))
+            with self.assertRaises(recovery.SetupRequired):
+                recovery.load_activation(REPO, root=directory)
+            for raw in ('{}', 'not JSON'):
+                path.write_text(raw)
+                with self.assertRaises(storage.RecoveryError) as caught:
+                    recovery.load_activation(REPO, root=directory)
+                self.assertNotIsInstance(caught.exception, recovery.SetupRequired)
+            with patch.object(Path, 'read_text', side_effect=PermissionError('private path')):
+                with self.assertRaises(storage.RecoveryError) as caught:
+                    recovery.load_activation(REPO, root=directory)
+                self.assertNotIsInstance(caught.exception, recovery.SetupRequired)
+                self.assertNotIn('private path', str(caught.exception))
+
     def test_ambiguous_activation_json_is_refused(self):
         with tempfile.TemporaryDirectory() as directory:
             path = Path(directory) / recovery.CONFIG_NAME

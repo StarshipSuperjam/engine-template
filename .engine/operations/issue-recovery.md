@@ -39,6 +39,7 @@ uv run --directory .engine --frozen -- python tools/issue_author.py recovery ini
 Initialization creates metadata only, not an issue. Review the resulting operator configuration through the
 project's normal PR process before scheduled runners consume it. This code Build does not activate a live
 journal. Initialization refuses an existing ref or activation and never silently recreates either.
+A lost creation response is recoverable only by verifying the exact root commit that this initialization wrote.
 If initialization published the ref but local configuration could not be saved, preserve the published
 identity and restore explicitly with `init --genesis VERIFIED_SHA --repository-id VERIFIED_NUMERIC_ID --confirm`.
 Both values must come from inspected or backed-up activation evidence; restoration verifies the whole chain.
@@ -56,6 +57,8 @@ including every page, using the same submission marker. One verified match is ad
 incomplete or malformed matches remain held. An adopted closed issue is returned in that invocation, never
 immediately replaced. A later distinct authoritative producer observation may create a new recorded generation
 under its existing recurrence policy. Clearing a symptom alone does not prove an uncertain issue was never created.
+Automatic reporting passes also reconcile retained uncertain submissions when no new failure needs filing.
+Unverified recovery remains visibly held while existing report updates and closures keep their normal rules.
 
 An operator who has inspected a specific matching issue can use `adopt` with the same arguments plus
 `--issue NUMBER`. Target, numeric identity, Engine scope and submission marker must agree. Adoption does not

@@ -126,6 +126,38 @@ def tearDownModule():
 
 class OneIssueAtMost(unittest.TestCase):
 
+    def test_uncertain_post_then_green_recovers_and_closes_without_a_second_post(self):
+        class LostResponseIssues(_Issues):
+            def __init__(self):
+                super().__init__()
+                self.posts = 0
+                self.lose_response = True
+
+            def _transport(self, method, path, body=None):
+                if method == 'POST':
+                    self.posts += 1
+                    result = super()._transport(method, path, body)
+                    if self.lose_response:
+                        self.lose_response = False
+                        raise TimeoutError('response lost after server accepted the Issue')
+                    return result
+                return super()._transport(method, path, body)
+
+        api = LostResponseIssues()
+        self.assertEqual(reporter.report(_red('demo_x.py'), api, 'o/r')['action'], 'held')
+        recovered = reporter.report(_green(), api, 'o/r')
+        self.assertEqual(recovered['action'], 'closed')
+        self.assertEqual(api.posts, 1)
+        self.assertEqual(len(api.closed), 1)
+
+    def test_activated_corrupt_journal_is_visible_while_old_report_still_closes(self):
+        api = _Issues(existing=[{'number': 7, 'state': 'open', 'body': 'old\n' + reporter.MARKER}])
+        api.recovery_store.snapshot = {'not': 'a recovery journal'}
+        outcome = reporter.report(_green(), api, 'o/r')
+        self.assertEqual(outcome['action'], 'closed')
+        self.assertEqual(outcome['recovery']['state'], 'held')
+        self.assertEqual(api.closed, [7])
+
     def test_a_red_run_files_the_report(self):
         api = _Issues()
         outcome = reporter.report(_red("demo_x.py"), api, "o/r")
@@ -401,6 +433,77 @@ class DurableNightlySubmission(unittest.TestCase):
         self.assertEqual(self.remote.posts, 1)
         self.assertIn('`demo_durable.py` — exit None', self.remote.issues[0]['body'])
 
+
+
+class NightlyDurableRecoveryCaller(unittest.TestCase):
+    def setUp(self):
+        from test_nightly_demo_report import ReportRemote
+        import issue_recovery_store
+        self.remote = ReportRemote()
+        self.storage = issue_recovery_store
+        self.activation = self.storage.initialize(self.remote.client())
+
+    def observe(self, result, now):
+        from unittest.mock import patch
+        client = self.remote.client()
+        client.recovery_store = self.storage.GitStore(client, self.activation)
+        with patch.object(reporter.moment, 'utc_now', return_value=now):
+            return reporter.report(result, client, client.repo)
+
+    def snapshot(self):
+        return self.storage.GitStore(self.remote.client(), self.activation).load()[1]
+
+    def uncertain(self):
+        self.remote.lose_issue_response = True
+        self.assertEqual(self.observe(_red('demo_x.py'), '2026-09-10T01:00:00Z')['action'], 'held')
+        self.assertEqual(self.remote.posts, 1)
+
+    def test_green_recovers_and_closes_the_persisted_submission(self):
+        self.uncertain()
+        result = self.observe(_green(), '2026-09-10T02:00:00Z')
+        self.assertEqual((result['action'], result['recovery']['state']), ('closed', 'recovered'))
+        self.assertEqual(self.remote.posts, 1)
+        self.assertEqual(self.remote.issues[0]['state'], 'closed')
+        self.assertEqual([r['state'] for r in self.snapshot()['records'].values()], ['confirmed'])
+
+    def test_closed_recovery_returns_before_a_later_red_recurrence(self):
+        self.uncertain()
+        self.remote.issues[0]['state'] = 'closed'
+        result = self.observe(_red('demo_x.py'), '2026-09-10T02:00:00Z')
+        self.assertEqual(result['action'], 'recovered')
+        self.assertEqual(self.remote.posts, 1)
+        self.assertEqual(list(self.snapshot()['records'].values())[0]['closed_observation'], '2026-09-10T02:00:00Z')
+        self.assertEqual(self.observe(_red('demo_x.py'), '2026-09-10T03:00:00Z')['action'], 'filed')
+        self.assertEqual(self.remote.posts, 2)
+
+    def test_red_recovers_before_refreshing_an_existing_report(self):
+        self.uncertain()
+        result = self.observe(_red('demo_changed.py'), '2026-09-10T02:00:00Z')
+        self.assertEqual((result['action'], result['recovery']['state']), ('updated', 'recovered'))
+        self.assertEqual(self.remote.posts, 1)
+        self.assertIn('demo_changed.py', self.remote.issues[0]['body'])
+        self.assertEqual([r['state'] for r in self.snapshot()['records'].values()], ['confirmed'])
+
+    def test_unverified_search_on_green_is_held_and_never_posts(self):
+        self.uncertain()
+        before = self.snapshot()
+        self.remote.issues.clear()
+        result = self.observe(_green(), '2026-09-10T02:00:00Z')
+        self.assertEqual((result['action'], result['recovery']['state']), ('none', 'held'))
+        self.assertEqual(self.snapshot(), before)
+        self.assertEqual(self.remote.posts, 1)
+
+    def test_unactivated_existing_report_keeps_update_and_close(self):
+        from unittest.mock import patch
+        import issue_recovery
+        self.uncertain()
+        for result, expected in ((_red('demo_changed.py'), 'updated'), (_green(), 'closed')):
+            client = self.remote.client()
+            with patch.object(issue_recovery, 'load_activation', side_effect=issue_recovery.SetupRequired('setup required')):
+                outcome = reporter.report(result, client, client.repo)
+            self.assertEqual(outcome['action'], expected)
+            self.assertNotIn('recovery', outcome)
+            self.assertEqual(self.remote.posts, 1)
 
 if __name__ == "__main__":
     unittest.main()

@@ -676,6 +676,66 @@ def create_producer_result(producer, data, client, *, root=None, env=None, recov
         raise IssueInputError(str(exc)) from exc
 
 
+def recover_producer_records(producer, client, *, source_key=None, observation, root=None,
+                             env=None, recovery_store=None):
+    """Reconcile retained automatic submissions without minting a request or send permit.
+
+    This is deliberately a recovery-only pass for callers that may have no fresh failure to
+    file.  An unconfigured installation has no activated journal and keeps its historical
+    update/close behaviour.  Once activation is present, every malformed or unreadable journal
+    outcome is visible as held; it is never mistaken for an empty journal.
+    """
+    import issue_recovery
+    if producer not in ('telemetry', 'nightly'):
+        return {'state': 'held', 'results': [],
+                'reason': 'Recovery is held: unknown automatic producer.'}
+    targets = resolve_issue_repositories(env=env, root=root)
+    if _matched_target(getattr(client, 'repo', ''), targets) is None:
+        return {'state': 'held', 'results': [],
+                'reason': 'Recovery is held: trusted automatic-report target does not match.'}
+    if not getattr(client, 'token', None):
+        return {'state': 'held', 'results': [],
+                'reason': 'Recovery is held: the bound GitHub credential is unavailable.'}
+    if not isinstance(observation, str) or not observation:
+        return {'state': 'held', 'results': [],
+                'reason': 'Recovery is held: an explicit observation identity is required.'}
+    try:
+        store = recovery_store or getattr(client, 'recovery_store', None)
+        if store is None:
+            try:
+                activation = issue_recovery.load_activation(client.repo, root)
+            except issue_recovery.SetupRequired:
+                return {'state': 'unactivated', 'results': []}
+            except issue_recovery.RecoveryError as exc:
+                return {'state': 'held', 'results': [], 'reason': str(exc)}
+            store = issue_recovery.GitStore(client, activation)
+        _tip, snapshot = issue_recovery._load(store)
+    except Exception:  # a corrupt/deleted activated store must remain visible and retryable
+        return {'state': 'held', 'results': [],
+                'reason': 'Recovery is held: the activated recovery journal could not be read.'}
+    keys = [key for key, record in snapshot['records'].items()
+            if record['producer'] == producer
+            and (source_key is None or record['source_key'] == source_key)
+            and record['state'] in ('prepared', 'send-claimed', 'recovery-needed', 'rejected')]
+    results = []
+    # Reload each time: reconciliation can advance the durable tip, and later records must not
+    # compare-and-swap against a stale snapshot.
+    for key in sorted(keys):
+        try:
+            tip, current = issue_recovery._load(store)
+            record = current['records'].get(key)
+            if record is None or record['state'] not in ('prepared', 'send-claimed', 'recovery-needed', 'rejected'):
+                continue
+            result = issue_recovery.reconcile(client, store, tip, current, key, observation=observation)
+        except Exception:
+            return {'state': 'held', 'results': results,
+                    'reason': 'Recovery is held: the activated journal could not be reconciled.'}
+        results.append(result)
+    held = [result for result in results if result.get('filing') != 'created']
+    return {'state': 'held' if held else 'recovered' if results else 'none', 'results': results,
+            **({'reason': 'Recovery is held: a retained submission could not be verified.'} if held else {})}
+
+
 def create_issue(data: dict, **kwargs) -> str:
     """Compatibility URL wrapper; typed callers use create_issue_result for assignment outcomes."""
     result = create_issue_result(data, **kwargs)

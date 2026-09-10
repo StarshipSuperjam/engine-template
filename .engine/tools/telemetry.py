@@ -895,7 +895,7 @@ def degraded_readout(count, as_of) -> str:
 
 class Report:
     def __init__(self, *, degraded, debt=None, pressure_line=None, opened=0, updated=0, closed=0,
-                 degraded_line=None):
+                 degraded_line=None, recovery=None):
         self.degraded = degraded
         self.debt = debt
         self.pressure_line = pressure_line
@@ -903,6 +903,15 @@ class Report:
         self.updated = updated
         self.closed = closed
         self.degraded_line = degraded_line
+        self.recovery = recovery
+
+
+def _report_recovery_notice(report: Report | None) -> None:
+    """Surface a retained-send hold without misdescribing the normal GitHub pass as down."""
+    recovery = getattr(report, 'recovery', None)
+    if recovery and recovery.get('state') == 'held':
+        print(f"Engine Issue recovery is held: {recovery.get('reason', 'verification is incomplete.')}",
+              file=sys.stderr)
 
 
 def run(github: GitHubIssues, records: list, cache: Cache, thresholds: dict, now: str,
@@ -926,11 +935,17 @@ def run(github: GitHubIssues, records: list, cache: Cache, thresholds: dict, now
     seam, and silently swallowing a real bug would let self-monitoring quietly do nothing."""
     try:
         github.ensure_label()
-        open_issues = github.list_open_engine_issues()
     except DegradedReadError:
         count, as_of = read_state_debt(state_path or DEFAULT_STATE_PATH)
         return Report(degraded=True, degraded_line=degraded_readout(count, as_of))
 
+    recovery = issue_author.recover_producer_records('telemetry', github, observation=now)
+    # Read the open snapshot after all-state recovery, before normal update/close decisions.
+    try:
+        open_issues = github.list_open_engine_issues()
+    except DegradedReadError:
+        count, as_of = read_state_debt(state_path or DEFAULT_STATE_PATH)
+        return Report(degraded=True, degraded_line=degraded_readout(count, as_of), recovery=recovery)
     plan = reconcile(records, open_issues, cache.load(), thresholds, now,
                      authoritative=authoritative, live=live)
     record_by_source = {derive_source_key(r): r for r in records}
@@ -963,7 +978,7 @@ def run(github: GitHubIssues, records: list, cache: Cache, thresholds: dict, now
         cache.store(plan.next_counts)   # persist accrued counts; the writes already applied stand
         count, as_of = read_state_debt(state_path or DEFAULT_STATE_PATH)
         return Report(degraded=True, degraded_line=degraded_readout(count, as_of),
-                      opened=opened, updated=updated, closed=closed)
+                      opened=opened, updated=updated, closed=closed, recovery=recovery)
     cache.store(plan.next_counts)
 
     debt = {"open_count": plan.open_count, "as_of": now, "register": github.issues_query_url()}
@@ -985,7 +1000,7 @@ def run(github: GitHubIssues, records: list, cache: Cache, thresholds: dict, now
         refresh_state(state_path, debt, standing)
     pressure = triage_pressure_line(plan.low_severity_open_count, int(thresholds.get("triage_pressure", 0)))
     return Report(degraded=False, debt=debt, pressure_line=pressure,
-                  opened=opened, updated=updated, closed=closed)
+                  opened=opened, updated=updated, closed=closed, recovery=recovery)
 
 
 def _consolidation_note(survivor_number: int) -> str:
@@ -1059,6 +1074,11 @@ def promote_finding(github: GitHubIssues, record: dict, now: str, *, title: str 
 
     try:
         github.ensure_label()
+        # A one-shot producer can also arrive while its earlier send is uncertain.  Reconcile
+        # only this source before choosing an existing report to refresh or attempting creation.
+        recovery = issue_author.recover_producer_records('telemetry', github, source_key=sid, observation=now)
+        if recovery['state'] == 'held':
+            print(f"Engine Issue recovery is held: {recovery['reason']}", file=sys.stderr)
         matches = sorted((i for i in github.list_open_engine_issues() if i.get("source_id") == sid),
                          key=lambda i: i["number"])
         if matches:
@@ -2319,6 +2339,7 @@ def _run_cli(argv: list) -> int:
     # first observed failure, resolve on the first observed pass, keyed off the durable Issue set — NOT the
     # gitignored stream cache, which this ephemeral scheduled runner wipes every run.
     report = run(gh, records, cache, load_thresholds(), now, authoritative=authoritative, live=True)
+    _report_recovery_notice(report)
     if report.degraded:
         if report.opened or report.updated or report.closed:
             print(f"GitHub became unreachable partway through the engine's CI-health triage; opened="
@@ -2362,6 +2383,7 @@ def _run_ambient_cli(argv: list) -> int:
     watermark = load_ambient_watermark()
     records, authoritative, new_watermark = derive_ambient_records(watermark=watermark)
     report = run(gh, records, cache, load_thresholds(), now, authoritative=authoritative, live=False)
+    _report_recovery_notice(report)
     if report.degraded:
         print("Could not reach GitHub to run the engine's ambient check-health triage; nothing was changed.")
         return 0   # leave the watermark unadvanced — the un-consumed fires stay fresh for the next pass
@@ -2398,6 +2420,7 @@ def _run_drain_cli(argv: list) -> int:
     _sweep_stranded_asides(INBOX_SPOOL_PATH)
     cache = Cache(argv[0]) if argv else Cache(DEFAULT_INBOX_STREAMS_PATH)
     report = drain_inbox(gh, cache=cache, thresholds=load_thresholds(), now=moment.utc_now())
+    _report_recovery_notice(report)
     if report is not None and report.degraded:
         print("Could not reach GitHub to check the engine's own health inbox; nothing was changed.")
         return 0
