@@ -6280,7 +6280,7 @@
       },
       "slug": "issue-recovery",
       "source": {
-        "fingerprint": "sha256:940f0a51b5f7a78de393187b7f165daf49ac360b0528de4c2f5dbe7ad5aedb7f",
+        "fingerprint": "sha256:b407dcd6c41cbfff218922996f260d0a33823a39b3564b6147f9805372b41305",
         "path": ".engine/operations/issue-recovery.md"
       },
       "status": "active",
@@ -13173,7 +13173,7 @@
       },
       "slug": "issue_author",
       "source": {
-        "fingerprint": "sha256:a58b078e6839194fa6d8a766fb2505443e734f130b942882b0cde58cf08be8c3",
+        "fingerprint": "sha256:4f5459f3d57f88b257eccba3d24589b90104c3e7739c17ec27a74ccc97d5b1e0",
         "path": ".engine/tools/issue_author.py"
       },
       "status": "active",
@@ -13371,7 +13371,7 @@
       },
       "slug": "issue_recovery",
       "source": {
-        "fingerprint": "sha256:463d86855af9bb36446553552a196e793a83f4dce666f6ede8d05f7b8a89155d",
+        "fingerprint": "sha256:9a1f7adfd5182d0e543c43673939eece9046f8619cda9c1576c9828cd7f9bfc4",
         "path": ".engine/tools/issue_recovery.py"
       },
       "status": "active",
@@ -13391,7 +13391,7 @@
       },
       "slug": "issue_recovery_store",
       "source": {
-        "fingerprint": "sha256:3f80d7906a7a3eab71a15e376c172f3a940193a65e39eca82c6a018cfcff5f13",
+        "fingerprint": "sha256:978a050c2c0e6bfaee27c5a93e0d8d95f998d1a8125086b9f1258dc521f059f8",
         "path": ".engine/tools/issue_recovery_store.py"
       },
       "status": "active",
@@ -14025,7 +14025,7 @@
       },
       "slug": "modes",
       "source": {
-        "fingerprint": "sha256:376432c9cc71f55654b15a364472e7074e9418705ce54f1e15856d7bc97f3dba",
+        "fingerprint": "sha256:ef0ec3d6d87b86b867e0ffc6fb4199123abc60d3b6a6027a91197be5bce2d865",
         "path": ".engine/tools/modes.py"
       },
       "status": "active",
@@ -14312,7 +14312,7 @@
       },
       "slug": "nightly_demo_report",
       "source": {
-        "fingerprint": "sha256:9c8e7bf463db6330899311e30611cb756d0347a2a67ad7cbccd3c819c061ee95",
+        "fingerprint": "sha256:fa66a6774533e850cdf17ec8fce423f213d8e204b1144a578f46ed17fc8dd0aa",
         "path": ".engine/tools/nightly_demo_report.py"
       },
       "status": "active",
@@ -16272,7 +16272,7 @@
       },
       "slug": "telemetry",
       "source": {
-        "fingerprint": "sha256:f2acd62470c9fa229ef6ba1af100a17002c03b182954683d3332f40c1de7cb41",
+        "fingerprint": "sha256:36f7c59773b6ac832fa0464ad7a885a1d6dc6707847615bdeb5036993adbcbf9",
         "path": ".engine/tools/telemetry.py"
       },
       "status": "active",
@@ -18776,7 +18776,7 @@
       },
       "slug": "test_issue_recovery",
       "source": {
-        "fingerprint": "sha256:8c6ee5ab23b18256529e5bc1c5d609f93ccd644d39fb6b266a306c5c4481db01",
+        "fingerprint": "sha256:f340caf429ea711cfcfd6763b0f77b03676f7d8838d400514112e262917947c4",
         "path": ".engine/tools/test_issue_recovery.py"
       },
       "status": "active",
@@ -19556,7 +19556,7 @@
       },
       "slug": "test_nightly_demo_report",
       "source": {
-        "fingerprint": "sha256:10d5d0210fb6f082c260e8522f14b6f412a457dbc76f4a531605448f8846c854",
+        "fingerprint": "sha256:d1cda820bd28da6fc8398ec941d8725234ae8b644abcc5a17ea343b0c50dba0f",
         "path": ".engine/tools/test_nightly_demo_report.py"
       },
       "status": "active",
@@ -19588,7 +19588,7 @@
       },
       "slug": "test_nightly_demos",
       "source": {
-        "fingerprint": "sha256:d92aaddc47849f9bdd53ae949d9170d0a8acde473a20bb1ec18a03fb75bf4eb5",
+        "fingerprint": "sha256:71f29ec568f8310bd8071c859b1662899db2059de6cd21eb026ccab29bcc9989",
         "path": ".engine/tools/test_nightly_demos.py"
       },
       "status": "active",
@@ -21793,6 +21793,7 @@
           "tool:boot",
           "tool:capture",
           "tool:github_client",
+          "tool:issue_author",
           "tool:issue_recovery",
           "tool:issue_triage",
           "tool:standing_situation",
@@ -21802,7 +21803,7 @@
       },
       "slug": "test_telemetry",
       "source": {
-        "fingerprint": "sha256:6333c80f5324ad104b1d032896b2d876cb3c35f92d004e0433255ff4982750a7",
+        "fingerprint": "sha256:727609a2f452e0302ea6cfc1146a073cc2e1a989de5aaba00190c3554f172811",
         "path": ".engine/tools/test_telemetry.py"
       },
       "status": "active",
