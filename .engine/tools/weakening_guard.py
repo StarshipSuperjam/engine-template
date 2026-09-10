@@ -1464,42 +1464,63 @@ def _ast_import_edges(source: str, text: str, index: dict) -> tuple[set, list, l
     tree = ast.parse(text, filename=source)
     edges, literal, unsupported, unresolved = set(), [], [], []
     nodes = list(ast.walk(tree))
-    aliases = {'__import__': 'builtins.__import__', 'exec': 'builtins.exec',
-               'eval': 'builtins.eval'}
+    # Bindings from different lexical scopes must never overwrite each other.
+    # Keep possible loader identities conservatively; an unrelated local alias
+    # can add ambiguity, but cannot erase a loader visible elsewhere in the file.
+    aliases = {'__import__': {'builtins.__import__'}, 'exec': {'builtins.exec'},
+               'eval': {'builtins.eval'}, 'getattr': {'builtins.getattr'}}
     loader_names = {'importlib.import_module', 'builtins.__import__'}
+    loader_modules = {'importlib', 'importlib.util', 'importlib.machinery', 'builtins', 'runpy'}
     unsupported_names = {'spec_from_file_location', 'spec_from_loader', 'module_from_spec',
                          'SourceFileLoader', 'SourcelessFileLoader', 'ExtensionFileLoader',
                          'exec_module', 'load_module', 'run_module', 'run_path', 'exec', 'eval'}
 
-    def spelling(node):
+    def spellings(node):
         if isinstance(node, ast.Name):
-            return aliases.get(node.id, node.id)
+            return aliases.get(node.id, {node.id})
         if isinstance(node, ast.Attribute):
-            base = spelling(node.value)
-            return base + '.' + node.attr if base else node.attr
-        return None
+            return {base + '.' + node.attr for base in spellings(node.value)} or {node.attr}
+        if isinstance(node, ast.Call) and 'builtins.getattr' in spellings(node.func):
+            if node.args and spellings(node.args[0]) & loader_modules:
+                # Resolve only a literal attribute on a known loader module.
+                # Dynamic or unusual signatures remain explicit loader calls.
+                attr = _literal_string(node.args[1]) if len(node.args) >= 2 else None
+                if len(node.args) in (2, 3) and not node.keywords and attr is not None:
+                    return {base + '.' + attr for base in spellings(node.args[0]) & loader_modules}
+                return {'__loader__.unknown'}
+        return set()
 
-    # Only transparent import/assignment aliases are followed. A bounded fixed
-    # point accounts for aliases introduced after a function definition in source.
+    def add_alias(name, values):
+        old = aliases.setdefault(name, set())
+        extra = values - old
+        old.update(extra)
+        return bool(extra)
+
     for node in nodes:
         if isinstance(node, ast.Import):
             for item in node.names:
-                aliases[item.asname or item.name.split('.')[0]] = item.name if item.asname else item.name.split('.')[0]
+                add_alias(item.asname or item.name.split('.')[0],
+                          {item.name if item.asname else item.name.split('.')[0]})
         elif isinstance(node, ast.ImportFrom) and not node.level and node.module:
             for item in node.names:
                 if item.name != '*':
-                    aliases[item.asname or item.name] = node.module + '.' + item.name
+                    add_alias(item.asname or item.name, {node.module + '.' + item.name})
+    # Propagate only known loader functions/modules. This finite identity set
+    # handles module-object and callable aliases without evaluating assignments.
     for _ in range(len(nodes) + 1):
         changed = False
         for node in nodes:
             if isinstance(node, (ast.Assign, ast.AnnAssign)):
                 targets = node.targets if isinstance(node, ast.Assign) else [node.target]
-                value = spelling(node.value)
-                if value and (value in loader_names or value.rsplit('.', 1)[-1] in unsupported_names):
-                    for target in targets:
-                        if isinstance(target, ast.Name) and aliases.get(target.id) != value:
-                            aliases[target.id] = value
-                            changed = True
+                values = set()
+                for value in spellings(node.value):
+                    if value in loader_names | loader_modules | {'builtins.getattr', '__loader__.unknown'}:
+                        values.add(value)
+                    elif value.rsplit('.', 1)[-1] in unsupported_names:
+                        values.add('__loader__.' + value.rsplit('.', 1)[-1])
+                for target in targets:
+                    if isinstance(target, ast.Name) and values:
+                        changed = add_alias(target.id, values) or changed
         if not changed:
             break
 
@@ -1551,16 +1572,20 @@ def _ast_import_edges(source: str, text: str, index: dict) -> tuple[set, list, l
                     if item.name != '*' and (child in index or namespace(child)):
                         add_module(child)
         elif isinstance(node, ast.Call):
-            name = spelling(node.func)
-            if not name:
-                continue
-            is_loader = name in loader_names
-            if not is_loader and name.rsplit('.', 1)[-1] not in unsupported_names:
+            names = spellings(node.func)
+            possible_loaders = names & loader_names
+            nonstandard = ('__loader__.unknown' in names or
+                           any(name.rsplit('.', 1)[-1] in unsupported_names for name in names))
+            if not possible_loaders and not nonstandard:
                 continue
             dump = ast.dump(node, include_attributes=False)
-            if not is_loader:
+            if not possible_loaders:
                 unsupported.append(dump)
                 continue
+            # If both import APIs are possible, only their common one-argument
+            # literal form is resolved; richer forms remain explicit exceptions.
+            name = ('builtins.__import__' if 'builtins.__import__' in possible_loaders
+                    else 'importlib.import_module')
             # Unsupported signatures keep every argument in the reviewed AST.
             args = list(node.args)
             keywords = {k.arg: k.value for k in node.keywords}
@@ -1736,7 +1761,9 @@ def _validate_enforcement_inventory(active_roots: dict, tools_dir: str,
                 raise ValueError(f"{path} has an invalid exclusion or empty reason")
     for rule_id, path in active_roots.items():
         if rule_id not in expected_roots:
-            raise ValueError(f"{rule_id} has no enforcement root declaration")
+            raise ValueError(f"{rule_id} has no enforcement root declaration; add its ID and script to "
+                             "_HARD_SCRIPT_ROOTS and its source to ENFORCEMENT_SOURCE_INVENTORY in "
+                             ".engine/tools/weakening_guard.py, then rerun the enforcement-files check")
         if expected_roots[rule_id] != path:
             raise ValueError(f"{rule_id} script differs from its enforcement declaration")
     root_real = os.path.realpath(tools_dir)
@@ -1750,6 +1777,11 @@ def _validate_enforcement_inventory(active_roots: dict, tools_dir: str,
             raise ValueError(f"{path} escapes the tools directory")
         if not os.path.isfile(disk_path):
             raise ValueError(f"{path} is missing or is not a file")
+        # The declared name must be the file whose bytes execute. Even a link
+        # within tools could otherwise route enforcement to an unguarded target.
+        expected_real = os.path.join(root_real, path[len(_BLANKET_TOOLS_PREFIX):])
+        if os.path.realpath(disk_path) != expected_real:
+            raise ValueError(f"{path} is a symbolic-link source; declare a regular enforcement file")
         seen.add(path)
         todo.extend(inventory[path]["dependencies"])
     return seen

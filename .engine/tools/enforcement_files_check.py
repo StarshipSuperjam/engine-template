@@ -14,8 +14,16 @@ import validate  # noqa: E402
 import weakening_guard  # noqa: E402
 
 USAGE = ("Usage: enforcement_files_check.py [-h|--help]\n\n"
-         "Checks reviewed local import edges of hard enforcement sources without executing them. "
-         "Environment: ENGINE_RULE_TIER, ENGINE_ENFORCEMENT_FILES_ROOT.")
+         "Check reviewed local imports of hard enforcement sources without executing them.\n"
+         "For a new hard script check, edit .engine/tools/weakening_guard.py: add its rule ID and script "
+         "to _HARD_SCRIPT_ROOTS, and a source entry to ENFORCEMENT_SOURCE_INVENTORY. Classify every local "
+         "import as a dependency or an exclusion with a specific reason; give each dependency its own entry. "
+         "Unsupported loader calls need a source, reason and exact sorted AST call multiset in "
+         "ENFORCEMENT_DYNAMIC_LOADERS. Keep enforcement sources as regular files, not symbolic links.\n"
+         "Recheck: uv run --directory .engine --frozen -- python tools/validate.py "
+         "--check engine/check/enforcement-files\n"
+         "These declarations are protected guard code and receive the existing acknowledgment review.\n"
+         "Environment: ENGINE_RULE_TIER, ENGINE_ENFORCEMENT_FILES_ROOT (fixture/candidate root only).")
 
 
 def _main(_argv: list) -> int:

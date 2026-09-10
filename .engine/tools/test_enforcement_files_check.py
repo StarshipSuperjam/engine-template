@@ -71,6 +71,43 @@ class TestImportExtraction(unittest.TestCase):
         self.assertEqual(len(literal), 3)
         self.assertEqual((unsupported, unresolved), ([], []))
 
+    def test_unrelated_scope_cannot_erase_loader_or_module_aliases(self):
+        variants = (
+            'import importlib\ndef unrelated():\n import json as importlib\nimportlib.import_module("gate")',
+            'import importlib as il\ndef unrelated():\n import json as il\nil.import_module("gate")',
+            'import importlib\nloader = importlib\nloader.import_module("gate")',
+            'from importlib import import_module as load\ndef unrelated():\n from json import loads as load\nload("gate")',
+        )
+        for text in variants:
+            with self.subTest(text=text):
+                edges, literal, unsupported, unresolved = self.scan(text)
+                self.assertIn(self.INDEX['gate'], edges)
+                self.assertEqual(len(literal), 1)
+                self.assertEqual((unsupported, unresolved), ([], []))
+
+    def test_getattr_loader_construction_cannot_hide_local_imports(self):
+        for text in (
+            'import importlib\nloader = getattr(importlib, "import_module")\nloader("gate")',
+            'import importlib\ngetattr(importlib, "import_module")("gate")',
+            'import importlib as il\nfrom builtins import getattr as grab\nloader = grab(il, "import_module")\nloader("gate")',
+        ):
+            with self.subTest(text=text):
+                edges, literal, unsupported, unresolved = self.scan(text)
+                self.assertIn(self.INDEX['gate'], edges)
+                self.assertEqual(len(literal), 1)
+                self.assertEqual((unsupported, unresolved), ([], []))
+
+    def test_dynamic_getattr_loader_is_an_explicit_call_multiset(self):
+        for text in (
+            'import importlib\nloader = getattr(importlib, method)\nloader("gate")\nloader("gate")',
+            'import importlib\ngetattr(importlib, method)("gate")\ngetattr(importlib, method)("gate")',
+        ):
+            with self.subTest(text=text):
+                _, literal, unsupported, unresolved = self.scan(text)
+                self.assertEqual(len(unsupported), 2)
+                self.assertEqual(unsupported[0], unsupported[1])
+                self.assertEqual((literal, unresolved), ([], []))
+
     def test_unresolved_literal_loader_is_not_silently_ignored(self):
         self.assertEqual(self.scan('__import__("missing_gate")')[3], ['missing_gate'])
 
@@ -147,6 +184,32 @@ class TestCandidateInventory(unittest.TestCase):
         self.source = 'pass\n'
         self.assertIn('stale', ' '.join(self.findings()))
 
+    def test_alias_masking_cannot_hide_unclassified_extraction(self):
+        (self.tools / 'planted.py').write_text('pass\n')
+        for prefix in ('import importlib\n',
+                       'import importlib\ndef unused():\n import json as importlib\n'):
+            self.source = prefix + 'importlib.import_module("planted")\n'
+            self.assertIn('unclassified', ' '.join(self.findings()))
+
+    def test_getattr_cannot_hide_unclassified_extraction(self):
+        (self.tools / 'planted.py').write_text('pass\n')
+        self.source = 'import importlib\nloader = getattr(importlib, "import_module")\nloader("planted")\n'
+        self.assertIn('unclassified', ' '.join(self.findings()))
+
+    def test_in_tools_symlink_cannot_hide_unguarded_implementation(self):
+        self.write()
+        (self.tools / 'implementation.py').write_text('pass\n')
+        (self.tools / 'root.py').unlink()
+        (self.tools / 'root.py').symlink_to('implementation.py')
+        self.assertIn('symbolic-link', ' '.join(guard.enforcement_drift_findings(str(self.root))))
+        with mock.patch.object(guard, '_HARD_SCRIPT_ROOTS', self.roots), \
+             mock.patch.object(guard, 'ENFORCEMENT_SOURCE_INVENTORY', self.inventory), \
+             mock.patch.object(guard, 'ENFORCEMENT_DYNAMIC_LOADERS', {}), \
+             mock.patch.object(guard, '_BASE_CHECK_DIR', str(self.checks)):
+            self.assertIsNone(guard._derive_check_scripts())
+            self.assertTrue(guard.flagged_changes([{'filename': '.engine/tools/implementation.py',
+                                                   'status': 'modified'}]))
+
     def test_exclusions_stop_recursion_and_optional_absence_is_valid(self):
         optional = '.engine/tools/optional/helper.py'
         self.source = 'from optional import helper\n'
@@ -167,6 +230,13 @@ class TestCandidateInventory(unittest.TestCase):
                 self.rule['params']['script'] = script
                 self.assertTrue(self.findings())
                 self.roots = original
+
+    def test_new_root_finding_names_the_declarations_and_recheck(self):
+        self.roots = {}
+        message = ' '.join(self.findings())
+        for text in ('_HARD_SCRIPT_ROOTS', 'ENFORCEMENT_SOURCE_INVENTORY',
+                     '.engine/tools/weakening_guard.py', 'rerun'):
+            self.assertIn(text, message)
 
     def test_duplicate_active_rule_and_unreadable_json_fail(self):
         self.write()
