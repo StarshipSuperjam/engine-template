@@ -165,6 +165,37 @@
         "inline": {"type": "boolean"}
       }
     },
+    "worker_report": {
+      "description": "Canonical model-authored worker report. This definition is shared by raw ingress and retained durable reports; identity, digests, attempts and integration decisions are Engine-owned.",
+      "type": "object", "additionalProperties": false,
+      "required": ["outcome", "evidence"],
+      "properties": {
+        "outcome": {"enum": ["returned", "failed"]},
+        "artifact_ref": {"type": ["string", "null"], "pattern": "^[0-9a-f]{40}$"},
+        "reason": {"type": "string", "minLength": 1},
+        "evidence": {
+          "type": "object", "additionalProperties": false,
+          "required": ["changed_paths", "verification_results", "assumptions", "unresolved_concerns"],
+          "properties": {
+            "changed_paths": {"type": "array", "maxItems": 1000, "items": {"type": "string"}},
+            "verification_results": {"type": "array", "maxItems": 1000, "items": {"$ref": "#/$defs/worker_verification"}},
+            "assumptions": {"type": "array", "maxItems": 1000, "items": {"type": "string"}},
+            "unresolved_concerns": {"type": "array", "maxItems": 1000, "items": {"type": "string"}}
+          }
+        }
+      },
+      "allOf": [{"if": {"properties": {"outcome": {"const": "failed"}}}, "then": {"required": ["reason"]}}]
+    },
+    "worker_verification": {
+      "type": "object", "additionalProperties": false,
+      "required": ["command", "outcome", "detail"],
+      "properties": {
+        "command": {"type": "string", "minLength": 1},
+        "outcome": {"enum": ["passed", "failed", "not-run", "blocked"]},
+        "detail": {"type": "string"},
+        "exit_code": {"type": ["integer", "null"]}
+      }
+    },
     "node_result": {
       "type": "object", "additionalProperties": false,
       "required": ["attempt_id", "base_sha", "outcome", "artifact_ref", "artifact_digest", "evidence"],
