@@ -286,11 +286,20 @@ def validate_binding(binding, *, contract=None, role=None, root=ROOT):
     return expected
 
 
-def ingest(raw, binding, *, contract=None, role=None, root=ROOT):
+def ingest(raw, binding, *, contract=None, role=None, root=ROOT, envelope_key=None):
+    """Validate original wire bytes, optionally selecting a consumer-owned panel member.
+
+    A panel consumer validates its exact envelope keys first; selection never removes
+    the complete input's byte, syntax or resource checks and never reserializes it.
+    """
     bound = validate_binding(binding, contract=contract, role=role, root=root)
     if bound["mode"] != "structured":
         reject("prose_is_not_evidence", category="authority", contract=bound["id"])
     value = parse(raw, contract=bound["id"])
+    if envelope_key is not None:
+        if not isinstance(value, dict) or envelope_key not in value:
+            reject("report_envelope", category="semantic", contract=bound["id"])
+        value = value[envelope_key]
     from jsonschema import Draft202012Validator
     error = next(Draft202012Validator(bound["schema"]).iter_errors(value), None)
     if error is not None:

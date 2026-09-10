@@ -9659,7 +9659,7 @@
       },
       "slug": "build_coordinator",
       "source": {
-        "fingerprint": "sha256:eceaa45fd9e51bda9f4a39cf579c14c0a1ef56898838665ee177588254b0872d",
+        "fingerprint": "sha256:5040d739b0e42c0b9bd85e8960b0ad6cf5e3f6fe2d6925c9cf9d965e28bc172a",
         "path": ".engine/tools/build_coordinator.py"
       },
       "status": "active",
@@ -9849,7 +9849,7 @@
       },
       "slug": "build_coordinator_work",
       "source": {
-        "fingerprint": "sha256:00033dbc2a3b329cbc24f7f22cb9c54b85b499d699091e65142af6b43fd235ea",
+        "fingerprint": "sha256:b14c64d48ad2389455a79891c74670ea0cf2c09dec0b3617bcacf9b36e1e0f8a",
         "path": ".engine/tools/build_coordinator_work.py"
       },
       "status": "active",
@@ -14573,7 +14573,7 @@
       },
       "slug": "project_manager",
       "source": {
-        "fingerprint": "sha256:5acacb066bc98082fc00bbe9bff6af52eefe8d25ee7a1f5336105c3524c8abf3",
+        "fingerprint": "sha256:36708e428cb13d5960ab05077effea7fd9f4d94e1dcc63fdcfff1db5401e4b55",
         "path": ".engine/tools/project_manager.py"
       },
       "status": "active",
@@ -15198,7 +15198,7 @@
       },
       "slug": "result_contracts",
       "source": {
-        "fingerprint": "sha256:1773dfe85712cc01c4ad5ab9655d9f9492cba5ff94ba6e42ea80579ea0eb23a2",
+        "fingerprint": "sha256:78c521e784d6a841d132885433bb504d9734e14bfab73918e27e8baf4a5cf73c",
         "path": ".engine/tools/result_contracts.py"
       },
       "status": "active",
@@ -16746,7 +16746,7 @@
       },
       "slug": "test_build_coordinator_work",
       "source": {
-        "fingerprint": "sha256:bb18fc6e593776cce0c74e6772946085cf7c051d7b51a802dad1035f8b087e0c",
+        "fingerprint": "sha256:ff03b1c4c7290eb4be788307c361fc3efb7143987af9ca4bfd64c8606c68c26b",
         "path": ".engine/tools/test_build_coordinator_work.py"
       },
       "status": "active",
@@ -19858,6 +19858,7 @@
           "tool:plan_projection",
           "tool:plan_store",
           "tool:project_manager",
+          "tool:result_contracts",
           "tool:scoped_agents",
           "tool:test_build_coordinator",
           "tool:test_plan_store",
@@ -19866,7 +19867,7 @@
       },
       "slug": "test_project_manager",
       "source": {
-        "fingerprint": "sha256:94e170ccb08681368a458833711db59be88be624f2c9135411e8b3e8d53a8b9a",
+        "fingerprint": "sha256:45b7d12f5d3c945db379cadbfb41746941a7724b31a723007a597e31bef07760",
         "path": ".engine/tools/test_project_manager.py"
       },
       "status": "active",
@@ -20390,7 +20391,7 @@
       },
       "slug": "test_result_contracts",
       "source": {
-        "fingerprint": "sha256:8b6dbb7e680c7082e253caca7b7633294b27951b33a3d14fe2bb9e6c97ccd532",
+        "fingerprint": "sha256:29ef684b6fbb9820493bdd75dd6d60344137ab1201f39ecf6abaee5beed8ac54",
         "path": ".engine/tools/test_result_contracts.py"
       },
       "status": "active",

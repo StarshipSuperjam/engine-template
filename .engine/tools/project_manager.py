@@ -778,11 +778,12 @@ def cmd_review_packet(args) -> int:
     return 0
 
 
-def ingest_review_report(raw, binding, *, lens):
+def ingest_review_report(raw, binding, *, lens, envelope_key=None):
     """Canonical plan-review boundary; controller fields never enter a model report."""
     import result_contracts
     try:
-        report = result_contracts.ingest(raw, binding, contract="plan-review-finding.v1", role="plan-review")
+        report = result_contracts.ingest(raw, binding, contract="plan-review-finding.v1",
+                                         role="plan-review", envelope_key=envelope_key)
         return result_contracts.compile_review(report, lens=lens)
     except result_contracts.Rejection as exc:
         raise ProjectManagerError(str(exc)) from exc
@@ -808,7 +809,8 @@ def _review_input(source, lenses, *, controller=False):
             result_contracts.reject("exact_lens_reports", category="semantic")
         binding = result_contracts.resolve("plan-review-finding.v1", role="plan-review")
         return reports, [finding for lens in lenses for finding in ingest_review_report(
-            json.dumps(reports[lens], ensure_ascii=False), binding, lens=lens)["findings"]]
+            raw, binding, lens=lens,
+            envelope_key=lens if isinstance(parsed, dict) else None)["findings"]]
     except result_contracts.Rejection as exc:
         raise ProjectManagerError(str(exc)) from exc
 

@@ -2567,6 +2567,21 @@ class ProjectionLink(_Governed):
 
 
 class ObservedPlanReview(_Governed):
+    def test_exact_wire_byte_limit_survives_single_and_panel_ingress(self):
+        import result_contracts
+        for panel in (False, True):
+            report = [{"severity": "nit", "message": "a" * 65536, "location": None} for _ in range(15)]
+            report.append({"severity": "nit", "message": "", "location": None})
+            value = {"architecture": report} if panel else report
+            wire = lambda: json.dumps(value, separators=(",", ":"))
+            report[-1]["message"] = "b" * (result_contracts.LIMITS["bytes"] - len(wire()))
+            source = Path(self._tmp.name) / "exact-limit.json"
+            source.write_text(wire())
+            self.assertEqual(source.stat().st_size, result_contracts.LIMITS["bytes"])
+            reports, findings = project_manager._review_input(str(source), ["architecture"])
+            self.assertEqual(reports["architecture"], report)
+            self.assertEqual(len(findings), 16)
+
     def test_valid_unicode_report_does_not_expand_past_byte_limit_in_panel_adapter(self):
         report = [{"severity": "nit", "message": "é" * 32768, "location": None} for _ in range(8)]
         source = Path(self._tmp.name) / "unicode-report.json"

@@ -4833,7 +4833,7 @@ def cmd_work_result(args, store: Snapshot) -> None:
         if (payload["outcome"] == "returned" and
                 work.identity_mode_for_route(claim.get("requested_route") or {}) == "accepted-candidate"):
             observed = _staged_tree_digest(str(ROOT))
-        result = work.bind_result(nw, item, args.attempt, claim.get("base_sha"), payload,
+        result = work.bind_result(nw, item, args.attempt, claim.get("base_sha"), raw,
                                   observed_digest=observed)
         nw["latest_result"] = result
         if result["outcome"] == "failed":

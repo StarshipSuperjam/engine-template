@@ -340,7 +340,7 @@ def bind_result(nw: dict, item: dict, attempt_id: str, base_sha: str, payload,
     # Dict input is an internal convenience, never a bypass of the canonical validator.
     import json
     try:
-        raw = json.dumps(payload, allow_nan=False, ensure_ascii=False) if isinstance(payload, (dict, list)) else payload
+        raw = json.dumps(payload, allow_nan=False, ensure_ascii=False, separators=(",", ":")) if isinstance(payload, (dict, list)) else payload
     except (ValueError, TypeError, RecursionError):
         refuse("raw_input_required", "syntax")
     report = ingest_worker_report(raw, claim.get("result_contract"))

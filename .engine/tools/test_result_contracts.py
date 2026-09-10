@@ -52,6 +52,15 @@ class ResultContracts(unittest.TestCase):
         self.refusal(json.dumps([{**self.finding, "location": {"file": "a", "unknown": 1}}]))
         self.refusal(json.dumps([self.finding, {"summary": "wrong shape"}]))
 
+    def test_panel_selection_cannot_hide_invalid_or_oversized_outer_input(self):
+        for raw in ['{"architecture":[],"other":NaN}',
+                    '{"architecture":[],"other":[' + ','.join(['0'] * 1001) + ']}',
+                    '{"architecture":[]}' + ' ' * rc.LIMITS["bytes"],
+                    '{"architecture":[],"architecture":[]}', '[]']:
+            with self.assertRaises(rc.Rejection):
+                rc.ingest(raw, self.review, envelope_key="architecture")
+        self.assertEqual(rc.ingest('{"architecture":[]}', self.review, envelope_key="architecture"), [])
+
     def test_strict_json(self):
         for raw in [b"\xff", "[", '{"x":1,"x":2}', "NaN", "1e999", "Infinity", '"\\ud800"']:
             self.refusal(raw)

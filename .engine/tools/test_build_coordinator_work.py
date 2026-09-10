@@ -126,6 +126,23 @@ class TestWorkClaims(WorkCase):
         self.assertIsNone(node["integration"])
         self.assertEqual(node["latest_failure"]["reason"], report["reason"])
 
+    def test_exact_wire_byte_limit_survives_result_binding(self):
+        import result_contracts
+        packet = self.claim("shared")
+        report = {"outcome": "failed", "reason": "bounded", "evidence": {
+            "changed_paths": [], "verification_results": [], "unresolved_concerns": [],
+            "assumptions": ["a" * 65536] * 15 + [""]}}
+        wire = lambda: json.dumps(report, separators=(",", ":"))
+        report["evidence"]["assumptions"][-1] = "b" * (result_contracts.LIMITS["bytes"] - len(wire()))
+        source = Path(self.temp.name) / "exact-limit.json"
+        source.write_text(wire())
+        self.assertEqual(source.stat().st_size, result_contracts.LIMITS["bytes"])
+        args = argparse.Namespace(item="shared", attempt=packet["attempt_id"],
+                                  plan=str(self.plan_path), input=str(source))
+        with contextlib.redirect_stdout(io.StringIO()):
+            bc.cmd_work_result(args, self.store)
+        self.assertEqual(self.state()["work"]["shared"]["latest_result"]["report"], report)
+
     def test_valid_unicode_report_keeps_its_byte_budget_at_binding(self):
         packet = self.claim("shared")
         report = {"outcome": "failed", "reason": "Cannot complete", "evidence": {
