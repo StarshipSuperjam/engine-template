@@ -1,6 +1,8 @@
 """Tests for `release_gate.py` — the cut-time deployment gate.
 
-FAST + INJECTED by design. The real gate (a full self-test suite inside a projected deployment, and real
+Mostly FAST + INJECTED. TestDeployedClassificationRegression runs a bounded set of real assertions in a
+temporary deployed copy, including deliberately broken controls (#1054). It never launches a full suite.
+The real gate (a full self-test suite inside a projected deployment, and real
 practice upgrades from released baselines) takes many minutes and runs at CUT TIME, never in this per-PR
 suite — moving that cost out of every pull request is the whole point of the slice. So these exercise the
 gate's ORCHESTRATION and its fail-CLOSED contract with the heavy arms stubbed; the genuine operate/upgrade
@@ -45,6 +47,103 @@ _SKIP = "runs where a release is cut (the home repo, not a nested projection run
 
 def _proc(returncode=0, stdout="", stderr=""):
     return subprocess.CompletedProcess(args=[], returncode=returncode, stdout=stdout, stderr=stderr)
+
+
+@unittest.skipUnless(selftest_support.CONSTRUCTION, _SKIP)
+class TestDeployedClassificationRegression(unittest.TestCase):
+    """Operator-runnable proof: actual module removal passes; an undeclared omission or drift fails.
+
+    Only this outer projection driver is construction-scoped. Its child assertions must execute without
+    skips, including under the projection marker. TemporaryDirectory removes all mutated fixtures.
+    """
+
+    _INVENTORY = "test_seed.TestMetadataSuiteClassification.test_every_ci_rule_is_classified_exactly_once"
+    _GRAPH = "test_knowledge.TestCommittedGraph.test_committed_graph_is_in_sync_with_sources"
+    _FINGERPRINT = "test_knowledge.TestCoverageFingerprintMode.test_real_graph_passes_via_the_mode"
+    _CASES = ["test_seed.TestMetadataSuiteClassification", "test_knowledge.TestCommittedGraph",
+              "test_knowledge.TestCoverageFingerprintMode"]
+
+    def _assert_tests(self, tree, names, *, failures=()):
+        # Separate interpreters read the actual projected files; no patches to the assertions or gates.
+        script = """import io,json,sys,unittest
+sys.path.insert(0, 'tools')
+suite=unittest.defaultTestLoader.loadTestsFromNames(json.loads(sys.argv[1]))
+out=io.StringIO()
+result=unittest.TextTestRunner(stream=out).run(suite)
+print(json.dumps({'run':result.testsRun,'failures':[t.id() for t,_ in result.failures],
+                  'errors':[t.id() for t,_ in result.errors],'skipped':result.skipped,
+                  'detail':out.getvalue()}))
+sys.exit(not result.wasSuccessful())
+"""
+        result = subprocess.run([sys.executable, "-c", script, json.dumps(names)],
+                                cwd=os.path.join(tree, ".engine"), env=rg._nested_env(),
+                                capture_output=True, text=True, timeout=120)
+        self.assertIn(result.returncode, (0, 1), result.stderr)
+        report = json.loads(result.stdout)
+        self.assertGreater(report["run"], 0)
+        self.assertEqual(report["errors"], [], report["detail"])
+        self.assertEqual(report["skipped"], [], report["detail"])
+        self.assertEqual(sorted(report["failures"]), sorted(failures), report["detail"])
+        self.assertEqual(result.returncode, int(bool(failures)), report["detail"])
+
+    @contextlib.contextmanager
+    def _changed_file(self, path, replacement):
+        original = path.read_bytes()
+        try:
+            if replacement is None:
+                path.unlink()
+            else:
+                path.write_bytes(replacement)
+            yield
+        finally:
+            path.write_bytes(original)
+
+    def _finish_module_projection(self, eng):
+        # module_manager.remove is the removal primitive. Complete the same post-removal index
+        # preparation that _project_to_deployed performs, BEFORE running any drift assertions.
+        for generator in ("self_map.py", "knowledge_gen.py"):
+            result = subprocess.run([sys.executable, "tools/" + generator, "generate"], cwd=eng,
+                                    env=rg._nested_env(), capture_output=True, text=True, timeout=300)
+            self.assertEqual(result.returncode, 0, result.stderr or result.stdout)
+
+    def test_real_deployments_and_failure_controls(self):
+        with tempfile.TemporaryDirectory(prefix="engine-classification-control-") as tree:
+            rg.release_source._archive_tree("HEAD", tree)
+            eng = Path(tree) / ".engine"
+            with contextlib.redirect_stderr(io.StringIO()):
+                rg._project_to_deployed(tree, label="classification-control/default")
+            self._assert_tests(tree, self._CASES)
+
+            # Partial decline retains the other modules, whose missing checks must still be caught.
+            result = subprocess.run([sys.executable, "tools/module_manager.py", "remove",
+                                     "dependency-discipline", "--json"], cwd=eng,
+                                    env=rg._nested_env(), capture_output=True, text=True, timeout=300)
+            self.assertEqual(result.returncode, 0, result.stderr or result.stdout)
+            self._finish_module_projection(eng)
+            self._assert_tests(tree, self._CASES)
+            with self._changed_file(eng / "check/migration-rollback.json", None):
+                self._assert_tests(tree, [self._INVENTORY], failures=[self._INVENTORY])
+
+            with contextlib.redirect_stderr(io.StringIO()):
+                declined = rg._decline_optional_modules(tree, "classification-control/declined")
+            self.assertIn("product-design", declined)
+            self._finish_module_projection(eng)
+            self._assert_tests(tree, self._CASES)
+            with self._changed_file(eng / "check/protection.json", None):
+                self._assert_tests(tree, [self._INVENTORY], failures=[self._INVENTORY])
+
+            # A new classification whose omitted check has not been declared cannot silently disappear.
+            classification = eng / "check-classification.json"
+            raw = json.loads(classification.read_text())
+            raw["classification"]["engine/check/undeclared-optional-control"] = "code"
+            with self._changed_file(classification, json.dumps(raw).encode()):
+                self._assert_tests(tree, [self._INVENTORY], failures=[self._INVENTORY])
+
+            graph = eng / "knowledge/graph.json"
+            with self._changed_file(graph, graph.read_bytes() + b" "):
+                self._assert_tests(tree, [self._GRAPH, self._FINGERPRINT],
+                                   failures=[self._GRAPH, self._FINGERPRINT])
+            self._assert_tests(tree, self._CASES)
 
 
 @unittest.skipUnless(selftest_support.CONSTRUCTION, _SKIP)
