@@ -792,6 +792,9 @@
   ".engine/docs/product-design.md": [
    "product-design"
   ],
+  ".engine/docs/result-contracts.md": [
+   "core"
+  ],
   ".engine/erasures/proposal.json": [
    "memory-substrate-sqlite-fts5"
   ],
@@ -1191,6 +1194,9 @@
   ".engine/schemas/provisioning-catalog.v1.json": [
    "core"
   ],
+  ".engine/schemas/result-rejection.v1.json": [
+   "core"
+  ],
   ".engine/schemas/scoped-agent-evidence.v1.json": [
    "core"
   ],
@@ -1567,6 +1573,9 @@
    "core"
   ],
   ".engine/tools/demo_restore_migration_routing.py": [
+   "core"
+  ],
+  ".engine/tools/demo_result_contracts.py": [
    "core"
   ],
   ".engine/tools/demo_reverse_adjacency.py": [
@@ -2163,6 +2172,9 @@
   ".engine/tools/repo_identity.py": [
    "core"
   ],
+  ".engine/tools/result_contracts.py": [
+   "core"
+  ],
   ".engine/tools/review_integrity.py": [
    "core"
   ],
@@ -2635,6 +2647,9 @@
    "core"
   ],
   ".engine/tools/test_repo_identity.py": [
+   "core"
+  ],
+  ".engine/tools/test_result_contracts.py": [
    "core"
   ],
   ".engine/tools/test_retire_eadr_records.py": [

@@ -130,7 +130,7 @@ class TestHigherEffortRendering(unittest.TestCase):
                     worker = role == "worker"
                     name = "engine-worker-widget" if worker else "qa-review-widget"
                     source = WORKER_SRC if worker else AGENT_SRC.replace(
-                        "role: pre-submission-review", f"role: {role}")
+                        "role: pre-submission-review", f"role: {role}").replace("output-contract: pre-submission-review-finding.v1", "output-contract: " + ("audit-finding.v1" if role == "audit" else "plan-review-finding.v1" if role == "plan-review" else "pre-submission-review-finding.v1"))
                     binding = json.loads(WORKER_BINDINGS)
                     binding["tiers"]["judgment"]["effort"] = effort
                     binding["providers"] = {"codex": {"tiers": {
@@ -213,7 +213,7 @@ class TestRenderTransforms(_FixtureTree):
         source = os.path.join(self.root, ".claude", "agents", "qa-review-widget.md")
         original = AGENT_SRC
         for role in ("plan-review", "pre-submission-review", "audit"):
-            _write(source, original.replace("role: pre-submission-review", "role: " + role))
+            _write(source, original.replace("role: pre-submission-review", "role: " + role).replace("output-contract: pre-submission-review-finding.v1", "output-contract: " + ("audit-finding.v1" if role == "audit" else "plan-review-finding.v1" if role == "plan-review" else "pre-submission-review-finding.v1")))
             rendered = tomllib.loads(codex_gen.render_agent(source, self.root))
             self.assertIn("Do not run shell commands", rendered["developer_instructions"])
             self.assertEqual(rendered["sandbox_mode"], "read-only")
@@ -236,7 +236,7 @@ class TestRenderTransforms(_FixtureTree):
         self.assertIn("Review the widget.", data["developer_instructions"])
 
     def test_audit_uses_codex_bindings_not_the_claude_model_or_effort_stamp(self):
-        stamped = AGENT_SRC.replace("role: pre-submission-review\n", "role: audit\n").replace(
+        stamped = AGENT_SRC.replace("output-contract: pre-submission-review-finding.v1", "output-contract: audit-finding.v1").replace("role: pre-submission-review\n", "role: audit\n").replace(
             "model-tier: judgment\n", "model-tier: judgment\nmodel: sonnet\neffort: low\n")
         _write(os.path.join(self.root, ".claude", "agents", "qa-review-widget.md"), stamped)
         codex_gen.generate(self.root)

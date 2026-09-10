@@ -314,6 +314,69 @@ class TestObservedExecutionIngress(CoordinatorCase):
         with self.assertRaises(bc.CoordinatorError):
             self.record()
 
+    def test_raw_report_copy_cannot_substitute_for_observed_output(self):
+        report = [{"severity": "blocking", "message": "first", "location": {"file": "a", "line": None}},
+                  {"severity": "serious", "message": "second", "location": None}]
+        companion, assignment = self.observe(report)
+        source = companion.path.parent / "raw-report.json"
+        self.args.report = str(source)
+        before = self.store.path.read_bytes(), companion.path.read_bytes()
+        for value in [[], report[:1], report[::-1], [{**report[0], "message": "replacement"}, report[1]],
+                      [{**report[0], "location": {"file": "a"}}, report[1]], None]:
+            source.write_text(json.dumps(value))
+            with self.assertRaises(bc.CoordinatorError):
+                self.record()
+            self.assertEqual((self.store.path.read_bytes(), companion.path.read_bytes()), before)
+        source.write_text(json.dumps(report, indent=2, sort_keys=True))
+        self.record()
+        accepted = next(iter(companion.read()["acceptances"].values()))
+        self.assertEqual(accepted["reports"][assignment["id"]], report)
+
+
+    def disposition(self, severity="blocking", summary="observed concern"):
+        args = argparse.Namespace(id="chosen-id", stage="deliverable", lens=self.args.lens,
+            severity=severity, summary=summary, disposition="accepted-fixed", rationale="fixed",
+            escalation_kind=None, blocks_this_pr_stated=False, handoff_summary="fixed concern",
+            operator_summary="The observed concern was fixed.")
+        with contextlib.redirect_stdout(io.StringIO()):
+            bc.cmd_finding_record(args, self.store)
+
+    def test_id_only_receipt_binds_first_disposition_but_allows_later_correction(self):
+        companion, _ = self.observe([{"severity": "blocking", "message": "observed concern", "location": None}])
+        self.args.finding = ["chosen-id"]
+        self.record()
+        before = self.store.path.read_bytes(), companion.path.read_bytes()
+        for severity, summary in [("nit", "observed concern"), ("blocking", "replacement")]:
+            with self.assertRaisesRegex(bc.CoordinatorError, "observed_report_mismatch"):
+                self.disposition(severity, summary)
+            self.assertEqual((self.store.path.read_bytes(), companion.path.read_bytes()), before)
+        self.disposition()
+        self.disposition("nit", "Explicit correction after initial observation")
+        self.assertEqual(self.state()["findings"][0]["severity"], "nit")
+
+    def test_pre_receipt_disposition_cannot_substitute_for_initial_observation(self):
+        companion, _ = self.observe([{"severity": "blocking", "message": "observed concern", "location": None}])
+        self.args.finding = ["chosen-id"]
+        self.disposition("nit", "replacement")
+        before = self.store.path.read_bytes(), companion.path.read_bytes()
+        with self.assertRaisesRegex(bc.CoordinatorError, "observed_report_mismatch"):
+            self.record()
+        self.assertEqual((self.store.path.read_bytes(), companion.path.read_bytes()), before)
+        self.disposition()
+        self.record()
+
+    def test_cli_rejection_is_a_parseable_protocol_envelope(self):
+        path = Path(self.temp.name) / "bad-report.json"
+        path.write_text("null")
+        error = io.StringIO()
+        # The real parser and command adapter run. No durable store is needed for a
+        # malformed report, which must refuse before the transaction is reached.
+        with mock.patch.object(bc, "_resolve_store", return_value=None), contextlib.redirect_stderr(error):
+            code = bc.main(["review", "record", "--stage", "deliverable", "--lens", self.args.lens,
+                "--packet-digest", self.args.packet_digest, "--lens-packet-digest", self.args.lens_packet_digest,
+                "--code-execution", "none", "--report", str(path)])
+        self.assertEqual(code, 2)
+        self.assertEqual(json.loads(error.getvalue())["schema_version"], "result-rejection.v1")
 
     def test_clarification_completes_the_same_assignment_once(self):
         import scoped_agents
@@ -361,7 +424,9 @@ class TestObservedExecutionIngress(CoordinatorCase):
         from test_build_coordinator import observe_review_execution
         companion, assignment = observe_review_execution(self.review_library, self.review_slug,
             scoped_agents.build_owner(self.state()), self.args.lens, self.args.lens_packet_digest,
-            [], purpose="worker")
+            {"outcome": "failed", "reason": "Cannot complete", "evidence": {
+                "changed_paths": [], "verification_results": [], "assumptions": [],
+                "unresolved_concerns": []}}, purpose="worker")
         with self.assertRaisesRegex(bc.CoordinatorError, "worker/scout"):
             self.record()
         with mock.patch.object(scoped_agents.plan_store, "PlanLibrary", return_value=self.review_library), \

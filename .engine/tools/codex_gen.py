@@ -131,16 +131,32 @@ def _impl_binding(cls: str, root: str | None) -> dict:
 
 
 def _routing_lines(fm: dict) -> str:
+    import result_contracts
+    bound = result_contracts.resolve(fm.get("output-contract"), role=fm.get("role"))
+    if bound["mode"] == "prose":
+        guidance = f"Output contract: {bound['id']} is intentional prose, not structured acceptance evidence."
+        if fm.get("role") == "audit":
+            guidance += " Its conformance-verdicts.v1 block is validated separately; no durable report receipt is minted."
+    elif fm.get("role") == "worker":
+        guidance = (f"Output contract: {bound['id']}. Return one JSON object with outcome and complete evidence "
+                    "(changed_paths, verification_results, assumptions, unresolved_concerns). Each verification "
+                    "has command, outcome and detail; failed outcome also requires reason. Identity comes from "
+                    "the claim; only worker-commit mode accepts an artifact_ref claim.")
+    else:
+        guidance = (f"Output contract: return a complete {bound['id']} JSON array of severity, message, location "
+                    "findings. [] is a completed empty report; null, prose or a partial status is not. "
+                    "Do not add ids, lenses or dispositions; the controller owns those.")
+    guidance += (" Canonical ingress enforces the dispatch binding and limits; native structured formatting "
+                 "is unqualified and cannot replace that validation." if bound["mode"] == "structured" else "")
     disallowed = fm.get("disallowedTools") or []
     if isinstance(disallowed, str):
         disallowed = [t.strip() for t in disallowed.split(",")]
     if fm.get("role") == "worker":
-        return (f"Output contract: report your result on the {fm.get('output-contract')} shape.\n"
+        return (guidance + "\n"
                 "Permissions: scoped write. You implement only within your node's declared paths and "
                 "return your work product to the orchestrator; you never push the PR branch, open a "
                 "pull request, or integrate — the orchestrator is the single writer.")
-    lines = [f"Output contract: report every finding on the {fm.get('output-contract')} shape "
-             f"(severity, message, location).",
+    lines = [guidance,
              "Permissions floor: read-only. You review and report; you never edit files, commit, "
              "push, open pull requests, or resolve your own findings."]
     if "Bash" in disallowed:

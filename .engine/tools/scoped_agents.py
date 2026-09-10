@@ -21,6 +21,7 @@ import hooks
 import moment
 import plan_store
 import providers
+import result_contracts
 
 VERSION = "scoped-agent-evidence.v1"
 FILENAME = "scoped-agent-evidence.v1.json"
@@ -120,6 +121,12 @@ class Store:
             raise EvidenceError("Generated review packet changed before freezing; regenerate the packet before dispatch.")
         if len(content) > providers.SCOPED_READ_MAX_BYTES:
             raise EvidenceError(f"Review packet exceeds {providers.SCOPED_READ_MAX_BYTES} UTF-8 bytes; narrow the packet before dispatch.")
+        from validate import frontmatter
+        persona = Path(__file__).resolve().parents[2] / ".claude/agents" / (role + ".md")
+        if not persona.is_file():
+            raise EvidenceError("registered persona is missing; cannot bind its result contract")
+        fields = frontmatter(str(persona))
+        binding = result_contracts.resolve(fields.get("output-contract"), role=fields.get("role"))
         token = "sa_" + uuid.uuid4().hex
         directory = self.path.parent / "scoped-packets"
         self.library._mkdir(directory)
@@ -127,6 +134,7 @@ class Store:
         core.atomic_write(location, content.decode("utf-8"), durable=True, mode=0o600)
         assignment = {"id": token, "owner": copy.deepcopy(owner), "root": root,
                       "purpose": purpose, "lens": lens, "role": role,
+                      "result_contract": binding,
                       "packet_path": str(location), "packet_digest": packet_digest,
                       "file_digest": core.digest(content), "created_at": moment.utc_now(),
                       "launch": None, "child": None, "start": None, "read": None,
@@ -379,9 +387,25 @@ class Store:
                         a["faults"].append("duplicate clarification delivery")
                 if event == "SubagentStop":
                     final = payload.get("last_assistant_message") or transcript.get("final")
+                    # Refuse retention before hashing or serializing the raw final output.
+                    # This is a recoverable stop, not a permanent assignment fault.
+                    rejection = None
+                    if final is not None and not isinstance(final, str):
+                        rejection = result_contracts.Rejection("syntax", "raw_input_required").envelope
+                        final = None
+                    if isinstance(final, str):
+                        try:
+                            if (len(final) > result_contracts.LIMITS["bytes"] or
+                                    len(final.encode("utf-8")) > result_contracts.LIMITS["bytes"]):
+                                result_contracts.reject("maxBytes")
+                        except (result_contracts.Rejection, UnicodeError):
+                            rejection = result_contracts.Rejection("syntax", "output_limit").envelope
+                            final = None
                     stop = {"child": actor, "output": final, "digest": core.digest(final),
                             "continuations": len(a["continuations"]),
                             "delivered": all(c["delivered"] for c in a["continuations"])}
+                    if rejection is not None:
+                        stop["rejection"] = rejection
                     if call["provider"] == providers.CODEX:
                         stop["control_verified"] = providers.scoped_control_verified(
                             transcript, root=root, child=actor, name=a["id"],
@@ -420,7 +444,7 @@ class Store:
                 continue
             if a["purpose"] == "review":
                 try:
-                    output = json.loads(a["stops"][-1]["output"])
+                    output = result_contracts.parse(a["stops"][-1]["output"])
                 except (TypeError, ValueError):
                     continue
                 # Existing finding-array contract. A partial/blocked object or prose is not coverage.
@@ -428,6 +452,12 @@ class Store:
                     continue
             elif not _text(a["stops"][-1]["output"]):
                 continue
+            elif a["purpose"] == "worker":
+                try:
+                    result_contracts.ingest(a["stops"][-1]["output"], a.get("result_contract"),
+                                            contract="worker-result.v1", role="worker")
+                except result_contracts.Rejection:
+                    continue
             else:
                 try:
                     worker_output = json.loads(a["stops"][-1]["output"])
@@ -443,7 +473,22 @@ class Store:
             raise EvidenceError(f"{lens}: fresh completed execution is unverified ({len(valid)} unambiguous candidates); preserve evidence and finish or replace the assignment")
         return valid[0]
 
-    def accept_locked(self, *, owner, root, receipt, lenses, packet_digests, prior_receipt=None):
+    def review_report(self, assignment, owner):
+        """Read the entire bound, observed report without changing acceptance metadata."""
+        try:
+            stop = assignment["stops"][-1]
+            if stop["digest"] != core.digest(stop["output"]):
+                result_contracts.reject("observed_digest", category="authority")
+            if owner["kind"] == "plan":
+                from project_manager import ingest_review_report
+            else:
+                from build_coordinator_review import ingest_review_report
+            return ingest_review_report(stop["output"], assignment.get("result_contract"), lens=assignment["lens"])
+        except (result_contracts.Rejection, core.CoordinatorError) as exc:
+            raise EvidenceError(str(exc)) from exc
+
+    def accept_locked(self, *, owner, root, receipt, lenses, packet_digests, prior_receipt=None,
+                      supplied_reports=None, controller_entries=None, existing_entries=()):
         """Called inside the existing plan/Build transaction, before publishing its receipt.
 
         Persisting this first can leave an orphan after a crash. An orphan is never coverage:
@@ -465,16 +510,50 @@ class Store:
             raise EvidenceError("observed assignments do not match the exact claimed lens coverage")
         if len({a["child"] for a in assignments}) != len(assignments):
             raise EvidenceError("one child cannot satisfy several independent lenses")
-        for a in assignments:
-            output = json.loads(a["stops"][-1]["output"])
-            schema = "plan-review-finding.v1.json" if owner["kind"] == "plan" else "pre-submission-review-finding.v1.json"
-            for finding in output:
-                core.validate(finding, Path(__file__).resolve().parents[1] / "schemas" / schema)
+        compiled = {a["id"]: self.review_report(a, owner) for a in assignments}
+        if supplied_reports is not None:
+            observed = {a["lens"]: compiled[a["id"]]["report"] for a in assignments if a["lens"] in lenses}
+            try:
+                result_contracts.require_observed_report(supplied_reports, observed)
+            except result_contracts.Rejection as exc:
+                raise exc.as_error(EvidenceError)
+        # Initial findings come from the observed report; the caller cannot omit, reorder or
+        # replace them. Previously accepted findings may have explicit controller corrections.
+        expected = [f for a in assignments if a["lens"] in lenses for f in compiled[a["id"]]["findings"]]
+        if owner["kind"] == "plan":
+            if receipt["findings"] is None:
+                receipt["findings"] = expected
+            supplied = [f for f in receipt["findings"] if f["lens"] in lenses]
+            # IDs are controller-owned. An explicit controller projection may choose them,
+            # but cannot change the observed finding count, order, severity or message.
+            matches = len(supplied) == len(expected) and all(
+                all(s[key] == e[key] for key in ("lens", "severity", "summary")) and
+                ("location" not in s or s["location"] == e["location"])
+                for s, e in zip(supplied, expected))
+            if not matches:
+                raise result_contracts.Rejection("authority", "observed_report_mismatch").as_error(EvidenceError)
+        else:
+            if len(receipt["finding_ids"]) != len(expected) or len(set(receipt["finding_ids"])) != len(expected):
+                raise result_contracts.Rejection("authority", "observed_report_mismatch").as_error(EvidenceError)
+            if controller_entries is not None and (len(controller_entries) != len(expected) or any(
+                    any(s[k] != e[k] for k in ("lens", "severity", "summary"))
+                    for s, e in zip(controller_entries, expected))):
+                raise result_contracts.Rejection("authority", "observed_report_mismatch").as_error(EvidenceError)
         data = self.read()
         key = receipt_key(receipt)
+        if owner["kind"] == "build" and key not in data["acceptances"]:
+            # Findings may be dispositioned before their receipt. That ordering cannot
+            # bypass the same initial semantics check as receipt-first recording.
+            originals = dict(zip(receipt["finding_ids"], expected))
+            for entry in existing_entries:
+                original = originals.get(entry["id"])
+                if original and any(entry[k] != original[k] for k in ("lens", "severity", "summary")):
+                    raise result_contracts.Rejection("authority", "observed_report_mismatch").as_error(EvidenceError)
         for a in assignments:
             data["assignments"][a["id"]]["accepted"] = True
         data["acceptances"][key] = {"owner": owner, "assignments": [a["id"] for a in assignments],
+                                     "result_contracts": {a["id"]: a["result_contract"] for a in assignments},
+                                     "reports": {a["id"]: compiled[a["id"]]["report"] for a in assignments},
                                      "outputs": {a["id"]: a["stops"][-1]["digest"] for a in assignments}}
         self.write_locked(data)
 
@@ -497,6 +576,13 @@ class Store:
                 return False
             for assignment_id in accepted["assignments"]:
                 a = data["assignments"][assignment_id]
+                # Historical facts remain readable, but missing contract evidence is unverified.
+                binding = a.get("result_contract")
+                result_contracts.validate_binding(binding)
+                if accepted.get("result_contracts", {}).get(assignment_id) != binding:
+                    return False
+                if accepted.get("reports", {}).get(assignment_id) != self.review_report(a, recorded)["report"]:
+                    return False
                 if a["owner"] != recorded or not a["accepted"] or a["faults"] or not a["stops"]:
                     return False
                 verified = self.verified_locked(owner=recorded, root=a["root"], lens=a["lens"],
@@ -525,16 +611,37 @@ def prepare_packets(library, slug, owner, root, packet, digest_by_lens, roles, *
             for lens, digest in digest_by_lens.items()]
 
 
-def accept_plan(library, slug, record, receipt, lenses, root, prior_receipt=None):
+def accept_plan(library, slug, record, receipt, lenses, root, prior_receipt=None, *, supplied_reports=None):
     Store(library, slug).accept_locked(owner=plan_owner(record), root=root, receipt=receipt,
         lenses=lenses, packet_digests={lens: receipt["packet_digest"] for lens in lenses},
-        prior_receipt=prior_receipt)
+        prior_receipt=prior_receipt, supplied_reports=supplied_reports)
 
 
-def accept_build(library, state, receipt, root):
+def accept_build(library, state, receipt, root, *, supplied_reports=None, controller_entries=None):
     slug = library.resolve(state["plan"]["plan_id"])
     Store(library, slug).accept_locked(owner=build_owner(state), root=root, receipt=receipt,
-        lenses=[receipt["lens"]], packet_digests={receipt["lens"]: receipt["lens_packet_digest"]})
+        lenses=[receipt["lens"]], packet_digests={receipt["lens"]: receipt["lens_packet_digest"]},
+        supplied_reports=supplied_reports, controller_entries=controller_entries,
+        existing_entries=[f for f in state["findings"] if f["lens"] == receipt["lens"]
+                          and f["packet_digest"] == receipt["packet_digest"]
+                          and f.get("lens_packet_digest") == receipt.get("lens_packet_digest")])
+
+
+def validate_initial_build_finding(library, state, receipt, entry):
+    """Bind the first disposition to retained observation; later corrections stay explicit."""
+    store = Store(library, library.resolve(state["plan"]["plan_id"]))
+    if not store.receipt_verified(receipt, build_owner(state)):
+        raise EvidenceError("initial finding requires verified observed review evidence")
+    data = store.read()
+    accepted = data["acceptances"][receipt_key(receipt)]
+    reports = [result_contracts.compile_review(accepted["reports"][key], lens=receipt["lens"])
+               for key in accepted["assignments"]]
+    originals = [f for report in reports for f in report["findings"]]
+    if len(originals) != len(receipt["finding_ids"]):
+        raise EvidenceError("observed finding count does not match receipt")
+    original = dict(zip(receipt["finding_ids"], originals)).get(entry["id"])
+    if original is None or any(entry[k] != original[k] for k in ("lens", "severity", "summary")):
+        raise result_contracts.Rejection("authority", "observed_report_mismatch").as_error(EvidenceError)
 
 
 def missing_build_evidence(library, state, receipts):

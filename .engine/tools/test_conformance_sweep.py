@@ -224,6 +224,20 @@ class TestFeed(unittest.TestCase):
 
 
 class TestExtractBlock(unittest.TestCase):
+    def test_typed_adapter_preserves_all_verdicts_and_distinguishes_absence(self):
+        items = [_item(verdict=v) for v in ("diverges", "meets", "unsure")]
+        result, stripped = cs.extract_result(_block(items))
+        self.assertEqual(result, {"status": "valid", "report": {"kind": "product-conformance", "items": items}})
+        self.assertNotIn("<!--", stripped)
+        self.assertEqual(cs.extract_result("prose")[0], {"status": "absent"})
+        self.assertEqual(cs.extract_result(_block([]))[0]["status"], "valid")
+        for body in [_block(items) + _block([]), "prose <!-- conformance-verdicts.v1 broken",
+                     _block([{**items[0], "unknown": "must not vanish"}])]:
+            result, stripped = cs.extract_result(body)
+            self.assertEqual(result["status"], "rejected")
+            self.assertEqual(result["rejection"]["schema_version"], "result-rejection.v1")
+            self.assertNotIn("<!--", stripped)
+
     def test_one_valid_block_parses_and_strips(self):
         items, stripped = cs.extract_block(_block([_item()]))
         self.assertEqual(len(items), 1)
@@ -326,6 +340,66 @@ class TestLeakGuard(unittest.TestCase):
 
 
 class TestPromote(unittest.TestCase):
+    def test_oversized_outer_input_is_read_in_bounds_and_machine_tail_is_stripped(self):
+        import contextlib
+        import io
+        from unittest import mock
+        import result_contracts
+        root = _seed({})
+        self.addCleanup(__import__("shutil").rmtree, root, True)
+        for position in (0, 65530, result_contracts.LIMITS["bytes"] + 20):
+            narrative = "n" * position
+            body = self._body_file(narrative + cs._BLOCK_MARKER + "x" * 1100000)
+            original_open = open
+            class BoundedReader:
+                def __init__(self, stream): self.stream = stream
+                def __enter__(self): return self
+                def __exit__(self, *args): self.stream.close()
+                def __getattr__(self, key): return getattr(self.stream, key)
+                def read(inner, size=-1):
+                    self.assertGreater(size, 0)
+                    self.assertLessEqual(size, result_contracts.LIMITS["bytes"] + 1)
+                    return inner.stream.read(size)
+            def checked(path, *args, **kwargs):
+                stream = original_open(path, *args, **kwargs)
+                return BoundedReader(stream) if str(path) == body else stream
+            error = io.StringIO()
+            with mock.patch.object(cs, "open", side_effect=checked, create=True), contextlib.redirect_stderr(error):
+                self.assertEqual(cs.promote(body, repo=None, token=None, root=root), (0, False))
+            self.assertIn("maxBytes", error.getvalue())
+            with open(body) as stream:
+                self.assertEqual(stream.read(), narrative)
+
+    def test_cli_rejection_is_not_reported_as_an_empty_success(self):
+        import contextlib
+        import io
+        from unittest import mock
+        body = self._body_file(_block([{**_item(), "unknown": 1}]))
+        root = _seed({})
+        self.addCleanup(__import__("shutil").rmtree, root, True)
+        output, error = io.StringIO(), io.StringIO()
+        with mock.patch.object(cs, "_root", return_value=root), \
+                contextlib.redirect_stdout(output), contextlib.redirect_stderr(error):
+            self.assertEqual(cs.main(["promote", body]), 0)
+        self.assertIn("report rejected", error.getvalue())
+        self.assertIn("No conformance issues were promoted", output.getvalue())
+        self.assertNotIn("No standing conformance findings", output.getvalue())
+        with open(body) as stream:
+            self.assertNotIn("<!--", stream.read())
+
+    def test_rejected_model_block_is_disclosed_stripped_and_does_not_promote(self):
+        import contextlib
+        import io
+        body = self._body_file(_block([{**_item(), "unknown": 1}]))
+        root = _seed({})
+        self.addCleanup(__import__("shutil").rmtree, root, True)
+        error = io.StringIO()
+        with contextlib.redirect_stderr(error):
+            self.assertEqual(cs.promote(body, repo=None, token=None, root=root), (0, False))
+        self.assertIn("report rejected", error.getvalue())
+        with open(body) as stream:
+            self.assertNotIn("<!--", stream.read())
+
     def _body_file(self, text):
         d = tempfile.mkdtemp(prefix="engine-conformance-body-")
         self.addCleanup(__import__("shutil").rmtree, d, True)

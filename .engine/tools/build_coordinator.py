@@ -2060,7 +2060,8 @@ def _findings_batch(source: str, stage: str, lens: str | None = None) -> list[di
     entry anywhere records nothing, so a half-applied batch is not a state a session can land in.
     """
     try:
-        document = json.loads(_input(source))
+        import result_contracts
+        document = result_contracts.parse(result_contracts.read_input(source))
     except ValueError as exc:
         raise CoordinatorError(f"findings batch is not JSON: {exc}") from exc
     _validate(document, FINDINGS_BATCH_SCHEMA)
@@ -2123,7 +2124,24 @@ def _receipt_finding_ids(args) -> list[str]:
 
 
 def cmd_review_record(args, store: Snapshot) -> None:
-    finding_ids = sorted(set(_receipt_finding_ids(args)))
+    finding_ids = _receipt_finding_ids(args)
+    if len(finding_ids) != len(set(finding_ids)):
+        raise CoordinatorError("review finding ids must be unique")
+    reports = None
+    source = getattr(args, "findings_from_file", None)
+    controller_entries = _findings_batch(source, args.stage, args.lens) if source else None
+    if getattr(args, "report", None):
+        import result_contracts
+        try:
+            compiled = review.ingest_review_report(result_contracts.read_input(args.report),
+                result_contracts.resolve("pre-submission-review-finding.v1"), lens=args.lens)
+            reports = {args.lens: compiled["report"]}
+            expected_ids = [f["id"] for f in compiled["findings"]]
+            if finding_ids and finding_ids != expected_ids:
+                result_contracts.reject("observed_report_mismatch", category="authority")
+            finding_ids = expected_ids
+        except result_contracts.Rejection as exc:
+            raise CoordinatorError(str(exc)) from exc
 
     def change(state):
         if args.stage == "repair":
@@ -2182,7 +2200,8 @@ def cmd_review_record(args, store: Snapshot) -> None:
                        "reviewed_range": {"base": target["base_commit"], "tip": target["reviewed_commit"]}}
             target["receipts"] = [r for r in target["receipts"] if r["lens"] != args.lens] + [receipt]
         scoped_agents.accept_build(_library(), state, receipt,
-            providers.resolve_session(explicit=getattr(args, "session", None)))
+            providers.resolve_session(explicit=getattr(args, "session", None)), supplied_reports=reports,
+            controller_entries=controller_entries)
     store.mutate(change)
     print(f"recorded {args.stage} review from {args.lens} with {len(finding_ids)} finding(s)")
     _read_now(store)
@@ -2279,6 +2298,11 @@ def cmd_finding_record(args, store: Snapshot) -> None:
                 raise CoordinatorError(f"no current {args.stage} review packet")
             else:
                 raise CoordinatorError(f"{lens} was not requested by the current {args.stage} packet")
+            prior = next((f for f in state["findings"] if f["id"] == finding_id
+                          and f["lens"] == lens and f["packet_digest"] == packet
+                          and f.get("lens_packet_digest") == lens_packet_digest), None)
+            if by_receipt and prior is None:
+                scoped_agents.validate_initial_build_finding(_library(), state, receipt, entry)
             recorded.append({"id": finding_id, "stage": args.stage, "lens": lens, "packet_digest": packet,
                              "lens_packet_digest": lens_packet_digest, "commit": commit,
                              "severity": entry["severity"], "summary": entry["summary"],
@@ -4079,6 +4103,8 @@ def _bounded_work(work_map: dict) -> dict:
             claim["worktree"] = redacted
         result = nw.get("latest_result")
         if result:
+            # The immutable full report remains private in the canonical snapshot.
+            result.pop("report", None)
             if result.get("artifact_ref"):
                 result["artifact_ref"] = redacted
             evidence = result.get("evidence") or {}
@@ -4764,6 +4790,7 @@ def cmd_work_claim(args, store: Snapshot) -> None:
         nw["latest_failure"] = None
         state["work"][args.item] = nw
         emitted["packet"] = work.build_packet(plan, state, args.item, effective_route, base_sha, attempt_id, args.worktree)
+        nw["claim"]["result_contract"] = emitted["packet"]["result_contract"]
 
     _work_mutate(store, change)
     if "blocked" in emitted:
@@ -4791,23 +4818,27 @@ def cmd_work_result(args, store: Snapshot) -> None:
     plan = _plan(args.plan)
     _require_dag_plan(plan)
     item = work.node_item(plan, args.item)
+    import result_contracts
     try:
-        payload = json.loads(_input(args.input))
-    except ValueError as exc:
-        raise CoordinatorError(f"work result input is not JSON: {exc}") from exc
-    base_sha = payload.get("base_sha")
-    if not base_sha:
-        raise CoordinatorError("work result must report the base_sha the worker built from")
+        raw = result_contracts.read_input(args.input)
+    except result_contracts.Rejection as exc:
+        raise CoordinatorError(str(exc)) from exc
 
     def change(state):
         _assert_plan(state, plan)
         nw = _node_work(state, args.item)
-        result = work.bind_result(nw, item, args.attempt, base_sha, payload)
+        claim = nw.get("claim") or {}
+        payload = work.ingest_worker_report(raw, claim.get("result_contract"))
+        observed = None
+        if (payload["outcome"] == "returned" and
+                work.identity_mode_for_route(claim.get("requested_route") or {}) == "accepted-candidate"):
+            observed = _staged_tree_digest(str(ROOT))
+        result = work.bind_result(nw, item, args.attempt, claim.get("base_sha"), raw,
+                                  observed_digest=observed)
         nw["latest_result"] = result
         if result["outcome"] == "failed":
-            nw["latest_failure"] = work.failure_record(
-                args.attempt, payload.get("class", "worker"),
-                payload.get("reason", "worker reported a failure"))
+            nw["latest_failure"] = work.failure_record(args.attempt, "worker", payload["reason"])
+
         else:
             # A returned result supersedes any open failure for this attempt, so the node never
             # derives as failed while holding a complete, contract-satisfying returned result.
@@ -5967,7 +5998,7 @@ def parser() -> argparse.ArgumentParser:
     depths = sub.add_parser("depths"); depths.add_argument("--json", action="store_true"); depths.set_defaults(func=cmd_depths)
     review = sub.add_parser("review").add_subparsers(dest="review_command", required=True)
     packet = review.add_parser("packet"); packet.add_argument("--stage", choices=["deliverable", "repair"], required=True); packet.add_argument("--plan", required=True); packet.add_argument("--impact"); packet.add_argument("--output"); packet.add_argument("--json", action="store_true"); packet.add_argument("--standalone", action="store_true"); packet.add_argument("--repository"); packet.add_argument("--commit"); packet.add_argument("--base"); packet.add_argument("--depth", choices=["quick", "standard", "thorough"]); packet.set_defaults(func=_packet)
-    record = review.add_parser("record"); record.add_argument("--stage", choices=["deliverable", "repair"], required=True); record.add_argument("--lens", required=True); record.add_argument("--packet-digest", required=True); record.add_argument("--lens-packet-digest", required=True); record.add_argument("--finding", action="append"); record.add_argument("--findings-from-file", help="A build-findings-batch.v1 file (or -) whose ids this receipt demands. The SAME file `finding record --from-file` reads, so a receipt and its findings cannot disagree; mutually exclusive with --finding."); record.add_argument("--code-execution", choices=["none", "discarded-copy", "in-place"], required=True); record.set_defaults(func=cmd_review_record)
+    record = review.add_parser("record"); record.add_argument("--stage", choices=["deliverable", "repair"], required=True); record.add_argument("--lens", required=True); record.add_argument("--packet-digest", required=True); record.add_argument("--lens-packet-digest", required=True); record.add_argument("--finding", action="append"); record.add_argument("--findings-from-file", help="A build-findings-batch.v1 file (or -) whose ids this receipt demands. The SAME file `finding record --from-file` reads, so a receipt and its findings cannot disagree; mutually exclusive with --finding."); record.add_argument("--code-execution", choices=["none", "discarded-copy", "in-place"], required=True); record.add_argument("--report", help="Strict raw reviewer JSON; must equal the observed child report. Compiles Engine finding ids."); record.set_defaults(func=cmd_review_record)
     finding = sub.add_parser("finding").add_subparsers(dest="finding_command", required=True)
     packet.add_argument("--session", help="Owning root session for observed review assignments")
     record.add_argument("--session", help="Owning root session whose review execution was observed")
@@ -6211,7 +6242,10 @@ def main(argv: list[str] | None = None) -> int:
         args.func(args, store)
         return 0
     except CoordinatorError as exc:
-        print(f"build-coordinator: {exc}", file=sys.stderr)
+        import result_contracts
+        envelope = result_contracts.rejection_envelope(exc)
+        print(json.dumps(envelope, sort_keys=True) if envelope is not None else
+              f"build-coordinator: {exc}", file=sys.stderr)
         return 2
     except OSError as exc:
         print(f"build-coordinator: durable operation did not finish ({exc}). Preserve the evidence; "

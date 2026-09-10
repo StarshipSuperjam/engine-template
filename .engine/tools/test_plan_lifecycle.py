@@ -48,14 +48,24 @@ class _Ceremony(unittest.TestCase):
             parsed = project_manager.build_parser().parse_args(["--library", str(self.root), *argv])
             slug = self.lib.resolve(parsed.plan)
             record = self.lib.read_record(slug)
-            findings = plan_lifecycle.translate_findings(
-                json.loads(Path(parsed.findings).read_text()) if parsed.findings else [],
-                lenses=list(parsed.lens or (record.get("plan_review") or {}).get("lenses", [])))
-            for lens in parsed.lens or []:
-                digest = parsed.packet_digest
-                output = [{"severity": f["severity"], "message": f["summary"], "location": None}
-                          for f in findings if f["lens"] == lens]
-                observe_review_execution(self.lib, slug, scoped_agents.plan_owner(record), lens, digest, output)
+            supplied = json.loads(Path(parsed.findings).read_text()) if parsed.findings else []
+            lenses = list(parsed.lens or (record.get("plan_review") or {}).get("lenses", []))
+            controller = bool(supplied and "summary" in supplied[0])
+            if controller:
+                # Historical controller fixtures opt into that path explicitly; producer arrays remain raw.
+                argv = (*argv, "--controller-findings")
+                Path(parsed.findings).write_text(json.dumps(sorted(supplied, key=lambda f: f["lens"])))
+            elif not parsed.findings:
+                argv = (*argv, "--findings", self.findings_file())
+            for lens in lenses:
+                if controller:
+                    output = [{"severity": f["severity"], "message": f["summary"],
+                               "location": {"file": f["location"]} if f.get("location") else None}
+                              for f in supplied if f["lens"] == lens]
+                else:
+                    output = supplied
+                observe_review_execution(self.lib, slug, scoped_agents.plan_owner(record), lens,
+                                         parsed.packet_digest, output)
             argv = (*argv, "--session", "fixture-root")
         with contextlib.redirect_stdout(out), contextlib.redirect_stderr(err):
             code = tool.main(["--library", str(self.root), *argv])
@@ -166,14 +176,14 @@ class D3TheTwoFindingShapesTranslate(_Ceremony):
     def test_the_reviewer_shape_is_mapped_rather_than_refused(self):
         slug = self.approved("standard")
         persona = {"severity": "blocking", "message": "The fence lands after the write.",
-                   "location": "C01, the durable store"}
+                   "location": {"file": "C01, the durable store"}}
         code, _, _ = self.run_command(
             "review", "record", slug, "--packet-digest", self.packet_digest(slug),
             "--lens", "architecture", "--findings", self.findings_file(persona))
         self.assertEqual(code, 0)
         recorded = self.lib.read_record(slug)["plan_review"]["findings"][0]
         self.assertEqual(recorded["summary"], persona["message"])
-        self.assertEqual(recorded["location"], persona["location"])
+        self.assertEqual(recorded["location"], persona["location"]["file"])
         self.assertEqual(recorded["lens"], "architecture")
         self.assertEqual(recorded["id"], "A-1")
 
