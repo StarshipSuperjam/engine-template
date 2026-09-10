@@ -185,13 +185,109 @@ def validate_config(value: dict) -> dict:
 
 
 def load_config(root=None) -> dict | None:
-    path = Path(root or Path(__file__).resolve().parents[2]) / CONFIG_NAME
-    try:
-        return validate_config(json.loads(path.read_text()))
-    except FileNotFoundError:
-        return None
-    except (OSError, ValueError) as exc:
-        raise TriageError(f'cannot read {CONFIG_NAME}: {exc}') from exc
+    return config_snapshot(root)['config']
+
+
+def _config_paths(root=None):
+    """Project context, never the location of executing (possibly accepted) source code."""
+    import os
+    import checkout_health
+    context = Path(root or os.getcwd()).resolve()
+    canonical = checkout_health.engine_common_checkout(str(context))
+    if canonical is None:
+        # Explicit roots are also the supported non-Git fixture/deployment seam.
+        if root is None or (context / '.git').exists():
+            raise TriageError('Cannot resolve the project configuration root.')
+        roots = [context]
+        canonical = context
+    else:
+        canonical = Path(canonical).resolve()
+        declared = os.environ.get('ENGINE_PROJECT_ROOT') if root is None else None
+        if declared and Path(declared).resolve() != canonical:
+            raise TriageError('Project context and canonical configuration root disagree.')
+        roots = checkout_health.registered_checkout_roots(str(context))
+        if roots is None:
+            raise TriageError('Registered checkout inventory is unavailable; configuration is unknown.')
+    paths = [Path(canonical) / CONFIG_NAME]
+    paths.extend(Path(p) / CONFIG_NAME for p in roots if Path(p) != Path(canonical))
+    for path in paths:
+        if path.parent.is_symlink() or path.is_symlink() or path.resolve() != path:
+            raise TriageError(f'Configuration path is ambiguous or symbolic: {path}')
+    return paths
+
+
+def config_snapshot(root=None, *, resolve_from=None):
+    """Read all verified old locations; a digest binds explicit recovery to this observation."""
+    paths = _config_paths(root)
+    sources = {}
+    for path in paths:
+        try:
+            raw = path.read_bytes()
+        except FileNotFoundError:
+            continue
+        except OSError as exc:
+            raise TriageError(f'Cannot read configuration at {path}: {exc}') from exc
+        try:
+            value = validate_config(json.loads(raw))
+        except (ValueError, TypeError) as exc:
+            raise TriageError(f'Cannot read configuration at {path}: {exc}') from exc
+        sources[str(path)] = {'digest': 'sha256:' + hashlib.sha256(raw).hexdigest(), 'config': value}
+    canonical = sources.get(str(paths[0]), {}).get('config')
+    migrated = (canonical or {}).get('migrated_sources', {})
+    active = {p: v for p, v in sources.items()
+              if p == str(paths[0]) or migrated.get(p) != v['digest']}
+    digest = fingerprint({'paths': [str(p) for p in paths],
+                          'sources': {p: v['digest'] for p, v in sources.items()}})
+    if resolve_from is not None:
+        source = str(Path(resolve_from).absolute())
+        if source not in sources:
+            raise TriageError('The chosen configuration source is not a readable registered project copy.')
+        config = sources[source]['config']
+    else:
+        configs = [v['config'] for v in active.values()]
+        if configs and any(v['repositories'] != configs[0]['repositories'] for v in configs[1:]):
+            raise TriageError('Configuration copies conflict: ' + ', '.join(active)
+                              + f'. Observation {digest}; use configure --resolve-config-from with'
+                                ' --expect-config-digest to explicitly choose a source.')
+        config = canonical or (configs[0] if configs else None)
+    return {'path': paths[0], 'config': copy.deepcopy(config), 'sources': sources, 'digest': digest}
+
+
+def configure(client, mapping, *, root=None, resolve_from=None, expected_digest=None):
+    """Explicit migration/update with fresh local CAS after network preflight, under one lock."""
+    from build_coordinator_core import atomic_write, exclusive_lock
+    observed = config_snapshot(root, resolve_from=resolve_from)
+    if resolve_from is not None and expected_digest is None:
+        raise TriageError('Choosing a configuration copy requires --expect-config-digest.')
+    if expected_digest is not None and observed['digest'] != expected_digest:
+        raise TriageError('Configuration changed; inspect its copies before retrying.')
+    value = observed['config'] or {'schema_version': 'operator-issue-triage.v1', 'repositories': {}}
+    previous = repo_config(value, client.repo)
+    settings = {'activated_at': previous['activated_at'] if previous else moment.utc_now(),
+                'milestones': mapping}
+    key = next((k for k in value['repositories'] if k.lower() == client.repo.lower()), client.repo)
+    value['repositories'][key] = settings
+    # Exact old bytes are acknowledged, not deleted. Changed old copies raise a new conflict.
+    value['migrated_sources'] = {p: v['digest'] for p, v in observed['sources'].items()
+                                 if p != str(observed['path'])}
+    validate_config(value)
+    for target in mapping.values():
+        if target is not None:
+            found = read_api(client, f'/repos/{client.repo}/milestones/{target}')
+            if found.get('number') != target or found.get('state') != 'open':
+                raise TriageError('Every enabled mapping must name an existing open milestone in this repository.')
+    path = observed['path']
+    lock = path.with_name(path.name + '.lock')
+    if lock.is_symlink():
+        raise TriageError('Configuration lock must not be a symbolic link.')
+    with exclusive_lock(lock):
+        current = config_snapshot(root, resolve_from=resolve_from)
+        if current['digest'] != observed['digest']:
+            raise TriageError('Configuration changed during preflight; no update was written. Retry from fresh state.')
+        atomic_write(path, json.dumps(value, indent=2) + '\n', mode=0o600)
+        if json.loads(path.read_text()) != value:
+            raise TriageError('Configuration readback differs; inspect before retrying.')
+    return {'configured': client.repo, 'settings': settings, 'path': str(path)}
 
 
 def repo_config(config: dict | None, repository: str) -> dict | None:
@@ -306,9 +402,13 @@ def discover(client, config: dict | None, *, max_seconds=10) -> dict:
             if error or outstanding(record):
                 items.append({'number': issue['number'], 'created_at': issue.get('created_at'),
                               'record': record, 'error': error, 'enrollment': state})
-        return {'complete': True, 'items': items, 'error': None}
+        return {'complete': True, 'items': items, 'error': None,
+                'pending_count': sum(v['enrollment'] == 'required' for v in items),
+                'unknown_count': sum(v['enrollment'] == 'unknown' for v in items)}
     except Exception as exc:
-        return {'complete': False, 'items': items, 'error': str(exc)}
+        return {'complete': False, 'items': items, 'error': str(exc),
+                'pending_count': sum(v['enrollment'] == 'required' for v in items),
+                'unknown_count': sum(v['enrollment'] == 'unknown' for v in items)}
 
 
 def matching_submission(client, submission_id: str, *, strict=True) -> list:
@@ -492,6 +592,8 @@ def main(argv=None) -> int:
     parser.add_argument('--input')
     parser.add_argument('--expect-revision',type=int)
     parser.add_argument('--expect-body-digest')
+    parser.add_argument('--resolve-config-from')
+    parser.add_argument('--expect-config-digest')
     parser.add_argument('--confirm',action='store_true')
     args=parser.parse_args(argv)
     try:
@@ -534,22 +636,10 @@ def main(argv=None) -> int:
         if args.verb=='configure':
             if not args.confirm or not args.input:
                 raise TriageError('configure needs --input with all four milestone mappings and --confirm.')
-            mapping=issue_author.load_input(args.input)
-            existing=load_config() or {'schema_version':'operator-issue-triage.v1','repositories':{}}
-            previous=repo_config(existing,repo)
-            settings={'activated_at':previous['activated_at'] if previous else now,'milestones':mapping}
-            key = next((name for name in existing['repositories'] if name.lower() == repo.lower()), repo)
-            existing['repositories'][key]=settings
-            validate_config(existing)
-            for target in mapping.values():
-                if target is not None:
-                    found=read_api(client,f'/repos/{repo}/milestones/{target}')
-                    if found.get('number')!=target or found.get('state')!='open':
-                        raise TriageError('Every enabled mapping must name an existing open milestone in this repository.')
-            import build_coordinator_core
-            path=Path(__file__).resolve().parents[2]/CONFIG_NAME
-            build_coordinator_core.atomic_write(path,json.dumps(existing,indent=2)+'\n')
-            print(json.dumps({'configured':repo,'settings':settings},indent=2))
+            result = configure(client, issue_author.load_input(args.input),
+                               resolve_from=args.resolve_config_from,
+                               expected_digest=args.expect_config_digest)
+            print(json.dumps(result, indent=2))
             return 0
         config=load_config()
         if args.verb=='list':
@@ -676,6 +766,8 @@ def select_pending(discovery, config, repository):
     """Never-dispositioned first, then least recently dispositioned; stable across clones."""
     eligible = []
     for item in discovery['items']:
+        if item.get('enrollment') != 'required':
+            continue
         record = item.get('record') or {}
         disposition = record.get('disposition') or {}
         blocked = disposition.get('prerequisite')

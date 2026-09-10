@@ -441,5 +441,158 @@ class ReviewRegressions(unittest.TestCase):
         self.assertEqual(triage.select_pending(discovery, Filing.config, client.repo)['number'], 2)
 
 
+
+class ConfigurationUpgrade(unittest.TestCase):
+    def setUp(self):
+        import tempfile, subprocess
+        self.temp = tempfile.TemporaryDirectory()
+        self.addCleanup(self.temp.cleanup)
+        self.root = Path(self.temp.name).resolve() / 'primary'
+        self.worktree = self.root.parent / 'linked space'
+        self.root.mkdir()
+        def git(*args):
+            subprocess.run(['git', '-C', str(self.root), *args], check=True,
+                           stdout=subprocess.DEVNULL, stderr=subprocess.PIPE)
+        git('init'); git('config', 'user.name', 'Test'); git('config', 'user.email', 'test@example.invalid')
+        git('commit', '--allow-empty', '-m', 'fixture')
+        git('worktree', 'add', '-b', 'fixture', str(self.worktree))
+        self.config = copy.deepcopy(Filing.config)
+        self.mapping = {key: None for key in ('none', 'patch', 'minor', 'major')}
+        self.canonical = self.root / triage.CONFIG_NAME
+        self.legacy = self.worktree / triage.CONFIG_NAME
+
+    def write(self, path, value):
+        path.parent.mkdir(exist_ok=True)
+        path.write_text(json.dumps(value))
+
+    def test_worktree_only_migration_preserves_dates_and_other_repositories(self):
+        self.config['repositories']['other/project'] = copy.deepcopy(Discovery.settings)
+        self.write(self.legacy, self.config)
+        before = self.legacy.read_bytes()
+        self.assertEqual(triage.load_config(self.root), self.config)
+        self.assertEqual(triage.load_config(self.worktree), self.config)
+        self.assertFalse(self.canonical.exists())
+        triage.configure(FakeGitHub(), self.mapping, root=self.worktree)
+        value = triage.load_config(self.root)
+        self.assertEqual(value['repositories']['o/r']['activated_at'], Discovery.settings['activated_at'])
+        self.assertEqual(value['repositories']['other/project'], Discovery.settings)
+        self.assertEqual(self.legacy.read_bytes(), before)
+        self.assertEqual(triage.enrollment(Discovery().issue(), value['repositories']['o/r']), 'required')
+        triage.configure(FakeGitHub(), self.mapping, root=self.root)
+        self.assertEqual(triage.load_config(self.worktree), triage.load_config(self.root))
+        self.assertTrue(self.canonical.with_name(self.canonical.name + '.lock').exists())
+
+    def test_conflicting_copies_require_exact_explicit_resolution(self):
+        self.write(self.legacy, self.config)
+        different = copy.deepcopy(self.config)
+        different['repositories']['o/r']['milestones']['patch'] = 99
+        self.write(self.canonical, different)
+        with self.assertRaisesRegex(triage.TriageError, 'copies conflict'):
+            triage.load_config(self.root)
+        observed = triage.config_snapshot(self.root, resolve_from=self.legacy)
+        with self.assertRaisesRegex(triage.TriageError, 'expect-config-digest'):
+            triage.configure(FakeGitHub(), self.mapping, root=self.root, resolve_from=self.legacy)
+        triage.configure(FakeGitHub(), self.mapping, root=self.root, resolve_from=self.legacy,
+                         expected_digest=observed['digest'])
+        self.assertEqual(triage.load_config(self.root)['repositories']['o/r']['milestones'], self.mapping)
+        self.legacy.write_text(json.dumps(different))
+        with self.assertRaisesRegex(triage.TriageError, 'copies conflict'):
+            triage.load_config(self.root)
+
+    def test_source_change_during_network_preflight_refuses_without_write(self):
+        self.write(self.legacy, self.config)
+        class Client(FakeGitHub):
+            def _transport(inner, *args):
+                value = copy.deepcopy(self.config)
+                value['repositories']['o/r']['activated_at'] = '2026-09-01T00:00:00Z'
+                self.write(self.legacy, value)
+                return super()._transport(*args)
+        with self.assertRaisesRegex(triage.TriageError, 'changed during preflight'):
+            triage.configure(Client(), {key: 16 for key in self.mapping}, root=self.root)
+        self.assertFalse(self.canonical.exists())
+
+    def test_unreadable_and_symbolic_copies_do_not_create_new_activation(self):
+        self.legacy.parent.mkdir()
+        self.legacy.write_text('broken json')
+        with self.assertRaisesRegex(triage.TriageError, 'Cannot read configuration'):
+            triage.configure(FakeGitHub(), self.mapping, root=self.root)
+        self.legacy.unlink()
+        self.legacy.symlink_to(self.root.parent / 'elsewhere')
+        with self.assertRaisesRegex(triage.TriageError, 'symbolic'):
+            triage.configure(FakeGitHub(), self.mapping, root=self.root)
+        self.assertFalse(self.canonical.exists())
+
+    def test_accepted_source_location_is_not_configuration_context(self):
+        from unittest.mock import patch
+        import os
+        self.write(self.canonical, self.config)
+        with patch.object(triage, '__file__', str(self.root.parent / 'accepted/.engine/tools/issue_triage.py')), \
+             patch('os.getcwd', return_value=str(self.worktree)), \
+             patch.dict(os.environ, {'ENGINE_PROJECT_ROOT': str(self.root)}):
+            self.assertEqual(triage.load_config(), self.config)
+        with patch('os.getcwd', return_value=str(self.worktree)), \
+             patch.dict(os.environ, {'ENGINE_PROJECT_ROOT': str(self.root.parent / 'unrelated')}):
+            with self.assertRaisesRegex(triage.TriageError, 'disagree'):
+                triage.load_config()
+
+    def test_two_processes_refuse_stale_preflight_and_retry_preserves_both_mappings(self):
+        import multiprocessing
+        context = multiprocessing.get_context('spawn')
+        barrier = context.Barrier(2)
+        outcomes = context.Queue()
+        self.write(self.canonical, self.config)
+        processes = [context.Process(target=_configure_race, args=(str(self.root), repo, barrier, outcomes))
+                     for repo in ('first/project', 'second/project')]
+        for process in processes: process.start()
+        try:
+            results = [outcomes.get(timeout=20) for _ in processes]
+            for process in processes:
+                process.join(10)
+                self.assertEqual(process.exitcode, 0)
+        finally:
+            for process in processes:
+                if process.is_alive(): process.terminate(); process.join()
+        self.assertEqual(sorted(state for _, state in results), ['changed', 'configured'])
+        winner = next(repo for repo, state in results if state == 'configured')
+        loser = next(repo for repo, state in results if state == 'changed')
+        value = triage.load_config(self.root)
+        self.assertIn(winner, value['repositories']); self.assertNotIn(loser, value['repositories'])
+        self.assertEqual(value['repositories']['o/r'], Discovery.settings)
+        client = FakeGitHub(); client.repo = loser
+        triage.configure(client, self.mapping, root=self.root)
+        value = triage.load_config(self.root)
+        self.assertIn(winner, value['repositories']); self.assertIn(loser, value['repositories'])
+
+
+def _configure_race(root, repo, barrier, outcomes):
+    class Client(FakeGitHub):
+        def _transport(self, *args):
+            barrier.wait(timeout=10)
+            return super()._transport(*args)
+    client = Client(); client.repo = repo
+    try:
+        triage.configure(client, {'none': None, 'patch': 16, 'minor': None, 'major': None}, root=root)
+        outcomes.put((repo, 'configured'))
+    except triage.TriageError as exc:
+        outcomes.put((repo, 'changed' if 'changed during preflight' in str(exc) else str(exc)))
+
+
+class EligibilityRegression(unittest.TestCase):
+    def test_unknown_legacy_issue_is_observed_but_never_selected(self):
+        client = FakeGitHub()
+        client.issues = [{'number':221, 'labels':['engine'], 'body':'Old report',
+                          'created_at':'2026-06-23T00:00:00Z', 'milestone':{'number':19}}]
+        result = triage.discover(client, None)
+        self.assertTrue(result['complete']); self.assertEqual(result['unknown_count'], 1)
+        self.assertEqual(result['pending_count'], 0)
+        self.assertIsNone(triage.select_pending(result, None, client.repo))
+        self.assertEqual(result['items'][0]['enrollment'], 'unknown')
+        self.assertTrue(all(row[0] == 'GET' for row in client.calls))
+        client.issues.append({**client.issues[0], 'number':222, 'body':triage.render(record())})
+        result = triage.discover(client, None)
+        self.assertEqual(result['pending_count'], 1)
+        self.assertEqual(triage.select_pending(result, None, client.repo)['number'], 222)
+
+
 if __name__ == '__main__':
     unittest.main()

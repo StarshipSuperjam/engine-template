@@ -86,6 +86,14 @@
           }
         }
       }
+    },
+    "migrated_sources": {
+      "type": "object",
+      "description": "Exact legacy copies acknowledged by explicit canonical configuration migration; changed copies require new resolution.",
+      "additionalProperties": {
+        "type": "string",
+        "pattern": "^sha256:[0-9a-f]{64}$"
+      }
     }
   }
 }

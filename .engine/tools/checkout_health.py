@@ -1342,6 +1342,31 @@ def engine_common_checkout(cwd: str | None = None) -> str | None:
     return st[0] if st else None
 
 
+def registered_checkout_roots(cwd: str | None = None) -> list[str] | None:
+    """Stable, read-only inventory for recovering project-owned configuration across worktrees.
+
+    Canonical ownership is still decided by engine_common_checkout. NUL porcelain retains spaces and
+    newlines in paths; unavailable or changed topology is unknown, never an empty inventory.
+    """
+    canonical = engine_common_checkout(cwd)
+    if canonical is None:
+        return None
+    command = ['git', 'worktree', 'list', '--porcelain', '-z']
+    first = _run(command, cwd=cwd)
+    if not first:
+        return None
+    paths = [part[len('worktree '):] for part in first.split('\0') if part.startswith('worktree ')]
+    if not paths or len(set(paths)) != len(paths):
+        return None
+    for path in paths:
+        if not os.path.isdir(path) or os.path.realpath(path) != path:
+            return None
+        owner = engine_common_checkout(path)
+        if owner is None or os.path.realpath(owner) != os.path.realpath(canonical):
+            return None
+    return paths if first == _run(command, cwd=cwd) else None
+
+
 def confident_default_branch(checkout_path: str) -> str | None:
     """OFFLINE, READ-ONLY: the default branch of the checkout at `checkout_path`, ONLY when known with
     confidence (persisted-and-validated, else `origin/HEAD`) — never a heuristic guess. None when it cannot be
