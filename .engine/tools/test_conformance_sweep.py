@@ -340,6 +340,36 @@ class TestLeakGuard(unittest.TestCase):
 
 
 class TestPromote(unittest.TestCase):
+    def test_oversized_outer_input_is_read_in_bounds_and_machine_tail_is_stripped(self):
+        import contextlib
+        import io
+        from unittest import mock
+        import result_contracts
+        root = _seed({})
+        self.addCleanup(__import__("shutil").rmtree, root, True)
+        for position in (0, 65530, result_contracts.LIMITS["bytes"] + 20):
+            narrative = "n" * position
+            body = self._body_file(narrative + cs._BLOCK_MARKER + "x" * 1100000)
+            original_open = open
+            class BoundedReader:
+                def __init__(self, stream): self.stream = stream
+                def __enter__(self): return self
+                def __exit__(self, *args): self.stream.close()
+                def __getattr__(self, key): return getattr(self.stream, key)
+                def read(inner, size=-1):
+                    self.assertGreater(size, 0)
+                    self.assertLessEqual(size, result_contracts.LIMITS["bytes"] + 1)
+                    return inner.stream.read(size)
+            def checked(path, *args, **kwargs):
+                stream = original_open(path, *args, **kwargs)
+                return BoundedReader(stream) if str(path) == body else stream
+            error = io.StringIO()
+            with mock.patch.object(cs, "open", side_effect=checked, create=True), contextlib.redirect_stderr(error):
+                self.assertEqual(cs.promote(body, repo=None, token=None, root=root), (0, False))
+            self.assertIn("maxBytes", error.getvalue())
+            with open(body) as stream:
+                self.assertEqual(stream.read(), narrative)
+
     def test_cli_rejection_is_not_reported_as_an_empty_success(self):
         import contextlib
         import io

@@ -328,8 +328,8 @@ def bind_result(nw: dict, item: dict, attempt_id: str, base_sha: str, payload,
                 *, observed_digest=None) -> dict:
     """Bind validated semantics to Engine-owned identity; legacy records remain read-only."""
     def refuse(rule, category="semantic", detail="Worker result rejected"):
-        raise CoordinatorError(str(result_contracts.Rejection(category, rule,
-            contract="worker-result.v1", detail=detail)))
+        raise result_contracts.Rejection(category, rule,
+            contract="worker-result.v1", detail=detail).as_error(CoordinatorError)
     claim = nw.get("claim")
     if not claim:
         refuse("missing_claim", "authority")
@@ -340,7 +340,7 @@ def bind_result(nw: dict, item: dict, attempt_id: str, base_sha: str, payload,
     # Dict input is an internal convenience, never a bypass of the canonical validator.
     import json
     try:
-        raw = json.dumps(payload, allow_nan=False) if isinstance(payload, (dict, list)) else payload
+        raw = json.dumps(payload, allow_nan=False, ensure_ascii=False) if isinstance(payload, (dict, list)) else payload
     except (ValueError, TypeError, RecursionError):
         refuse("raw_input_required", "syntax")
     report = ingest_worker_report(raw, claim.get("result_contract"))

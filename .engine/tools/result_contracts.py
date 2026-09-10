@@ -55,6 +55,24 @@ class Rejection(ValueError):
         super().__init__(json.dumps(self.envelope, ensure_ascii=True, sort_keys=True))
 
 
+    def as_error(self, error_type):
+        """Keep typed refusal provenance through an existing consumer's exception boundary."""
+        error = error_type(str(self))
+        error.__cause__ = self
+        return error
+
+
+def rejection_envelope(error):
+    """Only a typed cause is a protocol refusal; arbitrary exception text is never parsed."""
+    seen = set()
+    while error is not None and id(error) not in seen:
+        if isinstance(error, Rejection):
+            return error.envelope
+        seen.add(id(error))
+        error = error.__cause__
+    return None
+
+
 def reject(rule, *, category="schema", contract=None, path="", detail="Result does not satisfy its contract"):
     raise Rejection(category, rule, contract=contract, path=path, detail=detail)
 
@@ -133,7 +151,8 @@ def _limits(value, contract, parts=()):
     elif isinstance(value, dict):
         for key, child in value.items():
             _limits(key, contract, parts)
-            _limits(child, contract, (*parts, key))
+            # Before schema validation, object keys are untrusted payload, not safe paths.
+            _limits(child, contract, ())
 
 
 def parse(raw, *, contract=None):
@@ -279,13 +298,10 @@ def ingest(raw, binding, *, contract=None, role=None, root=ROOT):
     return value
 
 
-def observed_report(raw, observed, binding, *, contract=None, role=None, root=ROOT):
-    """The immutable observed output, never a caller's replacement, is compiled."""
-    original = ingest(observed, binding, contract=contract, role=role, root=root)
-    supplied = ingest(raw, binding, contract=contract, role=role, root=root)
-    if digest(supplied) != digest(original):
-        reject("observed_report_mismatch", category="authority", contract=binding["id"])
-    return original
+def require_observed_report(supplied, observed):
+    """Compare already validated reports without changing their JSON type semantics."""
+    if digest(supplied) != digest(observed):
+        reject("observed_report_mismatch", category="authority")
 
 
 def compile_review(report, *, lens):

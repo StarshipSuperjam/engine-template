@@ -387,9 +387,25 @@ class Store:
                         a["faults"].append("duplicate clarification delivery")
                 if event == "SubagentStop":
                     final = payload.get("last_assistant_message") or transcript.get("final")
+                    # Refuse retention before hashing or serializing the raw final output.
+                    # This is a recoverable stop, not a permanent assignment fault.
+                    rejection = None
+                    if final is not None and not isinstance(final, str):
+                        rejection = result_contracts.Rejection("syntax", "raw_input_required").envelope
+                        final = None
+                    if isinstance(final, str):
+                        try:
+                            if (len(final) > result_contracts.LIMITS["bytes"] or
+                                    len(final.encode("utf-8")) > result_contracts.LIMITS["bytes"]):
+                                result_contracts.reject("maxBytes")
+                        except (result_contracts.Rejection, UnicodeError):
+                            rejection = result_contracts.Rejection("syntax", "output_limit").envelope
+                            final = None
                     stop = {"child": actor, "output": final, "digest": core.digest(final),
                             "continuations": len(a["continuations"]),
                             "delivered": all(c["delivered"] for c in a["continuations"])}
+                    if rejection is not None:
+                        stop["rejection"] = rejection
                     if call["provider"] == providers.CODEX:
                         stop["control_verified"] = providers.scoped_control_verified(
                             transcript, root=root, child=actor, name=a["id"],
@@ -472,7 +488,7 @@ class Store:
             raise EvidenceError(str(exc)) from exc
 
     def accept_locked(self, *, owner, root, receipt, lenses, packet_digests, prior_receipt=None,
-                      supplied_reports=None, controller_entries=None):
+                      supplied_reports=None, controller_entries=None, existing_entries=()):
         """Called inside the existing plan/Build transaction, before publishing its receipt.
 
         Persisting this first can leave an orphan after a crash. An orphan is never coverage:
@@ -497,8 +513,10 @@ class Store:
         compiled = {a["id"]: self.review_report(a, owner) for a in assignments}
         if supplied_reports is not None:
             observed = {a["lens"]: compiled[a["id"]]["report"] for a in assignments if a["lens"] in lenses}
-            if result_contracts.digest(observed) != result_contracts.digest(supplied_reports):
-                raise EvidenceError(str(result_contracts.Rejection("authority", "observed_report_mismatch")))
+            try:
+                result_contracts.require_observed_report(supplied_reports, observed)
+            except result_contracts.Rejection as exc:
+                raise exc.as_error(EvidenceError)
         # Initial findings come from the observed report; the caller cannot omit, reorder or
         # replace them. Previously accepted findings may have explicit controller corrections.
         expected = [f for a in assignments if a["lens"] in lenses for f in compiled[a["id"]]["findings"]]
@@ -513,16 +531,24 @@ class Store:
                 ("location" not in s or s["location"] == e["location"])
                 for s, e in zip(supplied, expected))
             if not matches:
-                raise EvidenceError(str(result_contracts.Rejection("authority", "observed_report_mismatch")))
+                raise result_contracts.Rejection("authority", "observed_report_mismatch").as_error(EvidenceError)
         else:
             if len(receipt["finding_ids"]) != len(expected) or len(set(receipt["finding_ids"])) != len(expected):
-                raise EvidenceError(str(result_contracts.Rejection("authority", "observed_report_mismatch")))
+                raise result_contracts.Rejection("authority", "observed_report_mismatch").as_error(EvidenceError)
             if controller_entries is not None and (len(controller_entries) != len(expected) or any(
                     any(s[k] != e[k] for k in ("lens", "severity", "summary"))
                     for s, e in zip(controller_entries, expected))):
-                raise EvidenceError(str(result_contracts.Rejection("authority", "observed_report_mismatch")))
+                raise result_contracts.Rejection("authority", "observed_report_mismatch").as_error(EvidenceError)
         data = self.read()
         key = receipt_key(receipt)
+        if owner["kind"] == "build" and key not in data["acceptances"]:
+            # Findings may be dispositioned before their receipt. That ordering cannot
+            # bypass the same initial semantics check as receipt-first recording.
+            originals = dict(zip(receipt["finding_ids"], expected))
+            for entry in existing_entries:
+                original = originals.get(entry["id"])
+                if original and any(entry[k] != original[k] for k in ("lens", "severity", "summary")):
+                    raise result_contracts.Rejection("authority", "observed_report_mismatch").as_error(EvidenceError)
         for a in assignments:
             data["assignments"][a["id"]]["accepted"] = True
         data["acceptances"][key] = {"owner": owner, "assignments": [a["id"] for a in assignments],
@@ -595,7 +621,27 @@ def accept_build(library, state, receipt, root, *, supplied_reports=None, contro
     slug = library.resolve(state["plan"]["plan_id"])
     Store(library, slug).accept_locked(owner=build_owner(state), root=root, receipt=receipt,
         lenses=[receipt["lens"]], packet_digests={receipt["lens"]: receipt["lens_packet_digest"]},
-        supplied_reports=supplied_reports, controller_entries=controller_entries)
+        supplied_reports=supplied_reports, controller_entries=controller_entries,
+        existing_entries=[f for f in state["findings"] if f["lens"] == receipt["lens"]
+                          and f["packet_digest"] == receipt["packet_digest"]
+                          and f.get("lens_packet_digest") == receipt.get("lens_packet_digest")])
+
+
+def validate_initial_build_finding(library, state, receipt, entry):
+    """Bind the first disposition to retained observation; later corrections stay explicit."""
+    store = Store(library, library.resolve(state["plan"]["plan_id"]))
+    if not store.receipt_verified(receipt, build_owner(state)):
+        raise EvidenceError("initial finding requires verified observed review evidence")
+    data = store.read()
+    accepted = data["acceptances"][receipt_key(receipt)]
+    reports = [result_contracts.compile_review(accepted["reports"][key], lens=receipt["lens"])
+               for key in accepted["assignments"]]
+    originals = [f for report in reports for f in report["findings"]]
+    if len(originals) != len(receipt["finding_ids"]):
+        raise EvidenceError("observed finding count does not match receipt")
+    original = dict(zip(receipt["finding_ids"], originals)).get(entry["id"])
+    if original is None or any(entry[k] != original[k] for k in ("lens", "severity", "summary")):
+        raise result_contracts.Rejection("authority", "observed_report_mismatch").as_error(EvidenceError)
 
 
 def missing_build_evidence(library, state, receipts):

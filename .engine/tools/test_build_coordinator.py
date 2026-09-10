@@ -223,7 +223,7 @@ class CoordinatorCase(unittest.TestCase):
         library_patch.start()
         self.addCleanup(library_patch.stop)
 
-    def record_review(self, args, store):
+    def record_review(self, args, store, report=None):
         import scoped_agents
         state = store.read()
         if "ownership" not in state:
@@ -235,8 +235,9 @@ class CoordinatorCase(unittest.TestCase):
         entries = bc._findings_batch(batch, args.stage, args.lens) if batch else None
         observe_review_execution(self.review_library, self.review_slug, scoped_agents.build_owner(state),
             args.lens, args.lens_packet_digest,
+            report if report is not None else (
             [{"severity": f["severity"], "message": f["summary"], "location": None} for f in entries]
-            if entries is not None else [{"severity": "nit", "message": fid, "location": None} for fid in findings])
+            if entries is not None else [{"severity": "nit", "message": fid, "location": None} for fid in findings]))
         return bc.cmd_review_record(args, store)
 
     def write_plan(self, value):
@@ -1426,7 +1427,7 @@ class TestReviewAndFindings(CoordinatorCase):
         for lens in self.DELIVERABLE_LENSES:
             with contextlib.redirect_stdout(io.StringIO()):
                 bc.cmd_finding_record(argparse.Namespace(
-                    id="F-" + lens, stage="deliverable", lens=lens, severity="nit", summary="s",
+                    id="F-" + lens, stage="deliverable", lens=lens, severity="nit", summary="F-" + lens,
                     disposition="rejected", rationale="r", escalation_kind=None, blocks_this_pr_stated=False,
                     handoff_summary="s", operator_summary=None, private_reference=None), self.store)
         # Regenerate the deliverable packet against MOVED reviewer contracts, which is what supersedes
@@ -1663,7 +1664,7 @@ class TestReviewAndFindings(CoordinatorCase):
         packet = self.packet()
         with contextlib.redirect_stdout(io.StringIO()):
             self.record_review(self.receipt_args(packet, "spec-conformance", ["PI-1"]), self.store)
-            bc.cmd_finding_record(argparse.Namespace(id="PI-1", stage="deliverable", lens="spec-conformance", severity="nit", summary="Concern", disposition="rejected", rationale="Evidence disproves it.", escalation_kind=None, blocks_this_pr_stated=False, handoff_summary=None), self.store)
+            bc.cmd_finding_record(argparse.Namespace(id="PI-1", stage="deliverable", lens="spec-conformance", severity="nit", summary="PI-1", disposition="rejected", rationale="Evidence disproves it.", escalation_kind=None, blocks_this_pr_stated=False, handoff_summary=None), self.store)
         before = self.state()
         retried = self.packet()
         after = self.state()
@@ -1707,7 +1708,8 @@ class TestReviewAndFindings(CoordinatorCase):
     def test_severity_does_not_choose_remedy_or_blocking_posture(self):
         packet = self.packet()
         with contextlib.redirect_stdout(io.StringIO()):
-            self.record_review(self.receipt_args(packet, "spec-conformance", ["PI-1"]), self.store)
+            self.record_review(self.receipt_args(packet, "spec-conformance", ["PI-1"]), self.store,
+                report=[{"severity": "blocking", "message": "Reviewer concern", "location": None}])
             bc.cmd_finding_record(argparse.Namespace(id="PI-1", stage="deliverable", lens="spec-conformance", severity="blocking", summary="Reviewer concern", disposition="rejected", rationale="The evidence disproves it.", escalation_kind=None, blocks_this_pr_stated=False, handoff_summary=None, operator_summary="The concern was rejected because the cited evidence does not support it.", private_reference=None), self.store)
         finding = self.state()["findings"][0]
         self.assertEqual(finding["severity"], "blocking")
@@ -2891,7 +2893,8 @@ class TestValidationRepairAndStatus(CandidateInventoryFixture):
             self.record_review(argparse.Namespace(stage="repair", lens="usability",
                                                     packet_digest=packet["packet_digest"],
                                                     lens_packet_digest=contract["lens_packet_digest"],
-                                                    finding=["R-1"], code_execution="none"), self.store)
+                                                    finding=["R-1"], code_execution="none"), self.store,
+                report=[{"severity": "serious", "message": "Repair concern", "location": None}])
             bc.cmd_finding_record(argparse.Namespace(id="R-1", stage="repair", lens="usability", severity="serious", summary="Repair concern", disposition="accepted-fixed", rationale="Directly fixed.", escalation_kind=None, blocks_this_pr_stated=False, handoff_summary=None), self.store)
         self.assertEqual(bc._missing_findings(self.state()), [])
         self.assertEqual(self.state()["reviews"]["deliverable"]["reviewed_commit"], HEAD_B)
@@ -5267,7 +5270,7 @@ class TestEvidenceDurability(CoordinatorCase):
         self._deliverable_reviewed()
         pkt = self._repair_packet(["usability"])
         with contextlib.redirect_stdout(io.StringIO()):
-            self.record_review(self.receipt_args(pkt, "usability", ["R-1"]), self.store)
+            self.record_review(self.receipt_args(pkt, "usability", ["R-1"]), self.store, report=[{"severity": "serious", "message": "Repair concern", "location": None}])
         # regenerate the repair packet for a DIFFERENT lens: the spliced receipt survives in the
         # deliverable stage carrying the old packet digest, and still demands R-1.
         self._repair_packet(["spec-conformance"], final=HEAD_B)
@@ -5286,7 +5289,7 @@ class TestEvidenceDurability(CoordinatorCase):
         self._deliverable_reviewed()
         pkt = self._repair_packet(["usability"])
         with contextlib.redirect_stdout(io.StringIO()):
-            self.record_review(self.receipt_args(pkt, "usability", ["R-2"]), self.store)
+            self.record_review(self.receipt_args(pkt, "usability", ["R-2"]), self.store, report=[{"severity": "nit", "message": "Minor.", "location": None}])
         with mock.patch.object(bc, "_head", return_value=HEAD_C), \
                 mock.patch.object(bc, "_must_run", return_value="1 file changed"), \
                 mock.patch.object(repair_divergence, "classify",
@@ -5310,7 +5313,7 @@ class TestEvidenceDurability(CoordinatorCase):
         self._deliverable_reviewed()
         pkt = self._repair_packet(["usability"])
         with contextlib.redirect_stdout(io.StringIO()):
-            self.record_review(self.receipt_args(pkt, "usability", ["R-3"]), self.store)
+            self.record_review(self.receipt_args(pkt, "usability", ["R-3"]), self.store, report=[{"severity": "blocking", "message": "Serious.", "location": None}])
             bc.cmd_finding_record(argparse.Namespace(
                 id="R-3", stage="repair", lens="usability", severity="blocking", summary="Serious.",
                 disposition="accepted-fixed", rationale="Fixed.", escalation_kind=None,
@@ -5780,7 +5783,7 @@ class TestEvidenceDurability(CoordinatorCase):
         self._deliverable_reviewed()
         pkt = self._repair_packet(["usability"])
         with contextlib.redirect_stdout(io.StringIO()):
-            self.record_review(self.receipt_args(pkt, "usability", ["R-8"]), self.store)
+            self.record_review(self.receipt_args(pkt, "usability", ["R-8"]), self.store, report=[{"severity": "blocking", "message": "Earlier concern", "location": None}])
             bc.cmd_finding_record(argparse.Namespace(
                 id="R-8", stage="repair", lens="usability", severity="blocking", summary="Earlier concern",
                 disposition="accepted-fixed", rationale="Fixed.", escalation_kind=None,

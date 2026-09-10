@@ -570,14 +570,36 @@ def promote(body_file: str, *, repo=_AMBIENT_CREDENTIAL, token=_AMBIENT_CREDENTI
     body file is rewritten in place with the block removed, ready for the seal step. Fail-open at the CLI.
     Omitted `repo`/`token` read GITHUB_REPOSITORY / GITHUB_TOKEN; explicit `None` means no access.
     Tests inject explicit credentials or a transport."""
+    import result_contracts
     root = _root() if root is None else root
 
     # 1) Read + STRIP the block first — the clean-digest / no-feedback guarantee comes before any network.
     body = ""
     if body_file and os.path.isfile(body_file):
-        with open(body_file, encoding="utf-8") as fh:
-            body = fh.read()
-    result, stripped = extract_result(body)
+        with open(body_file, "rb") as fh:
+            raw = fh.read(result_contracts.LIMITS["bytes"] + 1)
+        if len(raw) > result_contracts.LIMITS["bytes"]:
+            # Strip the machine tail without allocating the oversized body. Keep arbitrary
+            # narrative before the marker; it is not a promoted model verdict.
+            marker = _BLOCK_MARKER.encode("utf-8")
+            with open(body_file, "r+b") as fh:
+                offset, carry = 0, b""
+                while chunk := fh.read(65536):
+                    window = carry + chunk
+                    found = window.find(marker)
+                    if found >= 0:
+                        fh.truncate(offset - len(carry) + found)
+                        break
+                    offset += len(chunk)
+                    carry = window[-(len(marker) - 1):]
+            result = {"status": "rejected", "rejection": result_contracts.Rejection(
+                "schema", "maxBytes", contract="conformance-verdicts.v1").envelope}
+            stripped = body
+        else:
+            body = raw.decode("utf-8")
+            result, stripped = extract_result(body)
+    else:
+        result, stripped = extract_result(body)
     items = result["report"]["items"] if result["status"] == "valid" else []
     if result["status"] == "rejected":
         print("Conformance report rejected (no model verdicts accepted): "

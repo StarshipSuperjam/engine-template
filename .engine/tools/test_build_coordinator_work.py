@@ -126,6 +126,19 @@ class TestWorkClaims(WorkCase):
         self.assertIsNone(node["integration"])
         self.assertEqual(node["latest_failure"]["reason"], report["reason"])
 
+    def test_valid_unicode_report_keeps_its_byte_budget_at_binding(self):
+        packet = self.claim("shared")
+        report = {"outcome": "failed", "reason": "Cannot complete", "evidence": {
+            "changed_paths": [], "verification_results": [], "unresolved_concerns": [],
+            "assumptions": ["é" * 32768 for _ in range(8)]}}
+        source = Path(self.temp.name) / "unicode-report.json"
+        source.write_text(json.dumps(report, ensure_ascii=False))
+        args = argparse.Namespace(item="shared", attempt=packet["attempt_id"],
+                                  plan=str(self.plan_path), input=str(source))
+        with contextlib.redirect_stdout(io.StringIO()):
+            bc.cmd_work_result(args, self.store)
+        self.assertEqual(self.state()["work"]["shared"]["latest_result"]["report"], report)
+
     def test_inline_result_identity_is_observed_by_engine(self):
         value = plan_v2()
         value["work_items"][0]["executor_class"] = "integrator"
@@ -704,6 +717,9 @@ class TestHandoffV2(WorkCase):
         state["plan"]["authorizing_issue"] = 11
         value = bc._handoff(state)
         nw = value["work"]["shared"]
+        self.assertNotIn("report", nw["latest_result"])
+        self.assertIn("report", self.state()["work"]["shared"]["latest_result"])
+        self.assertNotIn("assumed the flag stays default", json.dumps(value))
         self.assertEqual(nw["claim"]["worktree"], "redacted from durable handoff")
         self.assertEqual(nw["latest_result"]["artifact_ref"], "redacted from durable handoff")
         self.assertEqual(nw["latest_result"]["evidence"]["verification_results"], ["redacted from durable handoff"])

@@ -48,7 +48,8 @@ derives findings directly from the observed completed report; it never manufactu
 
 Build `review record --report <file>` accepts a raw deliverable or repair report and compiles finding IDs.
 The existing `--finding` ID list or `--findings-from-file` controller batch remains available, but its
-coverage must match the observed report. A controller batch's initial severity and summary must match too.
+coverage must match the observed report. Initial severity and summary must match too, whether the
+disposition is recorded before or after its receipt. Later controller corrections remain separate.
 Project Manager's explicit `--controller-findings` option accepts a controller projection with chosen IDs;
 it cannot replace the observed count, order, severity or message. Raw producer output never enters through
 that option.
@@ -84,7 +85,8 @@ mode, stage the candidate before `work result`; the Engine observes the staged t
 Do not include `base_sha`, `attempt_id`, `artifact_digest`, receipt fields or a failure class in a report.
 The trusted claim supplies attempt, base and route. Existing scope, ancestry, reachability and artifact
 checks still run at integration. A rejected report changes neither Build state nor retry count. There are
-no automatic retries or format-repair loops.
+no automatic retries or format-repair loops. Full worker reports stay in the private canonical snapshot;
+public handoffs omit that duplicate and redact the projected evidence prose.
 
 ### Limits, refusal and history
 
@@ -95,7 +97,10 @@ and bounds reference expansion. Validation stops at its first error. Closed sema
 fields before conversion or enrichment.
 
 Refusals carry `result-rejection.v1` with category, rule, path, contract and a bounded diagnostic. Categories
-are syntax, schema, semantic, stale-attempt and authority. Payload values are not copied into diagnostics.
+are syntax, schema, semantic, stale-attempt and authority. The Project Manager and Build CLI emit these
+refusals as JSON on stderr with a nonzero exit. Payload values and unknown object keys are not copied into
+diagnostics. Oversized native final outputs are replaced by a bounded refusal before hashing or retention;
+a later valid completion can recover the same assignment.
 
 Historical records remain readable. Missing bindings and old acceptances never gain newly verified
 contract evidence. For an active legacy worker claim, use the existing explicit abandon/retry/new-claim
@@ -103,13 +108,15 @@ path; do not edit or restamp history. Review recovery needs a newly bound, obser
 existing plan/Build lifecycle. A prior seal is not silently upgraded.
 
 Audit is narrower: the typed adapter distinguishes absent, rejected and valid full conformance blocks.
-Only valid divergences are promoted. Rejection is disclosed; the outer audit still strips the block and
+The outer body is read in bounds too; an oversized body is refused and its machine tail stripped by a
+bounded streaming scan. Only valid divergences are promoted. Rejection is disclosed; the outer audit still strips the block and
 continues successfully, and independently derived degradation notices keep their policy. No audit result
 receipt or durable retention of every meets/unsure verdict is promised here; issue StarshipSuperjam/engine-template#815 owns that work.
 
 ### Falsification demo
 
 Run `uv run --directory .engine --frozen -- python tools/demo_result_contracts.py`.
-It executes real command handlers against disposable stores with synthetic transport observations.
+It executes five command-level checks against disposable stores with synthetic transport observations,
+including observed-report substitution, unchanged stores on rejection and stale-attempt refusal.
 Add `--break-ingress` to bypass validation in memory: the demo must exit nonzero. It does not qualify a
 live provider or modify the project's real plan library.

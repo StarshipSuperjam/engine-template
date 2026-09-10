@@ -60,10 +60,10 @@ class ResultContracts(unittest.TestCase):
         observed = json.dumps([self.finding, {**self.finding, "message": "second"}])
         for replacement in [[], [self.finding], list(reversed(json.loads(observed)))]:
             with self.assertRaises(rc.Rejection) as caught:
-                rc.observed_report(json.dumps(replacement), observed, self.review)
+                rc.require_observed_report(self.ingest(replacement), self.ingest(json.loads(observed)))
             self.assertEqual(caught.exception.envelope["rule"], "observed_report_mismatch")
-        self.assertEqual(rc.observed_report(json.dumps(json.loads(observed), indent=2),
-                                            observed, self.review), json.loads(observed))
+        self.assertIsNone(rc.require_observed_report(self.ingest(json.loads(observed)),
+                                                     self.ingest(json.loads(observed))))
 
     def test_no_false_authority_from_prose_or_changed_binding(self):
         for contract in [None, [], {}, "unknown"]:
@@ -106,6 +106,10 @@ class ResultContracts(unittest.TestCase):
         error = self.refusal(json.dumps([{**self.finding, "severity": secret}]))
         self.assertNotIn(secret, json.dumps(error))
         self.assertEqual(error["path"], "/0/severity")
+        for value in [{secret: [0] * 1001}, {secret: "x" * 65537},
+                      {"location": {secret: [0] * 1001}}]:
+            error = self.refusal(json.dumps(value))
+            self.assertNotIn(secret, json.dumps(error))
 
     def test_lossless_review_compiler_retains_location_semantics(self):
         for loc in [None, {"file": "a:b"}, {"file": "a", "line": None}, {"file": "a", "line": 3}]:

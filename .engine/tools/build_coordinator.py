@@ -2298,6 +2298,11 @@ def cmd_finding_record(args, store: Snapshot) -> None:
                 raise CoordinatorError(f"no current {args.stage} review packet")
             else:
                 raise CoordinatorError(f"{lens} was not requested by the current {args.stage} packet")
+            prior = next((f for f in state["findings"] if f["id"] == finding_id
+                          and f["lens"] == lens and f["packet_digest"] == packet
+                          and f.get("lens_packet_digest") == lens_packet_digest), None)
+            if by_receipt and prior is None:
+                scoped_agents.validate_initial_build_finding(_library(), state, receipt, entry)
             recorded.append({"id": finding_id, "stage": args.stage, "lens": lens, "packet_digest": packet,
                              "lens_packet_digest": lens_packet_digest, "commit": commit,
                              "severity": entry["severity"], "summary": entry["summary"],
@@ -4098,6 +4103,8 @@ def _bounded_work(work_map: dict) -> dict:
             claim["worktree"] = redacted
         result = nw.get("latest_result")
         if result:
+            # The immutable full report remains private in the canonical snapshot.
+            result.pop("report", None)
             if result.get("artifact_ref"):
                 result["artifact_ref"] = redacted
             evidence = result.get("evidence") or {}
@@ -6235,7 +6242,10 @@ def main(argv: list[str] | None = None) -> int:
         args.func(args, store)
         return 0
     except CoordinatorError as exc:
-        print(f"build-coordinator: {exc}", file=sys.stderr)
+        import result_contracts
+        envelope = result_contracts.rejection_envelope(exc)
+        print(json.dumps(envelope, sort_keys=True) if envelope is not None else
+              f"build-coordinator: {exc}", file=sys.stderr)
         return 2
     except OSError as exc:
         print(f"build-coordinator: durable operation did not finish ({exc}). Preserve the evidence; "

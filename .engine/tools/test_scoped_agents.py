@@ -87,6 +87,25 @@ class ScopedAssignments(unittest.TestCase):
         return self.store.verified_locked(owner=self.owner, root="root-id", lens="architecture",
                                           packet_digest=self.a["packet_digest"])
 
+    def test_oversized_stop_is_not_hashed_or_retained_and_can_recover(self):
+        self.launch()
+        self.child_read()
+        huge = "é" * (result_contracts.LIMITS["bytes"] // 2 + 1)
+        original = core.digest
+        def checked(value):
+            self.assertNotEqual(value, huge)
+            return original(value)
+        with mock.patch.object(core, "digest", side_effect=checked):
+            self.stop(huge)
+        stop = self.store.read()["assignments"][self.a["id"]]["stops"][-1]
+        self.assertIsNone(stop["output"])
+        self.assertEqual(stop["rejection"]["rule"], "output_limit")
+        self.assertLess(self.store.path.stat().st_size, 100000)
+        with self.assertRaises(scoped.EvidenceError):
+            self.verified()
+        self.stop("[]")
+        self.assertEqual(self.verified()["id"], self.a["id"])
+
     def test_generated_packet_mutation_cannot_receive_the_original_target_label(self):
         expected = core.digest(self.packet.read_bytes())
         before = self.store.path.read_bytes()

@@ -21,11 +21,12 @@ def main(argv=None):
         "test_build_coordinator_review.TestObservedExecutionIngress.test_raw_report_copy_cannot_substitute_for_observed_output",
         "test_build_coordinator_work.TestWorkClaims.test_canonical_raw_ingress_rejects_without_state_or_retry_changes",
         "test_build_coordinator_work.TestWorkClaims.test_inline_result_identity_is_observed_by_engine",
+        "test_build_coordinator_work.TestWorkClaims.test_result_binds_to_attempt_and_rejects_a_stale_attempt",
     ]
     # These fixtures are permanent command-level witnesses shared with the self-test suite.
     suite = unittest.defaultTestLoader.loadTestsFromNames(names)
     print("Disposable result-contract demo: observed review equality, lossless worker failures, "
-          "unchanged stores on rejection, and Engine-owned inline identity.", flush=True)
+          "unchanged stores on rejection, Engine-owned inline identity, and stale-attempt refusal.", flush=True)
     with mock.patch("result_contracts.ingest", side_effect=lambda raw, *a, **k: json.loads(raw)) \
             if args.break_ingress else __import__("contextlib").nullcontext():
         result = unittest.TextTestRunner(stream=sys.stdout, verbosity=1).run(suite)

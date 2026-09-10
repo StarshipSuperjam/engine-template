@@ -2567,6 +2567,14 @@ class ProjectionLink(_Governed):
 
 
 class ObservedPlanReview(_Governed):
+    def test_valid_unicode_report_does_not_expand_past_byte_limit_in_panel_adapter(self):
+        report = [{"severity": "nit", "message": "é" * 32768, "location": None} for _ in range(8)]
+        source = Path(self._tmp.name) / "unicode-report.json"
+        source.write_text(json.dumps(report, ensure_ascii=False))
+        reports, findings = project_manager._review_input(str(source), ["architecture"])
+        self.assertEqual(reports["architecture"], report)
+        self.assertEqual(len(findings), 8)
+
     def test_raw_report_substitution_refuses_without_mutating_either_store(self):
         import scoped_agents
         from test_build_coordinator import observe_review_execution
@@ -2587,6 +2595,7 @@ class ObservedPlanReview(_Governed):
             code, _, err = self.run_command("review", "record", slug, "--lens", "architecture",
                 "--packet-digest", digest, "--session", "fixture-root", "--findings", str(source), observe=False)
             self.assertEqual(code, 2, err)
+            self.assertEqual(json.loads(err)["schema_version"], "result-rejection.v1")
             self.assertEqual((record_path.read_bytes(), companion.path.read_bytes()), before)
         source.write_text(json.dumps(report, indent=4, sort_keys=True))
         code, _, err = self.run_command("review", "record", slug, "--lens", "architecture",

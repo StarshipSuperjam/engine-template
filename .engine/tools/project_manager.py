@@ -808,7 +808,7 @@ def _review_input(source, lenses, *, controller=False):
             result_contracts.reject("exact_lens_reports", category="semantic")
         binding = result_contracts.resolve("plan-review-finding.v1", role="plan-review")
         return reports, [finding for lens in lenses for finding in ingest_review_report(
-            json.dumps(reports[lens]), binding, lens=lens)["findings"]]
+            json.dumps(reports[lens], ensure_ascii=False), binding, lens=lens)["findings"]]
     except result_contracts.Rejection as exc:
         raise ProjectManagerError(str(exc)) from exc
 
@@ -869,19 +869,6 @@ def cmd_review_record(args) -> int:
     # The coverage the approved depth demands is checked here too, not only at the seal, so the gap is
     # surfaced while the reviewers are still warm rather than at the terminal act.
     gap = coverage_gap(approval["depth"], list(args.lens))
-    if gap:
-        # An exact-terms warning, not a refusal, and it names the way out. The seal stays the single
-        # HARD coverage gate — a second hard gate here would just move the wedge earlier — but the
-        # warning has to say what to run and what command lands it, because the wedge it replaced was
-        # an operator who recorded a partial panel and found the one review slot spent.
-        print(f"warning: the approved {approval['depth']} depth requires "
-              f"{', '.join(required_lenses(approval['depth'], installed_lenses()))}, and this record "
-              f"covers only {', '.join(args.lens)}. Missing: {', '.join(gap)}. The seal will refuse "
-              "until they are covered. This record is NOT spent — run the missing lenses and add them:\n"
-              f"    project_manager.py review amend {args.plan} --lens <lens> "
-              f"--packet-digest {args.packet_digest} --findings <findings.json> "
-              "--reason \"<why this is being completed now>\"\n"
-              "  Amendment is possible until the first finding is dispositioned.", file=sys.stderr)
     # The findings fail on their own terms, here, before any ceremony gate: a mistyped severity should
     # be reported as a mistyped severity, not survive to the write and surface as a complaint about the
     # enclosing record — and not be pre-empted by a flag the author has not reached yet.
@@ -915,6 +902,19 @@ def cmd_review_record(args) -> int:
     findings = review["findings"]
     plan_projection.project_library(library)   # the projection follows every record write
     blocking = [f for f in findings if f["severity"] == "blocking"]
+    if gap:
+        # An exact-terms warning, not a refusal, and it names the way out. The seal stays the single
+        # HARD coverage gate — a second hard gate here would just move the wedge earlier — but the
+        # warning has to say what to run and what command lands it, because the wedge it replaced was
+        # an operator who recorded a partial panel and found the one review slot spent.
+        print(f"warning: the approved {approval['depth']} depth requires "
+              f"{', '.join(required_lenses(approval['depth'], installed_lenses()))}, and this record "
+              f"covers only {', '.join(args.lens)}. Missing: {', '.join(gap)}. The seal will refuse "
+              "until they are covered. This record is NOT spent — run the missing lenses and add them:\n"
+              f"    project_manager.py review amend {args.plan} --lens <lens> "
+              f"--packet-digest {args.packet_digest} --findings <findings.json> "
+              "--reason \"<why this is being completed now>\"\n"
+              "  Amendment is possible until the first finding is dispositioned.", file=sys.stderr)
     print(f"recorded a {len(args.lens)}-lens review of revision {approval['revision']}: "
           f"{len(findings)} finding(s), {len(blocking)} blocking")
     if findings:
@@ -2451,7 +2451,10 @@ def main(argv: list | None = None) -> int:
     try:
         return args.func(args)
     except (ProjectManagerError, core.CoordinatorError) as exc:
-        print(f"project-manager: {exc}", file=sys.stderr)
+        import result_contracts
+        envelope = result_contracts.rejection_envelope(exc)
+        print(json.dumps(envelope, sort_keys=True) if envelope is not None else
+              f"project-manager: {exc}", file=sys.stderr)
         return 2
 
 
