@@ -3541,8 +3541,30 @@ class TestMetadataSuiteClassification(unittest.TestCase):
     unchanged. Get this roster wrong in the shrinking direction and a pull request whose body was edited to
     strip a required section goes green on a proof that never saw the edit."""
 
-    def _classification(self):
+    # Exact omissions, never inferred from missing rules: a newly classified optional check must
+    # fail the declined projection until its owner is deliberately declared here (#1054).
+    _OPTIONAL_CHECK_OWNERS = {
+        "engine/check/dependency-pinning": "dependency-discipline",
+        "engine/check/dependency-review": "dependency-discipline",
+        "engine/check/migration-rollback": "migration-discipline",
+        "engine/check/product-adr-form": "product-design",
+        "engine/check/product-design-form": "product-design",
+        "engine/check/product-lock-integrity": "product-design",
+        "engine/check/product-spec-coverage": "product-design",
+        "engine/check/product-spec-form": "product-design",
+        "engine/check/product-spec-matrix": "product-design",
+    }
+
+    def _raw_classification(self):
         return validate.load_json(CLASSIFICATION_PATH)["classification"]
+
+    def _classification(self):
+        installed = selftest_support.installed_module_ids()
+        present = {rule["id"] for rule in validate.load_rules()}
+        return {rid: kind for rid, kind in self._raw_classification().items()
+                if not (rid in self._OPTIONAL_CHECK_OWNERS
+                        and self._OPTIONAL_CHECK_OWNERS[rid] not in installed
+                        and rid not in present)}
 
     def _ci_rules(self):
         return {r["id"]: r for r in validate.load_rules() if "CI" in r.get("suites", [])}
@@ -3554,7 +3576,24 @@ class TestMetadataSuiteClassification(unittest.TestCase):
         self.assertEqual(sorted(self._classification()), sorted(self._ci_rules()))
 
     def test_classification_values_are_closed(self):
-        self.assertLessEqual(set(self._classification().values()), {"metadata", "code"})
+        # Check the whole authored inventory, including declarations omitted in this deployment.
+        self.assertLessEqual(set(self._raw_classification().values()), {"metadata", "code"})
+
+    def test_optional_omissions_match_their_declared_owners(self):
+        installed = selftest_support.installed_module_ids()
+        raw = self._raw_classification()
+        for rid, owner in self._OPTIONAL_CHECK_OWNERS.items():
+            with self.subTest(rule=rid, owner=owner):
+                self.assertIn(rid, raw, "an omission declaration outlived its classification")
+                if selftest_support.CONSTRUCTION:
+                    self.assertIn(owner, installed, "unknown omission owner in the home inventory")
+                if owner not in installed:
+                    continue
+                manifest = validate.load_json(os.path.join(
+                    validate.ENGINE_DIR, "modules", owner, "manifest.json"))
+                self.assertIn(manifest["status"], {"optional", "default-on"})
+                self.assertIn("." + rid + ".json", manifest.get("provides", {}).get("check", []),
+                              "the declared optional module does not own this check")
 
     def test_metadata_rules_join_the_metadata_suite_and_keep_ci(self):
         # Keeping CI is load-bearing: the generated assurance catalogue filters on the literal "CI", so
@@ -3632,6 +3671,81 @@ class TestMetadataSuiteClassification(unittest.TestCase):
         for rule in validate.load_rules():
             if "CI-metadata" in rule.get("suites", []):
                 self.assertIn("CI", rule.get("suites", []))
+
+
+class TestClassificationOmissionControls(unittest.TestCase):
+    """Run the real classification assertions on deliberately broken inventories, in every shape."""
+
+    @contextlib.contextmanager
+    def _fixture(self, raw, rules=(), installed=(), owners=None, manifest=None):
+        case = TestMetadataSuiteClassification()
+        if owners is not None:
+            case._OPTIONAL_CHECK_OWNERS = owners
+        with mock.patch.object(case, "_raw_classification", return_value=raw), \
+                mock.patch.object(validate, "load_rules", return_value=list(rules)), \
+                mock.patch.object(selftest_support, "installed_module_ids", return_value=set(installed)), \
+                mock.patch.object(selftest_support, "CONSTRUCTION", False), \
+                mock.patch.object(validate, "load_json", return_value=manifest):
+            yield case
+
+    def test_declared_absence_passes_only_when_owner_is_absent(self):
+        rid = "engine/check/dependency-review"
+        with self._fixture({rid: "metadata"}) as case:
+            case.test_every_ci_rule_is_classified_exactly_once()
+            case.test_metadata_rules_join_the_metadata_suite_and_keep_ci()
+        with self._fixture({rid: "metadata"}, installed={"dependency-discipline"}) as case:
+            with self.assertRaises(AssertionError):
+                case.test_every_ci_rule_is_classified_exactly_once()
+
+    def test_unknown_and_required_missing_rules_still_fail(self):
+        for rid in ("engine/check/not-a-rule", "engine/check/protection"):
+            with self.subTest(rule=rid), self._fixture({rid: "code"}) as case:
+                with self.assertRaises(AssertionError):
+                    case.test_every_ci_rule_is_classified_exactly_once()
+
+    def test_new_optional_check_requires_an_explicit_omission_declaration(self):
+        rid = "engine/check/new-optional-rule"
+        with self._fixture({rid: "code"}) as case:
+            with self.assertRaises(AssertionError):
+                case.test_every_ci_rule_is_classified_exactly_once()
+        with self._fixture({rid: "code"}, owners={rid: "synthetic-optional"}) as case:
+            case.test_every_ci_rule_is_classified_exactly_once()
+
+    def test_a_present_rule_is_not_excused_even_when_its_owner_is_absent(self):
+        rid = "engine/check/dependency-review"
+        # A present rule that lost CI membership must not become a legitimate omission.
+        with self._fixture({rid: "metadata"}, [{"id": rid, "suites": []}]) as case:
+            with self.assertRaises(AssertionError):
+                case.test_every_ci_rule_is_classified_exactly_once()
+        with self._fixture({rid: "metadata"}, [{"id": rid, "suites": ["CI"]}]) as case:
+            with self.assertRaises(AssertionError):
+                case.test_metadata_rules_join_the_metadata_suite_and_keep_ci()
+
+    def test_a_new_present_rule_requires_classification(self):
+        with self._fixture({}, [{"id": "new", "suites": ["CI"]}]) as case:
+            with self.assertRaises(AssertionError):
+                case.test_every_ci_rule_is_classified_exactly_once()
+
+    def test_invalid_value_in_an_omitted_classification_still_fails(self):
+        with self._fixture({"engine/check/dependency-review": "typo"}) as case:
+            with self.assertRaises(AssertionError):
+                case.test_classification_values_are_closed()
+
+    def test_wrong_required_or_obsolete_owner_declarations_fail(self):
+        rid = "engine/check/dependency-review"
+        for raw, status, provided in (({rid: "metadata"}, "optional", []),
+                                     ({rid: "metadata"}, "required", ["." + rid + ".json"]),
+                                     ({}, "optional", ["." + rid + ".json"])):
+            with self.subTest(raw=raw, status=status, provided=provided), self._fixture(
+                    raw, installed={"declared"}, owners={rid: "declared"},
+                    manifest={"status": status, "provides": {"check": provided}}) as case:
+                # subTest stores failures on a running TestCase, so use its real runner and verdict.
+                case._testMethodName = "test_optional_omissions_match_their_declared_owners"
+                result = unittest.TestResult()
+                case.run(result)
+                self.assertFalse(result.wasSuccessful())
+                self.assertTrue(result.failures)
+                self.assertFalse(result.errors)
 
 
 class TestReuseGateIsGuarded(unittest.TestCase):
