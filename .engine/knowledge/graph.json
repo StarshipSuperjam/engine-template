@@ -5303,7 +5303,7 @@
       },
       "slug": "result-contracts",
       "source": {
-        "fingerprint": "sha256:7c4e5a41fc4ac135bdc02e8d772f9de9bcb1bc62c77c88b8123c36df2770dd2e",
+        "fingerprint": "sha256:f72013fd611565270c4db7364f7dd8e9999309803d9abcc2e49d2e0f3f24d433",
         "path": ".engine/docs/result-contracts.md"
       },
       "status": "active",
@@ -5916,7 +5916,7 @@
       },
       "slug": "build-validation-and-review",
       "source": {
-        "fingerprint": "sha256:e7af51408692edc633d00a7e40ec521ed784bf87a171baebd41461ad5c5b8800",
+        "fingerprint": "sha256:39922cab3fd0fa85741f388af79b9b639c6d95a665e419fc19bbdd4f26f69711",
         "path": ".engine/operations/build-validation-and-review.md"
       },
       "status": "active",
@@ -5936,7 +5936,7 @@
       },
       "slug": "build-work-dispatch",
       "source": {
-        "fingerprint": "sha256:cab1a68d77372fc6a661e21a30c92806766ce291370b2a7d58d632b23f6fba64",
+        "fingerprint": "sha256:039792d307cd45305275de135574a533a633551bb09269383e4b1bdb03aa3e22",
         "path": ".engine/operations/build-work-dispatch.md"
       },
       "status": "active",
@@ -6436,7 +6436,7 @@
       },
       "slug": "plan-orchestration",
       "source": {
-        "fingerprint": "sha256:cbb62cc3269fc4fba35de491d4bceef192dff871c2801ad82dcbc6b431eb8b2f",
+        "fingerprint": "sha256:328514430d3595708736d189cc956f23d468747a5b16f6b1d802e7eefec9005c",
         "path": ".engine/operations/plan-orchestration.md"
       },
       "status": "active",
@@ -6556,7 +6556,7 @@
       },
       "slug": "scoped-agent-orchestration",
       "source": {
-        "fingerprint": "sha256:c820ffc25f7c182601f5d75564624fd2a66af011f00dc6b8f601e8e43fa0c07c",
+        "fingerprint": "sha256:120e5feff74cbff42b2491291c64eda4124c84ed2d21a3e23f5ed12a5e13a110",
         "path": ".engine/operations/scoped-agent-orchestration.md"
       },
       "status": "active",
@@ -9244,6 +9244,10 @@
       "owner": "core",
       "predicates": {
         "imports": [
+          "tool:build_coordinator_review",
+          "tool:build_coordinator_work",
+          "tool:conformance_sweep",
+          "tool:project_manager",
           "tool:result_contracts",
           "tool:validate"
         ],
@@ -9253,7 +9257,7 @@
       },
       "slug": "agent_coherence_check",
       "source": {
-        "fingerprint": "sha256:afd232764feb4ad2a8cbf8c0018b44ef0c1f702220ca60865db8b20af590320c",
+        "fingerprint": "sha256:37c68b50b6319bd4d5492b43ccdd2703383aaab8022fa0ac0a783cd3938efb55",
         "path": ".engine/tools/agent_coherence_check.py"
       },
       "status": "active",
@@ -9688,7 +9692,7 @@
     },
     {
       "entrypoint": "library",
-      "guarded": false,
+      "guarded": true,
       "id": "tool:build_coordinator_core",
       "name": ".engine/tools/build_coordinator_core.py",
       "owner": "core",
@@ -9779,7 +9783,7 @@
     },
     {
       "entrypoint": "library",
-      "guarded": false,
+      "guarded": true,
       "id": "tool:build_coordinator_review",
       "name": ".engine/tools/build_coordinator_review.py",
       "owner": "core",
@@ -9829,7 +9833,7 @@
     },
     {
       "entrypoint": "library",
-      "guarded": false,
+      "guarded": true,
       "id": "tool:build_coordinator_work",
       "name": ".engine/tools/build_coordinator_work.py",
       "owner": "core",
@@ -10547,7 +10551,7 @@
     },
     {
       "entrypoint": "cli",
-      "guarded": false,
+      "guarded": true,
       "id": "tool:conformance_sweep",
       "name": ".engine/tools/conformance_sweep.py",
       "owner": "core",
@@ -10568,7 +10572,7 @@
       },
       "slug": "conformance_sweep",
       "source": {
-        "fingerprint": "sha256:86f360d3b5bde58c7eaf5759eaae08eb6a25c2df80feb88c89b5b0aa26f89e67",
+        "fingerprint": "sha256:8ca1c6e26b1abe9a7414349829263ce5272b328a08e61f9ce655c5ecf4bc5ac5",
         "path": ".engine/tools/conformance_sweep.py"
       },
       "status": "active",
@@ -11646,7 +11650,7 @@
       },
       "slug": "demo_plan_to_ready_pr",
       "source": {
-        "fingerprint": "sha256:31c527b07a6736fbc2a2b5f41fe820c0038657b6948c298f474843a796a3365e",
+        "fingerprint": "sha256:45b7771d49b15299240d3881b070863183b19657224361b9681c81446a2beea5",
         "path": ".engine/tools/demo_plan_to_ready_pr.py"
       },
       "status": "active",
@@ -14372,7 +14376,7 @@
     },
     {
       "entrypoint": "library",
-      "guarded": false,
+      "guarded": true,
       "id": "tool:plan_store",
       "name": ".engine/tools/plan_store.py",
       "owner": "core",
@@ -15183,7 +15187,7 @@
     },
     {
       "entrypoint": "library",
-      "guarded": false,
+      "guarded": true,
       "id": "tool:result_contracts",
       "name": ".engine/tools/result_contracts.py",
       "owner": "core",
@@ -15194,7 +15198,7 @@
       },
       "slug": "result_contracts",
       "source": {
-        "fingerprint": "sha256:63fa30a8e02798f81d39504f12bc57fa5a00ea146ee01d29ac2e8f0068ec87a9",
+        "fingerprint": "sha256:4aa409ded77eba21dc79510b6beb4007c731343dec3b9259f3f3a1fb1e05da4e",
         "path": ".engine/tools/result_contracts.py"
       },
       "status": "active",
@@ -16556,7 +16560,7 @@
       },
       "slug": "test_build_coordinator",
       "source": {
-        "fingerprint": "sha256:c83dbb33c99ae14adb9d84ab1d454d1abf3201c8e2bf297b1344c4a877f81dcb",
+        "fingerprint": "sha256:1b3efa1773e5499361e5b95504423700ca10e5b5f0c12668898eb3f5d405c934",
         "path": ".engine/tools/test_build_coordinator.py"
       },
       "status": "active",
@@ -16713,7 +16717,7 @@
       },
       "slug": "test_build_coordinator_review",
       "source": {
-        "fingerprint": "sha256:9d6d1b60acf2c5ad3cb79f672354c5409046bdb21734007a5a529e4aab06098a",
+        "fingerprint": "sha256:aa78554a740144bd95c7663e0e8895c198f54eb4dd504a658a5c4976b1804fe5",
         "path": ".engine/tools/test_build_coordinator_review.py"
       },
       "status": "active",
@@ -17365,7 +17369,7 @@
       },
       "slug": "test_conformance_sweep",
       "source": {
-        "fingerprint": "sha256:6356aeffef46dc69d605e444f916645931f05f335cd114bacb5403937dc6d3bd",
+        "fingerprint": "sha256:62f358a08c0180a5cc0e5d1af5428937bd0983dacb1cd5c50b8a51c1e1c8cc83",
         "path": ".engine/tools/test_conformance_sweep.py"
       },
       "status": "active",
@@ -19147,7 +19151,7 @@
       },
       "slug": "test_modules",
       "source": {
-        "fingerprint": "sha256:ee7db739ef1ff11d2dc10a7db8f7e9baeaef2c21064e051883c70a2abf4ef400",
+        "fingerprint": "sha256:8f440b8d51f0c9e5ecbc88ea88df671aac33864a12669c10a23b9e555cfc9020",
         "path": ".engine/tools/test_modules.py"
       },
       "status": "active",
@@ -19563,7 +19567,7 @@
       },
       "slug": "test_plan_dogfood",
       "source": {
-        "fingerprint": "sha256:bf694dde60703fa35dc4fc5dedafbcec2a911e64e285c7e9ff051c0f347098fd",
+        "fingerprint": "sha256:7cf3668c7e470ae41aadceab3e8a1fbbd1473bc469f6338d09288506126fb6c8",
         "path": ".engine/tools/test_plan_dogfood.py"
       },
       "status": "active",
@@ -19595,7 +19599,7 @@
       },
       "slug": "test_plan_lifecycle",
       "source": {
-        "fingerprint": "sha256:d264414e490eb456047be8c9e98119e375054e6fd5d533bd00afc1dba302c180",
+        "fingerprint": "sha256:01b049931be16a2378cedf09a34bbda0f9022def95b0dd7359b9775ab07adb77",
         "path": ".engine/tools/test_plan_lifecycle.py"
       },
       "status": "active",
@@ -20379,12 +20383,13 @@
         ],
         "tests": [
           "tool:demo_result_contracts",
+          "tool:quiet_call",
           "tool:result_contracts"
         ]
       },
       "slug": "test_result_contracts",
       "source": {
-        "fingerprint": "sha256:d603dfbe9ec131fbd3079a46074cfe47fa17e2ae44d1b4282641bfe86aa261e9",
+        "fingerprint": "sha256:9ff05cefaa87295877edca1dc416cd3290a786b7d2320299820a48aac713ac00",
         "path": ".engine/tools/test_result_contracts.py"
       },
       "status": "active",
@@ -20741,7 +20746,7 @@
       },
       "slug": "test_scoped_agents",
       "source": {
-        "fingerprint": "sha256:cb76c73228ca24968afe426ad9b23557debfa8a7df5668b5655cc8137ebb280a",
+        "fingerprint": "sha256:2388746af33763ceec74270f3366d82d21ae5c65753ff37d2db55f6a1a4ed176",
         "path": ".engine/tools/test_scoped_agents.py"
       },
       "status": "active",
@@ -22239,7 +22244,7 @@
       },
       "slug": "weakening_guard",
       "source": {
-        "fingerprint": "sha256:917f8ab0c10399e7475dcb4fd042e630dfe0f2f168fbe22a45473fbb7e3e95ee",
+        "fingerprint": "sha256:0d6a189fff82eedc4ffb66b167335c832b46b6bc5545012aea0351372480a85a",
         "path": ".engine/tools/weakening_guard.py"
       },
       "status": "active",
