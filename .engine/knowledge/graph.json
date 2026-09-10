@@ -14561,7 +14561,7 @@
       },
       "slug": "providers",
       "source": {
-        "fingerprint": "sha256:dce906685c428e12bfe57915679b90c3cd9479e304c06d613d8873f303452b68",
+        "fingerprint": "sha256:31e201e255ff71969bbf8d1d72c72cb30788638554c965d26dc46283f57b1b6b",
         "path": ".engine/tools/providers.py"
       },
       "status": "active",
@@ -15263,7 +15263,7 @@
       },
       "slug": "scoped_agents",
       "source": {
-        "fingerprint": "sha256:a6bc0612f5a9076f50770136238072e958b4670bd82a89f94881b7eac48cf0bd",
+        "fingerprint": "sha256:23df4ab02f3c723fa61fd291de3d0dee56fffdd17fb2d258c092248cdd3d6279",
         "path": ".engine/tools/scoped_agents.py"
       },
       "status": "active",
@@ -19710,7 +19710,7 @@
       },
       "slug": "test_providers",
       "source": {
-        "fingerprint": "sha256:727c4a01d1c247f807755ee6475908c59258eb6ec19ab7aed5038f2e5fe2e60d",
+        "fingerprint": "sha256:0b868c91d1b8b27b090b6d5b50e795533f9dc61bf4c98cc872e5c62346b72dc7",
         "path": ".engine/tools/test_providers.py"
       },
       "status": "active",
@@ -20484,7 +20484,7 @@
       },
       "slug": "test_scoped_agents",
       "source": {
-        "fingerprint": "sha256:964aa573a7d89e5eaace5443fb64a3b25f8c66e14d82df721a03d09a89337e36",
+        "fingerprint": "sha256:56e0d3c687c760b9b93242a8dfc6fea51b6ff2a87c5a8353b998467391fd0345",
         "path": ".engine/tools/test_scoped_agents.py"
       },
       "status": "active",
