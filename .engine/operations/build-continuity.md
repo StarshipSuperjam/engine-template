@@ -2,100 +2,49 @@
 title: Build continuity — resume a Build across sessions, compaction, and cold handoff
 ---
 ## Purpose
-
-Resume from the authoritative sealed plan and its evidence-only snapshot. Follow [Build orchestration](build-orchestration.md).
+Resume the canonical sealed plan and evidence. Follow [Build orchestration](build-orchestration.md).
 
 ## Steps
+Run `state where` and `state continue --plan <id> --repository <owner/repo> --pr <number>` in the recorded worktree.
+Every mutation supplies the returned `--expect-build-id`, `--expect-generation` and current `--expect-revision` before its verb.
+Use the exact payload. Snapshots/archives stay private in the plan folder; external `--state` files are locators. Status grants no identity.
+Matching retries retain original admission/consent; changed preparing inputs refuse. Restore them or explicitly retire the preparation.
+Adoption retries retain predecessor identity/revision, payload and successor; their journal survives archival. Never delete permanent locks.
+An adoption preparation cannot finish as bind or retire independently. Active continuation gains no new entry certificate.
 
-Run `state where`, then `state continue --plan <id> --repository <owner/repo> --pr <number>` in the recorded
-worktree. Keep the returned Build ID and generation. Every mutation takes `--expect-build-id`,
-`--expect-generation` and current `--expect-revision` before its verb; status never grants a new identity.
-Pass the exact payload to checkpoints, reviews and submission; missing/changed seals refuse. Snapshots and
-archives stay owner-only in the plan folder; external `--state` files are minimal locators.
-
-Retry binds with identical inputs; adoption retries use the original predecessor identity, revision, payload
-and successor. Its journal survives archival; success returns the new generation/address.
-An adoption preparation cannot be finished as a bind or retired independently. Never delete permanent locks.
-Pause affected old-code sessions and wait for running Engine commands to exit; update their worktrees before
-`state migrate --plan <id> --source <old-snapshot> --legacy-clients-stopped`, then resume the same unfinished tasks.
-Migration locks and rechecks source evidence; ambiguity, changed/missing evidence or terminal metadata refuses.
-External originals remain reported evidence only; canonical originals become `legacy-original.json` and the old
-slot becomes a permanent directory barrier. Protection from old file operations starts after cutover.
-For confirmed stale ownership, `state supersede --plan <id> --reason <reason>` requires the expected tuple;
-an unwritten bind preparation uses revision 0. Retirement archives before releasing ownership; retry exactly.
-Bound Project Manager `abandon`/`retire` require that tuple too. `complete --completion-evidence <json>` also
-requires merged=true, Build ID, generation, canonical snapshot, repository, PR and seal; CLI checks GitHub.
-Matching completion is idempotent. Automatic merge reconciliation is separate.
-
-`handoff export --output <new-file-outside-library>` redacts private notes; `handoff restore --input <file>` verifies the seal and
-matches the surviving canonical identity, revision and worktree, preserving its private evidence. Missing or
-retired snapshots cannot be recreated from an export: recover the original from backup. Migrate legacy first.
-Compaction re-verifies each mutation; the compact hook restores context on Claude and qualified Codex CLI hosts
-(see codex-validation.md). Re-ground before continuing. Disposable transaction demo:
+Pause old-code sessions, wait for Engine commands to exit and update their worktrees before migration. Ambiguous evidence refuses.
+Migration retains canonical `legacy-original.json` behind a permanent directory barrier; external originals remain evidence only.
+Retirement archives before releasing ownership; retry exactly (revision 0 for unwritten preparation). Bound Project Manager retirement requires the tuple too.
 ```text
-uv run --directory .engine --frozen -- python tools/demo_build_resumes_after_a_kill.py --interrupt retire-rename --contenders 4
+build_coordinator.py <identity flags> state migrate --plan <id> --source <old-snapshot> --legacy-clients-stopped
+build_coordinator.py <identity flags> state supersede --plan <id> --reason <confirmed-stale-ownership>
 ```
-Permanent tests vary interruptions and break fencing/exclusivity. This models interruption, not power loss.
-
-### Catch up or deliberately rewrite history
-
-An active Build can catch up by fetching and merging its recorded target, then regenerating derived files
-through `sync-artifacts` after committing any authored resolution. The live protect-main policy permits
-merge, squash and rebase; it has no `required_linear_history` rule. Do not manufacture a rebase requirement.
-Honor an explicit operator request to rebase. A merge preserves history; an intentional rewrite uses the
-recovery procedure below instead. All coordinator mutations carry the caller-held Build ID, generation and
-current revision described above, plus the exact bound payload where shown.
-
-For an **unreviewed** Build, finish or abandon outstanding node claims, commit and push the current head,
-then prepare *before* rewriting:
-
+An active branch may merge its fetched target, then `sync-artifacts` after committing authored resolutions. Protect-main permits merge/squash/rebase, with no `required_linear_history` rule. Honor explicit rebase requests.
+For an **unreviewed rewrite**, finish/abandon node claims, commit and push, then prepare before rebasing onto the pinned tip:
 ```text
 build_coordinator.py <identity flags> reconcile --plan <payload.json> --prepare
 git rebase <prepared-target-tip>
 build_coordinator.py <identity flags> reconcile --plan <payload.json>
 ```
-
-Preparation fetches and pins the target, records the source HEAD, plan and ownership tuple, and retains source
-objects under `refs/engine/build-recovery/`. Rebase onto that exact pinned target; do not refetch and substitute
-a later target mid-preparation. Resolve any conflicts and finish the rebase before applying recovery. Keep the
-PR's pre-rewrite source head or push the recovered head as instructed by the identity check. The apply checks
-completed rebase provenance and the original contribution before advancing the same Build's history anchor.
-
-Clean recovery preserves the original work ledger and receipts. Divergent unreviewed recovery preserves the
-resolved work and archives the original evidence, but marks affected nodes and their dependent closure as
-needing verification. It creates no review receipts. Re-run the appropriate checks and, in dependency order,
-record each original attempt at the recovered HEAD:
-
+Preparation retains source objects under `refs/engine/build-recovery/` and pins identity, plan, revision and target. Finish conflicts before apply.
+Apply verifies completed-rebase provenance and contribution; the PR must retain source or recovered HEAD. Missing/ambiguous proof refuses; recover evidence, never hand-edit anchors or replace plans.
+Clean recovery preserves the ledger. Divergence archives original receipts and invalidates affected nodes/dependents without inventing review evidence.
+Re-run checks and reverify original attempts at recovered HEAD in dependency order; finish before another rewrite, validation and approved review:
 ```text
 build_coordinator.py <identity flags> work integrate --item <node> --attempt <original-attempt> --plan <payload.json> --commit <recovered-head> --recovery --verification-input "<fresh check and result>"
 ```
+This adds separate verification, not replacement receipts or claims. `reconcile --cancel-preparation --plan <payload.json>` requires unchanged original history; retained objects remain. Interrupted apply retries keep canonical identity/revision.
+For **reviewed rewrites**, ordinary reconcile re-anchors identical contribution; differing/unmeasurable contribution returns to proportional repair against the new base. Receipts are never fabricated or restamped.
 
-The old integration receipt remains historical evidence; a separate recovery verification records what was
-checked now. No fresh claim or invented completion substitutes for this transition. Complete reverification
-before another rewrite, then earn current-head validation and the normally approved deliverable review.
-`reconcile --plan <payload.json> --cancel-preparation` cancels only on the original, unchanged history;
-retained source objects remain available. An interrupted apply can be retried against matching canonical
-identity/revision. Missing preparation, retained objects or unambiguous rebase provenance refuses: recover the
-original evidence/history, never manually move the Build anchor or replace its plan.
-
-After **reviewed** history is rewritten, the existing `reconcile --plan <payload.json>` path compares the
-branch contribution. An identical contribution re-anchors the review bindings; a differing or unmeasurable
-contribution requires the existing proportional repair judgment against the new base. Original receipts are
-not fabricated or restamped.
-
-A recovered Build can export and restore a handoff only against the surviving canonical snapshot. Push the
-recovered PR head first, using an explicit lease on the recorded remote source when replacing rewritten history:
-
+Push recovered history with an exact source lease before handoff. If refused, inspect the remote change; never broaden the force push.
 ```text
 git push --force-with-lease=refs/heads/<build-branch>:<recorded-source-head> origin HEAD:refs/heads/<build-branch>
 build_coordinator.py <identity flags> handoff export --output <new-file-outside-library>
 build_coordinator.py <identity flags> handoff restore --input <export-file>
 ```
-
-If that lease refuses, inspect the competing remote change; do not broaden the force push. Restoration re-derives the original integration receipts from retained objects and
-verifies identity-bound recovery provenance; a portable export cannot create that exception by itself. Keep
-source objects and canonical private evidence available through completion.
+Export redacts notes. Restore matches the surviving canonical identity/revision/worktree/seal, preserving private provenance and re-deriving original receipts from retained objects. Keep both through completion.
+An export cannot recreate missing/retired state: recover the original from backup; migrate legacy first. Complete requires merged=true, identity, snapshot, repository, PR and seal in `--completion-evidence`; the CLI verifies GitHub. Matching completion is idempotent; automatic reconciliation is separate.
+Compaction re-verifies mutations; re-ground before continuing. Hooks help on Claude/qualified Codex CLI hosts (codex-validation.md). `demo_build_resumes_after_a_kill.py --interrupt retire-rename --contenders 4` models interruption, not power loss.
 
 ## Done when
-
-The verified plan and caller-held identity match; status names the next runbook and mutation verifies again.
+The seal and caller-held identity match; status names the next runbook and mutation verifies again.

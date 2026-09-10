@@ -3,11 +3,15 @@
 from __future__ import annotations
 
 from pathlib import Path
+import os
+import sys
 import json
 import subprocess
 import tempfile
 import unittest
 from unittest import mock
+
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
 import build_entry_preflight as entry
 import build_coordinator_core as core
