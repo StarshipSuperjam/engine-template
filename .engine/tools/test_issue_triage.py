@@ -46,6 +46,7 @@ class Contract(unittest.TestCase):
         r=record();self.assertTrue(triage.outstanding(r))
         for state in triage.TERMINAL_ASSIGNMENTS:
             r['assignment']={'state':state,'reason':'Observed disposition.'}
+            if state != 'disabled':r['assignment']['milestone']=16
             self.assertFalse(triage.outstanding(r))
             p=copy.deepcopy(r);p['assessment']=triage.pending('Unknown remedy','Inspect the failure.')
             self.assertTrue(triage.outstanding(p))
@@ -122,3 +123,99 @@ class Discovery(unittest.TestCase):
         self.assertIn('state=all',paths[0])
         issue['body']=triage.START+'corrupt'+triage.END
         with self.assertRaises(triage.TriageError):triage.matching_submission(Client(),'test-operation-1')
+
+
+class FakeGitHub:
+    repo='o/r'
+    def __init__(self):
+        self.issues=[];self.calls=[];self.lookup_status=200;self.post_status=201
+        self.drop_milestone=False;self.timeout_after_create=False;self.before_patch=None
+        self.read_count=0;self.before_read=None
+    def _transport(self,method,path,data):
+        self.calls.append((method,path,copy.deepcopy(data)))
+        if '/milestones/' in path:
+            return self.lookup_status,{'number':16,'state':'open','title':'Patch'}
+        if method=='GET' and '?' in path:
+            return 200,copy.deepcopy(self.issues)
+        if method=='GET':
+            self.read_count+=1
+            if self.before_read:self.before_read(self)
+            return 200,copy.deepcopy(self.issues[0])
+        if method=='POST':
+            if self.post_status!=201:return self.post_status,None
+            issue={'id':100,'number':1,'html_url':'https://github.com/o/r/issues/1','state':'open',
+                   'created_at':'2026-09-11T00:00:00Z',**copy.deepcopy(data)}
+            issue['milestone']=None if self.drop_milestone or not data.get('milestone') else {'number':data['milestone']}
+            self.issues.append(issue)
+            if self.timeout_after_create:raise TimeoutError('response lost')
+            return 201,copy.deepcopy(issue)
+        if method=='PATCH':
+            if self.before_patch:self.before_patch(self)
+            self.issues[0].update(copy.deepcopy(data))
+            if 'milestone' in data:self.issues[0]['milestone']={'number':data['milestone']}
+            return 200,copy.deepcopy(self.issues[0])
+        raise AssertionError((method,path))
+
+
+class Filing(unittest.TestCase):
+    config={'schema_version':'operator-issue-triage.v1','repositories':{'o/r':Discovery.settings}}
+    def file(self,client,assessment=None):
+        return triage.file_issue(client,'Fix: report',triage.with_record('Original human text',record(assessment)),config=self.config)
+    def test_known_case_assigns_initial_post_and_confirms_readback(self):
+        client=FakeGitHub();result=self.file(client)
+        self.assertEqual(result['filing'],'created');self.assertEqual(result['assignment']['state'],'assigned')
+        post=next(x for x in client.calls if x[0]=='POST');self.assertEqual(post[2]['milestone'],16)
+    def test_lookup_outage_files_and_recovers_without_reclassification(self):
+        client=FakeGitHub();client.lookup_status=503;result=self.file(client)
+        self.assertEqual(result['filing'],'created');self.assertEqual(result['assignment']['state'],'resolution-failed')
+        fresh=triage.discover(client,self.config);self.assertEqual(len(fresh['items']),1)
+        client.lookup_status=200
+        updated=triage.update_triage(client,1,expected=fresh['items'][0]['record'],config=self.config,now='2026-09-12T00:00:00Z')
+        self.assertEqual(updated['state'],'updated');self.assertFalse(updated['outstanding'])
+        self.assertEqual(updated['record']['assessment'],assessed())
+    def test_pending_health_report_never_guesses_impact(self):
+        client=FakeGitHub();result=self.file(client,triage.pending('No known remedy','Investigate regression'))
+        self.assertEqual(result['assessment'],'pending')
+        self.assertFalse(any('/milestones/' in call[1] for call in client.calls))
+    def test_timeout_after_create_reconciles_same_id_without_second_post(self):
+        client=FakeGitHub();client.timeout_after_create=True
+        result=self.file(client);self.assertEqual(result['filing'],'creation-uncertain')
+        client.timeout_after_create=False
+        again=triage.file_issue(client,'Fix: report',triage.with_record('Original',record()),config=self.config,retry=True)
+        self.assertEqual(again['number'],1)
+        self.assertEqual(sum(c[0]=='POST' for c in client.calls),1)
+    def test_retry_absence_or_multiple_matches_never_posts(self):
+        client=FakeGitHub();result=triage.file_issue(client,'Fix: report',triage.render(record()),config=self.config,retry=True)
+        self.assertEqual(result['filing'],'creation-uncertain');self.assertFalse(any(c[0]=='POST' for c in client.calls))
+        self.file(client);client.issues.append(copy.deepcopy(client.issues[0]));client.calls=[]
+        result=self.file(client);self.assertEqual(result['filing'],'creation-uncertain');self.assertFalse(any(c[0]=='POST' for c in client.calls))
+    def test_generic_422_auth_and_server_errors_never_trigger_fallback(self):
+        for status in (422,401,403,500):
+            client=FakeGitHub();client.post_status=status;result=self.file(client)
+            self.assertNotEqual(result['filing'],'created');self.assertEqual(sum(c[0]=='POST' for c in client.calls),1)
+    def test_silently_dropped_milestone_remains_discoverable(self):
+        client=FakeGitHub();client.drop_milestone=True;result=self.file(client)
+        self.assertEqual(result['assignment']['state'],'conflict')
+        self.assertEqual(len(triage.discover(client,self.config)['items']),1)
+    def test_human_assignment_and_unlabelled_issue_are_preserved(self):
+        client=FakeGitHub();client.lookup_status=503;self.file(client);client.issues[0]['milestone']={'number':99}
+        before=triage.observed_record(client.issues[0]);client.lookup_status=200
+        result=triage.update_triage(client,1,expected=before,config=self.config,now='2026-09-12T00:00:00Z')
+        self.assertEqual(result['record']['assignment']['milestone'],99)
+        self.assertEqual(client.issues[0]['milestone']['number'],99)
+        client.issues[0]['labels']=[];client.calls=[]
+        result=triage.update_triage(client,1,expected=before,config=self.config,now='2026-09-12T00:00:00Z')
+        self.assertEqual(result['state'],'out-of-scope');self.assertFalse(any(c[0]=='PATCH' for c in client.calls))
+    def test_final_preflight_detects_observable_human_edit(self):
+        client=FakeGitHub();client.lookup_status=503;self.file(client);old=triage.observed_record(client.issues[0]);client.read_count=0
+        def race(c):
+            if c.read_count==2:c.issues[0]['body']+='\nNew human text'
+        client.before_read=race
+        result=triage.update_triage(client,1,expected=old,config=self.config,now='2026-09-12T00:00:00Z')
+        self.assertEqual(result['state'],'conflict');self.assertIn('New human text',client.issues[0]['body'])
+    def test_accepted_limit_readback_cannot_detect_edit_after_final_read(self):
+        client=FakeGitHub();client.lookup_status=503;self.file(client);old=triage.observed_record(client.issues[0])
+        def race(c):c.issues[0]['body']+='\nConcurrent human text'
+        client.before_patch=race
+        result=triage.update_triage(client,1,expected=old,config=self.config,now='2026-09-12T00:00:00Z')
+        self.assertEqual(result['state'],'updated');self.assertNotIn('Concurrent human text',client.issues[0]['body'])

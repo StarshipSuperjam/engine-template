@@ -28,10 +28,8 @@ a quiet exit 0 (no-op). A genuine GitHub API failure on a label/comment write (a
 non-zero exit so the net's OWN breakage is visible as a red run, never a silent pass. An on:issues run never
 gates Issue creation — the Issue already exists — so a red here blocks nothing.
 
-KNOWN RESIDUAL (honest). The trigger is `[opened, edited]` (the control-plane design's shape). An `engine` label
-applied in a SEPARATE step AFTER creation fires a `labeled` event, which this trigger does not watch, so such an
-Issue is caught only on its next body edit. Cold sessions apply `--label engine` AT create (caught on `opened`)
-and the in-session gate is the first line — widening the trigger would diverge from the locked design.
+SCOPE: opened and engine-label addition opt into assessment validation. Edits validate versioned or
+otherwise enrolled issues; pre-feature legacy bodies remain compatible. Human issues without engine are exempt.
 
 SHARED LABEL TRANSPORT, LOCAL COMMENTS. The per-Issue label operations and the injectable transport (urlopen +
 (status, json) + 30s `_transport` seam, over the shared `github_client`) live in `issue_label_client`, so a
@@ -50,6 +48,7 @@ import sys
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import issue_author  # noqa: E402
 import issue_event   # noqa: E402  (the shared on:issues event-parsing boundary)
+import issue_triage
 import issue_gate    # noqa: E402
 import issue_label_client  # noqa: E402  (the shared per-Issue label client + injectable transport)
 from issue_label_client import DegradedWriteError  # noqa: E402,F401  (re-exported: callers use icc.DegradedWriteError)
@@ -163,6 +162,8 @@ def engine_issue_or_none(event):
     """The issue dict from an issues-event payload IFF it is an engine-labelled Issue with a numeric id;
     otherwise None (out of scope → the caller no-ops, no GitHub call). This backstop's OWN scope: the
     scope-free numeric-id extraction is shared (issue_event.issue_or_none), the `engine`-label gate is local."""
+    if isinstance(event, dict) and event.get('action') == 'labeled' and (event.get('label') or {}).get('name') != 'engine':
+        return None
     issue = issue_event.issue_or_none(event)
     if issue is None:
         return None
@@ -171,16 +172,24 @@ def engine_issue_or_none(event):
     return issue
 
 
-def reconcile(issue: dict, client: IssueConformanceClient) -> str:
+def reconcile(issue: dict, client: IssueConformanceClient, *, require_triage=False) -> str:
     """Bring one engine-labelled Issue into agreement with its body's conformance, idempotently. Returns a
     short action word for the log/demo. Assumes `issue` is already known engine-labelled with a numeric id
     (engine_issue_or_none). On a clearing event, comment pagination precedes the final live Issue reread;
     a concurrent edit after that reread remains a bounded last-read/write residual. Any GitHub failure
     propagates as DegradedWriteError (→ a red run)."""
+    def conforms(body):
+        if not _is_conforming(body):
+            return False
+        try:
+            record = issue_triage.parse(body)
+            return record is not None if require_triage else True
+        except issue_triage.TriageError:
+            return False
     number = issue["number"]
     labels = issue_event.labels_of(issue)
     body = issue.get("body") or ""
-    if _is_conforming(body):
+    if conforms(body):
         if NEEDS_REAUTHORING_LABEL not in labels:
             # An opened event can be captured before this net adds its label, then an edited event can carry
             # that same unflagged snapshot after the body has been fixed. Consult the live Issue solely to
@@ -189,7 +198,7 @@ def reconcile(issue: dict, client: IssueConformanceClient) -> str:
             preliminary_labels = issue_event.labels_of(preliminary)
             if (issue_gate.ENGINE_LABEL not in preliminary_labels or
                     NEEDS_REAUTHORING_LABEL not in preliminary_labels or
-                    not _is_conforming(preliminary.get("body") or "")):
+                    not conforms(preliminary.get("body") or "")):
                 return "conforming"
         # A conform-after-edit: reconcile our notice, then tidy the flag. This also handles a conforming
         # event whose frozen labels predate the opening run's label write.
@@ -201,7 +210,7 @@ def reconcile(issue: dict, client: IssueConformanceClient) -> str:
         live_labels = issue_event.labels_of(live)
         if (issue_gate.ENGINE_LABEL not in live_labels or
                 NEEDS_REAUTHORING_LABEL not in live_labels or
-                not _is_conforming(live.get("body") or "")):
+                not conforms(live.get("body") or "")):
             return "stale"
         for comment in mine:
             if (comment.get("body") or "") != resolved_comment():
@@ -236,8 +245,21 @@ def _run() -> int:
         return 1
     client = IssueConformanceClient(repo, token)
     try:
-        action = reconcile(issue, client)
-    except DegradedWriteError as exc:
+        live = client.get_issue(issue['number'])
+        if not issue_triage.scoped(live):
+            print('issue-conformance: engine label removed — no action.')
+            return 0
+        live = {**live, 'number': issue['number']}
+        direct = event.get('action') in ('opened', 'labeled')
+        settings = issue_triage.repo_config(issue_triage.load_config(), repo)
+        enrolled = issue_triage.enrollment(live, settings)
+        if enrolled == 'unknown' and settings is not None:
+            events = list(issue_triage.pages(client, f"/repos/{repo}/issues/{issue['number']}/events"))
+            enrolled = issue_triage.enrollment(live, settings, events)
+        if enrolled == 'unknown' and event.get('action') == 'edited':
+            raise issue_triage.TriageError('Cannot determine legacy exemption; triage configuration or history is unavailable.')
+        action = reconcile(live, client, require_triage=direct or enrolled == 'required')
+    except (DegradedWriteError, issue_triage.TriageError) as exc:
         print(f"issue-conformance: a GitHub API call failed — {exc}", file=sys.stderr)
         return 1
     print(f"issue-conformance: issue #{issue['number']} -> {action}")

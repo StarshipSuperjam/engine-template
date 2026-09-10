@@ -176,6 +176,12 @@ class _CapturingIssues:
         self.opened.append((title, body))
         return {"html_url": f"https://github.com/{self.repo}/issues/7", "number": 7}
 
+    def file_assessed_issue(self, title, body, **kwargs):
+        import issue_triage
+        created=self.open_issue(title,body)
+        return issue_triage.filing_result(self.repo, 'test-submission-1', 'created',
+                                         issue_triage.parse(body), issue=created)
+
 
 class TestInputLoadingAndValidation(unittest.TestCase):
     def test_load_input_from_stdin_parses_object(self):

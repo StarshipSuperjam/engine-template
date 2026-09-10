@@ -352,7 +352,8 @@ def preview_text(data: dict, trusted_targets: list) -> str:
     )
 
 
-def create_issue(data: dict, *, env=None, root: "str | None" = None, issues_factory=None) -> str:
+def create_issue_result(data: dict, *, env=None, root: "str | None" = None, issues_factory=None,
+                        retry=False) -> dict:
     """File the engine Issue and return its link. Resolves the trusted target SET and REFUSES (IssueInputError)
     if the input's repository matches none of it, or if no target/token can be resolved. The Issue is filed into
     the trusted target the input MATCHED (never a repository named only by the input). The `engine` label is
@@ -379,8 +380,20 @@ def create_issue(data: dict, *, env=None, root: "str | None" = None, issues_fact
         import telemetry  # lazy
         issues_factory = telemetry.GitHubIssues
     issues = issues_factory(matched, token.strip())
-    created = issues.open_issue(title_from_input(data), body_from_input(data))
-    return created.get("html_url") or f"https://github.com/{matched}/issues/{created.get('number', '')}"
+    import issue_triage
+    try:
+        config = issue_triage.load_config(root)
+    except issue_triage.TriageError:
+        config = None  # Reporting remains available; assignment reports missing configuration.
+    return issues.file_assessed_issue(title_from_input(data), body_from_input(data), config=config, retry=retry)
+
+
+def create_issue(data: dict, **kwargs) -> str:
+    """Compatibility URL wrapper; typed callers use create_issue_result for assignment outcomes."""
+    result = create_issue_result(data, **kwargs)
+    if result['filing'] != 'created' or not result.get('number'):
+        raise IssueInputError(result['reason'])
+    return result.get('url') or f"https://github.com/{result['repository']}/issues/{result['number']}"
 
 
 def _cli_preview(source: str) -> int:
@@ -393,22 +406,22 @@ def _cli_preview(source: str) -> int:
     return 0
 
 
-def _cli_create(source: str, confirm: bool) -> int:
+def _cli_create(source: str, confirm: bool, *, retry=False) -> int:
     if not confirm:
         print("Refused — `create` files a GitHub Issue, so it needs explicit confirmation. Re-run with "
               "`--confirm` (use `preview` first to see exactly what will be filed).", file=sys.stderr)
         return 2
     try:
         data = validate_input(load_input(source))
-        link = create_issue(data)
+        result = create_issue_result(data, retry=retry)
     except IssueInputError as exc:
         print(f"Refused — {exc}", file=sys.stderr)
         return 2
     except Exception as exc:  # a network / GitHub failure (e.g. telemetry.DegradedReadError) — report plainly
         print(f"Could not file the Issue: {exc}", file=sys.stderr)
         return 1
-    print(f"Filed: {link}")
-    return 0
+    print(json.dumps(result, indent=2))
+    return 0 if result['filing'] == 'created' else 1
 
 
 def _parse_cli(argv: list) -> "tuple[str, bool]":
@@ -500,6 +513,9 @@ def _demo() -> int:
 
 def main(argv: list) -> int:
     verb = argv[0] if argv else None
+    if verb == 'triage':
+        import issue_triage
+        return issue_triage.main(argv[1:])
     if verb == "demo":
         return _demo()
     if verb in ("preview", "create"):
@@ -508,7 +524,7 @@ def main(argv: list) -> int:
         except IssueInputError as exc:
             print(f"Refused — {exc}", file=sys.stderr)
             return 2
-        return _cli_preview(source) if verb == "preview" else _cli_create(source, confirm)
+        return _cli_preview(source) if verb == "preview" else _cli_create(source, confirm, retry='--retry' in argv)
     print(__doc__)
     return 0
 

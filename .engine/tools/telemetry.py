@@ -599,6 +599,11 @@ class GitHubIssues:
             raise DegradedReadError(f"GitHub returned {status} opening an engine issue")
         return data
 
+    def file_assessed_issue(self, title: str, body: str, *, config=None, retry=False) -> dict:
+        """Supported typed submission; raw open_issue is the legacy transport seam."""
+        import issue_triage
+        return issue_triage.file_issue(self, title, body, config=config, retry=retry)
+
     def update_issue(self, number: int, body: str) -> dict:
         status, data = self._transport("PATCH", f"/repos/{self.repo}/issues/{number}", {"body": body})
         if status >= 400:

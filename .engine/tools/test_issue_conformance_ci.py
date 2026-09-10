@@ -507,3 +507,18 @@ class TestHelpNeverActs(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class TestTriageOptIn(unittest.TestCase):
+    def test_unrelated_label_is_noop_but_engine_label_is_opt_in(self):
+        issue={'number':1,'labels':[{'name':'engine'}]}
+        self.assertIsNone(icc.engine_issue_or_none({'action':'labeled','label':{'name':'bug'},'issue':issue}))
+        self.assertEqual(icc.engine_issue_or_none({'action':'labeled','label':{'name':'engine'},'issue':issue}),issue)
+
+    def test_required_assessment_flags_structural_body_without_assessment(self):
+        from unittest.mock import Mock
+        client=Mock();client.list_comments.return_value=[]
+        body=issue_author.render_engine_issue_body(what_this_is='Human opt-in',whats_next='Investigate')
+        issue={'number':1,'labels':[{'name':'engine'}],'body':body}
+        self.assertEqual(icc.reconcile(issue,client,require_triage=True),'flagged')
+        client.add_label.assert_called_once()
