@@ -69,3 +69,56 @@ class Contract(unittest.TestCase):
         self.assertEqual(triage.parse(result)['revision'],2)
 
 if __name__=='__main__': unittest.main()
+
+
+class Discovery(unittest.TestCase):
+    settings={'activated_at':'2026-09-10T00:00:00Z',
+              'milestones':{'none':19,'patch':16,'minor':17,'major':None}}
+
+    def issue(self, body='', created='2026-09-11T00:00:00Z'):
+        return {'number':1,'labels':[{'name':'engine'}],'body':body,'created_at':created}
+
+    def test_deleted_section_stays_enrolled_by_creation_or_label_history(self):
+        self.assertEqual(triage.enrollment(self.issue(),self.settings),'required')
+        old=self.issue(created='2026-09-01T00:00:00Z')
+        self.assertEqual(triage.enrollment(old,self.settings,[]),'legacy')
+        events=[{'event':'labeled','label':{'name':'engine'},'created_at':'2026-09-11T00:00:00Z'}]
+        self.assertEqual(triage.enrollment(old,self.settings,events),'required')
+        self.assertEqual(triage.enrollment(old,self.settings),'unknown')
+        self.assertEqual(triage.enrollment({**old,'labels':[]},self.settings,events),'out-of-scope')
+
+    def test_discovery_finds_assessed_unassigned_and_excludes_human(self):
+        issue=self.issue(triage.render(record()))
+        class Client:
+            repo='o/r'
+            def _transport(self,*args):return 200,[issue,{**issue,'number':2,'labels':[]}]
+        config={'schema_version':'operator-issue-triage.v1','repositories':{'o/r':self.settings}}
+        result=triage.discover(Client(),config)
+        self.assertTrue(result['complete']);self.assertEqual([x['number'] for x in result['items']],[1])
+        self.assertEqual(result['items'][0]['record']['assessment']['state'],'assessed')
+
+    def test_unavailable_read_is_not_empty_success(self):
+        class Client:
+            repo='o/r'
+            def _transport(self,*args):return 403,None
+        result=triage.discover(Client(),None)
+        self.assertFalse(result['complete']);self.assertIn('403',result['error'])
+
+    def test_configuration_distinguishes_disabled_from_missing_and_is_preserved(self):
+        import module_coherence
+        config={'schema_version':'operator-issue-triage.v1','repositories':{'o/r':self.settings}}
+        self.assertIsNone(triage.repo_config(config,'different/repo'))
+        self.assertIsNone(triage.repo_config(config,'O/R')['milestones']['major'])
+        self.assertIn(triage.CONFIG_NAME,module_coherence.OPERATOR_CONFIG)
+        with self.assertRaises(triage.TriageError):
+            triage.validate_config({'schema_version':'operator-issue-triage.v1','repositories':{'o/r':{**self.settings,'activated_at':'bad'}}})
+
+    def test_reconciliation_includes_closed_issues_and_refuses_corrupt_records(self):
+        paths=[];issue=self.issue(triage.render(record()));issue['state']='closed'
+        class Client:
+            repo='o/r'
+            def _transport(self,method,path,body): paths.append(path);return 200,[issue]
+        self.assertEqual(triage.matching_submission(Client(),'test-operation-1'),[issue])
+        self.assertIn('state=all',paths[0])
+        issue['body']=triage.START+'corrupt'+triage.END
+        with self.assertRaises(triage.TriageError):triage.matching_submission(Client(),'test-operation-1')
