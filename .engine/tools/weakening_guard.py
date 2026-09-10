@@ -841,7 +841,8 @@ ENFORCEMENT_SOURCE_INVENTORY = {'.engine/tools/agent_bindings.py': {'dependencie
  '.engine/tools/module_catalog_check.py': {'dependencies': ('.engine/tools/module_catalog.py',
                                                             '.engine/tools/validate.py'),
                                            'exclusions': {}},
- '.engine/tools/module_coherence.py': {'dependencies': ('.engine/tools/close.py',
+ '.engine/tools/module_coherence.py': {'dependencies': ('.engine/tools/scoped_agents.py',
+                                                        '.engine/tools/close.py',
                                                         '.engine/tools/hooks.py',
                                                         '.engine/tools/modes.py',
                                                         '.engine/tools/repo_identity.py',
@@ -1200,7 +1201,9 @@ ENFORCEMENT_SOURCE_INVENTORY = {'.engine/tools/agent_bindings.py': {'dependencie
  '.engine/tools/product_design/spec_form.py': {'dependencies': ('.engine/tools/validate.py',),
                                                'exclusions': {}},
  '.engine/tools/project_manager.py': {'dependencies': (),
-                                      'exclusions': {'.engine/tools/build_coordinator_core.py': 'build_protocol.roster_lenses '
+                                      'exclusions': {'.engine/tools/providers.py': 'The hard-check path reads PLAN_REVIEW_LENSES only; session identity resolution belongs to plan lifecycle operations outside that path.',
+                                                     '.engine/tools/scoped_agents.py': 'The hard-check path reads PLAN_REVIEW_LENSES only; scoped review acceptance and receipt verification are not invoked by that path.',
+                                                     '.engine/tools/build_coordinator_core.py': 'build_protocol.roster_lenses '
                                                                                                 'reads the '
                                                                                                 'literal '
                                                                                                 'PLAN_REVIEW_LENSES '
@@ -1312,6 +1315,15 @@ ENFORCEMENT_SOURCE_INVENTORY = {'.engine/tools/agent_bindings.py': {'dependencie
  '.engine/tools/self_map_check.py': {'dependencies': ('.engine/tools/self_map.py',
                                                       '.engine/tools/validate.py'),
                                      'exclusions': {}},
+ '.engine/tools/scoped_agents.py': {'dependencies': (),
+                                    'exclusions': {
+                                        '.engine/tools/build_coordinator_core.py': 'module_coherence reads the literal BLOCK_INVARIANT only; assignment storage, runtime hooks and receipt validation are outside that hard-check path.',
+                                        '.engine/tools/hooks.py': 'module_coherence reads the literal BLOCK_INVARIANT only; assignment storage, runtime hooks and receipt validation are outside that hard-check path.',
+                                        '.engine/tools/moment.py': 'module_coherence reads the literal BLOCK_INVARIANT only; assignment storage, runtime hooks and receipt validation are outside that hard-check path.',
+                                        '.engine/tools/plan_store.py': 'module_coherence reads the literal BLOCK_INVARIANT only; assignment storage, runtime hooks and receipt validation are outside that hard-check path.',
+                                        '.engine/tools/providers.py': 'module_coherence reads the literal BLOCK_INVARIANT only; assignment storage, runtime hooks and receipt validation are outside that hard-check path.',
+                                        '.engine/tools/build_state_store.py': 'module_coherence reads the literal BLOCK_INVARIANT only; assignment storage, runtime hooks and receipt validation are outside that hard-check path.',
+                                    }},
  '.engine/tools/session_economy.py': {'dependencies': (),
                                       'exclusions': {'.engine/tools/hooks.py': 'Block-coherence reads the '
                                                                                'literal BLOCK_INVARIANT; '
