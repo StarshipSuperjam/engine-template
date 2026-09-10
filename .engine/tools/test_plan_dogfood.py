@@ -60,17 +60,17 @@ def _fold_in_the_review_fix(document: dict) -> dict:
 
 
 REVIEW_FINDINGS = [
-    {"id": "ARCH-B1", "lens": "architecture", "severity": "blocking",
+    {"id": "ARCH-B1", "lens": "architecture", "severity": "blocking", "location": None,
      "summary": "The plan cites the former one-copy rule as precedent for a gitignored plan library, but that rule "
                 "states no store may make a gitignored derivative the only copy — it forbids the design "
                 "rather than authorizing it."},
-    {"id": "RISK-B1", "lens": "risk-governance", "severity": "blocking",
+    {"id": "RISK-B1", "lens": "risk-governance", "severity": "blocking", "location": None,
      "summary": "The store holds raw operator intent and would be created unignored, one `git add -A` "
                 "away from being committed."},
-    {"id": "FEAS-S1", "lens": "feasibility", "severity": "serious",
+    {"id": "FEAS-S1", "lens": "feasibility", "severity": "serious", "location": None,
      "summary": "Reusing write_private_path would leave the durability obligation unmet: it uses a plain "
                 "os.fsync, which is not a barrier on Darwin."},
-    {"id": "PROD-N1", "lens": "product-intent", "severity": "nit",
+    {"id": "PROD-N1", "lens": "product-intent", "severity": "nit", "location": None,
      "summary": "`list` should say plainly that nothing on the shelf is current by default."},
 ]
 
@@ -175,7 +175,7 @@ class TheFullDistance(_Dogfood):
         owner = scoped_agents.plan_owner(self.lib.read_record(slug))
         digest = self._packet_digest(slug)
         for lens in ("architecture", "feasibility", "product-intent", "risk-governance"):
-            output = [{"severity": f["severity"], "message": f["summary"], "location": None}
+            output = [{"severity": f["severity"], "message": f["summary"], "location": f["location"]}
                       for f in REVIEW_FINDINGS if f["lens"] == lens]
             observe_review_execution(self.lib, slug, owner, lens, digest, output)
         _run(library + ["review", "record", slug,

@@ -53,6 +53,13 @@ class _Surface(unittest.TestCase):
                     raw = json.loads(Path(parsed.findings).read_text()) if parsed.findings else []
                     controller = isinstance(raw, list) and any(isinstance(f, dict) and "summary" in f for f in raw)
                     if controller:
+                        # These historical controller fixtures now supply the observed location explicitly.
+                        for finding in raw:
+                            if isinstance(finding.get("location"), str):
+                                finding["location"] = {"file": finding["location"]}
+                            else:
+                                finding.setdefault("location", None)
+                        Path(parsed.findings).write_text(json.dumps(raw))
                         argv = (*argv, "--controller-findings")
                     findings = project_manager.plan_lifecycle.translate_findings(
                         raw,
@@ -62,7 +69,7 @@ class _Surface(unittest.TestCase):
                         if any(a["lens"] == lens and a["packet_digest"] == parsed.packet_digest for a in existing):
                             continue
                         output = [{"severity": f["severity"], "message": f["summary"],
-                                   "location": {"file": f["location"]} if f.get("location") else None}
+                                   "location": f.get("location")}
                                   for f in findings if f["lens"] == lens]
                         if not controller and len(parsed.lens or []) == 1:
                             output = raw
@@ -83,6 +90,184 @@ class _Surface(unittest.TestCase):
         path = Path(self._tmp.name) / f"{document['plan_id']}-{document['revision']}.json"
         path.write_text(json.dumps(document), encoding="utf-8")
         return str(path)
+
+
+class LocationIngress(_Surface):
+    """Drive raw bytes through the CLI, without the legacy fixture's input reconstruction."""
+
+    def approved(self):
+        slug, _ = self._plan(plan_id=plan_store.mint_plan_id())
+        self.assertEqual(self.run_command("preview", slug)[0], 0)
+        self.assertEqual(self.run_command("approve", slug, "--depth", "standard", "--operator-decided")[0], 0)
+        return slug
+
+    def packet(self, slug):
+        return project_manager.core.digest(plan_projection.render_plan(
+            self.lib.head(slug), self.lib.read_record(slug)).encode())
+
+    def observed(self, slug, lens, report, packet):
+        import scoped_agents
+        from test_build_coordinator import observe_review_execution
+        return observe_review_execution(self.lib, slug, scoped_agents.plan_owner(self.lib.read_record(slug)),
+                                        lens, packet, report)[0]
+
+    def record(self, slug, packet, *lenses, raw=None, controller=False, amend=False):
+        argv = ["review", "amend" if amend else "record", slug, "--packet-digest", packet,
+                "--session", "fixture-root"]
+        for lens in lenses:
+            argv.extend(["--lens", lens])
+        if raw is not None:
+            source = Path(self._tmp.name) / "raw-findings.json"
+            source.write_text(raw)
+            argv.extend(["--findings", str(source)])
+        if controller:
+            argv.append("--controller-findings")
+        if amend:
+            argv.extend(["--reason", "Record the remaining observed lens."])
+        return self.run_command(*argv, observe=False)
+
+    def test_all_producer_locations_persist_exactly_through_record_and_amend(self):
+        locations = [{"file": "a"}, {"file": "a", "line": 12}, None,
+                     {"file": "a", "line": None}, {"file": ""}, {"file": "a:12"},
+                     {"file": "資料/é.py", "line": 0}, {"file": "a", "line": -2}]
+        report = [{"severity": "nit", "message": f"Finding {i}", "location": loc}
+                  for i, loc in enumerate(locations)]
+        slug = self.approved(); packet = self.packet(slug)
+        self.observed(slug, "architecture", report, packet)
+        code, _, err = self.record(slug, packet, "architecture", raw=json.dumps(report))
+        self.assertEqual(code, 0, err)
+        stored = self.lib.read_record(slug)["plan_review"]["findings"]
+        self.assertEqual([f["location"] for f in stored], locations)
+        self.assertNotEqual(stored[1]["location"], stored[5]["location"])
+        self.assertNotEqual(stored[0]["location"], stored[3]["location"])
+        self.observed(slug, "feasibility", report, packet)
+        code, _, err = self.record(slug, packet, "feasibility", raw=json.dumps(report), amend=True)
+        self.assertEqual(code, 0, err)
+        findings = self.lib.read_record(slug)["plan_review"]["findings"]
+        self.assertEqual([f["location"] for f in findings], locations * 2)
+        self.assertEqual(self.run_command("validate", slug)[0], 0)
+
+    def test_invalid_raw_inputs_leave_record_and_acceptance_unchanged(self):
+        finding = {"severity": "nit", "message": "Keep this finding", "location": {"file": "a"}}
+        invalid = ["null", "[", "7", '"[]"', json.dumps([finding, {"id": "A"}]),
+                   json.dumps([{**finding, "extra": 1}]),
+                   '[{"severity":"nit","message":"x","location":null,"location":null}]']
+        invalid += [json.dumps([{**finding, "location": loc}]) for loc in
+                    ["a", {}, {"file": 7}, {"file": "a", "line": "2"},
+                     {"file": "a", "line": True}, {"file": "a", "extra": 1}]]
+        slug = self.approved(); packet = self.packet(slug)
+        store = self.observed(slug, "architecture", [finding], packet)
+        record_path = self.lib.plan_dir(slug) / "record.json"
+        for raw in invalid:
+            before = record_path.read_bytes(), store.path.read_bytes()
+            with self.subTest(raw=raw):
+                code, _, err = self.record(slug, packet, "architecture", raw=raw)
+                self.assertEqual(code, 2, err)
+                self.assertEqual((record_path.read_bytes(), store.path.read_bytes()), before)
+        # A well-shaped empty substitute cannot erase the observed finding either.
+        before = record_path.read_bytes(), store.path.read_bytes()
+        self.assertEqual(self.record(slug, packet, "architecture", raw="[]")[0], 2)
+        self.assertEqual((record_path.read_bytes(), store.path.read_bytes()), before)
+
+    def test_invalid_observed_report_is_not_an_empty_review(self):
+        for report in [None, [{"severity": "nit", "message": "x", "location": "a"}]]:
+            slug = self.approved(); packet = self.packet(slug)
+            store = self.observed(slug, "architecture", report, packet)
+            before = self.lib.read_record(slug), store.read()
+            self.assertEqual(self.record(slug, packet, "architecture")[0], 2)
+            self.assertEqual((self.lib.read_record(slug), store.read()), before)
+        slug = self.approved(); packet = self.packet(slug)
+        self.observed(slug, "architecture", [], packet)
+        self.assertEqual(self.record(slug, packet, "architecture", raw="[]")[0], 0)
+        self.assertEqual(self.lib.read_record(slug)["plan_review"]["findings"], [])
+
+    def test_controller_ids_cannot_hide_or_substitute_observed_locations(self):
+        slug = self.approved(); packet = self.packet(slug)
+        location = {"file": "a", "line": 12}
+        report = [{"severity": "nit", "message": "x", "location": location}]
+        store = self.observed(slug, "architecture", report, packet)
+        entry = {"id": "custom-7", "lens": "architecture", "severity": "nit", "summary": "x"}
+        before = self.lib.read_record(slug), store.read()
+        for supplied in [entry, {**entry, "location": "a:12"}, {**entry, "location": {"file": "a:12"}}]:
+            self.assertEqual(self.record(slug, packet, "architecture", raw=json.dumps([supplied]), controller=True)[0], 2)
+            self.assertEqual((self.lib.read_record(slug), store.read()), before)
+        self.assertEqual(self.record(slug, packet, "architecture", raw=json.dumps([
+            {**entry, "location": location}]), controller=True)[0], 0)
+        self.assertEqual(self.lib.read_record(slug)["plan_review"]["findings"][0]["id"], "custom-7")
+
+    def test_pre_upgrade_accepted_review_stays_verified_and_can_amend_and_seal(self):
+        import result_contracts as rc
+        import scoped_agents
+        slug = self.approved(); packet = self.packet(slug)
+        report = [{"severity": "nit", "message": "old finding", "location": {"file": "a", "line": 12}}]
+        original = rc.compile_review
+        # Exercise the real old string projection through today's unchanged binding and observation
+        # machinery. This is fixture construction, not a fabricated production acceptance.
+        with mock.patch.object(rc, "compile_review", side_effect=lambda report, *, lens, **kw:
+                               original(report, lens=lens)):
+            store = self.observed(slug, "architecture", report, packet)
+            code, _, err = self.record(slug, packet, "architecture")
+            self.assertEqual(code, 0, err)
+        before = self.lib.read_record(slug)
+        self.assertEqual(before["plan_review"]["findings"][0]["location"], "a:12")
+        self.assertEqual(rc.resolve("plan-review-finding.v1")["schema_digest"],
+                         "sha256:b2f3de83282162c3fb0b77e362ff901aac188f1ec786bb4c0f51c7c07f9a0562")
+        self.assertTrue(store.receipt_verified(before["plan_review"], scoped_agents.plan_owner(before)))
+        record_path = self.lib.plan_dir(slug) / "record.json"
+        old_bytes = record_path.read_bytes()
+        self.assertEqual(self.run_command("reindex")[0], 0)
+        self.assertEqual(record_path.read_bytes(), old_bytes)
+        for lens in project_manager.required_lenses("standard", project_manager.installed_lenses()):
+            if lens != "architecture":
+                self.observed(slug, lens, report, packet)
+                code, _, err = self.record(slug, packet, lens, raw=json.dumps(report), amend=True)
+                self.assertEqual(code, 0, err)
+        record = self.lib.read_record(slug)
+        self.assertEqual(record["plan_review"]["findings"][0], before["plan_review"]["findings"][0])
+        self.assertEqual(record["plan_review"]["findings"][1]["location"], report[0]["location"])
+        for finding in record["plan_review"]["findings"]:
+            self.assertEqual(self.run_command("finding", "dispose", slug, "--id", finding["id"],
+                "--disposition", "rejected", "--rationale", "Disposable fixture finding.",
+                "--does-not-block-this-pr")[0], 0)
+        self.assertEqual(self.run_command("present-findings", slug, "--operator-decided")[0], 0)
+        code, _, err = self.run_command("seal", slug, "--operator-decided")
+        self.assertEqual(code, 0, err)
+        sealed_bytes = record_path.read_bytes()
+        self.assertEqual(self.run_command("reindex")[0], 0)
+        self.assertEqual(record_path.read_bytes(), sealed_bytes)
+        bundle = Path(self._tmp.name) / "legacy-and-structured.json"
+        self.assertEqual(self.run_command("export", slug, "--output", str(bundle))[0], 0)
+        other = Path(self._tmp.name) / "imported"
+        with contextlib.redirect_stdout(io.StringIO()), contextlib.redirect_stderr(io.StringIO()):
+            code = project_manager.main(["--library", str(other), "import", "--bundle", str(bundle)])
+        self.assertEqual(code, 0)
+        imported = plan_store.PlanLibrary(other).read_record(slug)
+        self.assertEqual(imported, self.lib.read_record(slug))
+        self.assertEqual(record_path.read_bytes(), sealed_bytes)
+
+    def test_legacy_absent_location_is_readable_and_survives_bundle_transport(self):
+        slug = self.approved(); packet = self.packet(slug)
+        report = [{"severity": "nit", "message": "Historical finding", "location": None}]
+        self.observed(slug, "architecture", report, packet)
+        self.assertEqual(self.record(slug, packet, "architecture")[0], 0)
+        # Model the documented historical record format, never a new producer report.
+        self.lib.update_record(slug, lambda r: r["plan_review"]["findings"][0].pop("location"))
+        before = self.lib.read_record(slug)
+        bundle = Path(self._tmp.name) / "absent-location.json"
+        self.assertEqual(self.run_command("export", slug, "--output", str(bundle))[0], 0)
+        other = Path(self._tmp.name) / "imported-absent"
+        with contextlib.redirect_stdout(io.StringIO()), contextlib.redirect_stderr(io.StringIO()):
+            self.assertEqual(project_manager.main(["--library", str(other), "import", "--bundle", str(bundle)]), 0)
+        self.assertEqual(plan_store.PlanLibrary(other).read_record(slug), before)
+
+
+class LocationDemonstration(_Surface):
+    def test_demo_passes_and_deliberately_broken_versions_fail(self):
+        for flag, expected in [(None, 0), ("--break-preservation", 1), ("--break-ingress", 1)]:
+            args = ["demo-locations"] + ([flag] if flag else [])
+            code, out, _ = self.run_command(*args)
+            self.assertEqual(code, expected, out)
+            self.assertIn("temporary libraries", out)
 
 
 class Selection(_Surface):
@@ -767,10 +952,10 @@ class Dispositions(_Governed):
 
 
 class PersonaLocationRendering(_Governed):
-    """Persona-shaped findings with object locations render to record string form through review record."""
+    """Persona-shaped findings preserve their exact locations through review record."""
 
-    def test_object_locations_render_to_string_form_in_the_recorded_plan(self):
-        """End-to-end: object locations with line, without line, and null are rendered as strings."""
+    def test_object_locations_remain_structured_in_the_recorded_plan(self):
+        """End-to-end: object locations with line, without line, and null survive exactly."""
         slug, _ = self._plan()
         self.run_command("preview", slug)
         self.assertEqual(self.run_command("approve", slug, "--depth", "standard", "--operator-decided")[0], 0)
@@ -790,12 +975,9 @@ class PersonaLocationRendering(_Governed):
 
         findings_list = self.lib.read_record(slug)["plan_review"]["findings"]
         self.assertEqual(len(findings_list), 3)
-        # Object with line renders as file:line
-        self.assertEqual(findings_list[0]["location"], "src/validate.py:42")
-        # Object without line renders as file path
-        self.assertEqual(findings_list[1]["location"], "src/module.py")
-        # Null location renders as the plan as a whole
-        self.assertEqual(findings_list[2]["location"], "the plan as a whole")
+        self.assertEqual(findings_list[0]["location"], {"file": "src/validate.py", "line": 42})
+        self.assertEqual(findings_list[1]["location"], {"file": "src/module.py"})
+        self.assertIsNone(findings_list[2]["location"])
 
 
 class Closing(_Surface):
