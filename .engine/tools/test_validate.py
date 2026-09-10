@@ -1192,5 +1192,146 @@ class TestLivePrBodyFetch(unittest.TestCase):
         self.assertIs(findings[0].get("not_applicable"), True)
 
 
+class AcknowledgmentDeadlineTests(unittest.TestCase):
+    """Run the real dispatcher and consumers; simulate API latency and subprocess death, not verdicts.
+
+    No OS timeout is claimed here: the subprocess seam raises TimeoutExpired when a simulated clock
+    reaches the actual deadline supplied by the dispatcher. BaseException models process death so the
+    consumer cannot catch it as an API error and pretend it had time to finish a report.
+    """
+
+    def simulate(self, consumer="guardrail-weakening", arrival=38, api_seconds=0, setup_seconds=0,
+                 oversized=False):
+        import base64
+        import weakening_guard
+        from product_design import lock_integrity
+
+        class ProcessDeadline(BaseException):
+            pass
+
+        clock, reads, waits = [0], [], []
+        deadline = [None]
+        root = validate.ROOT
+        with open(os.path.join(root, ".engine", "check", consumer + ".json")) as fh:
+            rule = json.load(fh)
+
+        def advance(seconds):
+            clock[0] += seconds
+            if clock[0] >= deadline[0]:
+                clock[0] = deadline[0]
+                raise ProcessDeadline()
+
+        def sleep(seconds):
+            waits.append(seconds)
+            advance(seconds)
+
+        def page(url, token, **kwargs):
+            if "/pulls/1/files?" in url:
+                advance(setup_seconds)
+                return [{"filename": ".engine/tools/weakening_guard.py", "status": "modified"}], None
+            self.assertEqual(url, "/repos/o/r/commits/HEAD/statuses?per_page=100")
+            reads.append(clock[0])
+            advance(api_seconds)
+            status = [{"context": "engine-ack", "state": "success",
+                       "creator": {"login": "github-actions[bot]"}}]
+            return (status if clock[0] >= arrival else []), None
+
+        settled = "---\nstatus: locked\n---\n\n# Checkout\n\nOriginal.\n"
+
+        def product_api(url, token, **kwargs):
+            advance(api_seconds)
+            if "/contents/docs/spec?" in url:
+                return [{"type": "file", "name": "checkout.md", "path": "docs/spec/checkout.md"}]
+            self.assertIn("/contents/docs/spec/checkout.md?", url)
+            return {"encoding": "base64", "content": base64.b64encode(settled.encode()).decode()}
+
+        def run_child(args, **kwargs):
+            self.assertEqual(kwargs["timeout"], 120)
+            deadline[0] = kwargs["timeout"]
+            output = io.StringIO()
+            try:
+                with mock.patch.dict(os.environ, kwargs["env"], clear=True), \
+                        contextlib.redirect_stdout(output):
+                    if consumer == "guardrail-weakening":
+                        rc = weakening_guard.main()
+                    else:
+                        advance(setup_seconds)
+                        with mock.patch.object(validate, "ROOT", scratch):
+                            rc = lock_integrity.emit_findings()
+            except ProcessDeadline:
+                raise subprocess.TimeoutExpired(args, kwargs["timeout"]) from None
+            return subprocess.CompletedProcess(args, rc, output.getvalue(), "")
+
+        with tempfile.TemporaryDirectory(prefix="ack-deadline-") as scratch:
+            event = os.path.join(scratch, "event.json")
+            with open(event, "w") as fh:
+                json.dump({"pull_request": {"number": 1, "head": {"sha": "HEAD"},
+                          "base": {"sha": "BASE"}, "labels": [{"name": "guardrail-ack"}]}}, fh)
+            os.makedirs(os.path.join(scratch, "docs", "spec"))
+            with open(os.path.join(scratch, "docs", "spec", "checkout.md"), "w") as fh:
+                fh.write(settled.replace("Original.", "Changed."))
+            with mock.patch.dict(os.environ, {"GITHUB_EVENT_PATH": event, "GITHUB_REPOSITORY": "o/r",
+                                             "GITHUB_TOKEN": "fixture"}), \
+                    mock.patch.object(weakening_guard, "get_page", side_effect=page), \
+                    mock.patch.object(weakening_guard, "get_json", return_value={"changed_files": 2 if oversized else 1}), \
+                    mock.patch.object(lock_integrity, "get_json", side_effect=product_api), \
+                    mock.patch.object(weakening_guard.time, "sleep", side_effect=sleep), \
+                    mock.patch.object(validate.subprocess, "run", side_effect=run_child):
+                passed, findings = validate.kind_custom_script(rule, {})
+        return {"passed": passed, "seconds": clock[0], "reads": reads, "sleeps": waits, "findings": findings}
+
+    def test_late_ack_and_absence_through_both_consumers(self):
+        for consumer in ("guardrail-weakening", "product-lock-integrity"):
+            for arrival, expected in ((38, True), (61, False)):
+                with self.subTest(consumer=consumer, arrival=arrival):
+                    result = self.simulate(consumer, arrival=arrival)
+                    self.assertEqual(result["passed"], expected)
+                    self.assertEqual(result["reads"], [0, 30, 60])
+                    self.assertEqual(result["sleeps"], [30, 30])
+                    self.assertEqual(result["seconds"], 60)
+                    if expected and consumer == "guardrail-weakening":
+                        self.assertIn("ACKNOWLEDGED", result["findings"][0]["message"])
+
+    def test_combined_work_hits_existing_deadline_with_recovery(self):
+        for consumer, rerun in (("guardrail-weakening", "engine-guard"),
+                                ("product-lock-integrity", "engine-ci")):
+            with self.subTest(consumer=consumer):
+                result = self.simulate(consumer, arrival=125, api_seconds=10, setup_seconds=40)
+                self.assertFalse(result["passed"])
+                self.assertEqual(result["seconds"], 120)
+                self.assertEqual(result["reads"], [40, 80])  # final poll never ran
+                finding = result["findings"][0]
+                self.assertEqual(finding["severity"], "hard")
+                self.assertIn("Verification did not finish", finding["message"])
+                self.assertIn("re-run " + rerun, finding["message"])
+                self.assertIn("Do not remove and re-apply", finding["message"])
+                self.assertIn("120-second", finding["message"])
+
+    def test_both_guard_report_paths_put_rerun_before_new_commit_reapproval(self):
+        for oversized in (False, True):
+            with self.subTest(oversized=oversized):
+                result = self.simulate(arrival=61, oversized=oversized)
+                self.assertFalse(result["passed"])
+                msg = result["findings"][0]["message"]
+                self.assertLess(msg.index("re-run this check"), msg.index("If a new commit"))
+                self.assertIn("Do not remove and re-apply", msg)
+                self.assertIn("review this version", msg)
+
+    def test_other_checks_and_non_timeout_errors_keep_generic_failure(self):
+        real = {"id": "engine/check/guardrail-weakening", "tier": "soft",
+                "params": {"script": ".engine/tools/weakening_guard.py"}}
+        for rule, error in ((dict(real, id="other-check"), subprocess.TimeoutExpired("test", 120)),
+                            (real, OSError("unavailable")),
+                            (dict(real, params={"script": ".engine/tools/validate.py"}),
+                             subprocess.TimeoutExpired("test", 120))):
+            with self.subTest(rule=rule, error=type(error).__name__), \
+                    mock.patch.object(validate.subprocess, "run", side_effect=error):
+                passed, findings = validate.kind_custom_script(rule, {})
+                self.assertFalse(passed)
+                self.assertEqual(findings[0]["severity"], "hard")
+                self.assertIn("could not run", findings[0]["message"])
+                self.assertNotIn("acknowledgment workflow", findings[0]["message"])
+
+
 if __name__ == "__main__":
     unittest.main()
