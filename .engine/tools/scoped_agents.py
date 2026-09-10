@@ -528,7 +528,8 @@ class Store:
             # but cannot change the observed finding count, order, severity or message.
             matches = len(supplied) == len(expected) and all(
                 all(s[key] == e[key] for key in ("lens", "severity", "summary")) and
-                ("location" not in s or s["location"] == e["location"])
+                ("location" in s and result_contracts.digest(s["location"]) ==
+                 result_contracts.digest(e["location"]))
                 for s, e in zip(supplied, expected))
             if not matches:
                 raise result_contracts.Rejection("authority", "observed_report_mismatch").as_error(EvidenceError)

@@ -35,8 +35,11 @@ Return a complete JSON array:
 [{"severity":"serious","message":"The failure path loses evidence.","location":{"file":"tools/example.py","line":42}}]
 ```
 
-`location` may be null; `line` may be absent or null. These distinctions survive in the retained semantic
-report even though the finding display renders locations as text. Finding IDs, lens identity, dispositions
+`location` may be null; `line` may be absent or null. New plan findings store that exact object or null,
+including the distinction between an absent line and an explicit null line. File paths are not normalized
+or parsed for line numbers: `{"file":"a:12"}` remains different from `{"file":"a","line":12}`.
+Deliverable and repair findings retain their existing text projection and exact retained semantic report.
+Finding IDs, lens identity, dispositions
 and receipts are controller-owned and forbidden in model reports. `[]` is a completed empty report.
 Null, absent output and partial clarification messages are not completed review.
 
@@ -51,8 +54,26 @@ The existing `--finding` ID list or `--findings-from-file` controller batch rema
 coverage must match the observed report. Initial severity and summary must match too, whether the
 disposition is recorded before or after its receipt. Later controller corrections remain separate.
 Project Manager's explicit `--controller-findings` option accepts a controller projection with chosen IDs;
-it cannot replace the observed count, order, severity or message. Raw producer output never enters through
+it must supply the exact observed location as well as count, order, severity and message. A missing location
+or a flattened string cannot replace an observed object or null. Raw producer output never enters through
 that option.
+
+Old plan records may contain a nonempty string location or no location at all. They remain readable and
+are not migrated or reinterpreted. Explicit `finding amend --location` corrections may still use text;
+those corrections remain separate from the immutable original report. Export/import and reindex preserve
+the authoritative record and seal; a bundle alone still does not transfer fresh execution evidence.
+The durable schema references the producer's location definition using bounded local reference resolution
+for both complete records and finding fragments. Existing internal recursive record definitions retain
+their native validation behavior; remote schema retrieval and references escaping the schema directory
+are not enabled.
+
+The producer schema and its complete resolved binding are unchanged by this location repair, so an
+already accepted review of an unsealed plan remains verifiable and can finish its existing ceremony.
+The producer schema's older descriptive claim that no mechanical check resolves its contract is stale;
+the registry and ingress behavior described here are current. That fingerprinted sentence is deliberately
+left unchanged until a supported contract-transition design can update it without invalidating old reviews.
+Older Engine versions are not promised to read newly structured plan records; upgrade the reader before
+opening those records and preserve the original library when considering a downgrade.
 
 The private scoped companion retains validated semantic reports, original output digests and bindings,
 linked to the published consumer receipt. `finding amend`, `finding dispose` and Build `finding record`
@@ -114,6 +135,13 @@ continues successfully, and independently derived degradation notices keep their
 receipt or durable retention of every meets/unsure verdict is promised here; issue StarshipSuperjam/engine-template#815 owns that work.
 
 ### Falsification demo
+
+Run `uv run --directory .engine --frozen -- python tools/project_manager.py demo-locations` to watch
+exact file/line, whole-plan and ambiguous-path locations survive real record/amend commands, and invalid
+reports leave records unchanged. `--break-preservation` deliberately restores lossy flattening in memory;
+`--break-ingress` deliberately bypasses raw validation. Each broken mode must exit nonzero. The demo
+runs permanent regression witnesses in temporary libraries with synthetic transport observations; it
+does not use your real plan library or claim to qualify live reviewers.
 
 Run `uv run --directory .engine --frozen -- python tools/demo_result_contracts.py`.
 It executes five command-level checks against disposable stores with synthetic transport observations,

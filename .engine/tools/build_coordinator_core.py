@@ -258,19 +258,57 @@ def input_text(path: str) -> str:
         raise CoordinatorError(f"could not read {path}: {exc}") from exc
 
 
-def validate(instance: Any, schema_path: Path) -> None:
+def _local_validation_schema(schema_path: Path) -> dict:
+    """Expand external local references only; retain native recursive local definitions.
+
+    Plan records have a recursive transfer definition. Fully expanding that durable schema
+    would impose the result protocol's no-recursion rule on an existing durable contract.
+    External fragments use the bounded result resolver, while internal refs stay with jsonschema.
+    """
+    import result_contracts
+    budget = [0, 0]
+
+    def expand(value, depth=0):
+        budget[0] += 1
+        if budget[0] > result_contracts.LIMITS["values"] or depth > result_contracts.LIMITS["depth"]:
+            result_contracts.reject("schema_expansion_limit", category="authority")
+        if isinstance(value, list):
+            return [expand(v, depth + 1) for v in value]
+        if not isinstance(value, dict):
+            return value
+        ref = value.get("$ref")
+        if "$ref" in value and not isinstance(ref, str):
+            result_contracts.reject("invalid_schema_reference", category="authority")
+        if ref is not None and not ref.startswith("#"):
+            budget[1] += 1
+            if budget[1] > 256:
+                result_contracts.reject("schema_reference_limit", category="authority")
+            target = result_contracts.local_schema(ref, schema_path.parent)
+            siblings = expand({k: v for k, v in value.items() if k != "$ref"}, depth + 1)
+            return {"allOf": [target, siblings]} if siblings else target
+        return {k: expand(v, depth + 1) for k, v in value.items()}
+
+    try:
+        return expand(json_file(schema_path))
+    except result_contracts.Rejection as exc:
+        raise CoordinatorError(str(exc)) from exc
+
+
+def validate(instance: Any, schema_path: Path, *, local_refs: bool = False) -> None:
     try:
         from jsonschema import Draft202012Validator
     except ImportError as exc:
         raise CoordinatorError("the Engine runtime is missing jsonschema; run this tool through uv") from exc
-    errors = sorted(Draft202012Validator(json_file(schema_path)).iter_errors(instance), key=lambda e: list(e.path))
+    schema = _local_validation_schema(schema_path) if local_refs else json_file(schema_path)
+    errors = sorted(Draft202012Validator(schema).iter_errors(instance), key=lambda e: list(e.path))
     if errors:
         error = _most_specific(errors[0])
         where = ".".join(str(p) for p in error.absolute_path) or "document"
         raise CoordinatorError(f"{schema_path.stem} rejected {where}: {error.message}")
 
 
-def validate_part(instance: Any, schema_path: Path, pointer: str, label: str) -> None:
+def validate_part(instance: Any, schema_path: Path, pointer: str, label: str, *,
+                  local_refs: bool = False) -> None:
     """Validate one FRAGMENT against a named definition inside a schema, with the same error legibility
     the whole-document path gives.
 
@@ -278,7 +316,7 @@ def validate_part(instance: Any, schema_path: Path, pointer: str, label: str) ->
     the moment it is read, rather than surviving until the write and surfacing as a complaint about the
     enclosing record. The ordering matters wherever a verb also enforces ceremony — a session that
     mistyped a severity should be told about the severity, not about a flag it has not reached yet."""
-    document = json_file(schema_path)
+    document = _local_validation_schema(schema_path) if local_refs else json_file(schema_path)
     schema = {**{key: value for key, value in document.items() if key.startswith("$def")}, "$ref": pointer}
     try:
         from jsonschema import Draft202012Validator
