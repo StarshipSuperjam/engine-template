@@ -3002,6 +3002,36 @@ class TestFrozenApproval(_Surface):
         self.assertEqual(0, code, out + err)
         self.assertEqual(original, self.lib.read_record(slug))
 
+    def test_cli_mixed_renewal_and_editorial_status_preserve_original_approval(self):
+        slug = self._approved(); original = self.lib.read_record(slug)['approval']
+        root = Path(project_manager.__file__).resolve().parents[2]
+        for lens in ('architecture', 'feasibility'):
+            path = root / f'.claude/agents/engine-design-review-{lens}.md'
+            path.write_text(path.read_text().replace('reviewer-contract-version: 1', 'reviewer-contract-version: 2'))
+        output = Path(self._tmp.name) / 'mixed.json'
+        rc, out, err = self.run_command('review-contract', 'preview', slug, '--action', 'adopt',
+            '--adopt-lens', 'plan-review:architecture', '--output', str(output))
+        self.assertEqual(0, rc, out + err)
+        rc, out, err = self.run_command('review-contract', 'apply', slug, '--input', str(output),
+            '--reason', 'Adopt architecture while retaining feasibility', '--operator-decided')
+        self.assertEqual(0, rc, out + err)
+        record = self.lib.read_record(slug)
+        self.assertEqual(original, record['approval'])
+        self.assertEqual(['architecture'], [d['lens'] for d in record['review_contract_renewals'][0]['delta']])
+        self.assertEqual([], project_manager.unresolved_review_drift(record))
+        path = root / '.claude/agents/engine-design-review-architecture.md'
+        old_hash = project_manager.reviewer_contracts.effective(record)['panels']['plan-review'][0]['source']['digest']
+        path.write_text(path.read_text() + '\nPRIVATE-PROVENANCE-WITNESS\n')
+        rc, out, err = self.run_command('show', slug)
+        self.assertEqual(0, rc, err)
+        self.assertIn(old_hash, out)
+        self.assertIn(project_manager.core.digest(path.read_bytes()), out)
+        self.assertNotIn('PRIVATE-PROVENANCE-WITNESS', out)
+        self.assertIn('plan-review/feasibility — retain', out)
+        rendered = plan_projection.render_plan(self.lib.head(slug), record)
+        self.assertIn(old_hash, rendered)
+        self.assertIn('plan-review/architecture — adopt', rendered)
+
     def test_approval_captures_both_panels_and_effort_policy(self):
         slug = self._approved()
         r = self.lib.read_record(slug)

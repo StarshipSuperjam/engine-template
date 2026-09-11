@@ -530,11 +530,15 @@ def _build_review_drift(state):
     adopted = reviewer_contracts.adoption(state)
     if adopted and not state.get("review_contract_renewals") and adopted["installation_digest"] == reviewer_contracts.installation_digest(ROOT):
         return []
-    changes = [c for c in reviewer_contracts.drift(contract, ROOT)["changed"] if c["role"] == "pre-submission-review"]
     decisions = state.get("review_contract_renewals", [])
-    if decisions and decisions[-1]["action"] == "retain" and decisions[-1]["installation_digest"] == reviewer_contracts.installation_digest(ROOT):
-        return []
+    changes = [c for c in reviewer_contracts.unresolved_drift(contract, ROOT, decisions)
+               if c["role"] == "pre-submission-review"]
     return [f"{c['lens']}: changed reviewer mandate requires explicit retention or adoption" for c in changes]
+
+
+def _review_source_provenance(state):
+    contract = reviewer_contracts.effective_build(state)
+    return reviewer_contracts.source_provenance(contract, ROOT) if contract else []
 
 
 def _remember_review_evidence(state):
@@ -545,11 +549,14 @@ def _remember_review_evidence(state):
 
 def _archive_replaced_review(state, lens, replacement):
     _remember_review_evidence(state)
+    unresolved = set(review.missing_findings(state)) | {
+        f['id'] for f in review.live_findings(state) if review.blocks_submission(f)}
     for stage, old in review.live_receipts(state):
         if old["lens"] != lens or old == replacement:
             continue
         entry = {"stage": stage, "receipt": copy.deepcopy(old),
-                 "effective": old.get("obligation_digest") != replacement.get("obligation_digest")}
+                 "effective": (old.get("obligation_digest") != replacement.get("obligation_digest")
+                               or bool(unresolved.intersection(old['finding_ids'])))}
         history = state.setdefault("review_evidence_history", [])
         if not any(e["receipt"] == old for e in history):
             history.append(entry)
@@ -1019,7 +1026,8 @@ def _status(state: dict, plan: dict | None = None) -> dict:
     result = {"phase": phase, "runbook": runbook_for(state, phase, protocol),
               "head_commit": head, "snapshot_revision": state["revision"],
               "required_evidence": required_evidence, "engineering_judgment": judgments,
-              "warnings": warnings, "suggested_next": next_one, "available_activities": available,
+              "warnings": warnings + _review_source_provenance(state) + reviewer_contracts.decision_lines(state),
+              "suggested_next": next_one, "available_activities": available,
               "progress": {"completed": completed_items, "total": len(ordered_items),
                            "current": state["progress"]["current_item"], "next": next_item}}
     if plan is not None and state.get("schema_version") == "build-state.v2":
@@ -1931,13 +1939,14 @@ def _emit_packet(packet: dict, args) -> None:
           f"{len(packet['required_lenses'])} required lens(es), commit {packet.get('commit') or 'plan'}")
 
 
-def _build_contract_preview(state, action):
+def _build_contract_preview(state, action, adopt_lenses=None):
     old = reviewer_contracts.effective_build(state)
     if old is None:
         raise CoordinatorError("historical Build requires evidence-scoped contract adoption")
     lenses = [p["lens"] for p in _required(_protocol(), old["depth"], _installed())]
     proposed = reviewer_contracts.propose_build(state, ROOT, lenses)
-    preview = reviewer_contracts.renewal_preview(reviewer_contracts.build_record(state), proposed, ROOT, action)
+    preview = reviewer_contracts.renewal_preview(reviewer_contracts.build_record(state), proposed, ROOT, action,
+                                               adopt_lenses)
     preview["build_owner"] = scoped_agents.build_owner(state)
     preview["state_digest"] = core.digest(state)
     preview["preview_digest"] = core.digest({k:v for k,v in preview.items() if k != "preview_digest"})
@@ -1947,7 +1956,7 @@ def _build_contract_preview(state, action):
 def cmd_build_contract_preview(args, store):
     state = store.read()
     _assert_plan(state, _plan(args.plan))
-    preview = _build_contract_preview(state, args.action)
+    preview = _build_contract_preview(state, args.action, getattr(args, 'adopt_lens', None))
     text = json.dumps(preview, indent=2, ensure_ascii=False) + "\n"
     if args.output:
         core.write_private_path(Path(args.output), text)
@@ -1975,7 +1984,7 @@ def cmd_build_contract_apply(args, store):
             raise CoordinatorError("renewal belongs to another Build owner or generation")
         if any(d["preview_digest"] == preview.get("preview_digest") for d in state.get("review_contract_renewals", [])):
             return
-        if _build_contract_preview(state, preview.get("action")) != preview:
+        if _build_contract_preview(state, preview.get("action"), preview.get('adopt_lenses')) != preview:
             raise CoordinatorError("Build renewal preview is stale or modified; preview the current evidence")
         adapter = reviewer_contracts.build_record(state)
         reviewer_contracts.apply_renewal(adapter, preview, reason=args.reason, at=moment.utc_now(), operator_decided=True)
@@ -5788,6 +5797,8 @@ def _drift_line(state: dict, head: str) -> str:
     lines = [_review_drift_line(state, head), *_base_advance_lines(state)]
     frozen = reviewer_contracts.effective_build(state)
     if frozen:
+        lines.extend(_review_source_provenance(state))
+        lines.extend(reviewer_contracts.decision_lines(state))
         adopted_line = reviewer_contracts.historical_disclosure(state)
         if adopted_line:
             lines.append(adopted_line)
@@ -6268,6 +6279,8 @@ def parser() -> argparse.ArgumentParser:
     renew_preview = review.add_parser("contract-preview")
     renew_preview.add_argument("--plan", required=True)
     renew_preview.add_argument("--action", choices=["retain", "adopt"], required=True)
+    renew_preview.add_argument('--adopt-lens', action='append', metavar='ROLE:LENS',
+                               help='With adopt, adopt only these changed obligations and retain the others; repeat as needed.')
     renew_preview.add_argument("--output")
     renew_preview.set_defaults(func=cmd_build_contract_preview)
     renew_apply = review.add_parser("contract-apply")

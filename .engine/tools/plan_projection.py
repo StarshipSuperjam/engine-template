@@ -218,9 +218,14 @@ def render_plan(document: dict, record: dict) -> str:
         for role, panel in contract["panels"].items():
             label = "Plan review" if role == "plan-review" else "Build review"
             add(f"- **{label} required**: " + (", ".join(p["lens"] for p in panel) or "none"))
+            for persona in panel:
+                add(f"- **Retained reviewer source**: {role}/{persona['lens']} — `{persona['source']['digest']}`")
+        add('- **Current source comparison**: `show` reports editorial changes against these retained identities; the approved packet remains unchanged.')
         add("- **Reviewer effort**: harness-controlled; no promised floor")
         for decision in record.get("review_contract_renewals", []):
             add(f"- **Contract renewal**: {decision['action']} at {decision['at']} — {decision['reason']}")
+            for choice in decision.get('lens_actions', []):
+                add(f"- **Lens decision**: {choice['role']}/{choice['lens']} — {choice['action']}")
     elif record.get("approval"):
         add("- **Review contract**: historical approval; no approval-time envelope was recorded")
     for supplement in record.get("supplemental_reviews", []):

@@ -171,11 +171,25 @@ contract-preview --plan PAYLOAD --action retain|adopt --output PREVIEW` and `rev
 obligation and requires its review; unaffected lenses keep credit. The original roster cannot silently
 shrink. Unavailable old mandates require a decision, not a substituted fresh assignment.
 
+To mix decisions, add repeatable `--adopt-lens ROLE:LENS` options to an `--action adopt` preview.
+For example, `--adopt-lens pre-submission-review:technical-integrity` adopts that changed lens while
+retaining the other obligations. Plan reviewers use `plan-review:architecture` and the corresponding
+lens names. Omit the option to adopt all proposed changes, or use `--action retain` to retain all.
+The preview and durable decision list each changed lens's action. A retained decision covers only the
+exact semantic change that was shown; a later change requires another decision.
+
+Plan `show` and Build status/PR output disclose editorial source changes using reviewer identities and
+old/current hashes. They publish no source paths or reviewer prose. PLAN.md lists retained source hashes
+and points to `show` for the current comparison. Comparing provenance never rewrites the approved packet
+or spends coverage.
+
 Supplemental findings join the original findings, dispositions and presentation lineage. New findings
 must be settled and presented before sealing. Build renewals and finding changes invalidate prior PR
 contract/preflight evidence. A Build model renewal retains the original plan panel’s resolving policy as provenance; repeated renewals
 keep that original policy and validate its resolved models. Semantic credit does not prove a reviewer read new authored changes: Git
 range coverage is checked independently, including after reconciliation.
+Replacing a receipt cannot drop an undispositioned or still-blocking finding. Its original receipt
+continues to require explicit resolution even when the replacement reports no new findings.
 
 ### Historical adoption and its limits
 

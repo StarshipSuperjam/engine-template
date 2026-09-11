@@ -14,7 +14,14 @@
     "ledger"
   ],
   "properties": {
-    "review_contract_adoptions": {"type": "array", "minItems": 1, "maxItems": 1, "items": {"$ref": "reviewer-contract.v1.json#/$defs/adoption"}},
+    "review_contract_adoptions": {
+      "type": "array",
+      "minItems": 1,
+      "maxItems": 1,
+      "items": {
+        "$ref": "reviewer-contract.v1.json#/$defs/adoption"
+      }
+    },
     "schema_version": {
       "const": "plan-record.v1"
     },
@@ -255,6 +262,67 @@
           },
           "operator_decided": {
             "const": true
+          },
+          "adopt_lenses": {
+            "type": "array",
+            "minItems": 1,
+            "uniqueItems": true,
+            "items": {
+              "type": "string",
+              "pattern": "^(plan-review|pre-submission-review):[a-z][a-z0-9-]*$"
+            }
+          },
+          "lens_actions": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": [
+                "role",
+                "lens",
+                "action",
+                "old",
+                "new"
+              ],
+              "properties": {
+                "role": {
+                  "enum": [
+                    "plan-review",
+                    "pre-submission-review"
+                  ]
+                },
+                "lens": {
+                  "type": "string",
+                  "minLength": 1
+                },
+                "action": {
+                  "enum": [
+                    "retain",
+                    "adopt"
+                  ]
+                },
+                "old": {
+                  "anyOf": [
+                    {
+                      "$ref": "#/$defs/digest"
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ]
+                },
+                "new": {
+                  "anyOf": [
+                    {
+                      "$ref": "#/$defs/digest"
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ]
+                }
+              }
+            }
           }
         },
         "required": [

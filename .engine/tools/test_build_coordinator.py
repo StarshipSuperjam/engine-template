@@ -7673,6 +7673,94 @@ class TestFrozenBuildContracts(CoordinatorCase):
         self.assertEqual(self.frozen,packet['review_contract'])
         self.assertEqual(1,packet['approval_authority']['owner']['generation'])
 
+    def test_clean_same_mandate_replacement_keeps_undispositioned_findings(self):
+        packet = self.packet()
+        self.record_frozen(packet, 'technical-integrity', [
+            {'severity': 'blocking', 'message': 'Original unresolved defect', 'location': None}])
+        old = self.state()['reviews']['deliverable']['receipts'][0]
+        self.assertEqual(old['finding_ids'], bc.review.missing_findings(self.state()))
+        self.store.mutate(lambda s: s['validation'].update(commit=HEAD_B,
+            results=[{'id':'self-test','commit':HEAD_B,'passed':True,'summary':'green'}]))
+        newer = self.packet(head=HEAD_B)
+        with mock.patch.object(bc, '_head', return_value=HEAD_B):
+            self.record_frozen(newer, 'technical-integrity')
+        state = self.state()
+        self.assertEqual(old['finding_ids'], bc.review.missing_findings(state))
+        self.assertEqual(old, state['review_evidence_history'][0]['receipt'])
+        self.assertTrue(state['review_evidence_history'][0]['effective'])
+
+    def test_mixed_build_renewal_owes_only_the_selected_changed_lens(self):
+        packet = self.packet()
+        for lens in self.DELIVERABLE_LENSES:
+            self.record_frozen(packet, lens)
+        original = self.state()['reviews']['deliverable']['receipts']
+        root = Path(bc.scoped_agents.__file__).resolve().parents[2]
+        for lens in ('technical-integrity', 'usability'):
+            path = root / f'.claude/agents/engine-qa-review-{lens}.md'
+            path.write_text(path.read_text().replace('reviewer-contract-version: 1', 'reviewer-contract-version: 2'))
+        output = Path(self.temp.name) / 'mixed-build.json'
+        args = bc.parser().parse_args(['review','contract-preview','--plan',str(self.plan_path),
+            '--action','adopt','--adopt-lens','pre-submission-review:technical-integrity','--output',str(output)])
+        with mock.patch.object(bc, 'ROOT', root), contextlib.redirect_stdout(io.StringIO()):
+            bc.cmd_build_contract_preview(args, self.store)
+            apply = argparse.Namespace(plan=str(self.plan_path), input=str(output),
+                reason='Adopt integrity and retain usability', operator_decided=True)
+            bc.cmd_build_contract_apply(apply, self.store)
+            state = self.state()
+            self.assertEqual([], bc._build_review_drift(state))
+            self.assertEqual(['technical-integrity'], [d['lens'] for d in state['review_contract_renewals'][0]['delta']])
+            self.assertEqual(original, state['reviews']['deliverable']['receipts'])
+            self.assertIn('pre-submission-review/usability — retain', bc._drift_line(state, HEAD_A))
+            self.assertIn('pre-submission-review/technical-integrity — adopt', bc._drift_line(state, HEAD_A))
+            self.packet()
+            state = self.state()
+            with mock.patch.object(bc.ranges, 'receipt_covers', return_value=True):
+                self.assertEqual(['technical-integrity'], bc._missing_receipts(state['reviews']['deliverable'], state=state))
+            bc.cmd_build_contract_apply(apply, self.store)
+            self.assertEqual(state, self.state())
+
+    def test_clean_replacement_cannot_supersede_a_still_blocking_disposition(self):
+        packet = self.packet()
+        self.record_frozen(packet, 'technical-integrity', [
+            {'severity':'blocking','message':'Original unresolved defect','location':None}])
+        finding_id = self.state()['reviews']['deliverable']['receipts'][0]['finding_ids'][0]
+        args = bc.parser().parse_args(['finding','record','--id',finding_id,'--stage','deliverable',
+            '--lens','technical-integrity','--severity','blocking','--summary','Original unresolved defect',
+            '--disposition','partially-accepted','--rationale','The unresolved portion still needs repair',
+            '--blocks-this-pr'])
+        with contextlib.redirect_stdout(io.StringIO()):
+            bc.cmd_finding_record(args, self.store)
+        original = self.state()['findings'][0]
+        self.store.mutate(lambda s: s['validation'].update(commit=HEAD_B,
+            results=[{'id':'self-test','commit':HEAD_B,'passed':True,'summary':'green'}]))
+        newer = self.packet(head=HEAD_B)
+        with mock.patch.object(bc, '_head', return_value=HEAD_B):
+            self.record_frozen(newer, 'technical-integrity')
+        state = self.state()
+        self.assertEqual(original, state['findings'][0])
+        self.assertTrue(bc.review.blocks_submission(bc.review.live_findings(state)[0]))
+        self.assertTrue(state['review_evidence_history'][0]['effective'])
+
+    def test_editorial_provenance_reaches_status_and_composed_pr_without_private_text(self):
+        root = Path(bc.scoped_agents.__file__).resolve().parents[2]
+        path = root / '.claude/agents/engine-qa-review-technical-integrity.md'
+        original = self.state()['review_contract']
+        old_hash = next(p['source']['digest'] for p in original['panels']['pre-submission-review']
+                        if p['lens'] == 'technical-integrity')
+        path.write_text(path.read_text() + '\nPRIVATE-EDITORIAL-WITNESS\n')
+        new_hash = bc._digest(path.read_bytes())
+        with mock.patch.object(bc, 'ROOT', root), mock.patch.object(bc, '_head', return_value=HEAD_A):
+            state = self.state()
+            status = bc._status(state, bc._plan(str(self.plan_path)))
+            disclosure = bc._drift_line(state, HEAD_A)
+            self.assertEqual([], bc._build_review_drift(state))
+        for text in ('\n'.join(status['warnings']), disclosure):
+            self.assertIn(old_hash, text)
+            self.assertIn(new_hash, text)
+            self.assertNotIn(str(root), text)
+            self.assertNotIn('PRIVATE-EDITORIAL-WITNESS', text)
+        self.assertEqual(original, self.state()['review_contract'])
+
     def test_editorial_regeneration_preserves_receipt_and_findings(self):
         packet = self.packet()
         self.record_frozen(packet,'technical-integrity')

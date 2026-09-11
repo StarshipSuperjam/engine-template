@@ -51,6 +51,61 @@ class ReviewContracts(unittest.TestCase):
         self.path.rename(self.path.with_name('z-architecture.md'))
         self.assertEqual(before,contracts.installation_digest(self.root))
 
+    def test_mixed_lens_renewal_keeps_retained_obligation_and_detects_later_drift(self):
+        old = self.envelope()
+        record = {'approval': {'review_contract': old}}
+        delivery = self.root / '.claude/agents/engine-qa-review-spec-conformance.md'
+        for path in (self.path, delivery):
+            path.write_text(path.read_text().replace('reviewer-contract-version: 1', 'reviewer-contract-version: 2'))
+        proposed = self.envelope()
+        preview = contracts.renewal_preview(record, proposed, self.root, 'adopt', ['plan-review:architecture'])
+        self.assertEqual(['architecture'], [d['lens'] for d in preview['delta']])
+        self.assertEqual({'architecture':'adopt','spec-conformance':'retain'},
+                         {d['lens']:d['action'] for d in preview['lens_actions']})
+        contracts.apply_renewal(record, preview, reason='Adopt architecture only',
+                                at='2026-09-11T00:00:00Z', operator_decided=True)
+        effective = contracts.effective(record)
+        self.assertEqual(old['panels']['pre-submission-review'], effective['panels']['pre-submission-review'])
+        self.assertEqual([], contracts.unresolved_drift(effective, self.root, record['review_contract_renewals']))
+        delivery.write_text(delivery.read_text().replace('reviewer-contract-version: 2', 'reviewer-contract-version: 3'))
+        self.assertEqual(['spec-conformance'], [d['lens'] for d in
+            contracts.unresolved_drift(effective, self.root, record['review_contract_renewals'])])
+        tampered = copy.deepcopy(record)
+        tampered['review_contract_renewals'][0]['lens_actions'][1]['action'] = 'adopt'
+        with self.assertRaisesRegex(contracts.ContractError, 'per-lens'):
+            contracts.effective(tampered)
+
+    def test_mixed_model_renewal_retains_original_policy_for_unselected_lens(self):
+        old = self.envelope(); record = {'approval': {'review_contract': old}}
+        path = self.root / '.engine/policies/model-bindings.json'
+        policy = json.loads(path.read_text())
+        policy['providers']['codex']['tiers']['judgment']['model'] = 'new-review-model'
+        policy['providers']['codex']['overrides']['engine-qa-review-spec-conformance']['model'] = 'new-review-model'
+        path.write_text(json.dumps(policy))
+        proposed = self.envelope()
+        preview = contracts.renewal_preview(record, proposed, self.root, 'adopt', ['plan-review:architecture'])
+        retained = preview['contract']['panels']['pre-submission-review'][0]
+        self.assertEqual(old['panels']['pre-submission-review'][0]['semantic'], retained['semantic'])
+        self.assertEqual(old['binding_policy'], retained['source']['binding_policy'])
+        contracts.validate(preview['contract'])
+        for selectors in ([], ['architecture'], ['plan-review:missing'], ['plan-review:architecture'] * 2):
+            with self.subTest(selectors=selectors), self.assertRaises(contracts.ContractError):
+                contracts.renewal_preview(record, proposed, self.root, 'adopt', selectors)
+        with self.assertRaises(contracts.ContractError):
+            contracts.renewal_preview(record, proposed, self.root, 'retain', ['plan-review:architecture'])
+
+    def test_public_provenance_discloses_hashes_without_paths_or_private_prose(self):
+        old = self.envelope()
+        self.path.write_text(self.path.read_text() + '\nPRIVATE-EDITORIAL-WITNESS\n')
+        new_hash = core.digest(self.path.read_bytes())
+        lines = '\n'.join(contracts.source_provenance(old, self.root))
+        self.assertIn(old['panels']['plan-review'][0]['source']['digest'], lines)
+        self.assertIn(new_hash, lines)
+        self.assertIn('plan-review/architecture', lines)
+        self.assertNotIn(str(self.root), lines)
+        self.assertNotIn('.claude/agents', lines)
+        self.assertNotIn('PRIVATE-EDITORIAL-WITNESS', lines)
+
     def test_build_model_renewal_preserves_the_plan_panels_original_policy(self):
         original = self.envelope()
         state = {"review_contract": original, "review_contract_format": 1}

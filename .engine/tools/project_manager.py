@@ -286,6 +286,12 @@ def cmd_show(args) -> int:
     print(f"  digest      {record['current']['plan_digest']}")
     print(f"  payload     {record['current']['build_plan_digest']}")
     print(f"  folder      {library.plan_dir(slug)}")
+    contract = reviewer_contracts.effective(record)
+    if contract:
+        for line in reviewer_contracts.source_provenance(contract, Path(__file__).resolve().parents[2]):
+            print('  ' + line)
+        for line in reviewer_contracts.decision_lines(record):
+            print('  ' + line)
     for gate, label in (("approval", "approved"), ("plan_review", "reviewed"),
                         ("seal", "sealed"), ("build_binding", "bound")):
         value = record.get(gate)
@@ -650,7 +656,8 @@ def cmd_contract_preview(args):
     if old is None:
         raise ProjectManagerError("historical approval needs explicit historical contract adoption")
     preview = reviewer_contracts.renewal_preview(record, _capture_review_contract(record, old["depth"], renewal=True),
-                                                Path(__file__).resolve().parents[2], args.action)
+                                                Path(__file__).resolve().parents[2], args.action,
+                                                getattr(args, 'adopt_lens', None))
     rendered = json.dumps(preview, indent=2, ensure_ascii=False) + "\n"
     if args.output:
         core.atomic_write(Path(args.output), rendered, mode=0o600)
@@ -674,7 +681,8 @@ def cmd_contract_apply(args):
         if old is None:
             raise ProjectManagerError("historical approval needs explicit adoption")
         expected = reviewer_contracts.renewal_preview(record, _capture_review_contract(record, old["depth"], renewal=True),
-                                                     Path(__file__).resolve().parents[2], preview.get("action"))
+                                                     Path(__file__).resolve().parents[2], preview.get("action"),
+                                                     preview.get('adopt_lenses'))
         if expected != preview:
             raise ProjectManagerError("renewal preview no longer matches this plan or installation; preview again")
         reviewer_contracts.apply_renewal(record, preview, reason=args.reason, at=_now(),
@@ -865,10 +873,8 @@ def unresolved_review_drift(record):
     adopted = reviewer_contracts.adoption(record)
     if adopted and not record.get("review_contract_renewals") and adopted["installation_digest"] == reviewer_contracts.installation_digest(root):
         return []
-    changes = reviewer_contracts.drift(contract, root)["changed"]
     decisions = record.get("review_contract_renewals", [])
-    if decisions and decisions[-1]["action"] == "retain" and decisions[-1]["installation_digest"] == reviewer_contracts.installation_digest(root):
-        return []
+    changes = reviewer_contracts.unresolved_drift(contract, root, decisions)
     return [f"{c['role']}/{c['lens']}: reviewer mandate changed; explicitly retain or adopt the obligation" for c in changes]
 
 
@@ -2554,6 +2560,8 @@ def build_parser() -> argparse.ArgumentParser:
     contract_sub = contracts.add_subparsers(dest="contract_command", required=True)
     preview = contract_sub.add_parser("preview", help="show the complete old/new obligation and per-lens delta")
     preview.add_argument("plan"); preview.add_argument("--action", choices=("retain", "adopt"), required=True)
+    preview.add_argument('--adopt-lens', action='append', metavar='ROLE:LENS',
+                         help='With adopt, adopt only these changed obligations and retain the others; repeat as needed.')
     preview.add_argument("--output"); preview.set_defaults(func=cmd_contract_preview)
     apply = contract_sub.add_parser("apply", help="record a digest-bound operator renewal without replacing old evidence")
     apply.add_argument("plan"); apply.add_argument("--input", required=True)

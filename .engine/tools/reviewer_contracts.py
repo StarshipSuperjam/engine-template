@@ -225,8 +225,32 @@ def drift(envelope, root):
                 changed.append(entry)
             elif old["source"] != new["source"]:
                 editorial.append({**entry, "old_source": old["source"]["digest"],
-                                  "new_source": new["source"]["digest"]})
+                                  "new_source": new["source"]["digest"],
+                                  "path_changed": old['source']['path'] != new['source']['path']})
     return {"changed": changed, "editorial": editorial}
+
+
+def source_provenance(envelope, root):
+    """Public provenance uses reviewer identities and hashes, never source paths or prose."""
+    lines = []
+    for change in drift(envelope, root)['editorial']:
+        if change['old_source'] == change['new_source'] and not change['path_changed']:
+            continue
+        moved = ' Source location changed.' if change['path_changed'] else ''
+        lines.append(f"Editorial reviewer source {change['role']}/{change['lens']}: "
+                     f"retained {change['old_source']}; current {change['new_source']}. "
+                     f"Review obligation unchanged.{moved}")
+    current_policy = core.digest(agent_bindings.load_bindings(str(root)))
+    if current_policy != envelope['binding_policy_digest']:
+        lines.append(f"Reviewer binding-policy source: retained {envelope['binding_policy_digest']}; "
+                     f"current {current_policy}.")
+    return lines
+
+
+def decision_lines(record):
+    return [f"Reviewer renewal: {choice['role']}/{choice['lens']} — {choice['action']}."
+            for decision in record.get('review_contract_renewals', [])
+            for choice in decision.get('lens_actions', [])]
 
 
 def obligation_digest(referent, item):
@@ -256,6 +280,13 @@ def effective(record):
         validate(entry["contract"])
         if entry["delta"] != compare(current, entry["contract"]):
             raise ContractError("review renewal delta does not describe the changed obligation")
+        if 'lens_actions' in entry:
+            choices = entry['lens_actions']
+            keys = [(c['role'], c['lens']) for c in choices]
+            adopted = [{k: c[k] for k in ('role', 'lens', 'old', 'new')}
+                       for c in choices if c['action'] == 'adopt']
+            if len(keys) != len(set(keys)) or adopted != entry['delta']:
+                raise ContractError('per-lens decisions disagree with the renewed obligations')
         if entry["action"] == "retain" and entry["contract"] != current:
             raise ContractError("retaining a review obligation cannot change it")
         current = entry["contract"]
@@ -273,7 +304,55 @@ def compare(old, new):
             if before.get(key, {}).get("semantic_digest") != after.get(key, {}).get("semantic_digest")]
 
 
-def renewal_preview(record, proposed, root, action):
+def _selected_contract(old, proposed, selectors):
+    choices = {f"{d['role']}:{d['lens']}": d for d in compare(old, proposed)}
+    if (not isinstance(selectors, list) or not selectors
+            or any(not isinstance(s, str) for s in selectors)
+            or len(selectors) != len(set(selectors)) or set(selectors) - choices.keys()):
+        raise ContractError("adopt-lens must name distinct changed role:lens obligations from the preview")
+    selected = copy.deepcopy(proposed)
+    for role in ROLES:
+        before = {p['lens']: p for p in old['panels'][role]}
+        after = {p['lens']: p for p in proposed['panels'][role]}
+        panel = []
+        for lens in sorted(before.keys() | after.keys()):
+            if f'{role}:{lens}' in selectors:
+                item = after.get(lens)
+            else:
+                item = copy.deepcopy(before.get(lens))
+                if item and old['binding_policy'] != proposed['binding_policy']:
+                    item['source'].setdefault('binding_policy', copy.deepcopy(old['binding_policy']))
+            if item is not None:
+                panel.append(item)
+        selected['panels'][role] = panel
+    selected['digest'] = envelope_digest(selected)
+    validate(selected)
+    return selected
+
+
+def unresolved_drift(envelope, root, decisions):
+    """A retained lens decision covers only the exact semantic change the operator saw."""
+    changes = drift(envelope, root)['changed']
+    unresolved = []
+    for change in changes:
+        retained = False
+        for decision in reversed(decisions):
+            choices = decision.get('lens_actions')
+            if choices is None:
+                choices = [{**c, 'action': decision['action']}
+                           for c in decision['observed_drift']['changed']]
+            choice = next((c for c in choices if (c['role'], c['lens']) ==
+                           (change['role'], change['lens'])), None)
+            if choice is not None:
+                retained = choice['action'] == 'retain' and all(
+                    choice[k] == change[k] for k in ('old', 'new'))
+                break
+        if not retained:
+            unresolved.append(change)
+    return unresolved
+
+
+def renewal_preview(record, proposed, root, action, adopt_lenses=None):
     old = effective(record)
     if old is None:
         raise ContractError("historical approval has no frozen contract; use explicit historical adoption")
@@ -282,14 +361,23 @@ def renewal_preview(record, proposed, root, action):
     validate(proposed)
     if proposed["referent"] != old["referent"] or proposed["depth"] != old["depth"]:
         raise ContractError("contract renewal cannot change the approved plan or review depth")
-    contract = old if action == "retain" else proposed
+    if adopt_lenses is not None and action != 'adopt':
+        raise ContractError("adopt-lens selections require action adopt")
+    contract = old if action == "retain" else (
+        _selected_contract(old, proposed, adopt_lenses) if adopt_lenses is not None else proposed)
+    adopted = {(d['role'], d['lens']) for d in compare(old, contract)}
+    lens_actions = [{**d, 'action': 'adopt' if (d['role'], d['lens']) in adopted else 'retain'}
+                    for d in compare(old, proposed)]
     history = record.get("review_contract_renewals", [])
     value = {"schema_version": "review-contract-renewal-preview.v1", "owner": old["referent"],
              "record_digest": core.digest(record), "old_digest": old["digest"], "contract": contract,
              "action": action, "delta": compare(old, contract),
              "installation_digest": installation_digest(root),
              "observed_drift": drift(old, root),
+             "lens_actions": lens_actions,
              "previous_decision": history[-1]["preview_digest"] if history else None}
+    if adopt_lenses is not None:
+        value['adopt_lenses'] = sorted(adopt_lenses)
     value["preview_digest"] = core.digest(value)
     return value
 
@@ -310,6 +398,9 @@ def apply_renewal(record, preview, *, reason, at, operator_decided):
     entry = {k: copy.deepcopy(preview[k]) for k in
              ("owner", "old_digest", "contract", "action", "delta", "installation_digest",
               "observed_drift", "previous_decision", "preview_digest")}
+    for key in ('lens_actions', 'adopt_lenses'):
+        if key in preview:
+            entry[key] = copy.deepcopy(preview[key])
     entry.update(reason=reason, at=at, operator_decided=True)
     record.setdefault("review_contract_renewals", []).append(entry)
     effective(record)
