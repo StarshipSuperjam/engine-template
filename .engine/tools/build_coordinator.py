@@ -547,10 +547,14 @@ def _remember_review_evidence(state):
         state.setdefault("review_receipt_origins", {}).setdefault(scoped_agents.receipt_key(receipt), stage)
 
 
+def _unresolved_review_findings(state):
+    return set(review.missing_findings(state)) | {
+        f["id"] for f in review.live_findings(state) if review.blocks_submission(f)}
+
+
 def _archive_replaced_review(state, lens, replacement):
     _remember_review_evidence(state)
-    unresolved = set(review.missing_findings(state)) | {
-        f['id'] for f in review.live_findings(state) if review.blocks_submission(f)}
+    unresolved = _unresolved_review_findings(state)
     for stage, old in review.live_receipts(state):
         if old["lens"] != lens or old == replacement:
             continue
@@ -565,25 +569,83 @@ def _archive_replaced_review(state, lens, replacement):
             prior["effective"] = entry["effective"]
 
 
+def _coverage_result(stage: dict, kind: str, state: dict, lens: str) -> dict:
+    """One authority-filtered cumulative answer for every coverage consumer."""
+    panel = reviewer_contracts.build_panel(state)
+    contracts = panel if panel is not None else (stage.get("reviewer_contracts") or
+        state["reviews"]["deliverable"].get("reviewer_contracts", []))
+    contract = next((c for c in contracts if c["lens"] == lens), {"lens": lens})
+
+    def verified(receipt):
+        try:
+            return not scoped_agents.missing_build_evidence(_library(), state, [receipt])
+        except (OSError, ValueError, core.CoordinatorError):
+            return False
+
+    receipts, rejected = review.eligible_coverage_receipts(state, contract, verified,
+        lambda r: reviewer_contracts.adopted_obligation(state, r, r["lens"]))
+    base, tip = _stage_range(stage, kind)
+    # A proportional repair advances the delivery anchor without reissuing its original packet.
+    # Unaffected lenses still answer that original packet; the separate repair gate checks the
+    # requested lenses. A spliced repair receipt cannot take this path: its producing packet differs.
+    original_scope = False
+    if kind == "deliverable":
+        for receipt in stage.get("receipts", []):
+            if receipt not in receipts:
+                continue
+            question = dict(stage, reviewed_commit=receipt.get("commit"))
+            if (receipt.get("referent_digest") == stage.get("referent_digest")
+                    and review.receipt_attests_scope(question, receipt, kind)):
+                tip = receipt["commit"]
+                original_scope = True
+                break
+    result = ranges.cumulative_coverage(ROOT, receipts, base, tip, stage.get("base_advances", []))
+    # A zero authored delta cannot stand in for the required initial review.
+    result["covered"] = bool(receipts) and result["covered"]
+    if not result["covered"] and result["verified"] and receipts:
+        wanted_base, wanted_tip = base, tip
+        for entry in reversed(state.get("reconciles", [])):
+            if not entry.get("contribution_identical") or entry.get("base_after") != wanted_base:
+                continue
+            try:
+                if entry["to_commit"] != wanted_tip and (not _is_ancestor(entry["to_commit"], wanted_tip) or
+                        ranges.authored_between(ROOT, entry["to_commit"], wanted_tip)):
+                    continue
+                if _contribution_divergence(entry["base_before"], entry["from_commit"],
+                                            entry["base_after"], entry["to_commit"]):
+                    break
+                wanted_base, wanted_tip = entry["base_before"], entry["from_commit"]
+                prior = ranges.cumulative_coverage(ROOT, receipts, wanted_base, wanted_tip)
+                if prior["covered"]:
+                    result = prior
+                    break
+            except (CoordinatorError, ranges.RangeUnreadable, _Unmeasurable, KeyError, TypeError):
+                break
+    result["unverified"].extend(rejected)
+    if not receipts:
+        result["unverified"].append("no eligible original review retained; restore evidence or review unread work")
+    if original_scope:
+        result["scope_note"] = "original deliverable packet; proportional repair requirements are checked separately"
+    return result
+
+
 def _missing_receipts(stage: dict, kind: str = "deliverable", *, state=None) -> list[str]:
-    return review.missing_receipts(stage, _coverage(stage, kind, state),
-        lambda r: reviewer_contracts.adopted_obligation(state or {}, r, r["lens"]))
+    if state is None:
+        return review.missing_receipts(stage, _coverage(stage, kind))
+    return [c["lens"] for c in stage.get("reviewer_contracts", [])
+            if not _coverage_result(stage, kind, state, c["lens"])["covered"]]
 
 
 def _outstanding_repair_lenses(repair: dict | None, *, state=None) -> list[str]:
-    """The repair lenses that still owe a read — the requested lenses minus those with a receipt that
-    stands, whether it attests this packet or carries forward from a range that already covered it.
-    Single-homed because the status render, the readiness predicate and `_repair_round_complete` must
-    agree; when they disagreed, `status` reported a repair satisfied that the gate then refused."""
+    """The same cumulative decision used for dispatch, status and submission."""
     if not repair:
         return []
-    covers = _coverage(repair, "repair", state)
-    if any(c.get("obligation_digest") for c in repair.get("reviewer_contracts", [])):
-        standing = review.current_receipt_lenses(repair, covers,
-            lambda r: reviewer_contracts.adopted_obligation(state or {}, r, r["lens"]))
-    else:
-        standing = {r["lens"] for r in repair.get("receipts", []) if
-                    r.get("packet_digest") == repair.get("packet_digest") or covers(r)}
+    if state is not None:
+        return [lens for lens in repair.get("lenses", [])
+                if not _coverage_result(repair, "repair", state, lens)["covered"]]
+    covers = _coverage(repair, "repair")
+    standing = {r["lens"] for r in repair.get("receipts", []) if
+                review.receipt_attests_scope(repair, r, "repair") or covers(r)}
     return [lens for lens in repair.get("lenses", []) if lens not in standing]
 
 
@@ -860,7 +922,8 @@ def _status(state: dict, plan: dict | None = None) -> dict:
     if delivery["packet_digest"] is None and not fast_path:
         required_evidence.append("deliverable-review packet")
     else:
-        required_evidence.extend(f"deliverable-review receipt: {x}" for x in _missing_receipts(delivery, state=state))
+        required_evidence.extend(f"deliverable-review receipt: {x} — " + ranges.cumulative_report(
+            x, _coverage_result(delivery, "deliverable", state, x)) for x in _missing_receipts(delivery, state=state))
     live_receipts = [receipt for _, receipt in review.live_receipts(state)]
     if live_receipts:
         try:
@@ -887,8 +950,7 @@ def _status(state: dict, plan: dict | None = None) -> dict:
             base, tip = _stage_range(repair, "repair")
             by_lens = {r["lens"]: r for r in repair.get("receipts", [])}
             for lens in outstanding:
-                detail = (" — " + ranges.coverage_report(ROOT, by_lens[lens], base, tip)
-                          if lens in by_lens else "")
+                detail = " — " + ranges.cumulative_report(lens, _coverage_result(repair, "repair", state, lens))
                 required_evidence.append(f"repair-review receipt: {lens}{detail}")
     protocol = _protocol()
     if state["approval"]:
@@ -997,6 +1059,9 @@ def _status(state: dict, plan: dict | None = None) -> dict:
             "run focused verification through `engine-validation-runner` unless you need the raw log",
             "run final validation when the change is cohesive — here, not through a scout, since its "
             "evidence binds to this checkout and a scout only ever sees a copy"]
+    elif rewritten and delivery.get("reviewed_commit"):
+        phase, next_one, available = (REPAIR_ASSESSMENT, "re-anchor the review bindings with `reconcile`",
+                                      ["re-anchor the bindings with `reconcile` after a history rewrite"])
     elif not delivery_ready:
         phase, next_one, available = DELIVERABLE_REVIEW, "prepare or complete the deliverable review", []
     elif not repair_ready:
@@ -2191,10 +2256,12 @@ def _packet(args, store: Snapshot | None) -> None:
             preserved_receipts = list((old or {}).get("receipts", []))
         # Retain only originals being removed; current receipts already remain durable.
         history = s.setdefault("review_evidence_history", [])
+        unresolved = _unresolved_review_findings(s)
         for receipt in (old or {}).get("receipts", []):
             if receipt not in preserved_receipts and not any(e["receipt"] == receipt for e in history):
                 produced_by = s["review_receipt_origins"][scoped_agents.receipt_key(receipt)]
-                history.append({"stage": produced_by, "receipt": copy.deepcopy(receipt), "effective": True})
+                history.append({"stage": produced_by, "receipt": copy.deepcopy(receipt),
+                                "effective": bool(unresolved.intersection(receipt["finding_ids"]))})
         if stage == "repair":
             s["repair"]["packet_digest"] = packet["packet_digest"]
             s["repair"]["referent_digest"] = referent_digest
@@ -2236,7 +2303,7 @@ def _packet(args, store: Snapshot | None) -> None:
         fresh = store.read()
         target = fresh["repair"] if stage == "repair" else fresh["reviews"][stage]
         owed = set(_outstanding_repair_lenses(target, state=fresh) if stage == "repair" else _missing_receipts(target, state=fresh))
-        dispatch_contracts = [c for c in contracts if c["lens"] in owed] if frozen else contracts
+        dispatch_contracts = [c for c in contracts if c["lens"] in owed]
         assignments = scoped_agents.prepare_packets(
             library, slug, scoped_agents.build_owner(state), args.session, source,
             {c["lens"]: c["lens_packet_digest"] for c in dispatch_contracts},
@@ -2364,7 +2431,10 @@ def cmd_review_record(args, store: Snapshot) -> None:
                 next(p["result_contract"] for p in reviewer_contracts.build_panel(before) if p["lens"] == args.lens)
                 if frozen else result_contracts.resolve("pre-submission-review-finding.v1"), lens=args.lens, retained=bool(frozen))
             reports = {args.lens: compiled["report"]}
-            prefix = "B" + args.packet_digest.split(":")[-1][:12] + "-" if frozen else ""
+            collides = any(previous["packet_digest"] != args.packet_digest
+                           and set(previous["finding_ids"]) & {f["id"] for f in compiled["findings"]}
+                           for _, previous in review.retained_receipts(before))
+            prefix = "B" + args.packet_digest.split(":")[-1][:12] + "-" if frozen or collides else ""
             expected_ids = [prefix + f["id"] for f in compiled["findings"]]
             if finding_ids and finding_ids != expected_ids:
                 result_contracts.reject("observed_report_mismatch", category="authority")
@@ -2375,10 +2445,9 @@ def cmd_review_record(args, store: Snapshot) -> None:
     if store is None:
         raise CoordinatorError("review acceptance requires a bound Build snapshot")
     def change(state):
-        if frozen:
-            for _, previous in review.live_receipts(state):
-                if previous["packet_digest"] != args.packet_digest and set(previous["finding_ids"]) & set(finding_ids):
-                    raise CoordinatorError("new review findings need unique ids; original findings cannot be overwritten")
+        for _, previous in review.retained_receipts(state):
+            if previous["packet_digest"] != args.packet_digest and set(previous["finding_ids"]) & set(finding_ids):
+                raise CoordinatorError("new review findings need unique ids; original findings cannot be overwritten")
         if reviewer_contracts.effective_build(state) != frozen:
             raise CoordinatorError("Build review contract changed during receipt acceptance")
         if args.stage == "repair":
@@ -2410,14 +2479,6 @@ def cmd_review_record(args, store: Snapshot) -> None:
             delivery["reviewer_contracts"] = [
                 item for item in delivery["reviewer_contracts"] if item["lens"] != args.lens
             ] + [contract]
-            if not _outstanding_repair_lenses(target, state=state):
-                # `base_commit` advances WITH `reviewed_commit`, never behind it. Advancing only the
-                # reviewed commit left the pair naming two different points in history, so any later
-                # measurement across `base_commit..reviewed_commit` spanned a wider range than the branch
-                # actually contributed and swept in upstream commits on one side only.
-                delivery["reviewed_commit"] = target["final_commit"]
-                if target.get("base_commit"):
-                    delivery["base_commit"] = target["base_commit"]
         else:
             if args.stage != "deliverable":
                 raise CoordinatorError(
@@ -2456,6 +2517,13 @@ def cmd_review_record(args, store: Snapshot) -> None:
         scoped_agents.accept_build(_library(), state, receipt,
             providers.resolve_session(explicit=getattr(args, "session", None)), supplied_reports=reports,
             controller_entries=controller_entries)
+        if args.stage == "repair" and not _outstanding_repair_lenses(state["repair"], state=state):
+            # Advance only after the new receipt has accepted execution evidence. Coverage must
+            # never count an unaccepted receipt simply because it is already in this transaction.
+            delivery = state["reviews"]["deliverable"]
+            delivery["reviewed_commit"] = state["repair"]["final_commit"]
+            if state["repair"].get("base_commit"):
+                delivery["base_commit"] = state["repair"]["base_commit"]
     store.mutate(change)
     print(f"recorded {args.stage} review from {args.lens} with {len(finding_ids)} finding(s)")
     if finding_ids:
@@ -4155,8 +4223,13 @@ def cmd_repair_assess(args, store: Snapshot) -> None:
     # session is told precisely which lenses owe a read of which commits instead of facing the
     # all-or-nothing wall that cost two true receipts in StarshipSuperjam/engine-template#1063.
     carried, dropped = [], []
+    question = {"reviewed_commit": reviewed, "final_commit": head, "base_advances": base_advances,
+                "reviewer_contracts": state["reviews"]["deliverable"].get("reviewer_contracts", [])}
+    coverage = {}
     for receipt in (prior or {}).get("receipts", []):
-        (carried if ranges.receipt_covers(ROOT, receipt, reviewed, head, base_advances) else dropped).append(receipt)
+        lens = receipt["lens"]
+        coverage.setdefault(lens, _coverage_result(question, "repair", state, lens))
+        (carried if coverage[lens]["covered"] else dropped).append(receipt)
     # A dropped receipt is always NAMED. It is only REFUSED on a `none` judgment, and the difference is
     # what each path costs. A scoped or full round drops a receipt and then asks that lens to read the new
     # range, so the evidence is replaced rather than lost — naming it is enough, and walling every ordinary
@@ -4164,7 +4237,7 @@ def cmd_repair_assess(args, store: Snapshot) -> None:
     # one StarshipSuperjam/engine-template#1012 named: it discards the receipt AND ends the repair loop
     # with no re-review, mid-stream, prompted by a status line that used to read like a step to take.
     if dropped:
-        detail = "; ".join(ranges.coverage_report(ROOT, r, reviewed, head, base_advances) for r in dropped)
+        detail = "; ".join(ranges.cumulative_report(r["lens"], coverage[r["lens"]]) for r in dropped)
         also = f" {len(carried)} receipt(s) DO still cover it and are kept." if carried else ""
         if args.judgment == "none" and not getattr(args, "accept_receipt_loss", False):
             raise CoordinatorError(
@@ -4212,6 +4285,13 @@ def cmd_repair_assess(args, store: Snapshot) -> None:
     def record(s):
         if _head() != head:
             raise CoordinatorError("HEAD changed during repair assessment; retry on the validated candidate")
+        _remember_review_evidence(s)
+        history = s.setdefault("review_evidence_history", [])
+        unresolved = _unresolved_review_findings(s)
+        for receipt in (s.get("repair") or {}).get("receipts", []):
+            if receipt not in carried and not any(e["receipt"] == receipt for e in history):
+                history.append({"stage": "repair", "receipt": copy.deepcopy(receipt),
+                                "effective": bool(unresolved.intersection(receipt["finding_ids"]))})
         ledger = {p["merge_commit"]: p for p in s.get("base_advances", [])}
         ledger.update({p["merge_commit"]: p for p in base_advances})
         s.update({"repair": repair, "repair_rounds": rounds, "base_advances": list(ledger.values())})
@@ -4220,7 +4300,7 @@ def cmd_repair_assess(args, store: Snapshot) -> None:
     print("\nHow the rounds have gone:\n" + _trajectory(rounds))
     if carried:
         print(f"carried {len(carried)} repair receipt(s) forward — "
-              + "; ".join(ranges.coverage_report(ROOT, r, reviewed, head, base_advances) for r in carried), file=sys.stderr)
+              + "; ".join(ranges.cumulative_report(r["lens"], coverage[r["lens"]]) for r in carried), file=sys.stderr)
     if same:
         print("this re-points the repair round already recorded at "
               f"{reviewed[:12]} rather than opening a new one against the escalation gate", file=sys.stderr)
@@ -5981,6 +6061,19 @@ def _assemble_evidence(state: dict, plan: dict, claim: dict, head: str, pr_data:
     else:
         review_coverage = (f"{depth} depth — no cold reviewers ran; the coverage is your own read of the change "
                            "plus the automatic checks (the full CI suite and self-tests).")
+
+    delivery = state["reviews"]["deliverable"]
+    if delivery.get("packet_digest"):
+        summaries = [ranges.cumulative_report(c["lens"],
+            _coverage_result(delivery,"deliverable",state,c["lens"]))
+            for c in delivery.get("reviewer_contracts", [])]
+        originals = sorted({(r["lens"], r["reviewed_range"]["base"], r["reviewed_range"]["tip"])
+            for _,r in review.retained_receipts(state) if r.get("reviewed_range")
+            and r["reviewed_range"].get("base") and r["reviewed_range"].get("tip")})
+        review_coverage += "\n\nCumulative coverage: " + "; ".join(summaries) + "."
+        if originals:
+            review_coverage += "\nOriginal recorded read ranges (eligibility checked separately): " + "; ".join(
+                f"{lens} `{base[:12]}..{tip[:12]}`" for lens,base,tip in originals) + "."
 
     # Code-execution disclosure (BO-41): every current review receipt must carry it. An older snapshot whose
     # receipts predate the field cannot be composed until they are re-recorded — a precise remediation, never a

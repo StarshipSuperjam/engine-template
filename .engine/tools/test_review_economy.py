@@ -410,10 +410,22 @@ class TheRoundCounter(_RealRepo):
     """The third mechanic: the operator gate fired over accounting rather than over a failing build."""
 
     def _assess(self, state: dict, head: str, judgment="scoped", lenses=("usability",), **over):
+        # Synthetic accepted descriptors isolate these real-Git counter tests from native ingress.
+        state.setdefault("findings", [])
+        descriptors = {}
+        for _, receipt in review.retained_receipts(state):
+            descriptor = {"lens":receipt["lens"],"path":"fixture/"+receipt["lens"]+".md","digest":"sha256:"+"7"*64}
+            descriptors[receipt["lens"]] = descriptor
+            receipt.setdefault("referent_digest", "sha256:"+"8"*64)
+            receipt.setdefault("lens_packet_digest", review.lens_packet_digest(receipt["referent_digest"], descriptor))
+        if descriptors:
+            state["reviews"]["deliverable"]["reviewer_contracts"] = list(descriptors.values())
         store = _Store(state)
         args = argparse.Namespace(judgment=judgment, rationale="r", lens=list(lenses) or None,
                                   guidance=None, **over)
-        with mock.patch.object(bc, "ROOT", self.repo), \
+        # This suite measures Git/counter behavior; native evidence ingress is tested separately.
+        with mock.patch.object(bc.scoped_agents, "missing_build_evidence", return_value=[]), \
+                mock.patch.object(bc, "ROOT", self.repo), \
                 mock.patch.object(bc, "_head", return_value=head), \
                 mock.patch.object(bc, "_must_run", return_value="1 file changed"), \
                 mock.patch.object(bc, "_history_was_rewritten", return_value=False), \

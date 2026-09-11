@@ -2069,6 +2069,34 @@ class TestValidationRepairAndStatus(CandidateInventoryFixture):
         super().setUp()
         self.seed(); self.approve("quick")
         self.integrate_all()
+        # These orchestration fixtures use nonexistent aaa/bbb commits. Isolate completed-review
+        # state here; real range AND native execution qualification are exercised below together.
+        real_commits = bc.ranges.commits
+        def fixture_commits(root, base, tip):
+            if base == tip and tip in (HEAD_A, HEAD_B, HEAD_C, HEAD_D, HEAD_E, HEAD_F):
+                return []
+            return real_commits(root, base, tip)
+        patch = mock.patch.object(bc.ranges, "commits", side_effect=fixture_commits)
+        patch.start(); self.addCleanup(patch.stop)
+        actual = bc._outstanding_repair_lenses
+        def completed(repair, *, state=None):
+            if repair and repair.get("final_commit") in (HEAD_A, HEAD_B, HEAD_C, HEAD_D, HEAD_E, HEAD_F):
+                done = {r["lens"] for r in repair.get("receipts", []) if r["commit"] == repair["final_commit"]}
+                return [lens for lens in repair.get("lenses", []) if lens not in done]
+            return actual(repair, state=state)
+        patch = mock.patch.object(bc, "_outstanding_repair_lenses", side_effect=completed)
+        patch.start(); self.addCleanup(patch.stop)
+        actual_coverage = bc._coverage_result
+        def synthetic_coverage(stage, kind, state, lens):
+            _, tip = bc._stage_range(stage, kind)
+            if tip in (HEAD_A, HEAD_B, HEAD_C, HEAD_D, HEAD_E, HEAD_F):
+                covered = any(r["lens"] == lens and r["commit"] == tip
+                              for _, r in bc.review.retained_receipts(state))
+                return {"verified":True,"covered":covered,"read":[tip] if covered else [],
+                        "unread":[] if covered else [tip],"unverified":[]}
+            return actual_coverage(stage, kind, state, lens)
+        patch = mock.patch.object(bc, "_coverage_result", side_effect=synthetic_coverage)
+        patch.start(); self.addCleanup(patch.stop)
 
     def test_validation_records_every_result_against_head(self):
         with mock.patch.object(bc, "_head", return_value=HEAD_A), mock.patch.object(bc, "_derived_drift", return_value=[]), mock.patch.object(bc, "_run_validation", side_effect=self.candidate_validation_fake()), contextlib.redirect_stdout(io.StringIO()):
@@ -6515,7 +6543,24 @@ class TestCleanTargetMergeReceiptRetention(CoordinatorCase):
             "finding_ids": [], "code_execution": "none",
             "reviewed_range": {"base": self.reviewed, "tip": self.repaired}}
             for lens in ("usability", "spec-conformance")]
-        self.store.mutate(lambda state: state["repair"].update(receipts=self.receipts))
+        # Real accepted companion observations; only the native runtime event transport is synthetic.
+        import scoped_agents
+        referent = "sha256:" + "2"*64
+        descriptors = [{"lens":r["lens"],"path":"fixture/"+r["lens"]+".md","digest":"sha256:"+"3"*64}
+                       for r in self.receipts]
+        contracts = bc.review.lens_packets(referent, descriptors)
+        for receipt, contract in zip(self.receipts, contracts):
+            receipt.update(referent_digest=referent, lens_packet_digest=contract["lens_packet_digest"])
+        def accepted_shape(state):
+            state["ownership"] = {"build_id":"bld_"+"1"*32,"generation":1}
+            state["repair"].update(receipts=self.receipts, reviewer_contracts=contracts)
+            state["reviews"]["deliverable"]["reviewer_contracts"] = contracts
+        self.store.mutate(accepted_shape)
+        state = self.state()
+        for receipt in self.receipts:
+            observe_review_execution(self.review_library, self.review_slug, scoped_agents.build_owner(state),
+                receipt["lens"], receipt["lens_packet_digest"], [])
+            scoped_agents.accept_build(self.review_library, state, receipt, "fixture-root", supplied_reports={receipt["lens"]:[]})
         self.repo.git("checkout", "-q", "main")
         self.target = self.repo.commit_file("upstream.py", "target work\n", "target advance")
         self.repo.git("checkout", "-q", "codex/build")
@@ -7673,6 +7718,196 @@ class TestFrozenBuildContracts(CoordinatorCase):
         self.assertEqual(self.frozen,packet['review_contract'])
         self.assertEqual(1,packet['approval_authority']['owner']['generation'])
 
+    def _real_original_and_repair(self, *, adopt=False, frozen=True, full_panel=False):
+        from test_review_economy import _RealRepo
+        repo = _RealRepo(); repo.setUp(); self.addCleanup(repo.doCleanups)
+        if not frozen:
+            self.store.mutate(lambda s: (s.pop("review_contract"), s.pop("review_contract_format")))
+        original_head = repo.commit("src.py", "original")
+        repair_head = repo.commit("src.py", "repair")
+        lens = "technical-integrity"
+        def green(s, head):
+            s["validation"] = {"commit":head,"results":[{"id":"self-test","commit":head,"passed":True,"summary":"green"}]}
+        # Packet contracts use the Engine fixture; range arithmetic uses these actual Git objects.
+        cumulative = bc.ranges.cumulative_coverage
+        with mock.patch(__name__ + ".BASE", repo.base), contextlib.ExitStack() as stack:
+            stack.enter_context(mock.patch.object(bc.ranges, "cumulative_coverage",
+                side_effect=lambda root, *args, **kw: cumulative(repo.repo, *args, **kw)))
+            self.store.mutate(lambda s: green(s, original_head))
+            original_packet = self.packet(head=original_head)
+            with mock.patch.object(bc, "_head", return_value=original_head):
+                self.record_frozen(original_packet, lens)
+                if full_panel:
+                    for other in self.DELIVERABLE_LENSES:
+                        if other != lens:
+                            self.record_frozen(original_packet, other)
+            original = self.state()["reviews"]["deliverable"]["receipts"][0]
+            if adopt:
+                root = Path(bc.scoped_agents.__file__).resolve().parents[2]
+                persona = root / ".claude/agents/engine-qa-review-technical-integrity.md"
+                persona.write_text(persona.read_text().replace("reviewer-contract-version: 1", "reviewer-contract-version: 2"))
+                stack.enter_context(mock.patch.object(bc, "ROOT", root))
+                preview = bc._build_contract_preview(self.state(), "adopt")
+                path = Path(self.temp.name) / "adopt-repair-obligation.json"
+                path.write_text(json.dumps(preview))
+                with contextlib.redirect_stdout(io.StringIO()):
+                    bc.cmd_build_contract_apply(argparse.Namespace(plan=str(self.plan_path), input=str(path),
+                        reason="Fixture explicitly adopts the changed mandate", operator_decided=True), self.store)
+            def repair(s):
+                green(s, repair_head)
+                s["repair"] = {"reviewed_commit":original_head,"final_commit":repair_head,
+                    "base_commit":repo.base,"summary":"repair","judgment":"scoped","rationale":"Changed logic",
+                    "lenses":[lens],"packet_digest":None,"receipts":[]}
+            self.store.mutate(repair)
+            packet = self.packet(stage="repair", head=repair_head)
+            with mock.patch.object(bc, "_head", return_value=repair_head):
+                self.record_frozen(packet, lens)
+        return repo, original_head, repair_head, original
+
+    def test_proportional_repair_keeps_unaffected_lenses_on_their_original_packet(self):
+        repo,first,head,_ = self._real_original_and_repair(full_panel=True)
+        state = self.state(); delivery = state["reviews"]["deliverable"]
+        with mock.patch.object(bc,"ROOT",repo.repo):
+            self.assertEqual([],bc._missing_receipts(delivery,state=state))
+            self.assertEqual([],bc._outstanding_repair_lenses(state["repair"],state=state))
+            untouched = bc._coverage_result(delivery,"deliverable",state,"usability")
+            self.assertEqual([first],untouched["read"])
+            self.assertIn("proportional repair",untouched["scope_note"])
+            repaired = bc._coverage_result(delivery,"deliverable",state,"technical-integrity")
+            self.assertEqual([head,first],repaired["read"])
+            state["review_evidence_history"] = []
+            self.assertEqual(["technical-integrity"],bc._missing_receipts(delivery,state=state))
+
+    def test_production_cumulative_coverage_requires_original_evidence_despite_spliced_identity(self):
+        repo, original_head, head, original = self._real_original_and_repair()
+        state = self.state(); delivery = state["reviews"]["deliverable"]
+        self.assertEqual(head, delivery["reviewed_commit"])
+        lens = "technical-integrity"
+        with mock.patch.object(bc, "ROOT", repo.repo):
+            result = bc._coverage_result(delivery, "deliverable", state, lens)
+            self.assertTrue(result["covered"]); self.assertEqual([], result["unread"])
+            self.assertNotIn(lens, bc._missing_receipts(delivery, state=state))
+            self.assertEqual([], bc._outstanding_repair_lenses(state["repair"], state=state))
+            # Keep the narrow receipt AND copied matching lens contract, but lose the original read.
+            state["review_evidence_history"] = []
+            result = bc._coverage_result(delivery, "deliverable", state, lens)
+            self.assertFalse(result["covered"]); self.assertEqual([original_head], result["unread"])
+            self.assertIn(lens, bc._missing_receipts(delivery, state=state))
+            self.assertEqual([], bc._outstanding_repair_lenses(state["repair"], state=state))
+        self.assertEqual(original, self.state()["review_evidence_history"][0]["receipt"])
+
+    def test_changed_obligation_reviewed_only_over_repair_leaves_prefix_unread(self):
+        repo, first, head, original = self._real_original_and_repair(adopt=True)
+        state = self.state(); delivery = state["reviews"]["deliverable"]
+        self.assertNotEqual(original["obligation_digest"], delivery["receipts"][0]["obligation_digest"])
+        with mock.patch.object(bc, "ROOT", repo.repo):
+            result = bc._coverage_result(delivery, "deliverable", state, "technical-integrity")
+            self.assertFalse(result["covered"]); self.assertEqual([first], result["unread"])
+            self.assertIn("technical-integrity", bc._missing_receipts(delivery, state=state))
+            self.assertEqual([], bc._outstanding_repair_lenses(state["repair"], state=state))
+
+    def test_pre_envelope_cumulative_coverage_uses_original_descriptor_without_adoption(self):
+        repo, first, head, original = self._real_original_and_repair(frozen=False)
+        state = self.state(); delivery = state["reviews"]["deliverable"]
+        self.assertNotIn("review_contract", state)
+        with mock.patch.object(bc, "ROOT", repo.repo):
+            self.assertTrue(bc._coverage_result(delivery, "deliverable", state, "technical-integrity")["covered"])
+            descriptor = next(c for c in delivery["reviewer_contracts"] if c["lens"] == "technical-integrity")
+            descriptor["digest"] = "sha256:" + "9"*64
+            result = bc._coverage_result(delivery, "deliverable", state, "technical-integrity")
+            self.assertFalse(result["covered"]); self.assertEqual([head, first], result["unread"])
+
+    def test_cumulative_originals_cross_only_reverified_identical_reconcile(self):
+        repo,first,head,_ = self._real_original_and_repair()
+        repo.git("checkout","-q","-b","target",repo.base)
+        target = repo.commit("upstream.py","upstream")
+        repo.git("checkout","-q","main"); repo.git("rebase","target")
+        rewritten = repo.git("rev-parse","HEAD")
+        state = self.state(); delivery = state["reviews"]["deliverable"]
+        delivery.update(base_commit=target,reviewed_commit=rewritten)
+        state["reconciles"] = [{"base_before":repo.base,"from_commit":head,
+            "base_after":target,"to_commit":rewritten,"contribution_identical":True}]
+        with mock.patch.object(bc,"ROOT",repo.repo):
+            self.assertTrue(bc._coverage_result(delivery,"deliverable",state,"technical-integrity")["covered"])
+            # The stored positive flag cannot excuse changed contribution.
+            altered = repo.commit("src.py","unreviewed behavior")
+            delivery["reviewed_commit"] = altered
+            state["reconciles"][0]["to_commit"] = altered
+            self.assertFalse(bc._coverage_result(delivery,"deliverable",state,"technical-integrity")["covered"])
+
+    def test_deleted_companion_cannot_supply_cumulative_coverage(self):
+        import scoped_agents
+        repo, first, head, original = self._real_original_and_repair()
+        state = self.state(); delivery = state["reviews"]["deliverable"]
+        companion = scoped_agents.Store(self.review_library, self.review_slug)
+        data = companion.read()
+        del data["acceptances"][scoped_agents.receipt_key(original)]
+        companion.write_locked(data)
+        with mock.patch.object(bc, "ROOT", repo.repo):
+            result = bc._coverage_result(delivery, "deliverable", state, "technical-integrity")
+            self.assertEqual([first], result["unread"])
+            self.assertFalse(result["covered"])
+            self.assertIn("original accepted execution evidence is unavailable", result["unverified"])
+
+    def _assert_public_missing_prefix(self, repo, first, head):
+        cumulative = bc.ranges.cumulative_coverage
+        out = io.StringIO()
+        with mock.patch.object(bc.ranges, "cumulative_coverage",
+                side_effect=lambda root,*a,**k: cumulative(repo.repo,*a,**k)), \
+                mock.patch.object(bc,"_head",return_value=head), \
+                mock.patch.object(bc,"_base",return_value=repo.base), \
+                mock.patch.object(bc,"_history_was_rewritten",return_value=False), \
+                contextlib.redirect_stdout(out):
+            bc.cmd_status(argparse.Namespace(plan=str(self.plan_path),json=True),self.store)
+            status = json.loads(out.getvalue())
+            missing = [e for e in status["required_evidence"] if e.startswith("deliverable-review receipt: technical-integrity")]
+            self.assertEqual(1,len(missing)); self.assertIn(first[:12],missing[0])
+            # Observe the exact dispatch boundary; no native agent is launched by this fixture.
+            with mock.patch.object(bc.scoped_agents,"prepare_packets",return_value={}) as dispatch:
+                bc._packet(argparse.Namespace(stage="deliverable",plan=str(self.plan_path),
+                    impact=None,session="fixture-root"),self.store)
+            self.assertIn("technical-integrity",dispatch.call_args.args[5])
+            self.store.mutate(lambda s:s.update(pr_contract={"commit":head,
+                "body_digest":bc._digest(b"body"),"complete":True}))
+            pr = {"number":7,"state":"OPEN","headRefOid":head,"body":"body",
+                "mergeable":"MERGEABLE","baseRefOid":repo.base,"isDraft":True}
+            with mock.patch.object(bc.github,"pr_state",return_value=pr), \
+                    mock.patch.object(bc,"_run",return_value=types.SimpleNamespace(returncode=0,stdout="",stderr="")):
+                with self.assertRaisesRegex(bc.CoordinatorError,"deliverable-review receipt: technical-integrity"):
+                    bc.cmd_submit_preview(argparse.Namespace(plan=str(self.plan_path)),self.store)
+
+    def test_public_commands_reject_missing_original_prefix(self):
+        repo,first,head,_ = self._real_original_and_repair()
+        self.store.mutate(lambda s:s.update(review_evidence_history=[]))
+        self._assert_public_missing_prefix(repo,first,head)
+
+    def test_public_commands_reject_new_obligation_with_only_repair_read(self):
+        repo,first,head,_ = self._real_original_and_repair(adopt=True)
+        self._assert_public_missing_prefix(repo,first,head)
+
+    def test_legacy_late_original_disposition_and_repeated_report_ids_remain_distinct(self):
+        self.store.mutate(lambda s:(s.pop("review_contract"),s.pop("review_contract_format")))
+        report = [{"severity":"blocking","message":"Unresolved defect","location":None}]
+        packet = self.packet(); self.record_frozen(packet,"technical-integrity",report)
+        original = self.state()["reviews"]["deliverable"]["receipts"][0]
+        self.store.mutate(lambda s:s["validation"].update(commit=HEAD_B,
+            results=[{"id":"self-test","commit":HEAD_B,"passed":True,"summary":"green"}]))
+        packet = self.packet(head=HEAD_B)
+        with mock.patch.object(bc,"_head",return_value=HEAD_B):
+            self.record_frozen(packet,"technical-integrity",report)
+        newer = self.state()["reviews"]["deliverable"]["receipts"][0]
+        self.assertNotEqual(original["finding_ids"],newer["finding_ids"])
+        self.assertEqual(set(original["finding_ids"]+newer["finding_ids"]),set(bc.review.missing_findings(self.state())))
+        args = bc.parser().parse_args(["finding","record","--id",original["finding_ids"][0],
+            "--stage","deliverable","--lens","technical-integrity","--severity","blocking",
+            "--summary","Unresolved defect","--disposition","accepted-fixed",
+            "--rationale","Verified the original defect's repair","--does-not-block-this-pr",
+            "--operator-summary","The original blocking defect was fixed and verified."])
+        with contextlib.redirect_stdout(io.StringIO()):
+            bc.cmd_finding_record(args,self.store)
+        self.assertEqual(newer["finding_ids"],bc.review.missing_findings(self.state()))
+        self.assertEqual(original,self.state()["review_evidence_history"][0]["receipt"])
+
     def _four_repairs_retain_originals(self, frozen):
         if not frozen:
             self.store.mutate(lambda s: (s.pop("review_contract"), s.pop("review_contract_format")))
@@ -7757,7 +7992,7 @@ class TestFrozenBuildContracts(CoordinatorCase):
             self.assertIn('pre-submission-review/technical-integrity — adopt', bc._drift_line(state, HEAD_A))
             self.packet()
             state = self.state()
-            with mock.patch.object(bc.ranges, 'receipt_covers', return_value=True):
+            with mock.patch.object(bc.ranges, 'cumulative_coverage', side_effect=lambda *a, **k: {"verified":True,"covered":True,"read":[],"unread":[],"unverified":[]}):
                 self.assertEqual(['technical-integrity'], bc._missing_receipts(state['reviews']['deliverable'], state=state))
             bc.cmd_build_contract_apply(apply, self.store)
             self.assertEqual(state, self.state())

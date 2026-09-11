@@ -298,7 +298,10 @@ def cumulative_report(lens: str, result: dict) -> str:
         return f"{lens}: coverage cannot be measured; restore the required Git objects"
     unread = result["unread"]
     if not unread:
-        return f"{lens}: already read every authored commit in this range"
+        if not result["covered"]:
+            return f"{lens}: an original accepted review is required even when this range has no authored commits"
+        note = " (" + result["scope_note"] + ")" if result.get("scope_note") else ""
+        return f"{lens}: already read every authored commit in this range{note}"
     detail = ", ".join(sha[:12] for sha in unread[:4]) + (", …" if len(unread) > 4 else "")
     recovery = ("; some original evidence is unavailable: restore retained receipts and their evidence, "
                 "or review the unread work") if result["unverified"] else ""

@@ -344,7 +344,16 @@ def eligible_coverage_receipts(state: dict, contract: dict, verified, adopted=la
     for _, receipt in retained_receipts(state):
         if receipt["lens"] != contract["lens"]:
             continue
-        if not compatible(receipt, contract, adopted(receipt)):
+        if contract.get("obligation_digest"):
+            matches = compatible(receipt, contract, adopted(receipt))
+        else:
+            # Pre-envelope contracts bind the complete descriptor into each lens packet.
+            # Re-derive it at the ORIGINAL referent rather than matching only a lens name.
+            descriptor = {k: v for k, v in contract.items() if k != "lens_packet_digest"}
+            matches = bool(receipt.get("referent_digest") and contract.get("path")
+                           and receipt.get("lens_packet_digest") == lens_packet_digest(
+                               receipt["referent_digest"], descriptor))
+        if not matches:
             rejected.append("original review used a different approved obligation")
         elif not verified(receipt):
             rejected.append("original accepted execution evidence is unavailable")
