@@ -2882,6 +2882,9 @@
   ],
   ".engine/tools/work_record.py": [
    "core"
+  ],
+  ".github/workflows/audit-prep.yml": [
+   "audit-library"
   ]
  }
 }

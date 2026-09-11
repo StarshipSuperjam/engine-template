@@ -5481,7 +5481,7 @@
       },
       "slug": "audit-library",
       "source": {
-        "fingerprint": "sha256:1690ce1050bca51d1e17e2056249a68912eaa06ffb7a82f607217f0ea0016d57",
+        "fingerprint": "sha256:f27cf8aa552d563c9c391a92d62953f4ffaa0ba7ea71aaa8d050ad4e24e39619",
         "path": ".engine/modules/audit-library/manifest.json"
       },
       "status": "required",
@@ -14106,7 +14106,7 @@
       },
       "slug": "module_coherence",
       "source": {
-        "fingerprint": "sha256:5558659a66f3ca72bb6a160e1e032672a95d298fcc26225fe04a013c3637ebef",
+        "fingerprint": "sha256:6be7ae409330c002292ddd62f27c16e3a6b33c539944fd1842ffc31bf3188c43",
         "path": ".engine/tools/module_coherence.py"
       },
       "status": "active",
@@ -16533,7 +16533,7 @@
       },
       "slug": "test_audit_prep",
       "source": {
-        "fingerprint": "sha256:e3ea1efb8b9b2a867d8180df36b0524845caa170bcd031e319cce783bdbb59b8",
+        "fingerprint": "sha256:79d517fc7b14d2fb6f81c602428511813802dd6f0956deeb1bc2123ebe9b23a6",
         "path": ".engine/tools/test_audit_prep.py"
       },
       "status": "active",
@@ -19402,7 +19402,7 @@
       },
       "slug": "test_module_manager",
       "source": {
-        "fingerprint": "sha256:0cc6e431be00c3c242c9959a40517633a97529de2ee8702a83c1fa73db4fb82f",
+        "fingerprint": "sha256:6b5fdf2258277216f7131bd71f5e9a82c9f9407a4697745745f9fc32b9204eff",
         "path": ".engine/tools/test_module_manager.py"
       },
       "status": "active",
@@ -21278,6 +21278,8 @@
         "tests": [
           "tool:census_completeness_check",
           "tool:hooks",
+          "tool:module_coherence",
+          "tool:module_surfaces",
           "tool:self_map",
           "tool:self_map_check",
           "tool:validate"
@@ -21285,7 +21287,7 @@
       },
       "slug": "test_self_map",
       "source": {
-        "fingerprint": "sha256:c09a7d615333c0f076ad0bab9e88aa00545585f62f722ec687646b73bfdc04ce",
+        "fingerprint": "sha256:c109051473dfe758114db43f83fa7ee605c5169c6706a146d215507c584f434a",
         "path": ".engine/tools/test_self_map.py"
       },
       "status": "active",
