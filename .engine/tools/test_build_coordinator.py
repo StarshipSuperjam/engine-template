@@ -7712,6 +7712,31 @@ class TestFrozenBuildContracts(CoordinatorCase):
         body = bcc.compose(claim, evidence)
         self.assertIn(bc._review_lineage_marker(state), body)
 
+    def test_rerecording_legacy_execution_recovers_composition_without_rewriting_history(self):
+        import copy
+        from test_build_coordinator_contract import TestPreviewEvidence
+        packet = self.packet()
+        self.record_frozen(packet, "usability")
+        # Load an old-format current receipt; native transport is a labelled fixture as elsewhere here.
+        self.store.mutate(lambda s: s["reviews"]["deliverable"]["receipts"][0].pop("code_execution"))
+        original = copy.deepcopy(self.state()["reviews"]["deliverable"]["receipts"][0])
+        assembler = TestPreviewEvidence()
+        with self.assertRaisesRegex(bc.CoordinatorError, "re-recorded"):
+            assembler._assemble(bc, self.state())
+        self.store.mutate(lambda s: s["validation"].update(commit=HEAD_B))
+        fresh_packet = self.packet(head=HEAD_B)
+        self.record_frozen(fresh_packet, "usability")
+        recovered = self.state()
+        evidence = assembler._assemble(bc, recovered)
+        self.assertIn("execution is unknown", evidence["code_execution_line"])
+        self.assertNotIn("no reviewer executed", evidence["code_execution_line"])
+        self.assertTrue(any(entry["receipt"] == original
+                            for entry in recovered["review_evidence_history"]))
+        self.assertEqual("none", recovered["reviews"]["deliverable"]["receipts"][0]["code_execution"])
+        import build_coordinator_contract as bcc
+        from test_build_coordinator_contract import _good_claim
+        self.assertIn("execution is unknown", bcc.compose(_good_claim(), evidence))
+
     def test_bound_packet_keeps_approved_roster_when_installation_list_changes(self):
         packet = self.packet(roster=[])
         self.assertEqual(set(self.DELIVERABLE_LENSES),set(packet['required_lenses']))

@@ -6114,21 +6114,25 @@ def _assemble_evidence(state: dict, plan: dict, claim: dict, head: str, pr_data:
             review_coverage += "\nOriginal recorded read ranges (eligibility checked separately): " + "; ".join(
                 f"{lens} `{base[:12]}..{tip[:12]}`" for lens,base,tip in originals) + "."
 
-    # Code-execution disclosure (BO-41): every current review receipt must carry it. An older snapshot whose
-    # receipts predate the field cannot be composed until they are re-recorded — a precise remediation, never a
-    # fabricated "no code ran". The disclosure's PRESENCE is mechanical; its truth stays the reviewer's report.
+    # Current deliverable receipts still require the reviewer's explicit declaration (BO-41).
+    # Retained originals keep their bytes: missing historical declarations are disclosed as unknown,
+    # not invented or made into an unrecoverable gate after a fresh receipt replaces the old one.
     receipts = [receipt for _, receipt in review.retained_receipts(state)]
-    missing = sorted({r["lens"] for r in receipts if "code_execution" not in r})
+    missing = sorted({r["lens"] for r in delivery["receipts"] if "code_execution" not in r})
     if missing:
         raise CoordinatorError(
             "these review receipts predate the code-execution disclosure and must be re-recorded before "
             f"composing: {', '.join(missing)} — re-run `review record … --code-execution "
             "none|discarded-copy|in-place`")
-    # Three behaviours, three words. Reviewers do one of three things with the change's code, and the
-    # disclosure used to carry only two — so a lens that ran the suite IN THE OPERATOR'S OWN CHECKOUT
-    # was recorded as though it had used a throwaway copy, which is a materially different claim about
-    # what touched their project. B2's carried finding CO-1; the third value is the fix.
-    code_execution_line = code_execution_disclosure({r.get("code_execution") for r in receipts})
+    kinds = {r["code_execution"] for r in receipts if "code_execution" in r}
+    unknown = sorted({r["lens"] for r in receipts if "code_execution" not in r})
+    code_execution_line = code_execution_disclosure(kinds)
+    if unknown:
+        if not kinds.intersection({"in-place", "discarded-copy"}):
+            code_execution_line = "receipts with an execution declaration report no code execution"
+        code_execution_line += (
+            "; execution is unknown for retained historical receipts without a declaration "
+            f"({', '.join(unknown)}); their original evidence is unchanged")
     drift_line = _drift_line(state, head)
 
     # Index-regeneration disclosure (BO-24): which of the engine's generated surfaces this PR changed,

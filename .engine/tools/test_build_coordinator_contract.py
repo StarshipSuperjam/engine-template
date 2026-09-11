@@ -490,8 +490,14 @@ class TestPreviewEvidence(unittest.TestCase):
         evidence = self._assemble(bc, state)
         self.assertIn("directly in this checkout", evidence["code_execution_line"])
         original.pop("code_execution")
-        with self.assertRaisesRegex(bc.CoordinatorError,"predate the code-execution disclosure"):
-            self._assemble(bc,state)
+        evidence = self._assemble(bc, state)
+        self.assertIn("execution is unknown", evidence["code_execution_line"])
+        self.assertNotIn("no reviewer executed", evidence["code_execution_line"])
+        self.assertNotIn("code_execution", original)
+        state["reviews"]["deliverable"]["receipts"][0]["code_execution"] = "discarded-copy"
+        evidence = self._assemble(bc, state)
+        self.assertIn("throwaway copy", evidence["code_execution_line"])
+        self.assertIn("execution is unknown", evidence["code_execution_line"])
 
     def test_review_coverage_reflects_whether_cold_reviewers_actually_ran(self):
         # A false-claim guard (surfaced by dogfooding the coordinator at quick depth): the Review "Coverage"

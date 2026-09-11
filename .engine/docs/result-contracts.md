@@ -250,3 +250,5 @@ obligation and the repair ranges assigned to it; other recorded proportional rep
 not described as reads. A later edit without such a decision remains unread, including after a
 reverified rebase. Refreshing the deliverable packet asks its new whole scope. Execution disclosure
 includes retained original receipts, so a later nonexecuting review cannot hide an earlier execution.
+Historical receipts without an execution declaration remain unchanged and are disclosed as unknown;
+a fresh current receipt supplies its own declaration without claiming what the earlier reviewer did.
