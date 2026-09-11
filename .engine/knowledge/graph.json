@@ -16275,7 +16275,7 @@
       },
       "slug": "telemetry",
       "source": {
-        "fingerprint": "sha256:0bccad61228ce4e3bffccae779b3699e60603ea24f7c2cdf75c458840033e464",
+        "fingerprint": "sha256:7ad9d35023de2b55c281d9a9ebbbfcafe7583eea41bee1b7ca8dc659c77ac6ee",
         "path": ".engine/tools/telemetry.py"
       },
       "status": "active",
