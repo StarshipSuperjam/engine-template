@@ -5307,7 +5307,7 @@
       },
       "slug": "result-contracts",
       "source": {
-        "fingerprint": "sha256:e9561e7e14f4dc8629c8b9d2313857fc163ac6bbdd87c6d58669f245a768adb0",
+        "fingerprint": "sha256:4961cda0a757cede68f4494c5c32d664b12b329a48daef851cb17ca11f10d637",
         "path": ".engine/docs/result-contracts.md"
       },
       "status": "active",
@@ -5920,7 +5920,7 @@
       },
       "slug": "build-validation-and-review",
       "source": {
-        "fingerprint": "sha256:c0c61aedd73f15fc599f402305e0eedcd5801b818de954d3cb7535a81346c5b9",
+        "fingerprint": "sha256:7a7f85ad3a44cb1dabd2d45e308b4b30b366cce330117288c5b458d6767e2746",
         "path": ".engine/operations/build-validation-and-review.md"
       },
       "status": "active",
@@ -9808,7 +9808,7 @@
       },
       "slug": "build_coordinator",
       "source": {
-        "fingerprint": "sha256:3cc6f013b75180f621e3fe055c96c931e2b3e0612b3fb52e2b5d0440d77ddf63",
+        "fingerprint": "sha256:30779829934e148e26d8092f732da32bb89b3a5412fff7631f4e385533d7ad5b",
         "path": ".engine/tools/build_coordinator.py"
       },
       "status": "active",
@@ -10121,7 +10121,7 @@
       },
       "slug": "build_review_range",
       "source": {
-        "fingerprint": "sha256:ed9ece9ceaf4e09bbde3e6d78e74322bd7bf873dea41628afdea58bd4084d3b6",
+        "fingerprint": "sha256:282b4b3be20cee4e8949c3ed61eb6ef0984376187c7bf77263e1cfd16b791668",
         "path": ".engine/tools/build_review_range.py"
       },
       "status": "active",
@@ -16873,7 +16873,7 @@
       },
       "slug": "test_build_coordinator",
       "source": {
-        "fingerprint": "sha256:8b402a535276f6de9313f513dbf3cbe1341e3f522a373a2c7d597596a573ba97",
+        "fingerprint": "sha256:6a44b936b0a46e22e5fc92ee11f166c3f6a96c34dd2e87d3b7535fae27d2d50a",
         "path": ".engine/tools/test_build_coordinator.py"
       },
       "status": "active",
@@ -16903,7 +16903,7 @@
       },
       "slug": "test_build_coordinator_contract",
       "source": {
-        "fingerprint": "sha256:0e4eeaa40925633b2250755148df0364be7a9e97e47ff896d1f86e57d0f491fb",
+        "fingerprint": "sha256:4b9eccf91e22ba1510756676c42db14ca4e3e723aeb545ae0a716d1f29a20442",
         "path": ".engine/tools/test_build_coordinator_contract.py"
       },
       "status": "active",
