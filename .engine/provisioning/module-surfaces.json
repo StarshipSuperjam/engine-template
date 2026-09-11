@@ -1605,6 +1605,9 @@
   ".engine/tools/demo_reverse_adjacency.py": [
    "core"
   ],
+  ".engine/tools/demo_review_coverage.py": [
+   "core"
+  ],
   ".engine/tools/demo_scope_profile.py": [
    "core"
   ],

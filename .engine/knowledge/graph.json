@@ -5307,7 +5307,7 @@
       },
       "slug": "result-contracts",
       "source": {
-        "fingerprint": "sha256:bd9709f3912a17628118ebe80ae80ee4e75b995dadda393cb0c725cb23ccaede",
+        "fingerprint": "sha256:7ba8769486e58a57a8c0f51326b627f029bbda7a0f6fd139b86d4bba61bffaf3",
         "path": ".engine/docs/result-contracts.md"
       },
       "status": "active",
@@ -5760,7 +5760,7 @@
       },
       "slug": "build-continuity",
       "source": {
-        "fingerprint": "sha256:5b137d23050ce7ec0f21e3251ffb461281003e224083a5bdc919f65c2cbd766c",
+        "fingerprint": "sha256:90aae9d878ba656422cfcad947f0dd203c3359f17c0323a4ed3cec43872c8fd4",
         "path": ".engine/operations/build-continuity.md"
       },
       "status": "active",
@@ -5920,7 +5920,7 @@
       },
       "slug": "build-validation-and-review",
       "source": {
-        "fingerprint": "sha256:7c00e4f79c5582af878a8f15193bfdb13a80d8d095d49e66ffdfd68e90fee3c5",
+        "fingerprint": "sha256:ef3e8168b2e93f354ce002946a4ab9cc2d1d0538083913120b10dc796d9e8d24",
         "path": ".engine/operations/build-validation-and-review.md"
       },
       "status": "active",
@@ -9808,7 +9808,7 @@
       },
       "slug": "build_coordinator",
       "source": {
-        "fingerprint": "sha256:a7785e28de54a2c9d397f7767aa68c89aaf13d3e493ddacc66a8e3494a3aa639",
+        "fingerprint": "sha256:7be3aab1ded32b451345dcee18c9ce75a7620fe6f51a9f9c64cbe2aed94ed92a",
         "path": ".engine/tools/build_coordinator.py"
       },
       "status": "active",
@@ -9953,7 +9953,7 @@
       },
       "slug": "build_coordinator_review",
       "source": {
-        "fingerprint": "sha256:bddb62204f7f80e862c1f9fdb52eec2f556f22357501f96828b6b572f5b0ffa9",
+        "fingerprint": "sha256:8c9d2ea82a5a5caa3fc5f13ae76b1ad9d87bb2ff81131e6f0cafa3cadb90a24d",
         "path": ".engine/tools/build_coordinator_review.py"
       },
       "status": "active",
@@ -10121,7 +10121,7 @@
       },
       "slug": "build_review_range",
       "source": {
-        "fingerprint": "sha256:02d67b463b3de08b8da36bcc5f543a97bdeaca47fb7f8a1663b0eef0bc028563",
+        "fingerprint": "sha256:ed9ece9ceaf4e09bbde3e6d78e74322bd7bf873dea41628afdea58bd4084d3b6",
         "path": ".engine/tools/build_review_range.py"
       },
       "status": "active",
@@ -12104,6 +12104,30 @@
       },
       "status": "active",
       "summary": "Operator-runnable demo of the BIDIRECTIONAL orientation walk (engine-template #37).",
+      "type": "tool"
+    },
+    {
+      "entrypoint": "demo",
+      "guarded": false,
+      "id": "tool:demo_review_coverage",
+      "name": ".engine/tools/demo_review_coverage.py",
+      "owner": "core",
+      "predicates": {
+        "imports": [
+          "tool:build_coordinator_review",
+          "tool:build_review_range"
+        ],
+        "provided_by": [
+          "module:core"
+        ]
+      },
+      "slug": "demo_review_coverage",
+      "source": {
+        "fingerprint": "sha256:45ee702c81e1e6eede5d4272261c59335f8d7c0644238dc1f625d0f6956c0874",
+        "path": ".engine/tools/demo_review_coverage.py"
+      },
+      "status": "active",
+      "summary": "Falsify cumulative coverage through real Git and the production submission gate.",
       "type": "tool"
     },
     {
@@ -16843,12 +16867,13 @@
           "tool:spec_referent",
           "tool:test_build_coordinator_contract",
           "tool:test_build_state_store",
-          "tool:test_plan_store"
+          "tool:test_plan_store",
+          "tool:test_review_economy"
         ]
       },
       "slug": "test_build_coordinator",
       "source": {
-        "fingerprint": "sha256:7a041ad99eb49334159cc36d94bc4e3cba5bb7d837a2ae695f0f49e0812319ea",
+        "fingerprint": "sha256:7f217eef652e85f03222ed5ee6fe499bdac0fd186ba7999982d937451a09caa9",
         "path": ".engine/tools/test_build_coordinator.py"
       },
       "status": "active",
@@ -17138,12 +17163,13 @@
           "tool:project_manager",
           "tool:quiet_call",
           "tool:test_build_coordinator",
-          "tool:test_plan_store"
+          "tool:test_plan_store",
+          "tool:test_review_economy"
         ]
       },
       "slug": "test_build_state_store",
       "source": {
-        "fingerprint": "sha256:d4e6f9e07426c66b62f00a7e353ea37f5c948ff3c88f6d218a45d35af7bd043c",
+        "fingerprint": "sha256:1d2f3ae4331636c044b268ff3dca693206209a7244a28430df561bb8945763aa",
         "path": ".engine/tools/test_build_state_store.py"
       },
       "status": "active",
@@ -20892,6 +20918,7 @@
           "tool:build_coordinator",
           "tool:build_coordinator_review",
           "tool:build_review_range",
+          "tool:demo_review_coverage",
           "tool:demo_v1_plan_sunset_refused",
           "tool:quiet_call",
           "tool:selftest_support",
@@ -20901,7 +20928,7 @@
       },
       "slug": "test_review_economy",
       "source": {
-        "fingerprint": "sha256:d4815d55d1bdd72fff4bc3fd2ec6fee04ab939405423ecfe5d20e2978d79f629",
+        "fingerprint": "sha256:66a0b62059ffacc3b840e375392f60b566cd8487c541d4b9a566979abee444be",
         "path": ".engine/tools/test_review_economy.py"
       },
       "status": "active",
