@@ -5,8 +5,12 @@ upgrade + renders into CODEOWNERS), runs on a schedule, gates cleanly when unarm
 operator-configurable model knob's default, and wires the tested seal/refresh plumbing. The end-to-end run
 itself is disclosed-unrun (no token in this construction repo); its grammar is covered by the actionlint
 workflow. Mirrors test_actionlint.py / test_secret_scan.py."""
+import copy
+import json
 import os
 import sys
+import tempfile
+from pathlib import Path
 import unittest
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
@@ -18,23 +22,90 @@ WORKFLOW_REL = ".github/workflows/audit-prep.yml"
 
 
 class TestAuditPrepIsAnEngineOwnedTraveler(unittest.TestCase):
-    """The workflow is a FOUNDATION_INFRA member, so it travels on upgrade (FOUNDATION_CODE) and is owned in
-    CODEOWNERS (foundation_infra_paths) — the same treatment as the other engine workflows."""
+    """The required audit module supplies the workflow to every ownership consumer."""
 
-    def test_workflow_is_present_in_the_tree(self):
-        self.assertTrue(os.path.isfile(os.path.join(validate.ROOT, WORKFLOW_REL)),
-                        f"{WORKFLOW_REL} must exist")
+    def setUp(self):
+        self.manifests = module_coherence.discover_manifests()
+        self.audit = next(m for _, m in self.manifests if m["id"] == "audit-library")
 
-    def test_is_a_foundation_infra_member(self):
-        self.assertIn(WORKFLOW_REL, module_coherence.FOUNDATION_INFRA)
+    def test_workflow_is_present_and_claimed_only_by_audit_library(self):
+        self.assertTrue(os.path.isfile(os.path.join(validate.ROOT, WORKFLOW_REL)))
+        self.assertEqual(self.audit["provides"]["workflow"], [WORKFLOW_REL])
+        claims = module_coherence.provides_claims(self.manifests)
+        self.assertEqual(claims[WORKFLOW_REL], ["audit-library"])
+        self.assertNotIn(WORKFLOW_REL, module_coherence.FOUNDATION_INFRA)
+        self.assertNotIn(WORKFLOW_REL, module_manager.FOUNDATION_CODE)
 
-    def test_travels_on_upgrade_via_foundation_code(self):
-        self.assertIn(WORKFLOW_REL, module_manager.FOUNDATION_CODE)
-
-    def test_renders_into_codeowners_via_foundation_infra_paths(self):
-        owned = module_coherence.foundation_infra_paths()
+    def test_upgrade_and_codeowners_membership_comes_from_the_module_claim(self):
+        owned = module_coherence.engine_owned_paths(self.manifests)
+        overlay = module_manager._overlay_copy_map(
+            validate.ROOT, {m["id"]: m for _, m in self.manifests})
         self.assertIn(WORKFLOW_REL, owned)
-        self.assertFalse(any("*" in p for p in owned), "paths are concrete, never bare globs")
+        self.assertIn(WORKFLOW_REL, overlay)
+        self.assertIn(WORKFLOW_REL, module_coherence.codeowners_path_set())
+        missing = copy.deepcopy(self.manifests)
+        next(m for _, m in missing if m["id"] == "audit-library")["provides"].pop("workflow")
+        self.assertNotIn(WORKFLOW_REL, module_coherence.provides_claims(missing))
+        self.assertEqual(set(module_coherence.engine_owned_paths(missing)), set(owned) - {WORKFLOW_REL})
+        self.assertEqual(set(module_manager._overlay_copy_map(
+            validate.ROOT, {m["id"]: m for _, m in missing})), set(overlay) - {WORKFLOW_REL})
+
+    def test_required_audit_module_cannot_be_removed_independently(self):
+        self.assertEqual(self.audit["status"], "required")
+        result = module_manager.plan_remove("audit-library", self.manifests)
+        self.assertTrue(result["refused"])
+        self.assertIn("required", result["reason"])
+
+
+class TestAuditWorkflowDelivery(unittest.TestCase):
+    """Operator-runnable ownership demonstration, using real consumers in disposable trees."""
+
+    def _delivery(self, remove_claim=False):
+        manifest_rel = ".engine/modules/audit-library/manifest.json"
+        manifest = validate.load_json(os.path.join(validate.ROOT, manifest_rel))
+        workflow = Path(validate.ROOT, WORKFLOW_REL).read_bytes()
+        if remove_claim:
+            manifest["provides"].pop("workflow", None)
+        with tempfile.TemporaryDirectory() as release, tempfile.TemporaryDirectory() as deployed:
+            source = Path(release, WORKFLOW_REL)
+            source.parent.mkdir(parents=True)
+            source.write_bytes(workflow)
+            declaration = Path(release, manifest_rel)
+            declaration.parent.mkdir(parents=True)
+            declaration.write_text(json.dumps(manifest), encoding="utf-8")
+            # A product-owned neighboring workflow must never join the copy or ownership set.
+            product = Path(deployed, ".github/workflows/product.yml")
+            product.parent.mkdir(parents=True)
+            product.write_bytes(b"product workflow sentinel\n")
+            codeowners = Path(deployed, ".github/CODEOWNERS")
+            codeowners.write_text("/product/** @product-owner\n", encoding="utf-8")
+            with module_manager._redirect_root(deployed):
+                copied, _ = module_manager._overlay_engine_code(release, ["audit-library"])
+                module_manager._refresh_codeowners("audit-owner")
+                owners = module_coherence.provides_claims(module_coherence.discover_manifests())
+                rendered = codeowners.read_text(encoding="utf-8")
+            self.assertEqual(product.read_bytes(), b"product workflow sentinel\n")
+            self.assertIn("/product/** @product-owner", rendered)
+            self.assertNotIn("/.github/workflows/product.yml @audit-owner", rendered)
+            delivered = Path(deployed, WORKFLOW_REL)
+            return {"copied": WORKFLOW_REL in copied,
+                    "owners": owners.get(WORKFLOW_REL, []),
+                    "bytes_match": delivered.is_file() and delivered.read_bytes() == workflow,
+                    "protected": f"/{WORKFLOW_REL} @audit-owner" in rendered.splitlines()}
+
+    def _assert_delivered(self, result):
+        self.assertEqual(result, {"copied": True, "owners": ["audit-library"],
+                                  "bytes_match": True, "protected": True})
+
+    def test_module_claim_delivers_the_workflow_and_codeowners_protection(self):
+        self._assert_delivered(self._delivery())
+
+    def test_missing_claim_fails_the_same_delivery_oracle(self):
+        broken = self._delivery(remove_claim=True)
+        self.assertEqual(broken, {"copied": False, "owners": [],
+                                  "bytes_match": False, "protected": False})
+        with self.assertRaises(AssertionError):
+            self._assert_delivered(broken)
 
 
 class TestAuditPrepShape(unittest.TestCase):
