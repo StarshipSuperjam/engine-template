@@ -13174,7 +13174,7 @@
       },
       "slug": "issue_author",
       "source": {
-        "fingerprint": "sha256:413a3cf0f1fd7acbed9bd56dbf54cec14649e4f09f897e2dec2518b24ce06e15",
+        "fingerprint": "sha256:f382e5fe6b64237e35babbaf0077581037b9a1c20395657fb1aecda3c7d46d56",
         "path": ".engine/tools/issue_author.py"
       },
       "status": "active",
@@ -19559,7 +19559,7 @@
       },
       "slug": "test_nightly_demo_report",
       "source": {
-        "fingerprint": "sha256:d74bfd39117551c33db63a556d04d7b65880707f0197d65744ebc0e995cae36f",
+        "fingerprint": "sha256:630ac8b7469298bfa535a7e3aad132e56a61bd5016d2cd917e8116a34696c227",
         "path": ".engine/tools/test_nightly_demo_report.py"
       },
       "status": "active",
