@@ -594,7 +594,8 @@ def _coverage_result(stage: dict, kind: str, state: dict, lens: str, *, _facts=N
     def verified(receipt):
         try:
             return once(("execution", core.canonical(receipt)),
-                lambda: not scoped_agents.missing_build_evidence(_library(), state, [receipt]))
+                lambda: not scoped_agents.missing_build_evidence(_library(), state, [receipt],
+                    _observations=once(("companion-observations",), dict)))
         except (OSError, ValueError, core.CoordinatorError):
             return False
 
@@ -991,7 +992,8 @@ def _status(state: dict, plan: dict | None = None) -> dict:
             for receipt in live_receipts:
                 key = ("execution", core.canonical(receipt))
                 if key not in review_facts:
-                    review_facts[key] = not scoped_agents.missing_build_evidence(_library(), state, [receipt])
+                    review_facts[key] = not scoped_agents.missing_build_evidence(_library(), state, [receipt],
+                        _observations=review_facts.setdefault(("companion-observations",), {}))
                 if not review_facts[key]:
                     unverified.append(receipt["lens"])
             unverified = sorted(set(unverified))

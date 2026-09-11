@@ -2087,14 +2087,14 @@ class TestValidationRepairAndStatus(CandidateInventoryFixture):
         patch = mock.patch.object(bc, "_outstanding_repair_lenses", side_effect=completed)
         patch.start(); self.addCleanup(patch.stop)
         actual_coverage = bc._coverage_result
-        def synthetic_coverage(stage, kind, state, lens):
+        def synthetic_coverage(stage, kind, state, lens, **kwargs):
             _, tip = bc._stage_range(stage, kind)
             if tip in (HEAD_A, HEAD_B, HEAD_C, HEAD_D, HEAD_E, HEAD_F):
                 covered = any(r["lens"] == lens and r["commit"] == tip
                               for _, r in bc.review.retained_receipts(state))
                 return {"verified":True,"covered":covered,"read":[tip] if covered else [],
                         "unread":[] if covered else [tip],"unverified":[]}
-            return actual_coverage(stage, kind, state, lens)
+            return actual_coverage(stage, kind, state, lens, **kwargs)
         patch = mock.patch.object(bc, "_coverage_result", side_effect=synthetic_coverage)
         patch.start(); self.addCleanup(patch.stop)
 
@@ -7720,6 +7720,22 @@ class TestFrozenBuildContracts(CoordinatorCase):
         counts = Counter((call.args[1], call.args[3]) for call in measure.call_args_list)
         self.assertEqual(set(self.DELIVERABLE_LENSES), {lens for _, lens in counts})
         self.assertTrue(all(count == 1 for count in counts.values()), counts)
+
+    def test_companion_batch_reads_once_and_next_call_refuses_deleted_evidence(self):
+        import scoped_agents
+        packet = self.packet()
+        for lens in self.DELIVERABLE_LENSES:
+            self.record_frozen(packet, lens)
+        state = self.state()
+        receipts = state["reviews"]["deliverable"]["receipts"]
+        original_read = scoped_agents.Store.read
+        with mock.patch.object(scoped_agents.Store, "read", autospec=True, side_effect=original_read) as read:
+            self.assertEqual([], scoped_agents.missing_build_evidence(self.review_library, state, receipts))
+            self.assertEqual(1, read.call_count)
+        companion = scoped_agents.Store(self.review_library, self.review_slug)
+        companion.path.unlink()
+        self.assertEqual(sorted(self.DELIVERABLE_LENSES),
+            scoped_agents.missing_build_evidence(self.review_library, state, receipts))
 
     def test_rerecording_legacy_execution_recovers_composition_without_rewriting_history(self):
         import copy
