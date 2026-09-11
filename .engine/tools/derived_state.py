@@ -146,8 +146,6 @@ MEMBERS: tuple[DerivedMember, ...] = (
 # Declared regeneration order (topological): a generator must regenerate AFTER every generator whose output
 # it reads, and the knowledge graph — which fingerprints the catalogued surface directories and the
 # assurance page — regenerates LAST. This is asserted by test_derived_state, not left to roster order alone.
-# Order today: [self-map, ci-assurance, graph] with ci-assurance before graph. When the render/route/catalog
-# members join (E2), the order is: setup-routes → codex-renders → {catalogs, self-map, ci-assurance} → graph.
 # Order: setup routes and Codex renders FIRST (the routes are an input to the Codex skill render and to the
 # self-map; the renders are catalogued surfaces the graph content-hashes), then the single-file maps and
 # catalogs, then the knowledge graph LAST (it fingerprints the assurance page and every catalogued surface).
@@ -367,6 +365,34 @@ def paths(**kw) -> tuple[str, ...]:
     paths. For every single-file member `outputs == (path,)`, so this is byte-identical to the prior
     one-path-per-member behavior."""
     return tuple(o.path for m in members(**kw) for o in m.outputs)
+
+
+def obsolete_setup_routes(previous: dict, current: dict, old_owned=()) -> dict[str, Optional[str]]:
+    """Exact old generated content for routes whose installed module stopped being offerable.
+
+    The upgrade's file reconciler checks tracking and authored changes before removal. This layer
+    supplies the dynamic member's owner-derived path and content, never a prefix grant. A previously
+    owned route with no old module metadata maps to None: its origin cannot be proven, so it stays.
+    """
+    import re
+    import setup_route_gen
+    retired = {}
+    for rel in old_owned:
+        match = re.fullmatch(r"\.claude/skills/engine-setup-([a-z0-9][a-z0-9-]*)/SKILL\.md", rel)
+        if (match and not previous.get(match[1])
+                and (current.get(match[1]) or {}).get("status") not in setup_route_gen._OFFERABLE):
+            # A declined add-on has no installed manifest. Its core-owned route may survive, but
+            # without the old presentation we cannot prove its bytes were generated: preserve it.
+            retired[rel] = None
+    for mid, old in sorted(previous.items()):
+        if not re.fullmatch(r"[a-z0-9][a-z0-9-]*", mid):
+            continue
+        if old.get("status") not in setup_route_gen._OFFERABLE or not old.get("presentation"):
+            continue
+        if (current.get(mid) or {}).get("status") in setup_route_gen._OFFERABLE:
+            continue
+        retired[f".claude/skills/engine-setup-{mid}/SKILL.md"] = setup_route_gen._render(mid, old["presentation"])
+    return retired
 
 
 def fork_guard_core_paths() -> tuple[str, ...]:

@@ -57,5 +57,73 @@ class TestNestedEnvSetsBothMarkers(unittest.TestCase):
         self.assertEqual(env.get(selftest_support.PROJECTION_ENV), "1")
 
 
+class TestReviewFixture(unittest.TestCase):
+    def test_absent_and_invalid_personas_still_refuse_registration(self):
+        import plan_store
+        import scoped_agents
+        import project_manager
+        root = selftest_support.review_fixture(self)
+        self.assertEqual(len(project_manager.installed_lenses()), 4)
+        library = plan_store.PlanLibrary(root / "plans")
+        library._mkdir(library.plan_dir("fixture"))
+        store = scoped_agents.Store(library, "fixture")
+        packet = root / "packet.md"
+        packet.write_text("Fixture obligations\n")
+        role = "engine-design-review-architecture"
+        persona = root / ".claude" / "agents" / (role + ".md")
+        args = dict(owner={"plan": "fixture"}, root="test-root", purpose="review",
+                    lens="architecture", role=role, packet=packet, packet_digest="fixture-digest")
+        self.assertEqual(store.register(**args)["role"], role)
+        persona.unlink()
+        with self.assertRaisesRegex(scoped_agents.EvidenceError, "persona is missing"):
+            store.register(**args)
+        persona.write_text("---\nrole: plan-review\noutput-contract: unknown.v1\n---\n")
+        import result_contracts
+        with self.assertRaises(result_contracts.Rejection):
+            store.register(**args)
+
+
+class TestAcceptedHookFixture(unittest.TestCase):
+    def test_deployed_event_key_order_is_normalized_but_home_and_unknown_drift_stay_strict(self):
+        import json
+        import tempfile
+        from pathlib import Path
+        source = Path(selftest_support.__file__).resolve().parents[2]
+        for rel in (".claude/settings.json", ".codex/hooks.json"):
+            with self.subTest(rel=rel), tempfile.TemporaryDirectory() as directory:
+                approved = selftest_support.accepted_hook_fixture_bytes(source, rel)
+                document = json.loads(approved)
+                document["hooks"]["PreCompact"] = document["hooks"].pop("PreCompact")
+                root = Path(directory)
+                (root / rel).parent.mkdir()
+                (root / rel).write_text(json.dumps(document, indent=2) + "\n")
+                with mock.patch.object(selftest_support, "CONSTRUCTION", False):
+                    self.assertEqual(selftest_support.accepted_hook_fixture_bytes(root, rel), approved)
+                with mock.patch.object(selftest_support, "CONSTRUCTION", True):
+                    with self.assertRaisesRegex(AssertionError, "pinned approved hook generation"):
+                        selftest_support.accepted_hook_fixture_bytes(root, rel)
+                document["hooks"]["UnknownEvent"] = []
+                (root / rel).write_text(json.dumps(document, indent=2) + "\n")
+                with mock.patch.object(selftest_support, "CONSTRUCTION", False):
+                    with self.assertRaisesRegex(AssertionError, "pinned approved hook generation"):
+                        selftest_support.accepted_hook_fixture_bytes(root, rel)
+
+    def test_a_missing_core_hook_is_not_restored_or_re_pinned(self):
+        import json
+        import tempfile
+        from pathlib import Path
+        source = Path(selftest_support.__file__).resolve().parents[2]
+        rel = ".claude/settings.json"
+        approved = selftest_support.accepted_hook_fixture_bytes(source, rel)
+        document = json.loads(approved)
+        document["hooks"]["SessionStart"][0]["hooks"].pop(0)
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            (root / ".claude").mkdir()
+            (root / rel).write_text(json.dumps(document, indent=2) + "\n")
+            with self.assertRaisesRegex(AssertionError, "pinned approved hook generation"):
+                selftest_support.accepted_hook_fixture_bytes(root, rel)
+
+
 if __name__ == "__main__":
     unittest.main()

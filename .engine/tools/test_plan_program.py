@@ -4482,7 +4482,10 @@ class TheLaneRecordHasOneReader(unittest.TestCase):
         This is exactly what forces project_manager.py off the list now that the verbs moved.
         """
         tools = Path(plan_program.__file__).resolve().parent
-        stale = sorted(name for name in self.ALLOWLIST
+        from selftest_support import CONSTRUCTION
+        expected = self.ALLOWLIST - ({"demo_program_lanes.py"} if not CONSTRUCTION
+                                    and not (tools / "demo_program_lanes.py").exists() else set())
+        stale = sorted(name for name in expected
                        if not self._record_key_reads((tools / name).read_text(encoding="utf-8")))
         self.assertEqual(stale, [],
                          "these are on the lane-reader allowlist but no longer read the lane record: "
@@ -4566,9 +4569,12 @@ class TheIntendedRecordHasOneReader(unittest.TestCase):
         and the scan above holds it to the same rule as any other file.
         """
         tools = Path(plan_program.__file__).resolve().parent
-        missing = sorted(name for name in self.ALLOWLIST if not (tools / name).is_file())
+        from selftest_support import CONSTRUCTION
+        expected = self.ALLOWLIST - ({"demo_program_intended_order.py"} if not CONSTRUCTION
+                                    and not (tools / "demo_program_intended_order.py").exists() else set())
+        missing = sorted(name for name in expected if not (tools / name).is_file())
         self.assertEqual(missing, [], f"allowlisted but missing from tools/: {missing}")
-        stale = sorted(name for name in self.ALLOWLIST
+        stale = sorted(name for name in expected
                        if not self._record_key_reads((tools / name).read_text(encoding="utf-8")))
         self.assertEqual(stale, [],
                          "these are on the intended-record allowlist and expected to read it, but "

@@ -233,12 +233,14 @@ def _decline_optional_modules(tree: str, label: str) -> list:
     return declinable
 
 
-def _project_to_deployed(dest: str, *, decline_optional: bool = False, label: str = "candidate") -> list:
+def _project_to_deployed(dest: str, *, decline_optional: bool = False, label: str = "candidate",
+                         legacy_baseline: bool = False) -> list:
     """Turn an archived home-repo tree at `dest` into the shape a deployed repo actually runs — the same
     projection first-run provisioning applies: RETIRE the first-run-only assets (through `retire_set`, the
     fail-loud safe reader — NOT a naive re-read), optionally DECLINE the optional modules, git-init with a
-    deployed origin so it reads as a copy, and REGENERATE the deployed-state indexes (self-map + knowledge
-    graph) that now describe the reduced surface. Any failure raises GateError (the cut is blocked, never
+    deployed origin so it reads as a copy, and REGENERATE the registered deployment artifacts that describe
+    the reduced surface. Published upgrade baselines may use their historical generator interface; current
+    candidates must expose the lifecycle registry. Any failure raises GateError (the cut is blocked, never
     skipped). Returns the declined module ids (empty unless `decline_optional`)."""
     try:
         r_files, r_dirs = module_manager.retire_set(dest)     # the safe reader; raises on a bad manifest
@@ -260,15 +262,37 @@ def _project_to_deployed(dest: str, *, decline_optional: bool = False, label: st
                  phase=(label, f"build the deployed projection ({cmd[0]})"))
         if r.returncode != 0:
             raise GateError(f"could not build the deployed projection (git {cmd[0]}: {_tail(r.stderr)})")
-    for gen in ("self_map.py", "knowledge_gen.py"):
-        r = _run([sys.executable, os.path.join("tools", gen), "generate"],
-                 cwd=os.path.join(dest, ".engine"), env=env, timeout=300,
-                 phase=(label, f"regenerate deployed wiring ({gen})"))
-        if r.returncode != 0:
-            # On a declined projection this regen IS the StarshipSuperjam/engine-template#663 operation — a failure here is the real defect.
-            raise GateError(f"the deployed projection could not regenerate its wiring map "
-                            f"({gen} on {'a module-declined' if decline_optional else 'the default'} shape: "
-                            f"{_tail(r.stderr)})")
+    # The deployment lifecycle registry owns both membership and dependency order: assurance before
+    # the graph that fingerprints it, without regenerating home-only catalogs or authored routes.
+    script = """import inspect, pathlib, subprocess, sys
+sys.path.insert(0, 'tools')
+legacy = sys.argv[1] == '1'
+if pathlib.Path('tools/derived_state.py').is_file():
+    import derived_state as ds
+    if 'upgrade' in inspect.signature(ds.members).parameters:
+        selected = ds.paths(upgrade=True)
+    elif legacy:
+        selected = ds.paths(reconcile=True)
+    else:
+        raise RuntimeError('candidate is missing the deployment lifecycle registry')
+    results = ds.regenerate(selected)
+    for result in results:
+        print(result)
+    sys.exit(any(result.status == 'failed' for result in results))
+elif legacy:
+    # These published baselines predate the shared registry. Preserve their historical preparation.
+    for generator in ('self_map.py', 'knowledge_gen.py'):
+        subprocess.run([sys.executable, 'tools/' + generator, 'generate'], check=True)
+else:
+    raise RuntimeError('candidate is missing derived_state.py')
+"""
+    r = _run([sys.executable, "-c", script, "1" if legacy_baseline else "0"],
+             cwd=os.path.join(dest, ".engine"), env=env, timeout=300,
+             phase=(label, "regenerate deployed lifecycle artifacts"))
+    if r.returncode != 0:
+        raise GateError(f"the deployed projection could not regenerate its lifecycle artifacts "
+                        f"({'a module-declined' if decline_optional else 'the default'} shape: "
+                        f"{_tail(r.stdout + r.stderr)})")
     return declined
 
 
@@ -428,6 +452,36 @@ def _rollback_driver_source() -> str:
     ) % (_DRIVER_EXPECT_ROOT,)
 
 
+def _suite_in_committed_snapshot(proj: str, label: str) -> dict:
+    """Test exact upgraded bytes at HEAD without disturbing the staged rollback subject.
+
+    Memory fixtures verify loaded test source against HEAD. A separate archive supplies that binding;
+    its Git tree must equal the captured upgraded tree before any tests run.
+    """
+    with tempfile.TemporaryDirectory() as directory:
+        env = _nested_env(GIT_INDEX_FILE=os.path.join(directory, "index"))
+        for args in (("read-tree", "HEAD"), ("add", "-A")):
+            result = _run(["git", "-C", proj, *args], env=env, timeout=120)
+            if result.returncode:
+                raise GateError(f"{label}: could not capture the upgraded test tree: {_tail(result.stderr)}")
+        captured = _run(["git", "-C", proj, "write-tree"], env=env, timeout=60)
+        digest = captured.stdout.strip()
+        if captured.returncode or not re.fullmatch(r"[0-9a-f]{40}", digest):
+            raise GateError(f"{label}: upgraded test tree identity is unavailable")
+        snapshot = os.path.join(directory, "suite")
+        release_source._archive_tree(digest, snapshot, root=proj)
+        for args in (("init", "-b", "main"), ("remote", "add", "origin", _DEPLOYED_ORIGIN),
+                     ("add", "-f", "-A"), ("-c", "user.name=Fixture", "-c", "user.email=t@t",
+                                            "commit", "-m", "Upgraded test snapshot")):
+            result = _run(["git", "-C", snapshot, *args], timeout=120)
+            if result.returncode:
+                raise GateError(f"{label}: could not commit the disposable test snapshot: {_tail(result.stderr)}")
+        actual = _run(["git", "-C", snapshot, "rev-parse", "HEAD^{tree}"], timeout=60)
+        if actual.returncode or actual.stdout.strip() != digest:
+            raise GateError(f"{label}: disposable test snapshot differs from the upgraded tree")
+        return {**_suite_in(snapshot, label), "tested_tree": digest}
+
+
 def _upgrade_leg(proj: str, baseline_tag: str, candidate: str, *, run_complete_suite: bool = True) -> dict:
     """Arm B, one baseline — the UPGRADE leg. Run a REAL practice upgrade of the already-projected baseline
     `proj` to the candidate, driven by the PROJECTION's own module_manager (phase-1 runs as the baseline's
@@ -480,17 +534,20 @@ def _upgrade_leg(proj: str, baseline_tag: str, candidate: str, *, run_complete_s
         if module_manager.PRACTICE_RUN_NOTE not in (result.get("notes") or []):
             problems.append("the upgrade did not take the expected practice path (it may have fetched a real "
                             "release instead of testing the candidate)")
+    tested_tree = None
     if not problems:
         label = f"upgrade/{baseline_tag}"
         qualifications = [_validate_in(proj, label)]
         if run_complete_suite:
-            qualifications.append(_suite_in(proj, label))
+            qualification = _suite_in_committed_snapshot(proj, label)
+            tested_tree = qualification.get("tested_tree")
+            qualifications.append(qualification)
         for qualification in qualifications:
             if not qualification["passed"]:
                 problems.append(qualification["detail"])
     return {"passed": not problems, "detail": "" if not problems
             else f"upgrade/{baseline_tag}: " + "; ".join(problems),
-            "baseline_floor": baseline_floor}
+            "baseline_floor": baseline_floor, "selftest_tree": tested_tree}
 
 
 def _control_plane_driver_source() -> str:
@@ -633,7 +690,8 @@ def _upgrade_from(baseline_tag: str, candidate: str, *, run_complete_suite: bool
     `passed: None`. The whole transition happens inside one tempdir so the projection lives across both legs."""
     with tempfile.TemporaryDirectory() as d:
         proj = _archive_baseline(baseline_tag, os.path.join(d, "old"))
-        _project_to_deployed(proj, decline_optional=False, label=f"upgrade/{baseline_tag}")
+        _project_to_deployed(proj, decline_optional=False, label=f"upgrade/{baseline_tag}",
+                             legacy_baseline=True)
         _assert_isolated(proj)
         upgrade = _upgrade_leg(proj, baseline_tag, candidate, run_complete_suite=run_complete_suite)
         if not upgrade["passed"]:

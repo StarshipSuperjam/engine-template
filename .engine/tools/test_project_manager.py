@@ -33,6 +33,8 @@ from test_plan_store import _document
 
 class _Surface(unittest.TestCase):
     def setUp(self):
+        from selftest_support import review_fixture
+        review_fixture(self)
         self._tmp = tempfile.TemporaryDirectory()
         self.root = Path(self._tmp.name) / "plans"
         self.lib = plan_store.PlanLibrary(self.root)
@@ -1955,9 +1957,14 @@ class ThePanelMovedHere(_Governed):
             project_manager.available_depths(roster, efforts={"standard": "medium"})
 
     def test_the_shipped_roster_offers_all_three_depths(self):
-        slug, _ = self._plan()
-        self.run_command("preview", slug)
-        out = self.run_command("depths", slug)[1]
+        from selftest_support import needs_modules
+        needs_modules(self, "design-review", "qa-review")
+        # This case judges installed assets, unlike the protocol cases using disposable personas.
+        source = Path(__file__).resolve().parent / "project_manager.py"
+        with mock.patch.object(project_manager, "__file__", str(source)):
+            slug, _ = self._plan()
+            self.run_command("preview", slug)
+            out = self.run_command("depths", slug)[1]
         for depth in ("quick", "standard", "thorough"):
             self.assertIn(f"  {depth:<10}", out)
         self.assertNotIn("not offered", out)
