@@ -1467,6 +1467,30 @@ class TestAcceptedAutomaticHookDispatch(unittest.TestCase):
     def tearDown(self):
         self.repo.cleanup()
 
+    def test_existing_worktree_next_stop_uses_new_shared_activation_on_both_launchers(self):
+        # The worktree is never recreated or switched: this is the already-open-session boundary.
+        self.assertEqual(self.repo.activate().returncode, 0)
+        original_head = _accepted_call('git', '-C', str(self.repo.worktree), 'rev-parse', 'HEAD').stdout.strip()
+        before = {}
+        for provider in ('claude', 'codex'):
+            result = self.repo.run_launcher(provider, dict(os.environ))
+            self.assertEqual(result.returncode, 0, result.stderr)
+            before[provider] = json.loads(result.stdout)['context']['activation']['commit']
+        self.repo._put('.engine/tools/helper.py', "from pathlib import Path\nVALUE='fixed'\nORIGIN=__file__\n")
+        self.repo.git('add', '.engine/tools/helper.py')
+        self.repo.git('commit', '-m', 'accepted successor')
+        successor = self.repo.git('rev-parse', 'HEAD')
+        advanced = self.repo.activate(commit=successor, expected_epoch=1)
+        self.assertEqual(advanced.returncode, 0, advanced.stderr)
+        for provider in ('claude', 'codex'):
+            result = self.repo.run_launcher(provider, dict(os.environ))
+            self.assertEqual(result.returncode, 0, result.stderr)
+            observed = json.loads(result.stdout)
+            self.assertEqual(observed['value'], 'fixed')
+            self.assertEqual(observed['context']['activation']['commit'], successor)
+            self.assertNotEqual(before[provider], successor)
+        self.assertEqual(_accepted_call('git', '-C', str(self.repo.worktree), 'rev-parse', 'HEAD').stdout.strip(), original_head)
+
     def test_activation_schema_exact_objects_epoch_cas_and_legacy_barrier(self):
         import jsonschema
         schema_path = _ACCEPTED_TOOLS.parent / "schemas/accepted-hook-activation.v1.json"

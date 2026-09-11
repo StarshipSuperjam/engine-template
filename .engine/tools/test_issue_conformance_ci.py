@@ -510,6 +510,20 @@ class TestHelpNeverActs(unittest.TestCase):
 
 
 class TestTriageOptIn(unittest.TestCase):
+    def test_unknown_legacy_edit_does_not_enroll_or_mutate(self):
+        import issue_triage
+        from unittest.mock import Mock
+        client = Mock()
+        issue = {'number':221,'labels':[{'name':'engine'}], 'body':'Old report',
+                 'created_at':'2026-06-23T00:00:00Z'}
+        client.get_issue.return_value = issue
+        with mock.patch.object(icc.issue_event, 'load_event', return_value={'action':'edited','issue':issue}), \
+             mock.patch.object(icc.issue_event, 'resolve_repo_token', return_value=('o/r','fixture')), \
+             mock.patch.object(icc, 'IssueConformanceClient', return_value=client), \
+             mock.patch.object(issue_triage, 'load_config', return_value=None):
+            self.assertEqual(quiet_call.run(icc.main, []), 1)
+        self.assertEqual(client.method_calls, [mock.call.get_issue(221)])
+
     def test_unrelated_label_is_noop_but_engine_label_is_opt_in(self):
         issue={'number':1,'labels':[{'name':'engine'}]}
         self.assertIsNone(icc.engine_issue_or_none({'action':'labeled','label':{'name':'bug'},'issue':issue}))

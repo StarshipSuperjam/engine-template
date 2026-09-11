@@ -7469,8 +7469,10 @@ class TestIssueTriageEnvelope(unittest.TestCase):
                 patcher.stop()
         self.assertEqual(envelope['issue_triage']['selected_issue'], 1119)
         rendered = boot.session_relay.render(envelope)
-        self.assertIn('Act on issue #1119', rendered)
-        self.assertIn('Acknowledgement alone does not satisfy', rendered)
+        self.assertIn('Next candidate when triage is authorized: #1119', rendered)
+        self.assertIn('Continue the current operator request', rendered)
+        self.assertNotIn('turn-close check', rendered)
+        self.assertIn('Pending records remain outstanding until explicitly handled', rendered)
 
 
 if __name__ == "__main__":
