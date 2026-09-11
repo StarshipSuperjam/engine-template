@@ -1206,6 +1206,9 @@
   ".engine/schemas/result-rejection.v1.json": [
    "core"
   ],
+  ".engine/schemas/reviewer-contract.v1.json": [
+   "core"
+  ],
   ".engine/schemas/scoped-agent-evidence.v1.json": [
    "core"
   ],
@@ -2193,6 +2196,9 @@
   ".engine/tools/review_reader.py": [
    "core"
   ],
+  ".engine/tools/reviewer_contracts.py": [
+   "core"
+  ],
   ".engine/tools/route_budget_check.py": [
    "core"
   ],
@@ -2683,6 +2689,9 @@
    "core"
   ],
   ".engine/tools/test_review_recipe_equivalence.py": [
+   "core"
+  ],
+  ".engine/tools/test_reviewer_contracts.py": [
    "core"
   ],
   ".engine/tools/test_route_budget_check.py": [
