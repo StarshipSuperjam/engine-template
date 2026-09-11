@@ -758,8 +758,9 @@ class TestModuleCoherenceConsumer(unittest.TestCase):
             "audits": [".engine/audits/concern-list.json", ".engine/audits/self-review-setup.md",
                        ".engine/audits/audit-digest.md"],
             "codex-agent": [".codex/agents/engine-audit.toml"],
+            "workflow": [".github/workflows/audit-prep.yml"],
         }, "audit-library owns the persona (both runtime forms), the seeded concern-list, the setup page, "
-           "and the run-time digest")
+           "the run-time digest, and its scheduled workflow")
 
     def test_committed_digest_is_owned_not_an_orphan(self):
         # Regression (digest PR #194): the scheduled run commits .engine/audits/audit-digest.md, but that file
