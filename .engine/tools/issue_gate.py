@@ -117,23 +117,38 @@ def _commands(tokens: list[str]):
 
 
 def _shell_command_texts(command: str):
-    """Yield physical shell command texts split at unquoted newlines.
+    """Yield physical commands, excluding here-document data.
 
     This deliberately covers only the boundary the gate needs: quotes retain embedded newlines, comments end
     at their physical line, and a backslash-newline is joined as the shell joins it. Punctuation inside each
-    line remains shlex's job; this is not a shell parser.
+    line remains shlex's job; this is not a shell parser. Here-document words undergo quote removal only;
+    their following data lines are consumed in redirection order, never inspected as command positions.
     """
     current = []
     quote = None
     escaped = False
     comment = False
-    for char in command:
+    heredocs = []
+    position = 0
+    word = re.compile(r'''(?:[^ \t\r\n;&|()<>'"\\]+|'[^']*'|"(?:\\.|[^"\\])*"|\\[^\n])+''')
+    while position < len(command):
+        char = command[position]
+        position += 1
+        if char == "\n" and (comment or (not quote and not escaped)):
+            yield "".join(current)
+            current, comment = [], False
+            for delimiter, strip_tabs in heredocs:
+                while position < len(command):
+                    end = command.find("\n", position)
+                    end = len(command) if end == -1 else end
+                    line = command[position:end]
+                    position = min(end + 1, len(command))
+                    if (line.lstrip("\t") if strip_tabs else line) == delimiter:
+                        break
+            heredocs = []
+            continue
         if comment:
-            if char == "\n":
-                yield "".join(current)
-                current, comment = [], False
-            else:
-                current.append(char)
+            current.append(char)
             continue
         if escaped:
             if char == "\n" and quote != "'":
@@ -152,15 +167,28 @@ def _shell_command_texts(command: str):
             if char == quote:
                 quote = None
             continue
+        start = position - 1
+        if command.startswith("<<", start) and not command.startswith("<<<", start) and (
+                start == 0 or command[start - 1] != "<"):
+            end = start + 2
+            strip_tabs = command[end:end + 1] == "-"
+            end += int(strip_tabs)
+            while command[end:end + 1] in (" ", "\t"):
+                end += 1
+            match = word.match(command, end)
+            if match:
+                delimiter = shlex.split(match.group(), comments=False, posix=True)
+                if len(delimiter) == 1:
+                    heredocs.append((delimiter[0], strip_tabs))
+                    current.extend(command[start:match.end()])
+                    position = match.end()
+                    continue
         if char in ("'", '"'):
             current.append(char)
             quote = char
         elif char == "#":
             current.append(char)
             comment = True
-        elif char == "\n":
-            yield "".join(current)
-            current = []
         else:
             current.append(char)
     yield "".join(current)

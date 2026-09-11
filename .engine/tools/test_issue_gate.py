@@ -219,6 +219,36 @@ class TestTrustedTargetRouting(unittest.TestCase):
                 with mock.patch.object(modes, 'current_stance', return_value=stance):
                     self.assertEqual(modes.handler(payload).get("permissionDecision"), "deny", stance)
 
+    def test_heredoc_payload_is_data_and_following_commands_still_route(self):
+        literal = "gh issue create --label engine"
+        for opener, ending in (("<<'EOF'", "EOF"), ('<<"EOF"', "EOF"),
+                               ("<<E'OF'", "EOF"), (r"<<\EOF", "EOF"),
+                               ("<<-EOF", "\tEOF"), ("<<''", "")):
+            command = f"cat {opener}\n{literal}\n{ending}\n"
+            with self.subTest(opener=opener):
+                self.assertIsNone(_reason(command))
+                self.assertIsNotNone(_reason(command + literal))
+        self.assertIsNone(_reason("cat <<'EOF'\ngh issue create --repo $REPO\nEOF"))
+        self.assertIsNone(issue_gate.classification_limitation(
+            "Bash", {"command": "cat <<'EOF'\ngh issue create --repo $REPO\nEOF"}))
+        self.assertIsNone(_reason(f"cat <<ONE <<'TWO'\n{literal}\nONE\n{literal}\nTWO"))
+        self.assertIsNotNone(_reason(f"cat <<ONE <<'TWO'\n{literal}\nONE\n{literal}\nTWO\n{literal}"))
+        self.assertIsNotNone(_reason(f"{literal} --body-file - <<'EOF'\nbody\nEOF"))
+
+    def test_quoted_redirection_and_here_string_do_not_consume_later_commands(self):
+        for prefix in ("echo '<<EOF'", 'echo "<<EOF"', "cat <<< 'text'", "echo ready # <<EOF"):
+            self.assertIsNotNone(_reason(prefix + "\ngh issue create --label engine"), prefix)
+
+    def test_normalized_build_hook_does_not_block_literal_heredoc_as_issue_create(self):
+        import modes
+        import providers
+        payload = providers.normalize("PreToolUse", {
+            "session_id": "heredoc-routing", "tool_name": "exec_command",
+            "tool_input": {"cmd": "cat <<'EOF'\ngh issue create --label engine\nEOF"},
+        })
+        with mock.patch.object(modes, 'current_stance', return_value=modes.BUILD):
+            self.assertNotEqual(modes.handler(payload).get("permissionDecision"), "deny")
+
     def test_opaque_or_dynamic_forms_fail_open(self):
         targets = ["trusted/project"]
         for command in ("eval 'gh issue create -R trusted/project'", "gh issue create -R $REPO -t x"):
