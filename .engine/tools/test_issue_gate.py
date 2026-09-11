@@ -239,6 +239,31 @@ class TestTrustedTargetRouting(unittest.TestCase):
         for prefix in ("echo '<<EOF'", 'echo "<<EOF"', "cat <<< 'text'", "echo ready # <<EOF"):
             self.assertIsNotNone(_reason(prefix + "\ngh issue create --label engine"), prefix)
 
+    def test_double_quoted_heredoc_delimiters_use_shell_quote_removal(self):
+        import subprocess
+        for word, delimiter in ((r'"E\$OF"', 'E$OF'), (r'"E\`OF"', 'E`OF'),
+                                (r'"E\\$OF"', r'E\$OF'), (r'"E\qOF"', r'E\qOF'),
+                                (r'"E\"OF"', 'E"OF')):
+            with self.subTest(word=word):
+                # The real shell is an independent delimiter oracle; this executes only cat and printf.
+                preamble = f"cat <<{word}\ndata\n{delimiter}\n"
+                observed = subprocess.run(['bash', '-c', preamble + "printf reached"],
+                                          capture_output=True, text=True, check=True)
+                self.assertEqual(observed.stdout, 'data\nreached')
+                self.assertIsNotNone(_reason(preamble + "gh issue create --label engine"))
+
+    def test_repository_flags_before_between_and_after_subcommands_route(self):
+        for flag in ('--repo trusted/project', '--repo=trusted/project', '-R trusted/project',
+                     '-Rtrusted/project', '-R=trusted/project'):
+            for command in (f'gh {flag} issue create -t x', f'gh issue {flag} create -t x',
+                            f'gh issue create {flag} -t x', f'gh -C /tmp {flag} issue create -t x'):
+                with self.subTest(command=command):
+                    self.assertIsNotNone(_reason(command, trusted_targets=['trusted/project']))
+                    self.assertIsNone(_reason(command.replace('trusted/project', 'external/project'),
+                                              trusted_targets=['trusted/project']))
+        self.assertIsNotNone(issue_gate.classification_limitation(
+            'Bash', {'command':'gh --repo $REPO issue create -t x'}))
+
     def test_normalized_build_hook_does_not_block_literal_heredoc_as_issue_create(self):
         import modes
         import providers

@@ -116,6 +116,30 @@ def _commands(tokens: list[str]):
         yield current
 
 
+def _heredoc_delimiter(word: str) -> str:
+    """Remove shell quotes without expansion; double quotes also escape dollar and backtick."""
+    result, quote, escaped = [], None, False
+    for char in word:
+        if escaped:
+            if quote == '"' and char not in '\\"$`\n':
+                result.append('\\')
+            if char != '\n':
+                result.append(char)
+            escaped = False
+        elif char == '\\' and quote != "'":
+            escaped = True
+        elif quote:
+            if char == quote:
+                quote = None
+            else:
+                result.append(char)
+        elif char in ("'", '"'):
+            quote = char
+        else:
+            result.append(char)
+    return ''.join(result)
+
+
 def _shell_command_texts(command: str):
     """Yield physical commands, excluding here-document data.
 
@@ -177,12 +201,10 @@ def _shell_command_texts(command: str):
                 end += 1
             match = word.match(command, end)
             if match:
-                delimiter = shlex.split(match.group(), comments=False, posix=True)
-                if len(delimiter) == 1:
-                    heredocs.append((delimiter[0], strip_tabs))
-                    current.extend(command[start:match.end()])
-                    position = match.end()
-                    continue
+                heredocs.append((_heredoc_delimiter(match.group()), strip_tabs))
+                current.extend(command[start:match.end()])
+                position = match.end()
+                continue
         if char in ("'", '"'):
             current.append(char)
             quote = char
@@ -208,6 +230,8 @@ def _option_value(tokens: list[str], names: tuple[str, ...]) -> str | None:
         for name in names:
             if token.startswith(name + "="):
                 return token.split("=", 1)[1]
+            if len(name) == 2 and token.startswith(name) and len(token) > 2:
+                return token[2:]
     return None
 
 
@@ -226,7 +250,7 @@ def _parse_repo(value: str) -> str | None:
 
 def _explicit_repo(tokens: list[str]) -> tuple[bool, str | None]:
     value = _option_value(tokens, ("-R", "--repo"))
-    present = any(token in ("-R", "--repo") or token.startswith("--repo=") for token in tokens)
+    present = any(token == "--repo" or token.startswith(("-R", "--repo=")) for token in tokens)
     if not present:
         return False, None
     return True, _parse_repo(value) if value else None
@@ -263,14 +287,23 @@ def _is_post_creation(tokens: list[str]) -> bool:
 
 
 def _gh_subcommand(tokens: list[str]) -> list[str] | None:
-    """Return gh's subcommand words after its supported command-directory prefix."""
+    """Recognize repository/directory flags before or between gh subcommand words."""
     if tokens[:1] != ["gh"]:
         return None
-    index = 1
-    # Preserve `gh -C checkout issue create`: its directory is considered only for target
-    # resolution later, never as a source of trusted repositories.
-    if index + 1 < len(tokens) and tokens[index] == "-C":
-        index += 2
+    def skip_options(index):
+        while index < len(tokens):
+            token = tokens[index]
+            if token in ("-C", "-R", "--repo") and index + 1 < len(tokens):
+                index += 2
+            elif token.startswith(("--repo=", "-R=", "-C=")) or (
+                    token.startswith(("-R", "-C")) and len(token) > 2):
+                index += 1
+            else:
+                break
+        return index
+    index = skip_options(1)
+    if tokens[index:index + 1] == ["issue"]:
+        return ["issue", *tokens[skip_options(index + 1):]]
     return tokens[index:]
 
 
