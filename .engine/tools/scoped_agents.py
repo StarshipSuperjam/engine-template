@@ -619,12 +619,18 @@ class Store:
             if _observations is None:
                 data = self.read()
             else:
-                # A caller may share one validated snapshot within a synchronous calculation.
-                # Independent calls read again; packet/supplement bytes below are still checked.
+                # Reuse parsing only while the companion's exact bytes still match. Native
+                # observations may replace it during this same calculation.
                 key = (str(self.path.resolve()), core.canonical(owner))
-                if key not in _observations:
-                    _observations[key] = self.read()
-                data = _observations[key]
+                content = self.path.read_bytes()
+                cached = _observations.get(key)
+                if cached is None or cached[0] != content:
+                    data = self.read()
+                    if self.path.read_bytes() != content:
+                        return False
+                    _observations[key] = (content, data)
+                else:
+                    data = cached[1]
             accepted = data["acceptances"].get(receipt_key(receipt))
             if not accepted:
                 return False

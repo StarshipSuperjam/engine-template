@@ -7737,6 +7737,31 @@ class TestFrozenBuildContracts(CoordinatorCase):
         self.assertEqual(sorted(self.DELIVERABLE_LENSES),
             scoped_agents.missing_build_evidence(self.review_library, state, receipts))
 
+    def test_companion_batch_refuses_changed_evidence_within_the_same_calculation(self):
+        import scoped_agents
+        packet = self.packet()
+        for lens in self.DELIVERABLE_LENSES:
+            self.record_frozen(packet, lens)
+        state = self.state()
+        receipts = state["reviews"]["deliverable"]["receipts"]
+        companion = scoped_agents.Store(self.review_library, self.review_slug)
+        original = companion.path.read_bytes()
+        owner = scoped_agents.build_owner(state)
+        for change in ("replace", "damage", "delete"):
+            with self.subTest(change=change):
+                companion.path.write_bytes(original)
+                observations = {}
+                self.assertTrue(companion.receipt_verified(receipts[0], owner, _observations=observations))
+                if change == "replace":
+                    data = json.loads(original)
+                    data["acceptances"] = {}
+                    companion.path.write_text(json.dumps(data))
+                elif change == "damage":
+                    companion.path.write_text("{")
+                else:
+                    companion.path.unlink()
+                self.assertFalse(companion.receipt_verified(receipts[1], owner, _observations=observations))
+
     def test_rerecording_legacy_execution_recovers_composition_without_rewriting_history(self):
         import copy
         from test_build_coordinator_contract import TestPreviewEvidence
