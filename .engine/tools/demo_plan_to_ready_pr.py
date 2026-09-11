@@ -274,12 +274,16 @@ def _observe_demo_review(copy, env, plan_id, digest):
     script = """
 import sys
 import plan_store
+import project_manager
 import scoped_agents
 from test_build_coordinator import observe_review_execution
 library = plan_store.PlanLibrary(sys.argv[1])
 slug = library.resolve(sys.argv[2])
+text, digest, contract = project_manager.review_packet(library, slug)
+assert digest == sys.argv[3]
 observe_review_execution(library, slug, scoped_agents.plan_owner(library.read_record(slug)),
-                         'architecture', sys.argv[3], [], root='demo-review-root')
+                         'architecture', digest, [], root='demo-review-root',
+                         review_contract=contract, packet_content=text)
 """
     return subprocess.run([sys.executable, "-c", script, env["ENGINE_PLAN_DIR"], plan_id, digest],
                           cwd=os.path.join(copy, ".engine", "tools"), capture_output=True,
@@ -333,7 +337,8 @@ def _seed_submission(state_path, head, plan_digest):
                                   "summary": "seeded green for the entry-door fixture"}
                                  for pid in required]
         current["pr_contract"] = {"commit": head, "body_digest": bc._digest(BODY.encode()),
-                                  "complete": True}
+                                  "complete": True,
+                                  "review_lineage_digest": bc._review_lineage_digest(current)}
 
     store.mutate(fill, from_revision=state["revision"])
     return plan_digest
@@ -374,10 +379,8 @@ def _arc_one(copy, head, env, pr_state, holder):
     _plan_cmd(copy, env, "approve", gate_id, "--depth", "thorough",
                   "--operator-decided")
     packet = _plan_cmd(copy, env, "review", "packet", gate_id)
-    # The PACKET digest, not the plan digest that precedes it in the same header — a receipt has to name
-    # what the reviewer actually read, which is why `review record` re-renders and compares.
-    digest = next((line.split(":", 1)[1].strip() for line in packet.stdout.splitlines()
-                   if line.startswith("Packet digest:")), "")
+    # Fresh approvals carry the packet identity inside their canonical JSON envelope.
+    digest = json.loads(packet.stdout)["packet_digest"]
     observed = _observe_demo_review(copy, env, gate_id, digest)
     ok &= _pass("synthetic reviewer events are observed", observed.returncode == 0,
                 "disposable event fixture; no native runtime qualification is claimed")
@@ -468,7 +471,7 @@ def _arc_one(copy, head, env, pr_state, holder):
     with open(pr_state, encoding="utf-8") as fh:
         final = json.load(fh)
     ok &= _pass("the pull request is ready for you", submitted.returncode == 0 and not final["isDraft"],
-                f"exit {submitted.returncode}; draft={final['isDraft']}")
+                f"exit {submitted.returncode}; draft={final['isDraft']}; {submitted.stderr.strip()[:600]}")
     return ok
 
 

@@ -822,8 +822,7 @@ class D11TheReviewRecordCarriesLensesAndNothingAboutEffort(_Ceremony):
         self.assertFalse(any("ran at" in r or "effort" in r for r in refusals), refusals)
 
 
-if __name__ == "__main__":
-    unittest.main()
+
 
 
 class D12OneBrokenProgramRecordFrozeEveryPlansSeal(_Ceremony):
@@ -1120,3 +1119,7 @@ class SupplementalPresentation(unittest.TestCase):
         self.assertTrue(plan_lifecycle.presentation_current(record))
         record['supplemental_reviews'][0]['review']['findings'][0]['disposition'] = 'rejected'
         self.assertFalse(plan_lifecycle.presentation_current(record))
+
+
+if __name__ == "__main__":
+    unittest.main()

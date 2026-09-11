@@ -2984,8 +2984,7 @@ class ObservedPlanReview(_Governed):
         self.assertEqual(len(scoped_agents.Store(self.lib, slug).read()["acceptances"]), 1)
 
 
-if __name__ == "__main__":
-    unittest.main()
+
 
 
 class TestFrozenApproval(_Surface):
@@ -3154,3 +3153,7 @@ class TestFrozenApproval(_Surface):
         assignment_id = next(iter(store.read()['assignments']))
         store.change(lambda data: data['assignments'][assignment_id].pop('review_contract'))
         self.assertFalse(store.receipt_verified(record['plan_review'],scoped_agents.plan_owner(record)))
+
+
+if __name__ == "__main__":
+    unittest.main()

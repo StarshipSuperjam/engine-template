@@ -5867,9 +5867,6 @@ def _assemble_evidence(state: dict, plan: dict, claim: dict, head: str, pr_data:
         closes.append(authorizing)
 
     # Report-only change profile, over the live base — the same invocation the preflight records.
-    if reviewer_contracts.effective_build(state) and _review_lineage_marker(state) not in body:
-        contract_passed = False
-        contract_summary += "; PR body does not present the complete current review lineage"
     profile = _run([sys.executable, str(ROOT / ".engine" / "tools" / "scope_profile.py"), base])
     change_profile = (profile.stdout or "").strip()
     # An ADDED workflow discloses itself. The weakening guard only inspects files that already existed, so

@@ -11,7 +11,6 @@ import json
 import re
 from pathlib import Path
 
-import yaml
 
 import agent_bindings
 import build_coordinator_core as core
@@ -37,6 +36,7 @@ def _source(path):
 
 
 def frontmatter(text):
+    import yaml  # Setup imports the owner before the private runtime exists.
     if not text.startswith("---\n"):
         raise ContractError("reviewer source has no frontmatter")
     try:

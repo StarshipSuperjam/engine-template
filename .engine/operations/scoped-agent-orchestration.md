@@ -84,7 +84,7 @@ approval and reopening the same task to load its configuration; verify an actual
 qualification harness is not an Engine installation requirement. Claude 2.1.185 contract fixtures are offline
 checks; the operator's September 12 live smoke test remains explicitly outstanding.
 
-Reviewer assignments retain approved source and result bindings; dispatch refuses unavailable mandates and acceptance validates observed output against the frozen binding. Preserve companion evidence. Historical adoption is separate from fresh execution, and reviewer effort stays harness-controlled. See [Executable persona result contracts](../docs/result-contracts.md) for renewal, historical recovery, ingress and demonstrations.
+Reviewer assignments retain approved source and result bindings; dispatch refuses unavailable mandates and acceptance validates observed output against the frozen binding. Preserve companion evidence. Historical adoption is separate from fresh execution, and the harness chooses reasoning effort without a fixed value or floor. See [Executable persona result contracts](../docs/result-contracts.md) for renewal, historical recovery, ingress and demonstrations.
 ## Done when
 
 The observed result satisfies its original assignment, any clarification is accounted for, and the

@@ -7619,8 +7619,7 @@ class TheRetiredReviewEffortFieldsLeaveOnRead(CoordinatorCase):
         self.assertFalse({k for k in stage["receipts"][0] if "effort" in k})
 
 
-if __name__ == "__main__":
-    unittest.main()
+
 
 
 class TestFrozenBuildContracts(CoordinatorCase):
@@ -7652,6 +7651,21 @@ class TestFrozenBuildContracts(CoordinatorCase):
             lens,args.lens_packet_digest,report or [],review_contract=bc.reviewer_contracts.effective_build(state),packet_content=json.dumps(packet))
         with contextlib.redirect_stdout(io.StringIO()):
             bc.cmd_review_record(args,self.store)
+
+    def test_frozen_contract_can_compose_its_first_pr_body(self):
+        import build_coordinator_contract as bcc
+        from test_build_coordinator_contract import _good_claim
+        state = self.state()
+        claim = _good_claim()
+        claim["review"]["finding_summaries"] = []
+        record = self.review_library.read_record(self.review_slug)
+        with mock.patch.object(bc, "_sealed_plan_record", return_value=(record, None)), \
+                mock.patch.object(bc, "_run", return_value=types.SimpleNamespace(
+                    returncode=129, stdout="", stderr="fatal: not a git repository")):
+            evidence = bc._assemble_evidence(state, bc._plan(str(self.plan_path)), claim, HEAD_A,
+                                             {"body": "", "isDraft": True})
+        body = bcc.compose(claim, evidence)
+        self.assertIn(bc._review_lineage_marker(state), body)
 
     def test_bound_packet_keeps_approved_roster_when_installation_list_changes(self):
         packet = self.packet(roster=[])
@@ -7751,3 +7765,7 @@ class TestFrozenBuildContracts(CoordinatorCase):
             state['findings'].append({'id':'changed-disposition'})
             self.assertFalse(bc._review_contract_current(state))
             self.assertNotEqual(marker,bc._review_lineage_marker(state))
+
+
+if __name__ == "__main__":
+    unittest.main()
