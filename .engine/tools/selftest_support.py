@@ -142,8 +142,9 @@ def review_fixture(case):
 def accepted_hook_fixture_bytes(root, rel):
     """Restore only declared optional hooks in a disposable approved-generation fixture.
 
-    The resulting bytes must match the existing pinned digest. Never re-pin arbitrary deployment
-    bytes: unknown drift, missing core hooks, and changed commands still fail this comparison.
+    The resulting bytes must match the existing pinned digest. Deployed upgrades can append an event
+    at a different JSON object position; normalize only that object-key order in the disposable fixture.
+    Never re-pin bytes: unknown drift, missing core hooks, and changed commands still fail comparison.
     """
     from pathlib import Path
     import hashlib
@@ -176,6 +177,18 @@ def accepted_hook_fixture_bytes(root, rel):
                         entries.insert(index + int(after), {"type": "command", "command": restored})
                         changed = True
                         break
+        if not CONSTRUCTION:
+            # Object-key order is not dispatch order. Keep every event and all ordered hook lists;
+            # the exact approved hash below still rejects extra/missing entries or changed commands.
+            event_order = (("SessionStart", "PreToolUse", "PostToolUse", "Stop", "UserPromptSubmit",
+                            "PreCompact", "SubagentStart", "SubagentStop") if codex else
+                           ("SessionStart", "PreToolUse", "Stop", "PostToolUse", "PreCompact",
+                            "UserPromptSubmit", "SubagentStart", "SubagentStop"))
+            hooks = document["hooks"]
+            ordered = {key: hooks[key] for key in event_order if key in hooks}
+            ordered.update({key: value for key, value in hooks.items() if key not in ordered})
+            changed = changed or list(ordered) != list(hooks)
+            document["hooks"] = ordered
         if changed:
             raw = (json.dumps(document, indent=2, ensure_ascii=False) + "\n").encode()
     if hashlib.sha256(raw).hexdigest() != hp._ACCEPTED_BUNDLE_SHA256[rel]:

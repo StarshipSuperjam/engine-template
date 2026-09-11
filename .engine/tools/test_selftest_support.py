@@ -84,6 +84,30 @@ class TestReviewFixture(unittest.TestCase):
 
 
 class TestAcceptedHookFixture(unittest.TestCase):
+    def test_deployed_event_key_order_is_normalized_but_home_and_unknown_drift_stay_strict(self):
+        import json
+        import tempfile
+        from pathlib import Path
+        source = Path(selftest_support.__file__).resolve().parents[2]
+        for rel in (".claude/settings.json", ".codex/hooks.json"):
+            with self.subTest(rel=rel), tempfile.TemporaryDirectory() as directory:
+                approved = selftest_support.accepted_hook_fixture_bytes(source, rel)
+                document = json.loads(approved)
+                document["hooks"]["PreCompact"] = document["hooks"].pop("PreCompact")
+                root = Path(directory)
+                (root / rel).parent.mkdir()
+                (root / rel).write_text(json.dumps(document, indent=2) + "\n")
+                with mock.patch.object(selftest_support, "CONSTRUCTION", False):
+                    self.assertEqual(selftest_support.accepted_hook_fixture_bytes(root, rel), approved)
+                with mock.patch.object(selftest_support, "CONSTRUCTION", True):
+                    with self.assertRaisesRegex(AssertionError, "pinned approved hook generation"):
+                        selftest_support.accepted_hook_fixture_bytes(root, rel)
+                document["hooks"]["UnknownEvent"] = []
+                (root / rel).write_text(json.dumps(document, indent=2) + "\n")
+                with mock.patch.object(selftest_support, "CONSTRUCTION", False):
+                    with self.assertRaisesRegex(AssertionError, "pinned approved hook generation"):
+                        selftest_support.accepted_hook_fixture_bytes(root, rel)
+
     def test_a_missing_core_hook_is_not_restored_or_re_pinned(self):
         import json
         import tempfile

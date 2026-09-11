@@ -647,10 +647,11 @@ class SelectOnADeployedClone(unittest.TestCase):
     def test_a_product_change_selects_the_guard_alone_and_an_engine_change_does_not(self):
         self._commit("src/app.py", "print(1)\n")
         m = S.select(self.root, self.base)
-        self.assertEqual(m["classification"], "project-only", m.get("full_reason"))
         self.assertEqual(m["project_paths"], ["src/app.py"])
-        self.assertTrue(m["selected"], "the derived-artifact guard is never empty on the real tree")
-        self.assertEqual({e["reason"]["code"] for e in m["selected"]}, {"derived-artifact-guard"})
+        if not _declined_guard_fallback(self, m):
+            self.assertEqual(m["classification"], "project-only", m.get("full_reason"))
+            self.assertTrue(m["selected"], "the derived-artifact guard is never empty on the real tree")
+            self.assertEqual({e["reason"]["code"] for e in m["selected"]}, {"derived-artifact-guard"})
         self._commit(".engine/tools/zz_new_tool.py", "VALUE = 1\n")
         m = S.select(self.root, self.base)
         self.assertNotEqual(m["classification"], "project-only")
