@@ -129,7 +129,7 @@ def missing_receipts(stage: dict, covers=_never_covers, adopted=lambda receipt: 
     return [item["lens"] for item in stage.get("reviewer_contracts", []) if item["lens"] not in done]
 
 
-def live_receipts(state: dict) -> list[tuple[str, dict]]:
+def live_receipts(state: dict, *, include_inactive: bool = False) -> list[tuple[str, dict]]:
     """Every review receipt currently live anywhere in the Build, each paired with the stage that PRODUCED
     it -- the one home for that classification.
 
@@ -154,9 +154,22 @@ def live_receipts(state: dict) -> list[tuple[str, dict]]:
         for receipt in state["repair"]["receipts"]:
             found.append(("repair", receipt))
     for entry in state.get("review_evidence_history", []):
-        if not entry.get("effective"):
+        if not include_inactive and not entry.get("effective"):
             continue
         pair = (entry["stage"], entry["receipt"])
+        if pair not in found:
+            found.append(pair)
+    return found
+
+
+def retained_receipts(state: dict) -> list[tuple[str, dict]]:
+    """Original reads, independent of whether their findings still demand disposition.
+
+    Retention is not eligibility: callers must verify execution and the approved obligation
+    before any of these receipts can contribute coverage.
+    """
+    found = []
+    for pair in live_receipts(state, include_inactive=True):
         if pair not in found:
             found.append(pair)
     return found

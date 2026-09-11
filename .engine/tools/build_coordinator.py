@@ -543,7 +543,7 @@ def _review_source_provenance(state):
 
 def _remember_review_evidence(state):
     """Save original origins before packet regeneration can change their inferred stage."""
-    for stage, receipt in review.live_receipts(state):
+    for stage, receipt in review.retained_receipts(state):
         state.setdefault("review_receipt_origins", {}).setdefault(scoped_agents.receipt_key(receipt), stage)
 
 
@@ -558,8 +558,11 @@ def _archive_replaced_review(state, lens, replacement):
                  "effective": (old.get("obligation_digest") != replacement.get("obligation_digest")
                                or bool(unresolved.intersection(old['finding_ids'])))}
         history = state.setdefault("review_evidence_history", [])
-        if not any(e["receipt"] == old for e in history):
+        prior = next((e for e in history if e["receipt"] == old), None)
+        if prior is None:
             history.append(entry)
+        else:
+            prior["effective"] = entry["effective"]
 
 
 def _missing_receipts(stage: dict, kind: str = "deliverable", *, state=None) -> list[str]:
@@ -2172,8 +2175,7 @@ def _packet(args, store: Snapshot | None) -> None:
 
     def change(s):
         old = s["repair"] if stage == "repair" else s["reviews"][stage]
-        if frozen:
-            _remember_review_evidence(s)
+        _remember_review_evidence(s)
         expected = {item["lens"]: item["lens_packet_digest"] for item in contracts}
         # A receipt survives on either ground: it attests THIS packet, or the range it recorded reading
         # already contains every authored commit this packet asks about. It is kept byte-identical
@@ -2187,6 +2189,12 @@ def _packet(args, store: Snapshot | None) -> None:
                                    or covers(receipt))]
         if frozen:
             preserved_receipts = list((old or {}).get("receipts", []))
+        # Retain only originals being removed; current receipts already remain durable.
+        history = s.setdefault("review_evidence_history", [])
+        for receipt in (old or {}).get("receipts", []):
+            if receipt not in preserved_receipts and not any(e["receipt"] == receipt for e in history):
+                produced_by = s["review_receipt_origins"][scoped_agents.receipt_key(receipt)]
+                history.append({"stage": produced_by, "receipt": copy.deepcopy(receipt), "effective": True})
         if stage == "repair":
             s["repair"]["packet_digest"] = packet["packet_digest"]
             s["repair"]["referent_digest"] = referent_digest
@@ -2394,8 +2402,8 @@ def cmd_review_record(args, store: Snapshot) -> None:
                        "reviewed_range": {"base": target["reviewed_commit"], "tip": target["final_commit"]}}
             if frozen:
                 receipt.update(contract_digest=frozen["digest"], obligation_digest=contract["obligation_digest"])
-                _archive_replaced_review(state, args.lens, receipt)
-                state.setdefault("review_receipt_origins", {})[scoped_agents.receipt_key(receipt)] = args.stage
+            _archive_replaced_review(state, args.lens, receipt)
+            state.setdefault("review_receipt_origins", {})[scoped_agents.receipt_key(receipt)] = args.stage
             target["receipts"] = [r for r in target["receipts"] if r["lens"] != args.lens] + [receipt]
             delivery = state["reviews"]["deliverable"]
             delivery["receipts"] = [r for r in delivery["receipts"] if r["lens"] != args.lens] + [receipt]
@@ -2433,8 +2441,8 @@ def cmd_review_record(args, store: Snapshot) -> None:
                        "reviewed_range": {"base": target["base_commit"], "tip": target["reviewed_commit"]}}
             if frozen:
                 receipt.update(contract_digest=frozen["digest"], obligation_digest=contract["obligation_digest"])
-                _archive_replaced_review(state, args.lens, receipt)
-                state.setdefault("review_receipt_origins", {})[scoped_agents.receipt_key(receipt)] = args.stage
+            _archive_replaced_review(state, args.lens, receipt)
+            state.setdefault("review_receipt_origins", {})[scoped_agents.receipt_key(receipt)] = args.stage
             target["receipts"] = [r for r in target["receipts"] if r["lens"] != args.lens] + [receipt]
         if frozen:
             library = _library()

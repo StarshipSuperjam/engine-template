@@ -7673,6 +7673,49 @@ class TestFrozenBuildContracts(CoordinatorCase):
         self.assertEqual(self.frozen,packet['review_contract'])
         self.assertEqual(1,packet['approval_authority']['owner']['generation'])
 
+    def _four_repairs_retain_originals(self, frozen):
+        if not frozen:
+            self.store.mutate(lambda s: (s.pop("review_contract"), s.pop("review_contract_format")))
+        lens = "technical-integrity"
+        packet = self.packet()
+        originals = []
+        def accept(packet, head):
+            with mock.patch.object(bc, "_head", return_value=head), contextlib.redirect_stdout(io.StringIO()):
+                if frozen:
+                    self.record_frozen(packet, lens)
+                else:
+                    self.record_review(self.receipt_args(packet, lens, []), self.store)
+            originals.append(self.state()["reviews"]["deliverable"]["receipts"][0])
+        accept(packet, HEAD_A)
+        prior = HEAD_A
+        for head in (HEAD_B, HEAD_C, HEAD_D, HEAD_E):
+            self.store.mutate(lambda s: s.update(
+                validation={"commit":head,"results":[{"id":"self-test","commit":head,"passed":True,"summary":"green"}]},
+                repair={"reviewed_commit":prior,"final_commit":head,"base_commit":BASE,
+                        "summary":"one repair","judgment":"scoped","rationale":"Changed logic",
+                        "lenses":[lens],"packet_digest":None,"receipts":[]}))
+            packet = self.packet(stage="repair", head=head)
+            accept(packet, head)
+            retained = bc.review.retained_receipts(self.state())
+            for index, original in enumerate(originals):
+                self.assertIn(("deliverable" if index == 0 else "repair", original), retained)
+            # A second refresh/reload cannot overwrite ranges or duplicate history.
+            self.packet(head=head)
+            first_history = self.store.read()["review_evidence_history"]
+            self.packet(head=head)
+            state = self.store.read()
+            self.assertEqual(first_history, state["review_evidence_history"])
+            self.assertEqual(len(first_history), len({json.dumps(e["receipt"], sort_keys=True) for e in first_history}))
+            for original in originals:
+                self.assertIn(original, [r for _, r in bc.review.retained_receipts(state)])
+            prior = head
+
+    def test_four_repair_rounds_preserve_frozen_originals(self):
+        self._four_repairs_retain_originals(True)
+
+    def test_four_repair_rounds_preserve_pre_envelope_originals(self):
+        self._four_repairs_retain_originals(False)
+
     def test_clean_same_mandate_replacement_keeps_undispositioned_findings(self):
         packet = self.packet()
         self.record_frozen(packet, 'technical-integrity', [
