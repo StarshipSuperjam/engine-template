@@ -177,6 +177,22 @@ class DurableAutomatedSubmissionTests(unittest.TestCase):
         self.assertTrue(self.submit_telemetry(data=telemetry_data(now=NOW_3))['newly_created'])
         self.assertEqual(self.remote.posts, 1)
 
+    def test_legacy_adoption_guidance_quotes_the_source_as_one_shell_argument(self):
+        import shlex
+        source = "checks/operator's check; echo unsafe"
+        for number in (41, 42):
+            issue = self._legacy_issue(submission_id=f'legacy-{number}', number=number)
+            issue['body'] = issue['body'].replace('integration/durable-signal', source)
+            self.remote.issues.append(issue)
+        data = telemetry_data()
+        data['record']['source_id'] = source
+        with self.assertRaises(issue_author.IssueInputError) as caught:
+            self.submit_telemetry(data=data)
+        guidance = str(caught.exception).split('recovery adopt ', 1)[1].split(' before creating', 1)[0]
+        args = shlex.split(guidance)
+        self.assertEqual(args[args.index('--source-key') + 1], source)
+        self.assertEqual(self.remote.posts, 0)
+
     def test_legacy_selection_refuses_stale_wrong_source_and_invalid_identity_without_writes(self):
         issue = self._legacy_issue(submission_id='legacy-1', number=41)
         self.remote.issues.append(issue)

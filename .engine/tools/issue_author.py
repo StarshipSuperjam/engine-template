@@ -579,6 +579,7 @@ def contract_parts(body):
 def create_producer_result(producer, data, client, *, root=None, env=None, recovery_store=None):
     """The complete structured automatic submission operation, shared with manual create."""
     import copy
+    import shlex
     import issue_recovery
     import issue_triage
     import telemetry
@@ -653,7 +654,7 @@ def create_producer_result(producer, data, client, *, root=None, env=None, recov
             legacy = [issue for issue in issue_triage.pages(client, f'/repos/{client.repo}/issues?state=all&labels=engine')
                       if issue_triage.scoped(issue) and matches_source(issue)]
             if len(legacy) > 1:
-                raise IssueInputError('Multiple historical reports match this source; select one with recovery adopt --producer ' + producer + ' --source-key ' + source_key + ' --issue NUMBER --expect-revision ' + str(snapshot['revision']) + ' --reason REASON --confirm before creating another.')
+                raise IssueInputError('Multiple historical reports match this source; select one with recovery adopt --producer ' + producer + ' --source-key ' + shlex.quote(source_key) + ' --issue NUMBER --expect-revision ' + str(snapshot['revision']) + ' --reason REASON --confirm before creating another.')
             if legacy:
                 return with_diagnostic(adopt_legacy_producer_issue(producer, client,
                     number=legacy[0]['number'], source_key=source_key, expected_revision=snapshot['revision'],
