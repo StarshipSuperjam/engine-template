@@ -63,6 +63,7 @@ def commits(root: Path, base: str | None, tip: str | None) -> list[str]:
     if not base or not tip:
         raise RangeUnreadable("a commit range needs both a base and a tip")
     if base == tip:
+        _git(root, ["rev-parse", "--verify", base + "^{commit}"])
         return []
     return [line for line in _git(root, ["rev-list", f"{base}..{tip}"]).splitlines() if line]
 
@@ -262,3 +263,43 @@ def coverage_report(root: Path, receipt: dict, new_base: str | None, new_tip: st
     return (f"{receipt['lens']}: {len(unread)} authored commit(s) unread"
             f" ({', '.join(sha[:12] for sha in unread[:4])}"
             f"{', …' if len(unread) > 4 else ''})")
+
+
+def cumulative_coverage(root: Path, receipts: list[dict], base: str | None,
+                        tip: str | None, base_advances=()) -> dict:
+    """Exact union of eligible original reads, never an aggregate reviewer receipt.
+
+    Eligibility belongs to the caller's mandate/execution owners. Bad source ranges contribute
+    nothing; independent valid reads may still cover the question. An unreadable QUESTION has no
+    unread count and cannot be confused with a verified empty range.
+    """
+    try:
+        wanted = authored_between(root, base, tip, base_advances)
+    except RangeUnreadable as exc:
+        return {"verified": False, "covered": False, "read": [], "unread": None,
+                "unverified": [str(exc)]}
+    read = set()
+    unverified = []
+    for receipt in receipts:
+        recorded = receipt.get("reviewed_range") or {}
+        try:
+            read.update(commits(root, recorded.get("base"), recorded.get("tip")))
+        except RangeUnreadable as exc:
+            unverified.append(str(exc))
+    unread = [sha for sha in wanted if sha not in read]
+    return {"verified": True, "covered": not unread,
+            "read": [sha for sha in wanted if sha in read], "unread": unread,
+            "unverified": sorted(set(unverified))}
+
+
+def cumulative_report(lens: str, result: dict) -> str:
+    """Render the same answer consumers use, including an honest unmeasurable state."""
+    if not result["verified"]:
+        return f"{lens}: coverage cannot be measured; restore the required Git objects"
+    unread = result["unread"]
+    if not unread:
+        return f"{lens}: already read every authored commit in this range"
+    detail = ", ".join(sha[:12] for sha in unread[:4]) + (", …" if len(unread) > 4 else "")
+    recovery = ("; some original evidence is unavailable: restore retained receipts and their evidence, "
+                "or review the unread work") if result["unverified"] else ""
+    return f"{lens}: {len(unread)} authored commit(s) unread ({detail}){recovery}"

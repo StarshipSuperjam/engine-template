@@ -67,6 +67,80 @@ class _RealRepo(unittest.TestCase):
                 "reviewed_range": {"base": base, "tip": tip}, **over}
 
 
+class CumulativeOriginalReads(_RealRepo):
+    def test_four_repairs_accumulate_without_bridging_a_gap(self):
+        heads = [self.base] + [self.commit("src.py", str(n)) for n in range(6)]
+        originals = [self.receipt("security-governance", heads[n], heads[n+1]) for n in range(5)]
+        before = json.dumps(originals, sort_keys=True)
+        for count in range(1, 6):
+            result = ranges.cumulative_coverage(self.repo, originals[:count], self.base, heads[5])
+            self.assertEqual(heads[count+1:6][::-1], result["unread"])
+        self.assertEqual([heads[6]], ranges.cumulative_coverage(self.repo, originals, self.base, heads[6])["unread"])
+        self.assertEqual([heads[3]], ranges.cumulative_coverage(self.repo, originals[:2]+originals[3:], self.base, heads[5])["unread"])
+        self.assertEqual(before, json.dumps(originals, sort_keys=True))
+
+    def test_overlap_duplicates_and_order_do_not_change_exact_coverage(self):
+        a = self.commit("src.py", "a"); b = self.commit("src.py", "b"); c = self.commit("src.py", "c")
+        first = self.receipt("usability", self.base, b)
+        second = self.receipt("usability", a, c)
+        for receipts in ([first, second], [second, first, first], [second, second, first]):
+            result = ranges.cumulative_coverage(self.repo, receipts, self.base, c)
+            self.assertTrue(result["covered"])
+            self.assertEqual([c,b,a], result["read"])
+
+    def test_unreadable_question_is_not_a_zero_count(self):
+        unknown = "f" * 40
+        for base, tip in ((self.base, unknown), (unknown, unknown), (None, self.base)):
+            result = ranges.cumulative_coverage(self.repo, [], base, tip)
+            self.assertFalse(result["verified"])
+            self.assertFalse(result["covered"])
+            self.assertIsNone(result["unread"])
+            self.assertIn("cannot be measured", ranges.cumulative_report("usability", result))
+
+    def test_missing_original_range_does_not_credit_work(self):
+        a = self.commit("src.py", "a"); b = self.commit("src.py", "b")
+        narrow = self.receipt("usability", a, b)
+        missing = self.receipt("usability", "f"*40, a)
+        result = ranges.cumulative_coverage(self.repo, [missing, narrow], self.base, b)
+        self.assertEqual([a], result["unread"])
+        self.assertIn("restore", ranges.cumulative_report("usability", result))
+        good = self.receipt("usability", self.base, a)
+        self.assertTrue(ranges.cumulative_coverage(self.repo, [missing, narrow, good], self.base, b)["covered"])
+
+    def test_an_unrelated_branch_cannot_fill_the_gap(self):
+        a = self.commit("src.py", "a")
+        self.git("checkout", "-q", "-b", "other", self.base)
+        other = self.commit("other.py", "other")
+        receipt = self.receipt("usability", self.base, other)
+        self.assertEqual([a], ranges.cumulative_coverage(self.repo, [receipt], self.base, a)["unread"])
+
+    def test_spliced_matching_lens_packet_is_not_whole_deliverable_acceptance(self):
+        a = self.commit("src.py", "a"); b = self.commit("src.py", "b")
+        narrow = self.receipt("usability", a, b, packet_digest="repair", lens_packet_digest="repair-lens")
+        stage = {"base_commit":self.base,"reviewed_commit":b,"packet_digest":"deliverable",
+                 "reviewer_contracts":[{"lens":"usability","lens_packet_digest":"repair-lens"}]}
+        self.assertFalse(review.receipt_attests_scope(stage, narrow))
+        repair = {**stage,"packet_digest":"repair","reviewed_commit":a,"final_commit":b}
+        self.assertTrue(review.receipt_attests_scope(repair, narrow, "repair"))
+        # Even transplanting the packet name cannot widen its original read range.
+        self.assertFalse(review.receipt_attests_scope({**stage,"packet_digest":"repair"}, narrow))
+
+    def test_history_effectiveness_does_not_select_coverage_but_authority_does(self):
+        a = self.commit("src.py", "a")
+        original = self.receipt("usability", self.base, a, obligation_digest="approved")
+        state = {"reviews":{"deliverable":{"packet_digest":"current","receipts":[]}},"repair":None,
+                 "review_evidence_history":[{"stage":"deliverable","receipt":original,"effective":False}]}
+        contract = {"lens":"usability","obligation_digest":"approved"}
+        eligible, rejected = review.eligible_coverage_receipts(state, contract, lambda r: True)
+        self.assertEqual([original], eligible); self.assertEqual([], rejected)
+        self.assertEqual([], review.live_receipts(state))
+        self.assertTrue(ranges.cumulative_coverage(self.repo, eligible, self.base, a)["covered"])
+        for mandate, verified in (("changed", True), ("approved", False)):
+            eligible, rejected = review.eligible_coverage_receipts(state, {**contract,"obligation_digest":mandate}, lambda r: verified)
+            self.assertEqual([], eligible); self.assertTrue(rejected)
+        self.assertEqual([], review.eligible_coverage_receipts(state, {**contract,"lens":"security-governance"}, lambda r: True)[0])
+
+
 class ThePr1063Replay(_RealRepo):
     """Three mechanics, one build, all three demanding reviews that would do no work."""
 

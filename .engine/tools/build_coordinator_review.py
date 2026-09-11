@@ -332,3 +332,39 @@ def required_disagreement_lines(state: dict) -> list[str]:
         # with the reviewer as one whose flag was flipped by hand, and the operator meets both at merge.
         if finding["severity"] == "blocking" and not blocks_submission(finding)
     ]
+
+
+def eligible_coverage_receipts(state: dict, contract: dict, verified, adopted=lambda r: None) -> tuple[list, list]:
+    """Select original same-lens reads using the existing mandate and execution authorities.
+
+    Findings effectiveness deliberately does not participate. A retained receipt is evidence to
+    examine, not permission to assume the execution or silently adopt its historical mandate.
+    """
+    eligible, rejected = [], []
+    for _, receipt in retained_receipts(state):
+        if receipt["lens"] != contract["lens"]:
+            continue
+        if not compatible(receipt, contract, adopted(receipt)):
+            rejected.append("original review used a different approved obligation")
+        elif not verified(receipt):
+            rejected.append("original accepted execution evidence is unavailable")
+        else:
+            eligible.append(receipt)
+    return eligible, sorted(set(rejected))
+
+
+def receipt_attests_scope(stage: dict, receipt: dict, kind: str = "deliverable") -> bool:
+    """Exact acceptance is for the original packet's actual stage and scope, not its slot.
+
+    A repair's lens contract is copied into the deliverable list during splicing. That copied
+    identity alone cannot authorize a wider read: its original packet and range must also match.
+    """
+    base, tip = ((stage.get("reviewed_commit"), stage.get("final_commit")) if kind == "repair"
+                 else (stage.get("base_commit"), stage.get("reviewed_commit")))
+    return bool(stage.get("packet_digest") and base and tip
+                and receipt.get("packet_digest") == stage["packet_digest"]
+                and receipt.get("commit") == tip
+                and receipt.get("reviewed_range") == {"base":base,"tip":tip}
+                and any(c["lens"] == receipt["lens"]
+                        and c["lens_packet_digest"] == receipt.get("lens_packet_digest")
+                        for c in stage.get("reviewer_contracts", [])))
