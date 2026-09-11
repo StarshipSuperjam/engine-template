@@ -9808,7 +9808,7 @@
       },
       "slug": "build_coordinator",
       "source": {
-        "fingerprint": "sha256:10d92300d463c97b88899da839933417a2785c8f020f56c4a1926f5414ba387c",
+        "fingerprint": "sha256:da7b310b99f9bdc53fb0fbaf9358651ccc848fca8cfd123a84dcb12a4ef77184",
         "path": ".engine/tools/build_coordinator.py"
       },
       "status": "active",
@@ -9855,7 +9855,7 @@
       },
       "slug": "build_coordinator_core",
       "source": {
-        "fingerprint": "sha256:09f7a09df4ff3e793ab70b44a6a56b9023500e21963cf41d78589dd09f389fae",
+        "fingerprint": "sha256:7ef204d90dda0ca50444a0aa27d680903d6c8bbb89a59d5008921a35ebfdae17",
         "path": ".engine/tools/build_coordinator_core.py"
       },
       "status": "active",
@@ -10121,7 +10121,7 @@
       },
       "slug": "build_review_range",
       "source": {
-        "fingerprint": "sha256:282b4b3be20cee4e8949c3ed61eb6ef0984376187c7bf77263e1cfd16b791668",
+        "fingerprint": "sha256:3fec3bb800c20a1135250e09b866610743f1eba562f46b2a5d1f73d9ff4213b6",
         "path": ".engine/tools/build_review_range.py"
       },
       "status": "active",
@@ -15471,7 +15471,7 @@
       },
       "slug": "result_contracts",
       "source": {
-        "fingerprint": "sha256:7139c74a79ceae271a3019b335555ab9bc77fd6898245d79eb6db5a7dd2591e5",
+        "fingerprint": "sha256:42b53faf58e92f910ee37d64a2564bb1de6bf9929fabb383ad7293dd920cae13",
         "path": ".engine/tools/result_contracts.py"
       },
       "status": "active",
@@ -15567,7 +15567,7 @@
       },
       "slug": "reviewer_contracts",
       "source": {
-        "fingerprint": "sha256:0a661a99cd2262deb81a599a88cd7e539149b13aab16e059b56f90b3e95b19ec",
+        "fingerprint": "sha256:25e35aab210ed6cdfbb4fcfe546f5a577a5dfd8b69eeb48683f1e1067346e0f3",
         "path": ".engine/tools/reviewer_contracts.py"
       },
       "status": "active",
@@ -15743,7 +15743,7 @@
       },
       "slug": "scoped_agents",
       "source": {
-        "fingerprint": "sha256:0b5efa1597a0c5c78b2d9d408ef176b9e780356b5383b0288ba1b79439f4c031",
+        "fingerprint": "sha256:875f2378547b14cc41f93553f0310eac08d813a3ee4588bd76dcdfc857f56e45",
         "path": ".engine/tools/scoped_agents.py"
       },
       "status": "active",
@@ -16873,7 +16873,7 @@
       },
       "slug": "test_build_coordinator",
       "source": {
-        "fingerprint": "sha256:44c1919642d24771bd129474689d6ef6cfe856fa2c8e23ed88e1911afeb98b26",
+        "fingerprint": "sha256:437c0a4e66593ff337838f7fa770eed690edf0bb058f774c2ba6a332ea72f7df",
         "path": ".engine/tools/test_build_coordinator.py"
       },
       "status": "active",
@@ -20819,7 +20819,7 @@
       },
       "slug": "test_result_contracts",
       "source": {
-        "fingerprint": "sha256:63bf2334b4f00e3c5a9f60ee5b48fadc4085bbab34ae11491c2b48c8ae8071d3",
+        "fingerprint": "sha256:ee33b4e794998f7ff984d241a424ef58b0a967f36ed938af0c763fd05a721812",
         "path": ".engine/tools/test_result_contracts.py"
       },
       "status": "active",
@@ -20928,7 +20928,7 @@
       },
       "slug": "test_review_economy",
       "source": {
-        "fingerprint": "sha256:64f2eefc09fbb4753cb15ea7ed666fc1614027c58e447d1fc58c86d6efe6a116",
+        "fingerprint": "sha256:3c5d68338620e73f37a65c654d42dc6928646608d055ce998bdc6cff9c6d92d8",
         "path": ".engine/tools/test_review_economy.py"
       },
       "status": "active",
@@ -21033,7 +21033,7 @@
       },
       "slug": "test_reviewer_contracts",
       "source": {
-        "fingerprint": "sha256:7298b92c1143be74d4e81dd0c7e9d158e6720c5284de0f04c7da52969ebca40f",
+        "fingerprint": "sha256:da7d4cbd4967c26425b9a627396084977a1f1eff7fc1a6dd0cfdd4e2aa72bdb8",
         "path": ".engine/tools/test_reviewer_contracts.py"
       },
       "status": "active",
