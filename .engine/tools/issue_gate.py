@@ -223,16 +223,52 @@ def _shell_tokens(command: str) -> list[str]:
     return list(lexer)
 
 
+def _gh_arguments(tokens: list[str]):
+    """Separate gh positionals and options once; consumed data never becomes another flag.
+
+    Supported create/api switches without values are explicit. Other switches consume a value (or their
+    attached value), including fields irrelevant to routing such as title/body. Unknown syntax remains
+    best effort; this is not command validation. Repeated scalar flags retain gh's last-value semantics.
+    """
+    switches = {'--help', '--version', '--web', '--editor', '--paginate', '--include',
+                '--verbose', '--silent', '--slurp', '-h', '-v', '-w', '-e', '-i'}
+    words, options, index = [], [], 1
+    while index < len(tokens):
+        token = tokens[index]
+        index += 1
+        if token == '--':
+            words.extend(tokens[index:])
+            break
+        if not token.startswith('-') or token == '-':
+            words.append(token)
+            continue
+        if token.startswith('--'):
+            name, equal, value = token.partition('=')
+            attached = bool(equal)
+        else:
+            # Boolean short switches can be clustered before an option with a value.
+            offset = 1
+            while offset < len(token) and '-' + token[offset] in switches:
+                options.append(('-' + token[offset], None))
+                offset += 1
+            if offset == len(token):
+                continue
+            name, value = '-' + token[offset], token[offset + 1:]
+            attached = bool(value)
+            if value.startswith('='):
+                value = value[1:]
+        if not attached:
+            value = None
+            if name not in switches and index < len(tokens):
+                value = tokens[index]
+                index += 1
+        options.append((name, value))
+    return words, options
+
+
 def _option_value(tokens: list[str], names: tuple[str, ...]) -> str | None:
-    for i, token in enumerate(tokens):
-        if token in names and i + 1 < len(tokens):
-            return tokens[i + 1]
-        for name in names:
-            if token.startswith(name + "="):
-                return token.split("=", 1)[1]
-            if len(name) == 2 and token.startswith(name) and len(token) > 2:
-                return token[2:]
-    return None
+    values = [value for name, value in _gh_arguments(tokens)[1] if name in names]
+    return values[-1] if values else None
 
 
 def _is_dynamic(value: str) -> bool:
@@ -250,7 +286,7 @@ def _parse_repo(value: str) -> str | None:
 
 def _explicit_repo(tokens: list[str]) -> tuple[bool, str | None]:
     value = _option_value(tokens, ("-R", "--repo"))
-    present = any(token == "--repo" or token.startswith(("-R", "--repo=")) for token in tokens)
+    present = any(name in ("-R", "--repo") for name, _ in _gh_arguments(tokens)[1])
     if not present:
         return False, None
     return True, _parse_repo(value) if value else None
@@ -261,50 +297,24 @@ _ISSUE_COLLECTION = re.compile(r"^/?repos/([A-Za-z0-9_.-]+)/([A-Za-z0-9_.-]+)/is
 
 def _api_issue_target(tokens: list[str]) -> str | None:
     """Read gh api's endpoint positional argument, never an option value such as --input."""
-    skip_next = False
-    for token in tokens[2:]:
-        if skip_next:
-            skip_next = False
-            continue
-        if token in ("-X", "--method", "-f", "-F", "--field", "--raw-field", "--input", "-H"):
-            skip_next = True
-            continue
-        if token.startswith("-"):
-            continue
-        match = _ISSUE_COLLECTION.match(token)
-        if match:
-            return f"{match.group(1)}/{match.group(2)}"
-        return None
-    return None
+    words, _ = _gh_arguments(tokens)
+    match = _ISSUE_COLLECTION.match(words[1]) if len(words) > 1 and words[0] == 'api' else None
+    return f"{match.group(1)}/{match.group(2)}" if match else None
 
 
 def _is_post_creation(tokens: list[str]) -> bool:
     method = _option_value(tokens, ("-X", "--method"))
     if method is not None:
         return method.upper() == "POST"
-    return any(token in ("-f", "-F", "--field", "--raw-field", "--input")
-               or token.startswith(("--field=", "--raw-field=", "--input=")) for token in tokens)
+    return any(name in ("-f", "-F", "--field", "--raw-field", "--input")
+               for name, _ in _gh_arguments(tokens)[1])
 
 
 def _gh_subcommand(tokens: list[str]) -> list[str] | None:
-    """Recognize repository/directory flags before or between gh subcommand words."""
+    """Recognize subcommand words without interpreting option values as command syntax."""
     if tokens[:1] != ["gh"]:
         return None
-    def skip_options(index):
-        while index < len(tokens):
-            token = tokens[index]
-            if token in ("-C", "-R", "--repo") and index + 1 < len(tokens):
-                index += 2
-            elif token.startswith(("--repo=", "-R=", "-C=")) or (
-                    token.startswith(("-R", "-C")) and len(token) > 2):
-                index += 1
-            else:
-                break
-        return index
-    index = skip_options(1)
-    if tokens[index:index + 1] == ["issue"]:
-        return ["issue", *tokens[skip_options(index + 1):]]
-    return tokens[index:]
+    return _gh_arguments(tokens)[0]
 
 
 def _command_creation(tokens: list[str]):
@@ -342,17 +352,13 @@ def _has_engine_label(tokens: list[str]) -> bool:
     match on body/title text (a `"label" in tok and "engine" in tok` clause would false-deny an innocent Issue
     whose prose merely mentioned both words)."""
     api = (_gh_subcommand(tokens) or [])[:1] == ["api"]
-    for i, tok in enumerate(tokens):
-        if tok in ("--label", "-l") and i + 1 < len(tokens) and _label_value_carries_engine(tokens[i + 1]):
+    for name, value in _gh_arguments(tokens)[1]:
+        if value is None:
+            continue
+        if name in ("--label", "-l") and _label_value_carries_engine(value):
             return True
-        if tok.startswith("--label=") and _label_value_carries_engine(tok.split("=", 1)[1]):
-            return True
-        if api and tok in ("-f", "-F", "--field", "--raw-field") and i + 1 < len(tokens):
-            m = _API_LABEL_FIELD.match(tokens[i + 1])
-            if m and _label_value_carries_engine(m.group(2)):
-                return True
-        if api and tok.startswith(("--field=", "--raw-field=")):
-            m = _API_LABEL_FIELD.match(tok.split("=", 1)[1])
+        if api and name in ("-f", "-F", "--field", "--raw-field"):
+            m = _API_LABEL_FIELD.match(value)
             if m and _label_value_carries_engine(m.group(2)):
                 return True
     return False

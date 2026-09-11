@@ -264,6 +264,40 @@ class TestTrustedTargetRouting(unittest.TestCase):
         self.assertIsNotNone(issue_gate.classification_limitation(
             'Bash', {'command':'gh --repo $REPO issue create -t x'}))
 
+    def test_option_values_never_supply_target_label_or_command_metadata(self):
+        import shlex
+        for name in ('--title', '--body', '--body-file', '--template', '-t', '-b', '-F'):
+            for value in ('-Rexternal/project', '--repo=external/project', '--label=engine', '-lengine',
+                          '-C/external', '--method=GET', 'issue', 'create', '--repo'):
+                for target in ('trusted/project', 'external/project'):
+                    command = f'gh issue create {name} {shlex.quote(value)} --repo {target}'
+                    with self.subTest(command=command):
+                        self.assertEqual(_reason(command, trusted_targets=['trusted/project']) is not None,
+                                         target == 'trusted/project')
+        self.assertIsNotNone(_reason("gh --title '-Rexternal/project' issue create -Rtrusted/project",
+                                     trusted_targets=['trusted/project']))
+        self.assertIsNone(_reason("gh issue create -Rexternal/project -- --repo=trusted/project",
+                                  trusted_targets=['trusted/project']))
+
+    def test_repeated_scalar_flags_use_the_final_actual_option(self):
+        for first, last in (('external/project', 'trusted/project'), ('trusted/project', 'external/project')):
+            command = f'gh -R{first} issue create --repo {last}'
+            self.assertEqual(_reason(command, trusted_targets=['trusted/project']) is not None,
+                             last == 'trusted/project')
+        self.assertIsNotNone(_reason('gh api repos/trusted/project/issues -X GET --method POST',
+                                     trusted_targets=['trusted/project']))
+        self.assertIsNone(_reason('gh api repos/trusted/project/issues -X POST --method GET',
+                                  trusted_targets=['trusted/project']))
+
+    def test_api_option_values_do_not_override_method_or_endpoint(self):
+        targets = ['trusted/project']
+        self.assertIsNotNone(_reason('gh api repos/trusted/project/issues --input --method=GET -X POST',
+                                     trusted_targets=targets))
+        self.assertIsNone(_reason('gh api --input repos/trusted/project/issues repos/external/project/issues -X POST',
+                                  trusted_targets=targets))
+        self.assertIsNone(_reason("gh api repos/external/project/issues --input 'labels[]=engine' -X POST",
+                                  trusted_targets=targets))
+
     def test_normalized_build_hook_does_not_block_literal_heredoc_as_issue_create(self):
         import modes
         import providers
