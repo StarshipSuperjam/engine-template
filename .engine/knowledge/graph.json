@@ -13249,7 +13249,7 @@
       },
       "slug": "issue_gate",
       "source": {
-        "fingerprint": "sha256:fabaf8459e0103c77e26dfdd1c37b579a825f0e8b6402cf1eddf8a464a78afbb",
+        "fingerprint": "sha256:5c00562587925abf39adf1e72cce55fdd14a1ef1c0370e6b49a24f604dd0d0ce",
         "path": ".engine/tools/issue_gate.py"
       },
       "status": "active",
@@ -18675,7 +18675,7 @@
       },
       "slug": "test_issue_gate",
       "source": {
-        "fingerprint": "sha256:b36a3018586118f19ef8fc8e26672a8be48e748395f9ef505208dd23697d51ac",
+        "fingerprint": "sha256:2a18ba97e42dff7ebd628379e45632cd12672e450f712ef9e048abc6a8a769d6",
         "path": ".engine/tools/test_issue_gate.py"
       },
       "status": "active",
