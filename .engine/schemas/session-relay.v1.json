@@ -16,12 +16,15 @@
   ],
   "properties": {
     "issue_triage": {
+      "description": "Advisory pending-work context, subordinate to the active operator task; never a Stop obligation or mutation authority.",
       "type": "object", "additionalProperties": false,
       "required": ["state", "pending_count", "selected_issue"],
       "properties": {
         "state": {"enum": ["available", "unavailable"]},
         "pending_count": {"type": "integer", "minimum": 0},
-        "selected_issue": {"type": ["integer", "null"], "minimum": 1}
+        "selected_issue": {"type": ["integer", "null"], "minimum": 1},
+        "unknown_count": {"type": "integer", "minimum": 0},
+        "paused": {"type": "boolean"}
       }
     },
     "schema_version": {"const": "session-relay.v1"},

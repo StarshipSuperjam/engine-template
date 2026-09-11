@@ -11,6 +11,7 @@ from __future__ import annotations
 import contextlib
 import io
 import json
+import ntpath
 import os
 import subprocess
 import sys
@@ -48,6 +49,27 @@ def _repo(tmp: str, name: str, *, detach: bool = False, drop: tuple = ()) -> str
         p = os.path.join(root, rel)
         os.rmdir(p) if os.path.isdir(p) else os.remove(p)
     return root
+
+
+class TestRegisteredCheckoutPaths(unittest.TestCase):
+    def test_windows_git_spelling_is_normalized_without_accepting_aliases(self):
+        canonical = 'C:/Project'
+        inventory = 'worktree C:/Project\0\0worktree C:/Work Tree\0\0'
+        with mock.patch.object(checkout_health, '_run', return_value=inventory), \
+                mock.patch.object(checkout_health, 'engine_common_checkout', return_value=canonical), \
+                mock.patch.object(checkout_health.os, 'path', ntpath), \
+                mock.patch.object(ntpath, 'isdir', return_value=True):
+            self.assertEqual(checkout_health.registered_checkout_roots(canonical),
+                             ['C:\\Project', 'C:\\Work Tree'])
+            with mock.patch.object(ntpath, 'realpath', return_value='C:\\Other'):
+                self.assertIsNone(checkout_health.registered_checkout_roots(canonical))
+
+    def test_windows_case_aliases_are_duplicate_registrations(self):
+        with mock.patch.object(checkout_health, '_run',
+                               return_value='worktree C:/Project\0\0worktree c:/project\0\0'), \
+                mock.patch.object(checkout_health, 'engine_common_checkout', return_value='C:/Project'), \
+                mock.patch.object(checkout_health.os, 'path', ntpath):
+            self.assertIsNone(checkout_health.registered_checkout_roots('C:/Project'))
 
 
 class TestDetectStrand(unittest.TestCase):

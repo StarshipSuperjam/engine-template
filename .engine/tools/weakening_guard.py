@@ -173,7 +173,7 @@ _FLOOR_ENFORCEMENT_HOOKS = (
     ".engine/tools/session_economy.py",  # the subagent-model / self-scheduling spend gate (PreToolUse
     #                                    block-budget member); weakening it silently un-gates fan-out
     ".engine/tools/close.py",          # the finding-disposition gate (Stop block-budget member; HARD-BLOCKS the turn)
-    ".engine/tools/issue_triage.py",   # the issue-owned obligation predicate used by the bounded Stop gate
+    ".engine/tools/issue_triage.py",   # issue enrollment and assessment/assignment mutation contracts
     ".engine/tools/hook-runner.sh",    # the launcher EVERY hook runs through
     ".engine/tools/hooks.py",          # the hook-law substrate: block budget + fail-open harness
     ".engine/tools/issue_gate.py",     # the engine-Issue reroute matcher the write-gate consults
@@ -560,11 +560,6 @@ ENFORCEMENT_SOURCE_INVENTORY = {'.engine/tools/agent_bindings.py': {'dependencie
                                                                      'BLOCK_INVARIANT; close-time memory '
                                                                      'capture and session notices are not '
                                                                      'run by that check.',
-                                           '.engine/tools/issue_triage.py': 'Block-coherence reads the literal '
-                                                                            'BLOCK_INVARIANT, not the live '
-                                                                            'issue obligation. The runtime '
-                                                                            'predicate is separately floored '
-                                                                            'as enforcement-hook logic.',
                                            '.engine/tools/memory/__init__.py': 'Block-coherence reads the '
                                                                                'literal BLOCK_INVARIANT; '
                                                                                'close-time memory capture '

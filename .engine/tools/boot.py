@@ -214,10 +214,8 @@ def gh_token() -> str | None:
     """A GitHub token for the live reads: the environment first (CI), else the operator's own logged-in
     `gh` CLI (so a logged-in laptop gets the REAL protected-branch + findings reads). None when neither
     is available — the live reads then degrade, never error."""
-    env = os.environ.get("GITHUB_TOKEN")
-    if env:
-        return env
-    return _run(["gh", "auth", "token"])
+    import github_client
+    return github_client.auth_token(run=_run)
 
 
 def gh_unreachable_note() -> str:
@@ -5059,7 +5057,7 @@ def handler(payload: dict) -> dict:
         pass
     # use_ledger=True: this is the real SessionStart path, so apply the collapse (an unchanged
     # standing alarm relays terse) via the deterministic ledger. fail-toward-full lives inside decide().
-    # Read-only GitHub discovery, with one disposable session obligation. No raw issue text
+    # Read-only GitHub discovery supplies disposable, task-subordinate context. No raw issue text
     # enters the trusted relay, and a child agent never enrolls the parent's queue.
     if session_id and not payload.get('agent_id'):
         try:

@@ -1275,6 +1275,7 @@ class TestDemoVerdict(unittest.TestCase):
 
     def test_the_real_demo_exits_zero_twice_and_touches_no_live_state(self):
         import boot
+        import checkout_health
         live_dir = os.path.dirname(telemetry.INBOX_SPOOL_PATH)
         before = sorted(os.listdir(live_dir)) if os.path.isdir(live_dir) else None
         with tempfile.TemporaryDirectory() as d:
@@ -1287,7 +1288,8 @@ class TestDemoVerdict(unittest.TestCase):
                 seeded = fh.read()
             with mock.patch.object(telemetry, "INBOX_SPOOL_PATH", sentinel), \
                     mock.patch.object(telemetry, "DEFAULT_INBOX_STREAMS_PATH", os.path.join(d, "inbox-streams.json")), \
-                    mock.patch.object(boot, "gh_token", _raise), mock.patch.object(boot, "repo_slug", _raise):
+                    mock.patch.object(boot, "gh_token", _raise), mock.patch.object(boot, "repo_slug", _raise), \
+                    mock.patch.object(checkout_health, "registered_checkout_roots", _raise):
                 for attempt in (1, 2):
                     code, out, err = self._run_demo()
                     self.assertEqual(code, 0, (attempt, err))
