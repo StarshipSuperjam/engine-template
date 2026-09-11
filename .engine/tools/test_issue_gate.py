@@ -77,7 +77,17 @@ class TestEveryEngineCreationReroutes(unittest.TestCase):
         self.assertIn("submission_id", reason)
         self.assertIn("assessment", reason)
         self.assertIn("Product scope", reason)
+        self.assertIn(".engine/schemas/issue-submission-input.v1.json", reason)
         self.assertNotIn("drop the `engine` label", reason)
+
+    def test_redirect_examples_are_accepted_by_the_helper(self):
+        import json
+        examples = [json.loads(line.strip()) for line in issue_gate.DENY_REASON.splitlines()
+                    if line.strip().startswith('{')]
+        self.assertEqual([example['scope'] for example in examples], ['engine', 'product'])
+        for example in examples:
+            self.assertEqual(issue_author.submission_input(example), example)
+
 
 
 class TestConnectorArm(unittest.TestCase):
@@ -178,6 +188,36 @@ class TestTrustedTargetRouting(unittest.TestCase):
         self.assertIsNone(_reason(
             "gh api repos/elsewhere/project/issues -f title=x && echo --repo trusted/project",
             trusted_targets=targets))
+
+    def test_newline_boundaries_route_trusted_creates_without_flag_leaks(self):
+        targets = ["trusted/project"]
+        self.assertIsNotNone(_reason("echo ready\ngh issue create -R trusted/project -t x",
+                                     trusted_targets=targets))
+        self.assertIsNone(_reason("gh issue create -R elsewhere/project -t x\necho --label engine",
+                                  trusted_targets=targets))
+
+    def test_newline_boundaries_handle_comments_quotes_continuations_and_repeated_separators(self):
+        targets = ["trusted/project"]
+        self.assertIsNotNone(_reason("echo ready # preparation\n# still preparation\ngh issue create -R trusted/project -t x",
+                                     trusted_targets=targets))
+        self.assertIsNone(_reason("echo 'gh issue create\n--label engine'\necho ready",
+                                  trusted_targets=targets))
+        continued = "gh issue " + "\\" + "\n" + "create -R trusted/project -t x"
+        self.assertIsNotNone(_reason(continued, trusted_targets=targets))
+        self.assertIsNotNone(_reason("true && && gh issue create -R trusted/project -t x",
+                                     trusted_targets=targets))
+
+    def test_normalized_modes_handler_routes_newline_create_in_every_stance(self):
+        import modes
+        import providers
+        with mock.patch.object(issue_gate, "_trusted_repositories", return_value=["trusted/project"]):
+            for stance in (modes.EXPLORE, modes.BUILD, modes.ROUTINE):
+                payload = providers.normalize("PreToolUse", {
+                    "session_id": "newline-routing", "tool_name": "exec_command",
+                    "tool_input": {"cmd": "echo ready\ngh issue create -R trusted/project -t x"},
+                })
+                with mock.patch.object(modes, 'current_stance', return_value=stance):
+                    self.assertEqual(modes.handler(payload).get("permissionDecision"), "deny", stance)
 
     def test_opaque_or_dynamic_forms_fail_open(self):
         targets = ["trusted/project"]

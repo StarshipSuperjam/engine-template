@@ -100,10 +100,19 @@ def report(result: dict, issues_api, repository: str, run_url: str | None = None
         if recovery['state'] not in ('none', 'unactivated'):
             return {**value, 'recovery': recovery}
         return value
-    open_report = find_report(issues_api.list_open_engine_issues())
+    open_issues = issues_api.list_open_engine_issues()
+    observed_closures = issue_author.recover_producer_records('nightly', issues_api, observation=now,
+        source_key='engine-nightly-demos:v1', open_issue_numbers=[issue['number'] for issue in open_issues])
+    if observed_closures['state'] == 'held' or (observed_closures['state'] == 'recovered' and recovery['state'] != 'held'):
+        recovery = observed_closures
+    open_report = find_report(open_issues)
     if result.get("ok"):
         if open_report:
             issues_api.close_issue(open_report["number"])
+            closure = issue_author.recover_producer_records('nightly', issues_api, observation=now,
+                source_key='engine-nightly-demos:v1', closed_issue_numbers=[open_report['number']])
+            if closure['state'] == 'held':
+                recovery = closure
             return outcome({"action": "closed", "issue": open_report["number"]})
         return outcome({"action": "none"})
     if not open_report:

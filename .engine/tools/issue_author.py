@@ -653,23 +653,12 @@ def create_producer_result(producer, data, client, *, root=None, env=None, recov
             legacy = [issue for issue in issue_triage.pages(client, f'/repos/{client.repo}/issues?state=all&labels=engine')
                       if issue_triage.scoped(issue) and matches_source(issue)]
             if len(legacy) > 1:
-                raise IssueInputError('Multiple historical reports match this source; inspect and adopt explicitly before creating another.')
+                raise IssueInputError('Multiple historical reports match this source; select one with recovery adopt --producer ' + producer + ' --source-key ' + source_key + ' --issue NUMBER --expect-revision ' + str(snapshot['revision']) + ' --reason REASON --confirm before creating another.')
             if legacy:
-                prior = legacy[0]
-                triage = issue_triage.observed_record(prior)
-                if triage is None:
-                    raise IssueInputError('A historical report needs explicit triage repair before durable adoption; no new report was filed.')
-                request = {'title': prior['title'], 'body': prior['body'], 'labels': ['engine']}
-                milestone = issue_triage.milestone_number(prior)
-                if milestone is not None:
-                    request['milestone'] = milestone
-                key = group + ':1'
-                record = {'producer': producer, 'source_key': source_key, 'generation': 1, 'previous': None,
-                          'submission_id': triage['submission_id'], 'intent': intent, 'request': request,
-                          'request_digest': issue_recovery.digest(request), 'state': 'prepared', 'send_nonce': None,
-                          'issue': None, 'decision': None, 'observation': intent['now'], 'closed_observation': None}
-                tip, snapshot = issue_recovery._save(store, tip, snapshot, key, record)
-                return with_diagnostic(issue_recovery._confirm(client, store, tip, snapshot, key, record, prior['number'], intent['now']))
+                return with_diagnostic(adopt_legacy_producer_issue(producer, client,
+                    number=legacy[0]['number'], source_key=source_key, expected_revision=snapshot['revision'],
+                    reason='Unique verified historical source match.', observation=intent['now'],
+                    root=root, env=env, recovery_store=store))
         return with_diagnostic(issue_recovery.submit(client, intent, prepare, producer=producer, source_key=source_key,
                                      observation=intent['now'], root=root, store=store))
     except issue_recovery.RecoveryError as exc:
@@ -677,7 +666,7 @@ def create_producer_result(producer, data, client, *, root=None, env=None, recov
 
 
 def recover_producer_records(producer, client, *, source_key=None, observation, root=None,
-                             env=None, recovery_store=None):
+                             env=None, recovery_store=None, closed_issue_numbers=None, open_issue_numbers=None):
     """Reconcile retained automatic submissions without minting a request or send permit.
 
     This is deliberately a recovery-only pass for callers that may have no fresh failure to
@@ -713,10 +702,21 @@ def recover_producer_records(producer, client, *, source_key=None, observation, 
     except Exception:  # a corrupt/deleted activated store must remain visible and retryable
         return {'state': 'held', 'results': [],
                 'reason': 'Recovery is held: the activated recovery journal could not be read.'}
-    keys = [key for key, record in snapshot['records'].items()
-            if record['producer'] == producer
-            and (source_key is None or record['source_key'] == source_key)
-            and record['state'] in ('prepared', 'send-claimed', 'recovery-needed', 'rejected')]
+    numbers = closed_issue_numbers if closed_issue_numbers is not None else open_issue_numbers
+    if ((closed_issue_numbers is not None and open_issue_numbers is not None) or
+            (numbers is not None and (not isinstance(numbers, (list, tuple))
+             or any(type(n) is not int or n <= 0 for n in numbers)))):
+        return {'state': 'held', 'results': [], 'reason': 'Recovery is held: invalid issue observation.'}
+    def eligible(record):
+        if record['producer'] != producer or (source_key is not None and record['source_key'] != source_key):
+            return False
+        if numbers is not None:
+            if record['state'] != 'confirmed' or record['closed_observation'] is not None:
+                return False
+            number = record['issue']['number']
+            return number in closed_issue_numbers if closed_issue_numbers is not None else number not in open_issue_numbers
+        return record['state'] in ('prepared', 'send-claimed', 'recovery-needed', 'rejected')
+    keys = [key for key, record in snapshot['records'].items() if eligible(record)]
     results = []
     # Reload each time: reconciliation can advance the durable tip, and later records must not
     # compare-and-swap against a stale snapshot.
@@ -724,7 +724,7 @@ def recover_producer_records(producer, client, *, source_key=None, observation, 
         try:
             tip, current = issue_recovery._load(store)
             record = current['records'].get(key)
-            if record is None or record['state'] not in ('prepared', 'send-claimed', 'recovery-needed', 'rejected'):
+            if record is None or not eligible(record):
                 continue
             result = issue_recovery.reconcile(client, store, tip, current, key, observation=observation)
         except Exception:
@@ -734,6 +734,72 @@ def recover_producer_records(producer, client, *, source_key=None, observation, 
     held = [result for result in results if result.get('filing') != 'created']
     return {'state': 'held' if held else 'recovered' if results else 'none', 'results': results,
             **({'reason': 'Recovery is held: a retained submission could not be verified.'} if held else {})}
+
+
+def adopt_legacy_producer_issue(producer, client, *, number, source_key, expected_revision,
+                                reason, root=None, env=None, recovery_store=None, observation=None):
+    """Explicitly select the initial historical report; never authorize an Issue POST."""
+    import issue_recovery
+    import issue_triage
+    import telemetry
+    import moment
+    if producer not in ('telemetry', 'nightly') or type(number) is not int or number <= 0:
+        raise IssueInputError('Legacy adoption requires an automatic producer and a positive issue number.')
+    if not isinstance(reason, str) or not reason.strip():
+        raise IssueInputError('Explain the historical selection with --reason.')
+    targets = resolve_issue_repositories(env=env, root=root)
+    if _matched_target(getattr(client, 'repo', ''), targets) is None or not getattr(client, 'token', None):
+        raise IssueInputError('Legacy adoption requires the trusted target and its bound credential.')
+    if (not isinstance(source_key, str) or not source_key or len(source_key) > 1024
+            or (producer == 'telemetry' and not telemetry.source_id_is_marker_safe(source_key))
+            or (producer == 'nightly' and source_key != 'engine-nightly-demos:v1')):
+        raise IssueInputError('Choose the exact producer --source-key named by the held report.')
+    try:
+        store = recovery_store or getattr(client, 'recovery_store', None) or issue_recovery.GitStore(
+            client, issue_recovery.load_activation(client.repo, root))
+        tip, snapshot = issue_recovery._load(store)
+        if type(expected_revision) is not int or expected_revision != snapshot['revision']:
+            raise IssueInputError('Inspect recovery list and provide its current --expect-revision.')
+        group = issue_recovery.operation_key(producer, source_key)
+        if any(r['producer'] == producer and r['source_key'] == source_key for r in snapshot['records'].values()):
+            raise IssueInputError('This source already has a journal record; use record-based recovery instead.')
+        prior = issue_triage.read_api(client, f'/repos/{client.repo}/issues/{number}')
+        triage = issue_triage.observed_record(prior)
+        if triage is None:
+            raise IssueInputError('The selected historical issue needs explicit triage repair before adoption.')
+        # Verify the selected number and target again, retaining its numeric identity across the reads.
+        prior, triage = issue_recovery._verified_issue(client,
+            {'submission_id': triage['submission_id'], 'issue': {'id': prior.get('id'), 'number': number}}, number)
+        body = prior.get('body') or ''
+        matches = (telemetry.parse_source_id(body) == source_key if producer == 'telemetry' else
+                   body.rstrip().split('\n')[-1].strip() == NIGHTLY_MARKER)
+        if not matches:
+            raise IssueInputError('The selected issue does not carry the requested producer source marker.')
+        request = {'title': prior['title'], 'body': body, 'labels': ['engine']}
+        milestone = issue_triage.milestone_number(prior)
+        if milestone is not None:
+            request['milestone'] = milestone
+        now = observation or moment.utc_now()
+        record = {'producer': producer, 'source_key': source_key, 'generation': 1, 'previous': None,
+                  'submission_id': triage['submission_id'],
+                  'intent': {'legacy_adoption': {'issue': number, 'reason': reason.strip()}},
+                  'request': request, 'request_digest': issue_recovery.digest(request), 'state': 'confirmed',
+                  'send_nonce': None, 'issue': {'id': prior['id'], 'number': number, 'url': prior['html_url']},
+                  'decision': None, 'observation': now,
+                  'closed_observation': now if prior['state'] == 'closed' else None}
+        key = group + ':1'
+        # Persist confirmed directly: an interrupted adoption must never leave a sendable prepared record.
+        issue_recovery._save(store, tip, snapshot, key, record)
+        result = issue_triage.filing_result(client.repo, triage['submission_id'], 'created', triage,
+            issue=prior, reason='Selected historical report adopted; no Issue POST.')
+        result.update(newly_created=False, recovery={'state': 'confirmed', 'record': key})
+        return result
+    except IssueInputError:
+        raise
+    except (issue_recovery.RecoveryError, issue_triage.TriageError) as exc:
+        raise IssueInputError(str(exc)) from exc
+    except Exception:
+        raise IssueInputError('Historical issue or journal verification was unavailable; no Issue POST.') from None
 
 
 def create_issue(data: dict, **kwargs) -> str:

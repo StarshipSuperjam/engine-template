@@ -53,7 +53,8 @@ import sys
 import os
 
 # The engine-domain label marking the channel the gate governs (telemetry.ENGINE_DOMAIN_LABEL). An Issue
-# without it is ordinary backlog or a human/operator Issue, and is never gated.
+# without it is ordinary backlog or a human/operator Issue unless it explicitly targets a trusted Engine
+# repository, which is routed as well.
 ENGINE_LABEL = "engine"
 
 # The body-contract markers the issue-authoring helper always emits (issue_author.py: the framing floor + the
@@ -76,9 +77,12 @@ DENY_REASON = (
     "create with the explicit confirmation:\n\n"
     "    uv run --directory .engine --frozen -- python tools/issue_author.py preview --input <file|->\n"
     "    uv run --directory .engine --frozen -- python tools/issue_author.py create --input <file|-> --confirm\n\n"
-    "Use the issue-submission-input.v1 envelope. Engine scope requires its assessed request, including kind, "
-    "submission_id and assessment. Product scope uses ordinary request fields and must not carry the `engine` "
-    "label. The helper validates the target and does not use a connector fallback when credentials are missing."
+    "Use the `issue-submission-input.v1` envelope; its schema is `.engine/schemas/issue-submission-input.v1.json`. "
+    "Choose one fresh, stable `submission_id` for an Engine request and retain it if a send is uncertain:\n"
+    "    {\"schema_version\":\"issue-submission-input.v1\",\"scope\":\"engine\",\"request\":{\"submission_id\":\"engine-routing-001\",\"assessment\":{\"state\":\"pending\",\"unknown\":\"Remedy not established.\",\"next_action\":\"Inspect the failure.\"},\"repository\":\"OWNER/REPO\",\"kind\":\"Fix\",\"title\":\"Short title\",\"what_this_is\":\"What happened.\",\"whats_next\":\"What to do next.\"}}\n"
+    "Product scope uses ordinary fields and no Engine markers:\n"
+    "    {\"schema_version\":\"issue-submission-input.v1\",\"scope\":\"product\",\"request\":{\"repository\":\"OWNER/REPO\",\"title\":\"Short title\",\"body\":\"Details.\",\"labels\":[\"bug\"]}}\n"
+    "The helper validates the target and does not use a connector fallback when credentials are missing."
 )
 
 
@@ -110,6 +114,56 @@ def _commands(tokens: list[str]):
             current.append(token)
     if current:
         yield current
+
+
+def _shell_command_texts(command: str):
+    """Yield physical shell command texts split at unquoted newlines.
+
+    This deliberately covers only the boundary the gate needs: quotes retain embedded newlines, comments end
+    at their physical line, and a backslash-newline is joined as the shell joins it. Punctuation inside each
+    line remains shlex's job; this is not a shell parser.
+    """
+    current = []
+    quote = None
+    escaped = False
+    comment = False
+    for char in command:
+        if comment:
+            if char == "\n":
+                yield "".join(current)
+                current, comment = [], False
+            else:
+                current.append(char)
+            continue
+        if escaped:
+            if char == "\n" and quote != "'":
+                current.pop()
+                escaped = False
+                continue
+            current.append(char)
+            escaped = False
+            continue
+        if char == "\\" and quote != "'":
+            current.append(char)
+            escaped = True
+            continue
+        if quote:
+            current.append(char)
+            if char == quote:
+                quote = None
+            continue
+        if char in ("'", '"'):
+            current.append(char)
+            quote = char
+        elif char == "#":
+            current.append(char)
+            comment = True
+        elif char == "\n":
+            yield "".join(current)
+            current = []
+        else:
+            current.append(char)
+    yield "".join(current)
 
 
 def _shell_tokens(command: str) -> list[str]:
@@ -347,7 +401,8 @@ def classification_limitation(tool_name, tool_input, *, cwd=None) -> str | None:
     if not isinstance(command, str) or not command:
         return None
     try:
-        groups = list(_commands(_shell_tokens(command)))
+        groups = [group for text in _shell_command_texts(command)
+                  for group in _commands(_shell_tokens(text))]
     except ValueError:
         return None
     effective_cwd = tool_input.get("workdir") if isinstance(tool_input.get("workdir"), str) else cwd
@@ -385,7 +440,8 @@ def reroute_reason(tool_name, tool_input, *, cwd=None, trusted_targets=None) -> 
     if not isinstance(command, str) or not command:
         return None
     try:
-        groups = list(_commands(_shell_tokens(command)))
+        groups = [group for text in _shell_command_texts(command)
+                  for group in _commands(_shell_tokens(text))]
     except ValueError:
         return None
     effective_cwd = tool_input.get("workdir") if isinstance(tool_input.get("workdir"), str) else cwd

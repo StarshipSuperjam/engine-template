@@ -466,6 +466,14 @@ class NightlyDurableRecoveryCaller(unittest.TestCase):
         self.assertEqual(self.remote.issues[0]['state'], 'closed')
         self.assertEqual([r['state'] for r in self.snapshot()['records'].values()], ['confirmed'])
 
+    def test_green_close_allows_the_next_red_run_to_file_its_recurrence(self):
+        self.assertEqual(self.observe(_red('demo_x.py'), '2026-09-10T01:00:00Z')['action'], 'filed')
+        self.assertEqual(self.observe(_green(), '2026-09-10T02:00:00Z')['action'], 'closed')
+        saved = list(self.snapshot()['records'].values())[0]
+        self.assertEqual(saved['closed_observation'], '2026-09-10T02:00:00Z')
+        self.assertEqual(self.observe(_red('demo_x.py'), '2026-09-10T03:00:00Z')['action'], 'filed')
+        self.assertEqual(self.remote.posts, 2)
+
     def test_closed_recovery_returns_before_a_later_red_recurrence(self):
         self.uncertain()
         self.remote.issues[0]['state'] = 'closed'

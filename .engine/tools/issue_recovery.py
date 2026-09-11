@@ -291,6 +291,8 @@ def main(argv=None):
     parser.add_argument('--confirm', action='store_true')
     parser.add_argument('--record')
     parser.add_argument('--issue', type=int)
+    parser.add_argument('--producer', choices=('telemetry', 'nightly'))
+    parser.add_argument('--source-key')
     parser.add_argument('--expect-revision', type=int)
     parser.add_argument('--reason')
     parser.add_argument('--quiescent', action='store_true')
@@ -339,6 +341,16 @@ def main(argv=None):
                 {'record': key, 'state': r['state'], 'producer': r['producer'], 'generation': r['generation'], 'issue': r['issue']}
                 for key, r in snapshot['records'].items()]}, indent=2))
             return 0
+        if args.verb == 'adopt' and args.producer:
+            if args.record or not args.confirm:
+                raise RecoveryError('Initial legacy adoption needs --confirm and no --record.')
+            result = issue_author.adopt_legacy_producer_issue(args.producer, client, number=args.issue,
+                source_key=args.source_key, expected_revision=args.expect_revision, reason=args.reason,
+                recovery_store=store)
+            print(json.dumps(result, indent=2))
+            return 0
+        if args.producer or args.source_key:
+            raise RecoveryError('--producer and --source-key are only for initial legacy adoption.')
         if args.record not in snapshot['records']:
             raise RecoveryError('Choose an existing --record from recovery list.')
         record = snapshot['records'][args.record]
@@ -358,7 +370,7 @@ def main(argv=None):
             result = reconcile(client, store, tip, snapshot, args.record)
         print(json.dumps(result, indent=2))
         return 0 if result.get('filing') == 'created' or result.get('state') == 'superseded' else 1
-    except RecoveryError as exc:
+    except (RecoveryError, issue_author.IssueInputError) as exc:
         print('Recovery refused: ' + str(exc), file=__import__('sys').stderr)
         return 2
     except (ValueError, OSError):

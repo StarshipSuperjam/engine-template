@@ -946,11 +946,25 @@ def run(github: GitHubIssues, records: list, cache: Cache, thresholds: dict, now
     except DegradedReadError:
         count, as_of = read_state_debt(state_path or DEFAULT_STATE_PATH)
         return Report(degraded=True, degraded_line=degraded_readout(count, as_of), recovery=recovery)
+    # Absence from the complete open list selects candidates only; recovery verifies each
+    # issue by number before recording closure, including a previous close with a lost journal write.
+    observed_closures = issue_author.recover_producer_records('telemetry', github, observation=now,
+        open_issue_numbers=[issue['number'] for issue in open_issues])
+    if observed_closures['state'] == 'held' or (observed_closures['state'] == 'recovered' and recovery['state'] != 'held'):
+        recovery = observed_closures
     plan = reconcile(records, open_issues, cache.load(), thresholds, now,
                      authoritative=authoritative, live=live)
     record_by_source = {derive_source_key(r): r for r in records}
     previous_by_number = {i['number']: i for i in open_issues}
     opened = updated = closed = 0
+    closed_numbers = []
+    def record_closures():
+        nonlocal recovery
+        if closed_numbers:
+            closure = issue_author.recover_producer_records('telemetry', github, observation=now,
+                                                            closed_issue_numbers=closed_numbers)
+            if closure['state'] == 'held':
+                recovery = closure
     try:
         for sid, title, body in plan.to_open:
             source = record_by_source[sid]
@@ -974,11 +988,14 @@ def run(github: GitHubIssues, records: list, cache: Cache, thresholds: dict, now
         for number in plan.to_close:
             github.close_issue(number)
             closed += 1
+            closed_numbers.append(number)
     except DegradedReadError:
+        record_closures()
         cache.store(plan.next_counts)   # persist accrued counts; the writes already applied stand
         count, as_of = read_state_debt(state_path or DEFAULT_STATE_PATH)
         return Report(degraded=True, degraded_line=degraded_readout(count, as_of),
                       opened=opened, updated=updated, closed=closed, recovery=recovery)
+    record_closures()
     cache.store(plan.next_counts)
 
     debt = {"open_count": plan.open_count, "as_of": now, "register": github.issues_query_url()}

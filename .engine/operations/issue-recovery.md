@@ -58,10 +58,13 @@ immediately replaced. A later distinct authoritative producer observation may cr
 under its existing recurrence policy. Clearing a symptom alone does not prove an uncertain issue was never created.
 Automatic passes recover uncertain submissions even without a new failure; unverified recovery stays visibly held.
 
-An operator who has inspected a specific matching issue can use `adopt` with the same arguments plus
-`--issue NUMBER`. Target, numeric identity, Engine scope and submission marker must agree. Adoption does not
-alter the issue's body or human milestone. Legacy reports without a triage record need explicit triage repair;
-ambiguous historical reports are not silently chosen. The journal cannot reconstruct forgotten pre-upgrade requests.
+For an existing record, `adopt` adds `--issue NUMBER` to the arguments above; identity and markers must agree.
+Without a record, select verified legacy history explicitly below (nightly uses source `engine-nightly-demos:v1`).
+Adoption preserves body and human milestone; missing triage needs repair. Forgotten pre-upgrade sends stay unknown.
+
+```text
+uv run --directory .engine --frozen -- python tools/issue_author.py recovery adopt --repository OWNER/REPO --producer telemetry --source-key SOURCE --issue NUMBER --expect-revision N --reason "why this report was selected" --confirm
+```
 
 Only after inspecting GitHub and stopping the old writer may the operator deliberately supersede a held attempt:
 
