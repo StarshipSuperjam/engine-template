@@ -43,6 +43,12 @@ build_coordinator.py <identity flags> handoff export --output <new-file-outside-
 build_coordinator.py <identity flags> handoff restore --input <export-file>
 ```
 Export redacts notes. Restore matches the surviving canonical identity/revision/worktree/seal, preserving private provenance and re-deriving original receipts from retained objects. Keep both through completion.
+That private provenance includes original review receipts from earlier repair rounds. Coverage is
+recomputed from those originals and their accepted execution evidence after restart; findings retain
+their own effectiveness. An export cannot recover an overwritten original that the canonical record
+and its backup no longer contain. Restore the missing original, companion evidence or Git objects;
+otherwise review the genuinely unread work. Existing records need no envelope migration merely to
+count compatible retained reads.
 An export cannot recreate missing/retired state: recover the original from backup; migrate legacy first. Complete requires merged=true, identity, snapshot, repository, PR and seal in `--completion-evidence`; the CLI verifies GitHub. Matching completion is idempotent; automatic reconciliation is separate.
 Compaction re-verifies mutations; re-ground before continuing. Hooks help on Claude/qualified Codex CLI hosts (codex-validation.md). `demo_build_resumes_after_a_kill.py --interrupt retire-rename --contenders 4` models interruption, not power loss.
 

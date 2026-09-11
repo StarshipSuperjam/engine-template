@@ -8135,3 +8135,120 @@ class TestFrozenBuildContracts(CoordinatorCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class TestCumulativeReviewScenario(unittest.TestCase):
+    """Permanent real-Git witness shared with demo_review_coverage; service boundaries are fixtures."""
+
+    def test_four_repairs_merge_gap_and_later_edit_use_production_readiness(self):
+        import copy
+        from test_review_economy import _RealRepo
+        fixture = TestFrozenBuildContracts(); fixture.setUp(); self.addCleanup(fixture.doCleanups)
+        repo = _RealRepo(); repo.setUp(); self.addCleanup(repo.doCleanups)
+        repo.git("checkout","-q","-b","codex/scenario")
+        source_root = bc.ROOT
+        run = bc._run
+        drift = bc.reviewer_contracts.unresolved_drift
+        provenance = bc.reviewer_contracts.source_provenance
+        lens = "technical-integrity"
+        heads = [repo.commit("source.py","initial deliverable")]
+        original_receipts = []
+        findings = []
+        def candidate(head):
+            fixture.store.mutate(lambda s:s.update(validation={"commit":head,"results":[
+                {"id":"fixture-candidate","commit":head,"passed":True,"summary":"Synthetic CI boundary"}]}))
+        def accept(packet, report):
+            fixture.record_frozen(packet,lens,report)
+            receipt = fixture.state()["reviews"]["deliverable"]["receipts"][-1]
+            original_receipts.append(copy.deepcopy(receipt))
+            if report:
+                fid = receipt["finding_ids"][0]; findings.append(fid)
+                self.assertIn(fid,bc.review.missing_findings(fixture.state()))
+                args = bc.parser().parse_args(["finding","record","--id",fid,"--stage",packet["stage"],
+                    "--lens",lens,"--severity","serious","--summary",report[0]["message"],
+                    "--disposition","accepted-fixed","--rationale","Fixture repair verified",
+                    "--does-not-block-this-pr"])
+                bc.cmd_finding_record(args,fixture.store)
+            return receipt
+        def assess(judgment):
+            bc.cmd_repair_assess(argparse.Namespace(judgment=judgment,lens=[lens] if judgment=="scoped" else None,
+                rationale="Scoped logic repair" if judgment=="scoped" else "Verified automatic target merge only",
+                guidance=None),fixture.store)
+        with mock.patch.object(bc,"ROOT",repo.repo), mock.patch(__name__+".BASE",repo.base), \
+                mock.patch.object(bc,"_run",side_effect=lambda argv,**kw:run(argv,cwd=kw.pop("cwd",repo.repo),**kw)), \
+                mock.patch.object(bc,"_base",return_value=repo.base), \
+                mock.patch.object(bc.reviewer_contracts,"unresolved_drift",side_effect=lambda c,r,d:drift(c,source_root,d)), \
+                mock.patch.object(bc.reviewer_contracts,"source_provenance",side_effect=lambda c,r:provenance(c,source_root)), \
+                contextlib.redirect_stdout(io.StringIO()), contextlib.redirect_stderr(io.StringIO()):
+            candidate(heads[0]); packet = fixture.packet(head=heads[0])
+            accept(packet,[{"severity":"serious","message":"Initial defect","location":None}])
+            for other in fixture.DELIVERABLE_LENSES:
+                if other != lens: fixture.record_frozen(packet,other)
+            for n in range(1,5):
+                heads.append(repo.commit("source.py",f"repair {n}")); candidate(heads[-1]); assess("scoped")
+                packet = fixture.packet(stage="repair",head=heads[-1])
+                accept(packet,[{"severity":"serious","message":"Later defect","location":None}] if n==2 else [])
+                state = fixture.state()
+                reads = bc._coverage_result(state["reviews"]["deliverable"],"deliverable",state,lens)
+                self.assertTrue(reads["covered"],f"coverage lost after repair {n}: {reads}")
+                self.assertEqual(heads[::-1],reads["read"])
+                retained = [r for _,r in bc.review.retained_receipts(state)]
+                for original in original_receipts: self.assertIn(original,retained)
+                self.assertEqual([],bc.review.missing_findings(state))
+            # Refresh/retry the completed repair packet: actual dispatch receives an empty lens set.
+            for _ in range(2):
+                with mock.patch.object(bc.scoped_agents,"prepare_packets",wraps=bc.scoped_agents.prepare_packets) as dispatch:
+                    bc._packet(argparse.Namespace(stage="repair",plan=str(fixture.plan_path),impact=None,
+                        session="fixture-root"),fixture.store)
+                self.assertEqual({},dispatch.call_args.args[5])
+            repo.git("checkout","-q","main"); target = repo.commit("upstream.py","independent upstream")
+            repo.git("checkout","-q","codex/scenario"); repo.git("merge","--no-ff","--no-edit","main")
+            merged = repo.git("rev-parse","HEAD"); candidate(merged)
+            observation = {"observed_at":"2026-09-11T00:00:00Z","material":{
+                "target_repository":"owner/repo","target_ref":"main","target_tip":target}}
+            with mock.patch.object(bc.github,"pr_state",return_value={"number":7}), \
+                    mock.patch.object(bc.entry,"observe_fresh",return_value=observation): assess("none")
+            self.assertEqual(4,len(fixture.state()["repair_rounds"]))
+            self.assertEqual(1,len(fixture.state()["base_advances"]))
+            # Synthetic CI/preflight/GitHub state isolates the real review-readiness gate.
+            def external_proofs(s):
+                digest = "sha256:"+"1"*64
+                s["validation"] = {"candidate":{"commit":merged,"merge_base":target,
+                    "protocol_digest":digest,"argv_digests":{"ci":digest},"inventory_digest":digest,"run_record":None,
+                    "results":[{"id":"fixture-ci","commit":merged,"passed":True,"summary":"Synthetic CI"}]},
+                    "final":{"commit":merged,"source":"ci-import","run_id":1,"tree":repo.git("rev-parse","HEAD^{tree}"),"context":"engine-ci"}}
+                s["pr_contract"] = {"commit":merged,"complete":True,"body_digest":bc._digest(b"body"),
+                    "review_lineage_digest":bc._review_lineage_digest(s)}
+                s["preflights"] = [{"id":p["id"],"commit":merged,"passed":True,"summary":"Synthetic external preflight"}
+                    for p in bc._protocol()["preflights"] if p["required"]]
+            fixture.store.mutate(external_proofs)
+            pr = {"number":7,"state":"OPEN","headRefOid":merged,"baseRefOid":target,"body":"body",
+                "mergeable":"MERGEABLE","isDraft":True,"statusCheckRollup":[{
+                    "name":"engine-ci","status":"COMPLETED","conclusion":"SUCCESS"}]}
+            with mock.patch.object(bc.github,"pr_state",return_value=pr):
+                preview = bc._submit_preview(fixture.store,str(fixture.plan_path))
+                self.assertEqual("mark-ready",preview["action"])
+                before = fixture.state(); history = copy.deepcopy(before["review_evidence_history"])
+                for original in original_receipts:
+                    self.assertIn(original,[r for _,r in bc.review.retained_receipts(before)])
+                self.assertTrue(set(findings).issubset({f["id"] for f in before["findings"]}))
+                # A nearby missing middle read must fail actual submission, never bridge its endpoints.
+                def remove_middle(s):
+                    s["review_evidence_history"] = [e for e in history if e["receipt"]["commit"]!=heads[2]]
+                    # Keep the synthetic external contract current so coverage is the deciding gate.
+                    s["pr_contract"]["review_lineage_digest"] = bc._review_lineage_digest(s)
+                fixture.store.mutate(remove_middle)
+                with self.assertRaisesRegex(bc.CoordinatorError,"deliverable-review receipt: technical-integrity"):
+                    bc._submit_preview(fixture.store,str(fixture.plan_path))
+                fixture.store.mutate(lambda s:s.update(review_evidence_history=history))
+            late = repo.commit("source.py","later authored change")
+            state = fixture.state(); question = dict(state["reviews"]["deliverable"],reviewed_commit=late)
+            # Re-prove the clean merge for this new question; the imported target work remains exempt.
+            question["base_advances"] = state["base_advances"]
+            result = bc._coverage_result(question,"deliverable",state,lens)
+            self.assertEqual([late],result["unread"])
+            self.assertFalse(result["covered"])
+            self.assertNotEqual("ready",bc._status(state)["phase"])
+        print("Initial panel + four repairs: exact cumulative reads retained; originals and findings survive.")
+        print("Completed repair refresh/retry: zero reviewer assignments. Clean target merge: production submit preview reaches mark-ready.")
+        print("Missing middle read blocks submission; later authored change leaves exactly one unread commit.")

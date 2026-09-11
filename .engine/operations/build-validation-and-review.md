@@ -30,7 +30,19 @@ After accepted repairs, measure reviewed-to-final divergence with `repair assess
 - `full`: re-read all applicable lenses when architecture, authority or broad behavior changed.
 The same judgment applies after target-branch reconciliation. Diff size and touched surfaces inform, never choose. Packets identify `anchor..commit`, so a repair review reads the repair. Scoped/full packets require current candidate validation; each later fix gets a new proportional judgment. There is no automatic audit recursion.
 
-A receipt states the range a lens read. Rebinding retains covering receipts byte-for-byte and names unread authored commits for the others. Derived-only regeneration invalidates no coverage and opens no round.
+A receipt states the range a lens read. The coordinator retains original receipts through replacement,
+refresh and retry, and combines the exact commits read by compatible, verified receipts for each lens.
+Separate reads cannot bridge an unread gap. A narrow repair receipt copied into the deliverable record
+does not prove a whole-deliverable read; its original read must combine with retained coverage.
+Unaffected lenses keep the scope of their original deliverable packet, with proportional repair
+requirements checked separately. A refreshed deliverable packet asks about its new scope.
+Status, dispatch, submission and PR disclosure use the same cumulative result; the PR retains original
+range provenance rather than inventing an aggregate reviewer receipt. Derived-only regeneration
+invalidates no coverage and opens no round.
+
+Retaining a read does not revive a settled finding or settle an unresolved one. Record each disposition
+against the producing receipt's original ID and stage, including after refresh or restart. Missing
+accepted execution evidence, incompatible obligations and unreadable Git objects grant no extra coverage.
 `none` is a terminal judgment and clears the repair packet; if it would discard uncovered receipts, it refuses unless `--accept-receipt-loss` is explicit. Scoped/full asks for the missing read instead. Do not turn this flag into routine bookkeeping.
 A behavior-changing or large repair after lighter review suggests under-chosen depth: lean scoped/full when the defect and fix warrant it. Depth remains engineering judgment, not a size threshold.
 

@@ -915,3 +915,21 @@ class TheV1SunsetDemo(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class ReviewCoverageDemo(unittest.TestCase):
+    """Permanent fate: the operator scenario and both deliberate false-positive controls."""
+
+    def test_demo_normal_and_both_faults_reach_meaningful_assertions(self):
+        import demo_review_coverage
+        import quiet_call
+        for flag in (None,"--lose-coverage","--overcredit-gap"):
+            with self.subTest(fault=flag), contextlib.redirect_stdout(io.StringIO()) as output:
+                code = quiet_call.run(demo_review_coverage.main,[flag] if flag else [],stream=output)
+            self.assertEqual(1 if flag else 0,code,output.getvalue())
+            self.assertNotIn("ERROR:",output.getvalue(),"A harness error is not a falsification")
+            if flag:
+                self.assertIn("FAIL:",output.getvalue())
+                self.assertIn("AssertionError",output.getvalue())
+            else:
+                self.assertIn("production submit preview reaches mark-ready",output.getvalue())
