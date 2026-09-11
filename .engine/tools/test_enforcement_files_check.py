@@ -23,6 +23,23 @@ import module_manager
 import validate
 
 
+
+class TestReviewerContractRegistration(unittest.TestCase):
+    def test_shared_owner_is_guarded_and_its_surfaces_ship_with_core(self):
+        root = Path(__file__).resolve().parents[2]
+        self.assertEqual([], guard.enforcement_drift_findings(str(root)))
+        covered = guard._derive_check_scripts(str(root / ".engine/check"))
+        self.assertIsNotNone(covered)
+        self.assertIn(".engine/tools/reviewer_contracts.py", covered)
+        manifest = json.loads((root / ".engine/modules/core/manifest.json").read_text())
+        import fnmatch
+        for kind, path in (("tool", ".engine/tools/reviewer_contracts.py"),
+                           ("tool", ".engine/tools/test_reviewer_contracts.py"),
+                           ("schema", ".engine/schemas/reviewer-contract.v1.json")):
+            self.assertTrue(any(fnmatch.fnmatchcase(path, pattern)
+                                for pattern in manifest["provides"][kind]), path)
+
+
 class TestImportExtraction(unittest.TestCase):
     INDEX = {'pkg': '.engine/tools/pkg/__init__.py',
              'pkg.child': '.engine/tools/pkg/child.py',

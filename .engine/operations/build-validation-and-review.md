@@ -54,3 +54,14 @@ See [Executable persona result contracts](../docs/result-contracts.md): dispatch
 ## Done when
 The final head has green candidate and imported CI evidence, every finding has a disposition, and every divergence has its proportional judgment and required receipts.
 Status reports submission-preflight and names [Build submission](build-submission.md).
+
+## Reviewer contract continuity
+
+The Build carries the approved reviewer envelope. Packet refresh preserves compatible receipts and
+findings; it does not rediscover a new panel from installed files. Use `review contract-preview` and
+`review contract-apply` for an operator-decided per-lens retain/adopt transition. Only changed obligations
+need supplemental review, while Git read-range coverage remains independently required. A renewal or
+finding change invalidates the PR contract and preflight. Historical receipt recovery uses the explicit
+`review historical-preview` / `review historical-apply` route described in
+[Result contracts](../docs/result-contracts.md#historical-adoption-and-its-limits), including original
+backup, packet and source proof. Never replace missing observed companion evidence with historical credit.

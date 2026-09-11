@@ -279,6 +279,17 @@ class LocationDemonstration(_Surface):
             self.assertIn("temporary libraries", out)
 
 
+
+class ReviewerContractDemonstration(_Surface):
+    def test_each_deliberate_regression_fails_an_acceptance_assertion(self):
+        for flag in ("identity-preservation", "envelope-validation", "fresh-legacy-separation"):
+            code, out, err = self.run_command("demo-review-contracts", "--break-" + flag)
+            self.assertEqual(1, code, out + err)
+            self.assertIn("FAIL:", out)
+            self.assertNotIn("ERROR:", out)
+            self.assertIn("synthetic", out)
+
+
 class Selection(_Surface):
     def test_no_command_auto_selects_the_only_plan(self):
         self._plan()
@@ -2976,6 +2987,14 @@ class TestFrozenApproval(_Surface):
         self.assertEqual(0, self.run_command('preview', slug)[0])
         self.assertEqual(0, self.run_command('approve', slug, '--depth', 'standard', '--operator-decided')[0])
         return slug
+
+    def test_exact_approval_retry_does_not_rediscover_removed_reviewers(self):
+        slug = self._approved()
+        original = self.lib.read_record(slug)
+        with mock.patch.object(project_manager, "installed_lenses", side_effect=AssertionError("live roster")):
+            code, out, err = self.run_command("approve", slug, "--depth", "standard", "--operator-decided")
+        self.assertEqual(0, code, out + err)
+        self.assertEqual(original, self.lib.read_record(slug))
 
     def test_approval_captures_both_panels_and_effort_policy(self):
         slug = self._approved()

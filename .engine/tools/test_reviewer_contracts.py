@@ -120,7 +120,6 @@ class ReviewContracts(unittest.TestCase):
         with self.assertRaisesRegex(contracts.ContractError,'result schema'):contracts.validate(old)
 
 
-if __name__ == '__main__': unittest.main()
 
 
 class HistoricalContracts(unittest.TestCase):
@@ -670,3 +669,6 @@ class HistoricalContracts(unittest.TestCase):
             recovered=contracts.reconstruct_source(self.source_root,self.observed_commit,ref,'thorough')
         for panel in recovered['contract']['panels'].values():
             self.assertTrue(all(p['semantic']['result_contract']['limits']==original for p in panel))
+
+
+if __name__ == '__main__': unittest.main()

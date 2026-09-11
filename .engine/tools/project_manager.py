@@ -761,12 +761,6 @@ def cmd_approve(args) -> int:
             "--delta-rationale \"<what changed and why it is still the reviewed plan>\" "
             "(add --operator-decided only after the operator's go)\n"
             f"  If the change is too large for that, clone: `clone {args.plan} --reason \"<why>\"`.")
-    roster = installed_lenses()
-    if args.depth not in available_depths(roster):
-        raise ProjectManagerError(
-            f"{args.depth} is not offered here: with this repository's installed reviewers it would run "
-            "exactly what a lighter depth runs, so choosing it would spend consent on nothing. Run "
-            f"`depths {args.plan}` to see what is actually on offer.")
     revision = record["current"]["revision"]
     consent = _require_consent(record, "approve", args)
 
@@ -785,6 +779,12 @@ def cmd_approve(args) -> int:
                 raise ProjectManagerError("reviewed approval cannot be replaced; use explicit contract renewal")
             current.setdefault("approval_history", []).append({"approval": copy.deepcopy(previous),
                 "renewals": current.pop("review_contract_renewals", [])})
+        roster = installed_lenses()
+        if args.depth not in available_depths(roster):
+            raise ProjectManagerError(
+                f"{args.depth} is not offered here: with this repository's installed reviewers it would run "
+                "exactly what a lighter depth runs, so choosing it would spend consent on nothing. Run "
+                f"`depths {args.plan}` to see what is actually on offer.")
         contract = _capture_review_contract(current, args.depth)
         if current["current"]["plan_digest"] != digest:
             raise ProjectManagerError("plan changed during approval")
@@ -2453,6 +2453,57 @@ def cmd_demo_locations(args) -> int:
     return 0 if result.wasSuccessful() else 1
 
 
+
+def cmd_demo_review_contracts(args) -> int:
+    """Permanent acceptance witnesses; all state and Git histories are disposable."""
+    import contextlib
+    import unittest
+    from unittest import mock
+    import reviewer_contracts
+    import scoped_agents
+
+    matrices = {
+        "#1087 — semantic identity, per-lens renewal and finding lineage": [
+            "test_reviewer_contracts.ReviewContracts",
+            "test_project_manager.TestFrozenApproval",
+            "test_build_coordinator.TestFrozenBuildContracts"],
+        "#1127 — retained approval, historical adoption and submission gates": [
+            "test_reviewer_contracts.HistoricalContracts"],
+    }
+    print("Reviewer contract demonstration: production owners, temporary libraries and real "
+          "disposable Git histories. Transport observations and GitHub responses are synthetic; "
+          "this is not live reviewer or CI qualification. The historical submission witnesses "
+          "run candidate commands, reconcile, refresh packets, preflight and submit with zero "
+          "new reviewer launches. They also refuse lost evidence and new unread authored changes.",
+          flush=True)
+    fault = contextlib.nullcontext()
+    if args.break_identity_preservation:
+        original = reviewer_contracts.drift
+        def lose_editorial_credit(*a, **kw):
+            delta = original(*a, **kw)
+            delta["changed"] += delta["editorial"]
+            return delta
+        fault = mock.patch.object(reviewer_contracts, "drift", side_effect=lose_editorial_credit)
+        matrices = {"#1087 deliberate identity regression": [
+            "test_reviewer_contracts.ReviewContracts.test_editorial_change_retains_obligation_and_original_source"]}
+    elif args.break_envelope_validation:
+        fault = mock.patch.object(reviewer_contracts, "validate", side_effect=lambda value: value)
+        matrices = {"#1127 deliberate envelope validation regression": [
+            "test_reviewer_contracts.ReviewContracts.test_header_and_source_tampering_fail"]}
+    elif args.break_fresh_legacy_separation:
+        fault = mock.patch.object(scoped_agents.Store, "receipt_verified", return_value=True)
+        matrices = {"#1127 deliberate fresh/historical evidence regression": [
+            "test_reviewer_contracts.HistoricalContracts.test_observed_cohort_retains_companion_and_fails_after_its_deletion"]}
+    passed = True
+    with fault:
+        for label, names in matrices.items():
+            print("\nAcceptance matrix " + label, flush=True)
+            result = unittest.TextTestRunner(stream=sys.stdout, verbosity=2).run(
+                unittest.defaultTestLoader.loadTestsFromNames(names))
+            passed = result.wasSuccessful() and passed
+    return 0 if passed else 1
+
+
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         prog="project_manager.py",
@@ -2464,6 +2515,13 @@ def build_parser() -> argparse.ArgumentParser:
     broken.add_argument("--break-preservation", action="store_true", help="Deliberately flatten locations in memory; the demonstration must fail.")
     broken.add_argument("--break-ingress", action="store_true", help="Deliberately bypass raw validation in memory; the demonstration must fail.")
     demo.set_defaults(func=cmd_demo_locations)
+
+    contracts = sub.add_parser("demo-review-contracts", help="demonstrate shared identity, frozen approval and historical submission in disposable stores")
+    faults = contracts.add_mutually_exclusive_group()
+    for flag in ("identity-preservation", "envelope-validation", "fresh-legacy-separation"):
+        faults.add_argument("--break-" + flag, action="store_true",
+                            help="Deliberately break this safeguard in memory; the demonstration must fail.")
+    contracts.set_defaults(func=cmd_demo_review_contracts)
 
     init = sub.add_parser("init", help="mint a plan from a validated engine-plan.v1 revision")
     init.add_argument("--document", required=True)

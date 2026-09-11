@@ -125,8 +125,9 @@ a later valid completion can recover the same assignment.
 
 Historical records remain readable. Missing bindings and old acceptances never gain newly verified
 contract evidence. For an active legacy worker claim, use the existing explicit abandon/retry/new-claim
-path; do not edit or restamp history. Review recovery needs a newly bound, observed assignment under the
-existing plan/Build lifecycle. A prior seal is not silently upgraded.
+path; do not edit or restamp history. Fresh review recovery needs a newly bound, observed assignment. The explicit historical adoption
+route below can preserve narrowly proven older evidence; it never upgrades a prior seal or reports
+historical-unverified evidence as fresh execution.
 
 Audit is narrower: the typed adapter distinguishes absent, rejected and valid full conformance blocks.
 The outer body is read in bounds too; an oversized body is refused and its machine tail stripped by a
@@ -148,3 +149,69 @@ It executes five command-level checks against disposable stores with synthetic t
 including observed-report substitution, unchanged stores on rejection and stale-attempt refusal.
 Add `--break-ingress` to bypass validation in memory: the demo must exit nonzero. It does not qualify a
 live provider or modify the project's real plan library.
+
+### Frozen reviewer contracts and renewal
+
+Approval retains one `reviewer-contract.v1` envelope for both plan and Build reviewers. It records the
+approved plan referent, depth and roster, original source bytes, resolved provider models and complete
+result-schema bindings. Exact source provenance is separate from semantic identity: editorial text or
+path changes do not spend review credit. A changed mandate version, model, allowed effects, result schema
+or enforcement descriptor does. Reviewer effort remains harness-controlled, with no fixed value or floor.
+
+Persona authors keep `reviewer-contract` stable and bump `reviewer-contract-version` when the mandate
+changes. Structured semantic changes are detected even if the author forgets that bump. The Engine cannot
+infer whether arbitrary prose changed the mandate; declaration discipline remains part of review.
+
+Use `project_manager.py review-contract preview PLAN --action retain|adopt --output PREVIEW` and
+`review-contract apply PLAN --input PREVIEW --reason REASON --operator-decided` for explicit
+per-lens retain/adopt decisions before sealing. The Build owns subsequent changes through `review
+contract-preview --plan PAYLOAD --action retain|adopt --output PREVIEW` and `review contract-apply
+--plan PAYLOAD --input PREVIEW --reason REASON --operator-decided`. Apply consumes the reviewed preview, a reason and
+`--operator-decided`; stale previews refuse. Retain keeps the original obligation. Adopt adds the changed
+obligation and requires its review; unaffected lenses keep credit. The original roster cannot silently
+shrink. Unavailable old mandates require a decision, not a substituted fresh assignment.
+
+Supplemental findings join the original findings, dispositions and presentation lineage. New findings
+must be settled and presented before sealing. Build renewals and finding changes invalidate prior PR
+contract/preflight evidence. Semantic credit does not prove a reviewer read new authored changes: Git
+range coverage is checked independently, including after reconciliation.
+
+### Historical adoption and its limits
+
+The original plan/Build backup, original review packets and retained source Git objects are the recovery
+inputs. The source SHA must already be named in original review authority. Dates, an asserted old version,
+a current installation, or a digest alone are insufficient. The locator JSON has exactly `source_root`,
+`source_commit`, `backup` and `packets` (a list of packet paths). The source code is read as data, never run.
+
+For an unbound plan, use `project_manager.py review-contract historical-preview PLAN --input LOCATOR
+--output PREVIEW`, inspect the recovered roster, cohort, receipts and gaps, then `review-contract
+historical-apply PLAN --input PREVIEW --reason REASON --operator-decided`. A bound plan directs you to its
+Build: `review historical-preview --plan PAYLOAD --input LOCATOR --output PREVIEW`, then `review
+historical-apply --plan PAYLOAD --input PREVIEW --reason REASON --operator-decided`, with the usual Build
+owner and revision arguments. The locked apply rechecks the preview. Exact retry is idempotent.
+
+Observed pre-envelope reviews retain their original collector companion and original result binding.
+Deleting that companion still blocks submission. Only sources demonstrably predating the collector can
+use the separate **historical-unverified** cohort, and only for the exact retained receipt keys, owner,
+generation, findings and original read ranges. Missing original deliverable receipts, packets or findings
+cannot be repaired by adopting a later repair panel. An actually unreviewed observed-era Build can adopt
+its recovered contract with zero execution credit. Closed history remains unchanged; unapproved plans use
+ordinary approval; a modern envelope cannot downgrade into this route.
+
+Adoption appends a decision and discloses historical gaps in status and the PR contract. It preserves the
+original approval, seal, packets, receipts and companion. It neither stamps today's schema onto old reports
+nor turns an old receipt into a fresh observed review. Keep the original artifacts when changing readers;
+older Engine versions are not promised to understand these records.
+
+### Reviewer contract demonstration
+
+Run `uv run --directory .engine --frozen -- python tools/project_manager.py demo-review-contracts`.
+The two acceptance matrices cover #1087 (identity and per-lens renewal) and #1127 (frozen approval and
+historical continuity). Disposable Git histories exercise a real rebase, packet refresh, candidate
+commands, preflight and submission without a new reviewer launch. They also prove refusal after evidence
+loss or a new unread authored delta. GitHub responses and transport observations are synthetic; this
+witness does not claim live reviewer qualification or a real CI run.
+
+Each of `--break-identity-preservation`, `--break-envelope-validation` and
+`--break-fresh-legacy-separation` deliberately breaks one safeguard in memory and must exit nonzero
+because its acceptance assertion fails. Nothing touches the real plan library.
