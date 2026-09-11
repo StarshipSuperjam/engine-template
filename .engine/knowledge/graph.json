@@ -6578,7 +6578,7 @@
       },
       "slug": "scoped-agent-orchestration",
       "source": {
-        "fingerprint": "sha256:f7a841675895051436a9cf7d7f14c47253eaf2378114e6f7169899b1e1f5f4ea",
+        "fingerprint": "sha256:156826ab050c0b9f8c1b26e2fc403618b9b6ce2eecfcc8934fa3b37876515ba7",
         "path": ".engine/operations/scoped-agent-orchestration.md"
       },
       "status": "active",
@@ -9735,7 +9735,7 @@
       },
       "slug": "build_coordinator",
       "source": {
-        "fingerprint": "sha256:6dd1f4c7a59567be75a52f2885016887cd238e4c56a75cbfb454e6ea66d32470",
+        "fingerprint": "sha256:c0a7ec630c25152c50c0f7f58c370308e144435fb9448d875b688e47f4ada3db",
         "path": ".engine/tools/build_coordinator.py"
       },
       "status": "active",
@@ -11731,7 +11731,7 @@
       },
       "slug": "demo_plan_to_ready_pr",
       "source": {
-        "fingerprint": "sha256:45b7771d49b15299240d3881b070863183b19657224361b9681c81446a2beea5",
+        "fingerprint": "sha256:f8d46a8c2f649b3660b3374dde3a16ef2c6df20e524ea3aff88d9244ba5709ce",
         "path": ".engine/tools/demo_plan_to_ready_pr.py"
       },
       "status": "active",
@@ -15412,7 +15412,7 @@
       },
       "slug": "reviewer_contracts",
       "source": {
-        "fingerprint": "sha256:0957afb14a59629377ae87b0f0cb4030fb814a9703cadd66eadb74bb2b96a69c",
+        "fingerprint": "sha256:884c1f64c96b01df27e4acde12e3418bcb98971a762ce6631d9854e5c21155e9",
         "path": ".engine/tools/reviewer_contracts.py"
       },
       "status": "active",
@@ -16715,7 +16715,7 @@
       },
       "slug": "test_build_coordinator",
       "source": {
-        "fingerprint": "sha256:05689872ddfa238e47cfab0ec4a36e2eabe1d068a1d2a661a8ef1c3810c4c1de",
+        "fingerprint": "sha256:b9b9ee7ad6bee73bad65c08ac0b8db12da1c0f559c39cd3e05abb914efd19135",
         "path": ".engine/tools/test_build_coordinator.py"
       },
       "status": "active",
@@ -19802,7 +19802,7 @@
       },
       "slug": "test_plan_lifecycle",
       "source": {
-        "fingerprint": "sha256:cec268fbfbe70ff92adc72e032e4e9019cfcdf21894f313059158cd8f231f91d",
+        "fingerprint": "sha256:5a2a32d5d4cce9f1ec9fcd415a08bba3c7cf824be94f958bf30234d77549b054",
         "path": ".engine/tools/test_plan_lifecycle.py"
       },
       "status": "active",
@@ -20071,7 +20071,7 @@
       },
       "slug": "test_project_manager",
       "source": {
-        "fingerprint": "sha256:6bcc5c811a55b1dbd275f813ecb21cf9529fe980dd2333182afdc3c4b6e5c8ae",
+        "fingerprint": "sha256:986f6fad0ee880b77524bc75c9bb70197d1267ad002f027d91fc7588a1f9adf3",
         "path": ".engine/tools/test_project_manager.py"
       },
       "status": "active",
@@ -20808,7 +20808,7 @@
       },
       "slug": "test_reviewer_contracts",
       "source": {
-        "fingerprint": "sha256:72bc30cc650268201cba1e02476e217efca07331c75dbd4641cdf80475a73778",
+        "fingerprint": "sha256:20fa49dc6c5b123f4e2860c02f9985912b36571c739814a28293151c787ae793",
         "path": ".engine/tools/test_reviewer_contracts.py"
       },
       "status": "active",
