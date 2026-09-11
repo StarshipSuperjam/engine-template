@@ -6300,7 +6300,7 @@
       },
       "slug": "issue-triage",
       "source": {
-        "fingerprint": "sha256:baf8f29e389e013b6a0d43661a565966d3b70189b70a6aeb2ef5dff6ba9bc038",
+        "fingerprint": "sha256:cae5eac82017deda2dfc4eb9d468820dca642cd22ecbffb7125be9478e502d97",
         "path": ".engine/operations/issue-triage.md"
       },
       "status": "active",
