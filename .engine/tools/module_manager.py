@@ -2971,6 +2971,42 @@ def _glob_namespace_prefixes(old_by_id: dict) -> tuple:
     return tuple(sorted(prefixes))
 
 
+def _prior_published_setup_routes(paths, candidates):
+    """Recover declined routes from the pinned prior release, never from the file being judged.
+
+    A declined module's manifest is absent locally. The installed release coordinate still identifies
+    its published source; use the existing release-fetch boundary once, and execute no fetched code.
+    Failure grants no deletion authority: the caller preserves each unverifiable route.
+    """
+    if not paths:
+        return {}
+    try:
+        version = validate.load_json(_engine_manifest_path()).get("engine_release")
+        if not isinstance(version, str) or not release_source._is_bare_version(version):
+            return {}
+        home = release_source._home_repository()
+        if not home:
+            return {}
+        ref = release_source._resolve_release_ref(version, repo=home)
+        with tempfile.TemporaryDirectory(prefix="engine-prior-setup-routes-") as directory:
+            source = release_source._fetch_release_tree(ref, directory, repo=home)
+            if _release_engine_manifest(source).get("engine_release") != version:
+                return {}
+            prior = {manifest["id"]: manifest for _, manifest in module_coherence.discover_manifests(source)}
+            obsolete = derived_state.obsolete_setup_routes(prior, candidates)
+            recovered = {}
+            for rel in paths:
+                target = os.path.join(source, rel)
+                if (rel not in obsolete or os.path.islink(target)
+                        or not os.path.realpath(target).startswith(os.path.realpath(source) + os.sep)):
+                    continue
+                with open(target, "rb") as handle:
+                    recovered[rel] = handle.read().decode("utf-8")
+            return recovered
+    except Exception:
+        return {}  # Unavailable or malformed prior source never permits deletion.
+
+
 def _retire_obsolete_setup_routes(release_tree, candidates, old_by_id, tracked, removed, old_owned=()):
     """Retire a former add-on's exact generated route after it stops being offerable.
 
@@ -2978,14 +3014,22 @@ def _retire_obsolete_setup_routes(release_tree, candidates, old_by_id, tracked, 
     byte-identical generated content, leaving authored edits and adjacent files recoverable.
     """
     handled = set()
-    for rel, generated in derived_state.obsolete_setup_routes(old_by_id, candidates, old_owned).items():
+    routes = derived_state.obsolete_setup_routes(old_by_id, candidates, old_owned)
+    recover = [rel for rel, generated in routes.items() if generated is None
+               and tracked is not None and rel in tracked and _within_root(rel)
+               and not os.path.islink(os.path.join(validate.ROOT, rel))
+               and os.path.isfile(os.path.join(validate.ROOT, rel))
+               and not os.path.exists(os.path.join(release_tree, rel))]
+    routes.update(_prior_published_setup_routes(recover, candidates))
+    for rel, generated in routes.items():
         target = os.path.join(validate.ROOT, rel)
         if os.path.exists(os.path.join(release_tree, rel)) or not os.path.isfile(target):
             continue
         handled.add(rel)
         if generated is None:
             removed["left_in_place"].append(
-                f"{rel} — left in place: the old module's generation metadata is unavailable.")
+                f"{rel} — left in place: the old module's generation metadata is unavailable "
+                "and its prior published route could not be verified.")
             continue
         if not _within_root(rel) or os.path.islink(target):
             removed["left_in_place"].append(f"{rel} — left in place: the route is not a contained regular file.")

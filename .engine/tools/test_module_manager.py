@@ -37,6 +37,71 @@ import wiring  # noqa: E402
 
 
 class TestObsoleteSetupRoutes(unittest.TestCase):
+    def test_declined_route_uses_prior_published_bytes_and_the_structural_guard_stays_strict(self):
+        from pathlib import Path
+        import setup_route_gen
+        mid = "former-addon"
+        rel = f".claude/skills/engine-setup-{mid}/SKILL.md"
+        old = {"id": mid, "status": "default-on", "presentation": {"setup_trigger": "enable the fixture"}}
+        for transition in ("required", "retired"):
+            for shape in ("generated", "authored", "line-endings", "unavailable", "wrong-version", "untracked"):
+                with self.subTest(transition=transition, shape=shape), tempfile.TemporaryDirectory() as directory:
+                    root, release, prior = (Path(directory) / name for name in ("live", "release", "prior"))
+                    release.mkdir()
+                    target = root / rel
+                    target.parent.mkdir(parents=True)
+                    body = setup_route_gen._render(mid, old["presentation"])
+                    # The old published bytes, not a re-render of the possibly authored live header,
+                    # decide equality. This also permits a historical generator's distinct formatting.
+                    body += "\n"
+                    target.write_bytes((body + ("Operator note.\n" if shape == "authored" else "")).encode())
+                    if shape == "line-endings":
+                        target.write_bytes(body.replace("\n", "\r\n").encode())
+                    before = target.read_bytes()
+                    (root / ".engine").mkdir()
+                    (root / ".engine/engine.json").write_text(json.dumps({
+                        "engine_release": "0.1.0", "home_repository": "acme/engine",
+                        "packages": {"core": "0.1.0", **({mid: "0.2.0"} if transition == "required" else {})}}))
+                    old_manifest = prior / f".engine/modules/{mid}/manifest.json"
+                    old_manifest.parent.mkdir(parents=True)
+                    old_manifest.write_text(json.dumps(old))
+                    (prior / ".engine/engine.json").write_text(json.dumps({
+                        "engine_release": "0.9.0" if shape == "wrong-version" else "0.1.0"}))
+                    published = prior / rel
+                    published.parent.mkdir(parents=True)
+                    published.write_bytes(body.encode())
+                    candidates = {mid: {"id": mid, "status": "required"}} if transition == "required" else {}
+                    if candidates:
+                        live_manifest = root / f".engine/modules/{mid}/manifest.json"
+                        live_manifest.parent.mkdir(parents=True)
+                        live_manifest.write_text(json.dumps(candidates[mid]))
+                    tracked = set() if shape == "untracked" else {rel}
+                    old_by_id = {"core": {"id": "core", "provides": {"skills": [rel]}}}
+                    with module_manager._redirect_root(str(root)), \
+                         mock.patch.object(module_manager, "retire_set", return_value=([], [])), \
+                         mock.patch.object(module_manager, "engine_synced_map", return_value={}), \
+                         mock.patch.object(module_manager, "_copy_synced", return_value=[]), \
+                         mock.patch.object(module_manager.release_source, "_resolve_release_ref", return_value="v0.1.0") as resolve, \
+                         mock.patch.object(module_manager.release_source, "_fetch_release_tree", return_value=str(prior),
+                                           side_effect=OSError("offline") if shape == "unavailable" else None) as fetch:
+                        _, removed = module_manager._reconcile_surface(
+                            str(release), candidates, [rel], old_by_id, tracked=tracked)
+                    if shape == "generated":
+                        self.assertFalse(target.exists())
+                        self.assertEqual(removed["engine"], [rel])
+                        self.assertEqual(setup_route_gen.check(root=str(root)), [])
+                    else:
+                        self.assertEqual(target.read_bytes(), before)
+                        self.assertTrue(removed["left_in_place"])
+                        self.assertTrue(setup_route_gen.check(root=str(root)))
+                    if shape == "untracked":
+                        fetch.assert_not_called()
+                    else:
+                        resolve.assert_called_once_with("0.1.0", repo="acme/engine")
+                        self.assertEqual(fetch.call_count, 1)
+                        self.assertEqual(fetch.call_args.args[0], "v0.1.0")
+                        self.assertEqual(fetch.call_args.kwargs, {"repo": "acme/engine"})
+
     def test_only_the_tracked_exact_obsolete_generated_route_is_retired(self):
         from pathlib import Path
         import setup_route_gen
