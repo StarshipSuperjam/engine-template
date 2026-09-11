@@ -1840,8 +1840,15 @@ def _demo(_argv) -> int:
     feeds, its inbox spool — lives in ONE per-run temporary directory that is removed on the way out (even
     when a section fails), so a hand-run demo never touches the live telemetry state under
     .engine/telemetry/.cache/ and never leaves a stranded aside for the SessionStart sweep to find."""
+    import functools
+    from unittest.mock import patch
+    import issue_triage
     with tempfile.TemporaryDirectory(prefix="telemetry-demo-") as scratch:
-        return _demo_walkthrough(scratch)
+        # Configuration is project-owned just like the scratch counters. Exercise its
+        # real reader against this isolated root, never the operator's live worktrees.
+        read_config = functools.partial(issue_triage.load_config, root=scratch)
+        with patch.object(issue_triage, 'load_config', read_config):
+            return _demo_walkthrough(scratch)
 
 
 def _demo_walkthrough(scratch: str) -> int:
