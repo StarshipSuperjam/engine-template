@@ -6278,7 +6278,7 @@
       },
       "slug": "issue-triage",
       "source": {
-        "fingerprint": "sha256:651ab7355d615a689d19864127e41bff13c2a66be9dc03b341676f468a68a148",
+        "fingerprint": "sha256:816f1b760f15897f976f5fa3e4cb124cfb42b341e7e08b1ad1804c45abaf1a13",
         "path": ".engine/operations/issue-triage.md"
       },
       "status": "active",
@@ -13290,7 +13290,7 @@
       },
       "slug": "issue_triage",
       "source": {
-        "fingerprint": "sha256:64104200eb60758e3986b2e76be3ac6f10d9c120545a39ea7bf085c4ee4fd842",
+        "fingerprint": "sha256:d03a9ae152e35bf2febae8cb1088c8df66a42a0f4fa092f915b04d08b2daf399",
         "path": ".engine/tools/issue_triage.py"
       },
       "status": "active",
@@ -18646,7 +18646,7 @@
       },
       "slug": "test_issue_triage",
       "source": {
-        "fingerprint": "sha256:38c2cda211d1dd2cb5909f2caee596a6a9efe54d4610e68dcd26a73e5dc90ccd",
+        "fingerprint": "sha256:d2cb356db46d4df2cf4039fedacfbff9bcbc46b5e12118e6958f95a30bacaf5e",
         "path": ".engine/tools/test_issue_triage.py"
       },
       "status": "active",
