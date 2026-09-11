@@ -557,6 +557,22 @@ class ConfigurationUpgrade(unittest.TestCase):
             triage.config_snapshot(self.root, resolve_from=self.legacy)
         self.assertEqual(self.canonical.read_bytes(), before)
 
+    def test_selected_copy_cannot_replace_an_unaffected_canonical_repository(self):
+        canonical = copy.deepcopy(self.config)
+        canonical['repositories']['other/project'] = copy.deepcopy(Discovery.settings)
+        self.write(self.canonical, canonical)
+        legacy = copy.deepcopy(canonical)
+        legacy['repositories']['o/r']['activated_at'] = '2026-08-01T00:00:00Z'
+        legacy['repositories']['other/project']['activated_at'] = '2026-09-01T00:00:00Z'
+        legacy['repositories']['other/project']['milestones'] = self.mapping
+        self.write(self.legacy, legacy)
+        observed = triage.config_snapshot(self.root, resolve_from=self.legacy)
+        triage.configure(FakeGitHub(), self.mapping, root=self.root, resolve_from=self.legacy,
+                         expected_digest=observed['digest'])
+        actual = triage.load_config(self.root)
+        self.assertEqual(actual['repositories']['other/project'], canonical['repositories']['other/project'])
+        self.assertEqual(actual['repositories']['o/r']['activated_at'], '2026-08-01T00:00:00Z')
+
     def test_unreadable_and_symbolic_copies_do_not_create_new_activation(self):
         self.legacy.parent.mkdir()
         self.legacy.write_text('broken json')

@@ -275,6 +275,14 @@ def configure(client, mapping, *, root=None, resolve_from=None, expected_digest=
     if expected_digest is not None and observed['digest'] != expected_digest:
         raise TriageError('Configuration changed; inspect its copies before retrying.')
     value = observed['config'] or {'schema_version': 'operator-issue-triage.v1', 'repositories': {}}
+    canonical = observed['sources'].get(str(observed['path']), {}).get('config')
+    if resolve_from is not None and canonical is not None:
+        # Resolving this repository cannot change another repository already owned
+        # by the canonical file, even when the selected legacy copy contains it.
+        for name, settings in canonical['repositories'].items():
+            if name.lower() != client.repo.lower():
+                key = next((k for k in value['repositories'] if k.lower() == name.lower()), name)
+                value['repositories'][key] = copy.deepcopy(settings)
     previous = repo_config(value, client.repo)
     settings = {'activated_at': previous['activated_at'] if previous else moment.utc_now(),
                 'milestones': mapping}

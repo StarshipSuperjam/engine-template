@@ -87,8 +87,8 @@ activation dates. Old copies remain intact; their exact fingerprints identify ac
 A changed old copy or disagreeing copies produce a conflict, never a silently reset enrollment cutoff.
 To resolve that conflict explicitly, inspect the named copies and use configure with
 `--resolve-config-from PATH --expect-config-digest DIGEST`, using the observation digest in the conflict
-message. The chosen source resolves its entries; omitted repositories retain their mappings and dates when
-surviving copies agree, otherwise recovery refuses. The input updates only the selected repository's mappings.
+message. The chosen copy resolves the selected repository; other canonical mappings and dates stay intact.
+Omitted legacy entries are retained when copies agree; conflicting omitted entries refuse recovery.
 Configuration writes share a permanent canonical lock, recheck the observed copies after network preflight,
 and refuse stale writes. Retry a refused update from fresh state; another session's changes are preserved. Do not copy the Engine home's milestone
 numbers or pre-v1 convention to deployed projects. Absent or broken configuration leaves assignment
