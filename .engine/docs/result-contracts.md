@@ -244,3 +244,9 @@ The Git history and coordinator coverage, receipt, finding and submission owners
 event transport, CI/preflight and GitHub observations are disposable synthetic fixtures. This evidence
 does not replace live reviewer qualification or final CI. The demo's permanent fate is regression
 coverage in `TestCumulativeReviewScenario` and `test_review_economy.ReviewCoverageDemo`.
+
+The regression suite also alternates repair lenses. Each lens retains its original deliverable
+obligation and the repair ranges assigned to it; other recorded proportional repairs are excluded,
+not described as reads. A later edit without such a decision remains unread, including after a
+reverified rebase. Refreshing the deliverable packet asks its new whole scope. Execution disclosure
+includes retained original receipts, so a later nonexecuting review cannot hide an earlier execution.

@@ -7758,6 +7758,8 @@ class TestFrozenBuildContracts(CoordinatorCase):
                 s["repair"] = {"reviewed_commit":original_head,"final_commit":repair_head,
                     "base_commit":repo.base,"summary":"repair","judgment":"scoped","rationale":"Changed logic",
                     "lenses":[lens],"packet_digest":None,"receipts":[]}
+                s["repair_rounds"].append({"reviewed_commit":original_head,"final_commit":repair_head,
+                    "judgment":"scoped","lenses":[lens],"counted":False})
             self.store.mutate(repair)
             packet = self.packet(stage="repair", head=repair_head)
             with mock.patch.object(bc, "_head", return_value=repair_head):
@@ -7864,12 +7866,15 @@ class TestFrozenBuildContracts(CoordinatorCase):
         late = repo.commit("source-after-rebase.py","new authored repair")
         state = self.state(); question = dict(state["reviews"]["deliverable"],reviewed_commit=late)
         with mock.patch.object(bc,"ROOT",repo.repo):
-            self.assertEqual([late],bc._coverage_result(question,"deliverable",state,"technical-integrity")["unread"])
+            for lens in self.DELIVERABLE_LENSES:
+                self.assertEqual([late],bc._coverage_result(question,"deliverable",state,lens)["unread"],lens)
         def repair(s):
             s["validation"] = {"commit":late,"results":[{"id":"self-test","commit":late,"passed":True,"summary":"fixture green"}]}
             s["repair"] = {"reviewed_commit":rewritten,"final_commit":late,"base_commit":target,
                 "summary":"new repair","judgment":"scoped","rationale":"Changed logic",
                 "lenses":["technical-integrity"],"packet_digest":None,"receipts":[]}
+            s["repair_rounds"].append({"reviewed_commit":rewritten,"final_commit":late,
+                "judgment":"scoped","lenses":["technical-integrity"],"counted":False})
         self.store.mutate(repair)
         cumulative = bc.ranges.cumulative_coverage
         with mock.patch(__name__+".BASE",target), mock.patch.object(bc,"_head",return_value=late), \
@@ -7887,7 +7892,8 @@ class TestFrozenBuildContracts(CoordinatorCase):
             self.assertEqual([],bc._missing_receipts(delivery,state=state))
             newest = repo.commit("latest.py","unread tail")
             question = dict(delivery,reviewed_commit=newest)
-            self.assertEqual([newest],bc._coverage_result(question,"deliverable",state,"technical-integrity")["unread"])
+            for lens in self.DELIVERABLE_LENSES:
+                self.assertEqual([newest],bc._coverage_result(question,"deliverable",state,lens)["unread"],lens)
             state["reconciles"][0]["from_commit"] = first
             self.assertFalse(bc._coverage_result(delivery,"deliverable",state,"technical-integrity")["covered"])
 
@@ -8182,6 +8188,12 @@ class TestCumulativeReviewScenario(unittest.TestCase):
     """Permanent real-Git witness shared with demo_review_coverage; service boundaries are fixtures."""
 
     def test_four_repairs_merge_gap_and_later_edit_use_production_readiness(self):
+        self._scenario(alternating=False)
+
+    def test_alternating_repair_lenses_preserve_only_their_assigned_scopes(self):
+        self._scenario(alternating=True)
+
+    def _scenario(self, *, alternating):
         import copy
         from test_review_economy import _RealRepo
         fixture = TestFrozenBuildContracts(); fixture.setUp(); self.addCleanup(fixture.doCleanups)
@@ -8226,13 +8238,17 @@ class TestCumulativeReviewScenario(unittest.TestCase):
             for other in fixture.DELIVERABLE_LENSES:
                 if other != lens: fixture.record_frozen(packet,other)
             for n in range(1,5):
+                if alternating:
+                    lens = "technical-integrity" if n % 2 else "usability"
                 heads.append(repo.commit("source.py",f"repair {n}")); candidate(heads[-1]); assess("scoped")
                 packet = fixture.packet(stage="repair",head=heads[-1])
                 accept(packet,[{"severity":"serious","message":"Later defect","location":None}] if n==2 else [])
                 state = fixture.state()
                 reads = bc._coverage_result(state["reviews"]["deliverable"],"deliverable",state,lens)
                 self.assertTrue(reads["covered"],f"coverage lost after repair {n}: {reads}")
-                self.assertEqual(heads[::-1],reads["read"])
+                expected = heads[::-1] if not alternating else [heads[i] for i in range(n,0,-2)]+heads[:1]
+                self.assertEqual(expected,reads["read"])
+                self.assertEqual([],bc._missing_receipts(state["reviews"]["deliverable"],state=state))
                 retained = [r for _,r in bc.review.retained_receipts(state)]
                 for original in original_receipts: self.assertIn(original,retained)
                 self.assertEqual([],bc.review.missing_findings(state))
@@ -8279,7 +8295,7 @@ class TestCumulativeReviewScenario(unittest.TestCase):
                     # Keep the synthetic external contract current so coverage is the deciding gate.
                     s["pr_contract"]["review_lineage_digest"] = bc._review_lineage_digest(s)
                 fixture.store.mutate(remove_middle)
-                with self.assertRaisesRegex(bc.CoordinatorError,"deliverable-review receipt: technical-integrity"):
+                with self.assertRaisesRegex(bc.CoordinatorError,f"deliverable-review receipt: {lens}"):
                     bc._submit_preview(fixture.store,str(fixture.plan_path))
                 fixture.store.mutate(lambda s:s.update(review_evidence_history=history))
             late = repo.commit("source.py","later authored change")

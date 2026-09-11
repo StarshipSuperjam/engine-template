@@ -584,33 +584,51 @@ def _coverage_result(stage: dict, kind: str, state: dict, lens: str) -> dict:
 
     receipts, rejected = review.eligible_coverage_receipts(state, contract, verified,
         lambda r: reviewer_contracts.adopted_obligation(state, r, r["lens"]))
-    def original_question(base, tip):
-        # A proportional repair advances branch anchors without reissuing unaffected lenses'
-        # original packet. Its accepted range remains the question, even after a target merge.
-        # Require the original line and base to survive; a rewrite needs the proof path below.
-        if kind != "deliverable":
-            return None
-        for receipt in stage.get("receipts", []):
-            if receipt not in receipts:
+    original_tips = [r["commit"] for r in receipts
+        if r.get("packet_digest") == state["reviews"]["deliverable"].get("packet_digest")
+        and r.get("referent_digest") == state["reviews"]["deliverable"].get("referent_digest")]
+
+    def identical(entry):
+        return (entry.get("contribution_identical") and not _contribution_divergence(
+            entry["base_before"], entry["from_commit"], entry["base_after"], entry["to_commit"]))
+
+    def after_original(anchor, reconciles):
+        # An accepted original packet bounds which later proportional decisions can narrow its
+        # question. Refreshing the deliverable packet asks a new whole range. Across a rewrite,
+        # only a freshly re-proven identical contribution can carry that bound forward.
+        tips = list(original_tips)
+        for entry in reconciles:
+            if any(_is_ancestor(tip, entry["from_commit"]) for tip in tips) and identical(entry):
+                tips.append(entry["to_commit"])
+        return any(_is_ancestor(tip, anchor) for tip in tips)
+
+    def apply_scope(result, tip, reconciles):
+        if kind != "deliverable" or not result["verified"]:
+            return result
+        unassigned = set()
+        decisions = [*state.get("repair_rounds", []), *([state["repair"]] if state.get("repair") else [])]
+        for decision in decisions:
+            if decision.get("judgment") not in ("scoped", "none") or lens in decision.get("lenses", []):
                 continue
-            read = receipt.get("reviewed_range") or {}
-            question = dict(stage, base_commit=read.get("base"), reviewed_commit=receipt.get("commit"))
-            if (receipt.get("referent_digest") == stage.get("referent_digest")
-                    and review.receipt_attests_scope(question, receipt, kind)
-                    and base and tip and _is_ancestor(read["base"], base)
-                    and _is_ancestor(base, tip) and _is_ancestor(receipt["commit"], tip)):
-                return read["base"], receipt["commit"]
-        return None
+            anchor = decision.get("anchor") or decision.get("reviewed_commit")
+            final = decision.get("final_commit")
+            try:
+                if (anchor and final and _is_ancestor(anchor, tip) and _is_ancestor(anchor, final)
+                        and (_is_ancestor(final, tip) or _is_ancestor(tip, final))
+                        and after_original(anchor, reconciles)):
+                    unassigned.update(ranges.authored_between(ROOT, anchor, final))
+            except (CoordinatorError, ranges.RangeUnreadable, _Unmeasurable, KeyError, TypeError):
+                continue
+        if unassigned:
+            result["unread"] = [sha for sha in result["unread"] if sha not in unassigned]
+            result["covered"] = not result["unread"]
+            result["scope_note"] = "original deliverable and assigned repair scopes; other proportional repairs are excluded, not claimed read"
+        return result
 
     def measure(base, tip, reconciles):
-        original = original_question(base, tip)
-        if original:
-            result = ranges.cumulative_coverage(ROOT, receipts, *original)
-            result["original_packet_scope"] = True
-            result["scope_note"] = "original deliverable packet; proportional repair requirements are checked separately"
-            return result
-        advances = stage.get("base_advances", [])
-        result = ranges.cumulative_coverage(ROOT, receipts, base, tip, advances)
+        advances = list({p["merge_commit"]:p for p in [*state.get("base_advances", []),
+            *stage.get("base_advances", [])]}.values())
+        result = apply_scope(ranges.cumulative_coverage(ROOT, receipts, base, tip, advances), tip, reconciles)
         if result["covered"] or not result["verified"] or not receipts:
             return result
         # Re-prove each identical-contribution link. A fully evidenced old prefix may stand for
@@ -629,16 +647,14 @@ def _coverage_result(stage: dict, kind: str, state: dict, lens: str) -> dict:
                 prior = measure(entry["base_before"], entry["from_commit"], reconciles[:index])
                 if not prior["covered"]:
                     continue
-                if prior.get("original_packet_scope"):
-                    return prior
                 prefix = set(ranges.authored_between(ROOT, base, entry["to_commit"], advances))
                 wanted = ranges.authored_between(ROOT, base, tip, advances)
                 credit = set(result["read"]) | prefix
                 result.update(read=[sha for sha in wanted if sha in credit],
                               unread=[sha for sha in wanted if sha not in credit])
                 result["covered"] = not result["unread"]
-                result["scope_note"] = "includes a reverified identical-contribution prefix; original receipt ranges are unchanged"
-                return result
+                result["scope_note"] = "includes a reverified identical-contribution prefix under the original assigned scopes; original receipt ranges are unchanged"
+                return apply_scope(result, tip, reconciles)
             except (CoordinatorError, ranges.RangeUnreadable, _Unmeasurable, KeyError, TypeError):
                 continue
         return result
@@ -6101,7 +6117,7 @@ def _assemble_evidence(state: dict, plan: dict, claim: dict, head: str, pr_data:
     # Code-execution disclosure (BO-41): every current review receipt must carry it. An older snapshot whose
     # receipts predate the field cannot be composed until they are re-recorded — a precise remediation, never a
     # fabricated "no code ran". The disclosure's PRESENCE is mechanical; its truth stays the reviewer's report.
-    receipts = list(state.get("reviews", {}).get("deliverable", {}).get("receipts", []))
+    receipts = [receipt for _, receipt in review.retained_receipts(state)]
     missing = sorted({r["lens"] for r in receipts if "code_execution" not in r})
     if missing:
         raise CoordinatorError(
