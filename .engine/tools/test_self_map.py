@@ -87,6 +87,27 @@ class TestRenderSurfaces(unittest.TestCase):
 
 
 class TestRenderModule(unittest.TestCase):
+    def test_audit_workflow_is_in_its_module_block_and_registry(self):
+        import module_coherence
+        import module_surfaces
+        manifest = validate.load_json(os.path.join(validate.ROOT, ".engine/modules/audit-library/manifest.json"))
+        workflow = ".github/workflows/audit-prep.yml"
+        block = "\n".join(self_map.render_module(manifest))
+        self.assertIn("  - workflow: `" + workflow + "`", block)
+        self.assertEqual(module_surfaces.derive()[workflow], ["audit-library"])
+        canonical = self_map.canonical_map()
+        self.assertIn(block, canonical)
+        # A map made before the transfer is stale, even though the workflow still exists.
+        old_manifests = module_coherence.discover_manifests()
+        next(m for _, m in old_manifests if m["id"] == "audit-library")["provides"].pop("workflow")
+        with tempfile.TemporaryDirectory() as directory:
+            path = os.path.join(directory, "self-map.md")
+            with mock.patch.object(module_coherence, "discover_manifests", return_value=old_manifests):
+                self_map.generate(path)
+            self.assertEqual(self_map.check(path)["severity"], "hard")
+            self_map.generate(path)
+            self.assertEqual(self_map.check(path)["severity"], "note")
+
     def test_core_block(self):
         out = "\n".join(self_map.render_module(CORE))
         self.assertIn("### `core` — version `0.0.0-dev` (required)", out)
