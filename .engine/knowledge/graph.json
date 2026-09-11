@@ -9808,7 +9808,7 @@
       },
       "slug": "build_coordinator",
       "source": {
-        "fingerprint": "sha256:da7b310b99f9bdc53fb0fbaf9358651ccc848fca8cfd123a84dcb12a4ef77184",
+        "fingerprint": "sha256:5242303c3f7b0e4c8b438726ebe97e1a8389bda1682d678a7502c0515900f594",
         "path": ".engine/tools/build_coordinator.py"
       },
       "status": "active",
@@ -15743,7 +15743,7 @@
       },
       "slug": "scoped_agents",
       "source": {
-        "fingerprint": "sha256:875f2378547b14cc41f93553f0310eac08d813a3ee4588bd76dcdfc857f56e45",
+        "fingerprint": "sha256:af7b625b5abc15f5a7465013563a23703f08d3871835becd7342f0324aca2b8e",
         "path": ".engine/tools/scoped_agents.py"
       },
       "status": "active",
@@ -16873,7 +16873,7 @@
       },
       "slug": "test_build_coordinator",
       "source": {
-        "fingerprint": "sha256:437c0a4e66593ff337838f7fa770eed690edf0bb058f774c2ba6a332ea72f7df",
+        "fingerprint": "sha256:3253424de031f3ae3f121b28098736752e1f7d67f93e34bd839ea49354ca0ddb",
         "path": ".engine/tools/test_build_coordinator.py"
       },
       "status": "active",
