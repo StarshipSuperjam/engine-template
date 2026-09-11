@@ -5307,7 +5307,7 @@
       },
       "slug": "result-contracts",
       "source": {
-        "fingerprint": "sha256:6355cb10504c855234962ec088627761165165f314b363497aa12a973f698d0f",
+        "fingerprint": "sha256:bd9709f3912a17628118ebe80ae80ee4e75b995dadda393cb0c725cb23ccaede",
         "path": ".engine/docs/result-contracts.md"
       },
       "status": "active",
@@ -7734,7 +7734,7 @@
       },
       "slug": "plan-record.v1",
       "source": {
-        "fingerprint": "sha256:1f801e48720b562c5ba0961bacd714cd97582a05b7a898d96471bb4066a73a40",
+        "fingerprint": "sha256:43d4f677d44d244c8f44e554feed62c2a58297e80bafe41e56544f65aca5c8c0",
         "path": ".engine/schemas/plan-record.v1.json"
       },
       "status": "active",
@@ -9808,7 +9808,7 @@
       },
       "slug": "build_coordinator",
       "source": {
-        "fingerprint": "sha256:c0a7ec630c25152c50c0f7f58c370308e144435fb9448d875b688e47f4ada3db",
+        "fingerprint": "sha256:a7785e28de54a2c9d397f7767aa68c89aaf13d3e493ddacc66a8e3494a3aa639",
         "path": ".engine/tools/build_coordinator.py"
       },
       "status": "active",
@@ -14614,7 +14614,7 @@
       },
       "slug": "plan_projection",
       "source": {
-        "fingerprint": "sha256:a8143a38f4f0af72cde5ed8a5dd1f51baad30ea6040b4c241716146f1b98d282",
+        "fingerprint": "sha256:0453d0232d7b4d494b105b0d6df5118a3c40e9f64c630b4094ac4052dc18cc3a",
         "path": ".engine/tools/plan_projection.py"
       },
       "status": "active",
@@ -14822,7 +14822,7 @@
       },
       "slug": "project_manager",
       "source": {
-        "fingerprint": "sha256:4e6b155d8bef531a88ac71eecf7c7b53b97256b1e503897dc80e3b5080bc742b",
+        "fingerprint": "sha256:241ab026cc07fbdfd5edf3bf9b693d687b14ddfec1b5d9e89f003813463b753e",
         "path": ".engine/tools/project_manager.py"
       },
       "status": "active",
@@ -15543,7 +15543,7 @@
       },
       "slug": "reviewer_contracts",
       "source": {
-        "fingerprint": "sha256:884c1f64c96b01df27e4acde12e3418bcb98971a762ce6631d9854e5c21155e9",
+        "fingerprint": "sha256:0a661a99cd2262deb81a599a88cd7e539149b13aab16e059b56f90b3e95b19ec",
         "path": ".engine/tools/reviewer_contracts.py"
       },
       "status": "active",
@@ -16848,7 +16848,7 @@
       },
       "slug": "test_build_coordinator",
       "source": {
-        "fingerprint": "sha256:b9b9ee7ad6bee73bad65c08ac0b8db12da1c0f559c39cd3e05abb914efd19135",
+        "fingerprint": "sha256:7a041ad99eb49334159cc36d94bc4e3cba5bb7d837a2ae695f0f49e0812319ea",
         "path": ".engine/tools/test_build_coordinator.py"
       },
       "status": "active",
@@ -20269,7 +20269,7 @@
       },
       "slug": "test_project_manager",
       "source": {
-        "fingerprint": "sha256:986f6fad0ee880b77524bc75c9bb70197d1267ad002f027d91fc7588a1f9adf3",
+        "fingerprint": "sha256:f8d2bd99fe0a2e53cca4843b3553e62a7a55686637b723b0a08f5b2bf149e9a5",
         "path": ".engine/tools/test_project_manager.py"
       },
       "status": "active",
@@ -21006,7 +21006,7 @@
       },
       "slug": "test_reviewer_contracts",
       "source": {
-        "fingerprint": "sha256:20fa49dc6c5b123f4e2860c02f9985912b36571c739814a28293151c787ae793",
+        "fingerprint": "sha256:7298b92c1143be74d4e81dd0c7e9d158e6720c5284de0f04c7da52969ebca40f",
         "path": ".engine/tools/test_reviewer_contracts.py"
       },
       "status": "active",
