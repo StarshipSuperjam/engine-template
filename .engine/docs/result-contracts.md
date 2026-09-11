@@ -230,3 +230,25 @@ witness does not claim live reviewer qualification or a real CI run.
 Each of `--break-identity-preservation`, `--break-envelope-validation` and
 `--break-fresh-legacy-separation` deliberately breaks one safeguard in memory and must exit nonzero
 because its acceptance assertion fails. Nothing touches the real plan library.
+
+### Cumulative review coverage demonstration
+
+Run `uv run --directory .engine --frozen -- python tools/demo_review_coverage.py` to exercise an
+initial five-lens review, four repairs by one lens, packet refresh/retry, a clean target merge and a
+later authored edit. It checks immutable originals, surviving findings, zero redundant repair
+assignments, a successful production submission preview, and refusal when a middle read is missing.
+`--lose-coverage` deliberately removes retained reads; `--overcredit-gap` deliberately credits unread
+work. Each must exit nonzero because a behavioral assertion fails.
+
+The Git history and coordinator coverage, receipt, finding and submission owners are real. Native
+event transport, CI/preflight and GitHub observations are disposable synthetic fixtures. This evidence
+does not replace live reviewer qualification or final CI. The demo's permanent fate is regression
+coverage in `TestCumulativeReviewScenario` and `test_review_economy.ReviewCoverageDemo`.
+
+The regression suite also alternates repair lenses. Each lens retains its original deliverable
+obligation and the repair ranges assigned to it; other recorded proportional repairs are excluded,
+not described as reads. A later edit without such a decision remains unread, including after a
+reverified rebase. Refreshing the deliverable packet asks its new whole scope. Execution disclosure
+includes retained original receipts, so a later nonexecuting review cannot hide an earlier execution.
+Historical receipts without an execution declaration remain unchanged and are disclosed as unknown;
+a fresh current receipt supplies its own declaration without claiming what the earlier reviewer did.

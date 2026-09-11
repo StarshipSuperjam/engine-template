@@ -1233,6 +1233,52 @@ class TransactionalOwnership(unittest.TestCase):
         self.assertEqual(output.read_text(), 'other creator won')
         self.assertEqual(list(self.root.glob('raced.json.*')), [])
 
+    def test_original_review_history_survives_restart_failed_write_retry_and_restore(self):
+        import build_coordinator as bc
+        from test_review_economy import _RealRepo
+        repo = _RealRepo(); repo.setUp(); self.addCleanup(repo.doCleanups)
+        first = repo.commit("source.py", "initial")
+        tip = repo.commit("source.py", "repair")
+        original = {"lens":"usability", "packet_digest":"sha256:"+"1"*64,
+            "commit":first, "finding_ids":[], "reviewed_range":{"base":repo.base,"tip":first}}
+        repair = {"lens":"usability", "packet_digest":"sha256:"+"2"*64,
+            "commit":tip, "finding_ids":[], "reviewed_range":{"base":first,"tip":tip}}
+        history = [{"stage":"deliverable","receipt":original,"effective":False}]
+        self.state["review_evidence_history"] = history
+        self.state["reviews"]["deliverable"]["receipts"] = [repair]
+        claim = self.reserve(); saved = self.finish(claim)
+        identity = build_state_store.claim_identity(claim)
+        store = build_state_store.ClaimedBuildStore(self.lib,self.slug,SCHEMA,identity=identity)
+        def coverage(state):
+            return bc.ranges.cumulative_coverage(repo.repo,
+                [r for _,r in bc.review.retained_receipts(state)], repo.base, tip)
+        expected = coverage(saved); self.assertTrue(expected["covered"])
+        path = Path(claim["snapshot"]); before = path.read_bytes()
+        with mock.patch.object(core, "atomic_write", side_effect=OSError("interrupted before replace")):
+            with self.assertRaisesRegex(OSError, "interrupted before replace"):
+                store.mutate(lambda s: s.update(submission="draft"), from_revision=1)
+        self.assertEqual(before, path.read_bytes())
+        store.mutate(lambda s: s.update(submission="draft"), from_revision=1)
+        before = path.read_bytes()
+        with self.assertRaises(core.CoordinatorError):
+            store.mutate(lambda s: s.update(review_evidence_history=[]), from_revision=1)
+        self.assertEqual(before, path.read_bytes())
+        saved = build_state_store.ClaimedBuildStore(self.lib,self.slug,SCHEMA,identity=identity).read()
+        self.assertEqual(expected, coverage(saved)); self.assertEqual(history,saved["review_evidence_history"])
+        value = bc._handoff(saved); value["snapshot"] = claim["snapshot"]
+        restored = bc._restore_base_state(value,"build-state.v2"); restored["work"] = {}
+        self.assertNotIn("review_evidence_history",value)
+        updated = build_state_store.restore_handoff(self.lib,self.slug,value,restored,SCHEMA,
+            worktree=self.state["build"]["worktree"],projection=bc._handoff)
+        self.assertEqual(history,updated["review_evidence_history"])
+        self.assertEqual(expected,coverage(updated))
+        # An export cannot invent originals after their canonical home is lost.
+        path.unlink()
+        with self.assertRaises(core.CoordinatorError):
+            build_state_store.restore_handoff(self.lib,self.slug,value,restored,SCHEMA,
+                worktree=self.state["build"]["worktree"],projection=bc._handoff)
+        self.assertFalse(path.exists())
+
     def test_handoff_restore_preserves_private_integration_verification(self):
         import build_coordinator as bc
         self.state['work'] = {'N1': {'attempt_count': 1, 'claim': None, 'latest_result': None,

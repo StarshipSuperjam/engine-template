@@ -267,6 +267,7 @@ def _local_validation_schema(schema_path: Path) -> dict:
     """
     import result_contracts
     budget = [0, 0]
+    documents = {}
 
     def expand(value, depth=0):
         budget[0] += 1
@@ -283,7 +284,7 @@ def _local_validation_schema(schema_path: Path) -> dict:
             budget[1] += 1
             if budget[1] > 256:
                 result_contracts.reject("schema_reference_limit", category="authority")
-            target = result_contracts.local_schema(ref, schema_path.parent)
+            target = result_contracts.local_schema(ref, schema_path.parent, _documents=documents)
             siblings = expand({k: v for k, v in value.items() if k != "$ref"}, depth + 1)
             return {"allOf": [target, siblings]} if siblings else target
         return {k: expand(v, depth + 1) for k, v in value.items()}

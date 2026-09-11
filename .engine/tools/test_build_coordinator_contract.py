@@ -308,6 +308,7 @@ class TestPreviewEvidence(unittest.TestCase):
                            "results": [{"id": "engine-ci", "commit": "a" * 40, "passed": True,
                                         "log_digest": "sha256:abc", "log_path": "/tmp/secret.log"}]},
             "repair": None,
+            "reviews": {"deliverable": {"packet_digest": None, "receipts": [], "reviewer_contracts": []}},
             "findings": findings if findings is not None else [],
         }
 
@@ -453,7 +454,7 @@ class TestPreviewEvidence(unittest.TestCase):
 
     def _state_with_receipts(self, receipts):
         s = self._state()
-        s["reviews"] = {"plan": {"receipts": []}, "deliverable": {"receipts": receipts}}
+        s["reviews"]["deliverable"]["receipts"] = [dict(packet_digest=None, finding_ids=[], commit="a"*40, **r) for r in receipts]
         return s
 
     def _assemble(self, bc, state):
@@ -480,6 +481,23 @@ class TestPreviewEvidence(unittest.TestCase):
         with self.assertRaises(bc.CoordinatorError) as ctx:
             self._assemble(bc, self._state_with_receipts([{"lens": "usability"}]))  # predates the field
         self.assertIn("re-recorded", str(ctx.exception))
+
+    def test_archived_execution_is_disclosed_after_a_nonexecuting_repair(self):
+        import build_coordinator as bc
+        state = self._state_with_receipts([{"lens":"usability", "code_execution":"none"}])
+        original = dict(state["reviews"]["deliverable"]["receipts"][0], code_execution="in-place")
+        state["review_evidence_history"] = [{"stage":"deliverable", "receipt":original, "effective":False}]
+        evidence = self._assemble(bc, state)
+        self.assertIn("directly in this checkout", evidence["code_execution_line"])
+        original.pop("code_execution")
+        evidence = self._assemble(bc, state)
+        self.assertIn("execution is unknown", evidence["code_execution_line"])
+        self.assertNotIn("no reviewer executed", evidence["code_execution_line"])
+        self.assertNotIn("code_execution", original)
+        state["reviews"]["deliverable"]["receipts"][0]["code_execution"] = "discarded-copy"
+        evidence = self._assemble(bc, state)
+        self.assertIn("throwaway copy", evidence["code_execution_line"])
+        self.assertIn("execution is unknown", evidence["code_execution_line"])
 
     def test_review_coverage_reflects_whether_cold_reviewers_actually_ran(self):
         # A false-claim guard (surfaced by dogfooding the coordinator at quick depth): the Review "Coverage"

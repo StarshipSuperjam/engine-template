@@ -30,7 +30,8 @@ After accepted repairs, measure reviewed-to-final divergence with `repair assess
 - `full`: re-read all applicable lenses when architecture, authority or broad behavior changed.
 The same judgment applies after target-branch reconciliation. Diff size and touched surfaces inform, never choose. Packets identify `anchor..commit`, so a repair review reads the repair. Scoped/full packets require current candidate validation; each later fix gets a new proportional judgment. There is no automatic audit recursion.
 
-A receipt states the range a lens read. Rebinding retains covering receipts byte-for-byte and names unread authored commits for the others. Derived-only regeneration invalidates no coverage and opens no round.
+Retain original receipts and their execution evidence: compatible exact read ranges combine per lens, but cannot bridge gaps or make a spliced repair stand for an unread whole-deliverable range. Each lens owes its original deliverable scope and assigned repairs; other proportional repairs are excluded without claiming they were read. A refreshed delivery packet asks its new scope.
+Retaining a read neither revives settled findings nor settles unresolved ones. Disposition each finding against its original receipt ID and stage, even after refresh or restart. See [Result contracts](../docs/result-contracts.md#cumulative-review-coverage-demonstration) for the executable example.
 `none` is a terminal judgment and clears the repair packet; if it would discard uncovered receipts, it refuses unless `--accept-receipt-loss` is explicit. Scoped/full asks for the missing read instead. Do not turn this flag into routine bookkeeping.
 A behavior-changing or large repair after lighter review suggests under-chosen depth: lean scoped/full when the defect and fix warrant it. Depth remains engineering judgment, not a size threshold.
 
@@ -50,7 +51,6 @@ Only proven imported target ancestry and that exact automatic merge are exempt f
 A clean catch-up alone needs no receipt-loss flag or extra counted panel. Conflicts, extra merge edits, unrelated/octopus merges, missing objects, ambiguous targets or failed proof remain ordinary authored/unverified work; use the warranted scoped/full judgment.
 Failed remote verification grants no new exemption: check the clean checkout, pushed draft identity and fetched target, then retry. Intentional rebases use [Build continuity](build-continuity.md). Re-import final CI proof after later changes.
 
-See [Executable persona result contracts](../docs/result-contracts.md): dispatch binding, observed-report validation, substitution refusal, recovery and demo.
 ### Reviewer contract continuity
 
 The Build carries the approved reviewer envelope. Packet refresh preserves compatible receipts and

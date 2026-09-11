@@ -444,7 +444,11 @@ class Store:
         return self.change(update)
 
     def verified_locked(self, *, owner, root, lens, packet_digest, assignment_id=None):
-        candidates = [a for a in self.read()["assignments"].values() if a["owner"] == owner and
+        return self._verified(self.read(), owner=owner, root=root, lens=lens,
+                              packet_digest=packet_digest, assignment_id=assignment_id)
+
+    def _verified(self, data, *, owner, root, lens, packet_digest, assignment_id=None):
+        candidates = [a for a in data["assignments"].values() if a["owner"] == owner and
                       a["root"] == root and a["lens"] == lens and a["packet_digest"] == packet_digest
                       and (assignment_id is None or a["id"] == assignment_id)]
         valid = []
@@ -609,10 +613,24 @@ class Store:
                                      "outputs": {a["id"]: a["stops"][-1]["digest"] for a in assignments}}
         self.write_locked(data)
 
-    def receipt_verified(self, receipt, owner, *, retained_contract=None):
+    def receipt_verified(self, receipt, owner, *, retained_contract=None, _observations=None):
         """History remains readable; a missing companion never upgrades it to fresh execution."""
         try:
-            data = self.read()
+            if _observations is None:
+                data = self.read()
+            else:
+                # Reuse parsing only while the companion's exact bytes still match. Native
+                # observations may replace it during this same calculation.
+                key = (str(self.path.resolve()), core.canonical(owner))
+                content = self.path.read_bytes()
+                cached = _observations.get(key)
+                if cached is None or cached[0] != content:
+                    data = self.read()
+                    if self.path.read_bytes() != content:
+                        return False
+                    _observations[key] = (content, data)
+                else:
+                    data = cached[1]
             accepted = data["acceptances"].get(receipt_key(receipt))
             if not accepted:
                 return False
@@ -650,7 +668,7 @@ class Store:
                     return False
                 if a["owner"] != recorded or not a["accepted"] or a["faults"] or not a["stops"]:
                     return False
-                verified = self.verified_locked(owner=recorded, root=a["root"], lens=a["lens"],
+                verified = self._verified(data, owner=recorded, root=a["root"], lens=a["lens"],
                                                 packet_digest=a["packet_digest"], assignment_id=assignment_id)
                 if verified["id"] != assignment_id:
                     return False
@@ -709,13 +727,15 @@ def validate_initial_build_finding(library, state, receipt, entry):
         raise result_contracts.Rejection("authority", "observed_report_mismatch").as_error(EvidenceError)
 
 
-def missing_build_evidence(library, state, receipts):
+def missing_build_evidence(library, state, receipts, *, _observations=None):
     if not receipts:
         return []
     try:
         store = Store(library, library.resolve(state["plan"]["plan_id"]))
         adopted = reviewer_contracts.adoption(state)
+        observations = {} if _observations is None else _observations
         return sorted({r["lens"] for r in receipts if not store.receipt_verified(r, build_owner(state),
+                       _observations=observations,
                        retained_contract=adopted["contract"] if adopted and reviewer_contracts.adopted_obligation(state, r, r["lens"]) else None)
                        and not reviewer_contracts.historical_execution(state, r, build_owner(state))})
     except (OSError, ValueError, KeyError, core.CoordinatorError):

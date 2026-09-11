@@ -67,6 +67,92 @@ class _RealRepo(unittest.TestCase):
                 "reviewed_range": {"base": base, "tip": tip}, **over}
 
 
+class CumulativeOriginalReads(_RealRepo):
+    def test_read_query_reuses_only_one_calculation_and_new_queries_recheck_git(self):
+        from unittest.mock import patch
+        tip = self.commit("app.py", "reviewed")
+        with patch.object(ranges, "commits", wraps=ranges.commits) as read:
+            query = ranges.ReadQuery(self.repo)
+            self.assertEqual([tip], query.commits(self.base, tip))
+            self.assertEqual([tip], query.commits(self.base, tip))
+            self.assertEqual(1, read.call_count)
+        with patch.object(ranges, "commits", side_effect=ranges.RangeUnreadable("object disappeared")):
+            with self.assertRaises(ranges.RangeUnreadable):
+                ranges.ReadQuery(self.repo).commits(self.base, tip)
+
+    def test_four_repairs_accumulate_without_bridging_a_gap(self):
+        heads = [self.base] + [self.commit("src.py", str(n)) for n in range(6)]
+        originals = [self.receipt("security-governance", heads[n], heads[n+1]) for n in range(5)]
+        before = json.dumps(originals, sort_keys=True)
+        for count in range(1, 6):
+            result = ranges.cumulative_coverage(self.repo, originals[:count], self.base, heads[5])
+            self.assertEqual(heads[count+1:6][::-1], result["unread"])
+        self.assertEqual([heads[6]], ranges.cumulative_coverage(self.repo, originals, self.base, heads[6])["unread"])
+        self.assertEqual([heads[3]], ranges.cumulative_coverage(self.repo, originals[:2]+originals[3:], self.base, heads[5])["unread"])
+        self.assertEqual(before, json.dumps(originals, sort_keys=True))
+
+    def test_overlap_duplicates_and_order_do_not_change_exact_coverage(self):
+        a = self.commit("src.py", "a"); b = self.commit("src.py", "b"); c = self.commit("src.py", "c")
+        first = self.receipt("usability", self.base, b)
+        second = self.receipt("usability", a, c)
+        for receipts in ([first, second], [second, first, first], [second, second, first]):
+            result = ranges.cumulative_coverage(self.repo, receipts, self.base, c)
+            self.assertTrue(result["covered"])
+            self.assertEqual([c,b,a], result["read"])
+
+    def test_unreadable_question_is_not_a_zero_count(self):
+        unknown = "f" * 40
+        for base, tip in ((self.base, unknown), (unknown, unknown), (None, self.base)):
+            result = ranges.cumulative_coverage(self.repo, [], base, tip)
+            self.assertFalse(result["verified"])
+            self.assertFalse(result["covered"])
+            self.assertIsNone(result["unread"])
+            self.assertIn("cannot be measured", ranges.cumulative_report("usability", result))
+
+    def test_missing_original_range_does_not_credit_work(self):
+        a = self.commit("src.py", "a"); b = self.commit("src.py", "b")
+        narrow = self.receipt("usability", a, b)
+        missing = self.receipt("usability", "f"*40, a)
+        result = ranges.cumulative_coverage(self.repo, [missing, narrow], self.base, b)
+        self.assertEqual([a], result["unread"])
+        self.assertIn("restore", ranges.cumulative_report("usability", result))
+        good = self.receipt("usability", self.base, a)
+        self.assertTrue(ranges.cumulative_coverage(self.repo, [missing, narrow, good], self.base, b)["covered"])
+
+    def test_an_unrelated_branch_cannot_fill_the_gap(self):
+        a = self.commit("src.py", "a")
+        self.git("checkout", "-q", "-b", "other", self.base)
+        other = self.commit("other.py", "other")
+        receipt = self.receipt("usability", self.base, other)
+        self.assertEqual([a], ranges.cumulative_coverage(self.repo, [receipt], self.base, a)["unread"])
+
+    def test_spliced_matching_lens_packet_is_not_whole_deliverable_acceptance(self):
+        a = self.commit("src.py", "a"); b = self.commit("src.py", "b")
+        narrow = self.receipt("usability", a, b, packet_digest="repair", lens_packet_digest="repair-lens")
+        stage = {"base_commit":self.base,"reviewed_commit":b,"packet_digest":"deliverable",
+                 "reviewer_contracts":[{"lens":"usability","lens_packet_digest":"repair-lens"}]}
+        self.assertFalse(review.receipt_attests_scope(stage, narrow))
+        repair = {**stage,"packet_digest":"repair","reviewed_commit":a,"final_commit":b}
+        self.assertTrue(review.receipt_attests_scope(repair, narrow, "repair"))
+        # Even transplanting the packet name cannot widen its original read range.
+        self.assertFalse(review.receipt_attests_scope({**stage,"packet_digest":"repair"}, narrow))
+
+    def test_history_effectiveness_does_not_select_coverage_but_authority_does(self):
+        a = self.commit("src.py", "a")
+        original = self.receipt("usability", self.base, a, obligation_digest="approved")
+        state = {"reviews":{"deliverable":{"packet_digest":"current","receipts":[]}},"repair":None,
+                 "review_evidence_history":[{"stage":"deliverable","receipt":original,"effective":False}]}
+        contract = {"lens":"usability","obligation_digest":"approved"}
+        eligible, rejected = review.eligible_coverage_receipts(state, contract, lambda r: True)
+        self.assertEqual([original], eligible); self.assertEqual([], rejected)
+        self.assertEqual([], review.live_receipts(state))
+        self.assertTrue(ranges.cumulative_coverage(self.repo, eligible, self.base, a)["covered"])
+        for mandate, verified in (("changed", True), ("approved", False)):
+            eligible, rejected = review.eligible_coverage_receipts(state, {**contract,"obligation_digest":mandate}, lambda r: verified)
+            self.assertEqual([], eligible); self.assertTrue(rejected)
+        self.assertEqual([], review.eligible_coverage_receipts(state, {**contract,"lens":"security-governance"}, lambda r: True)[0])
+
+
 class ThePr1063Replay(_RealRepo):
     """Three mechanics, one build, all three demanding reviews that would do no work."""
 
@@ -336,10 +422,22 @@ class TheRoundCounter(_RealRepo):
     """The third mechanic: the operator gate fired over accounting rather than over a failing build."""
 
     def _assess(self, state: dict, head: str, judgment="scoped", lenses=("usability",), **over):
+        # Synthetic accepted descriptors isolate these real-Git counter tests from native ingress.
+        state.setdefault("findings", [])
+        descriptors = {}
+        for _, receipt in review.retained_receipts(state):
+            descriptor = {"lens":receipt["lens"],"path":"fixture/"+receipt["lens"]+".md","digest":"sha256:"+"7"*64}
+            descriptors[receipt["lens"]] = descriptor
+            receipt.setdefault("referent_digest", "sha256:"+"8"*64)
+            receipt.setdefault("lens_packet_digest", review.lens_packet_digest(receipt["referent_digest"], descriptor))
+        if descriptors:
+            state["reviews"]["deliverable"]["reviewer_contracts"] = list(descriptors.values())
         store = _Store(state)
         args = argparse.Namespace(judgment=judgment, rationale="r", lens=list(lenses) or None,
                                   guidance=None, **over)
-        with mock.patch.object(bc, "ROOT", self.repo), \
+        # This suite measures Git/counter behavior; native evidence ingress is tested separately.
+        with mock.patch.object(bc.scoped_agents, "missing_build_evidence", return_value=[]), \
+                mock.patch.object(bc, "ROOT", self.repo), \
                 mock.patch.object(bc, "_head", return_value=head), \
                 mock.patch.object(bc, "_must_run", return_value="1 file changed"), \
                 mock.patch.object(bc, "_history_was_rewritten", return_value=False), \
@@ -825,6 +923,27 @@ class TheV1SunsetDemo(unittest.TestCase):
         import quiet_call
         import demo_v1_plan_sunset_refused as demo
         self.assertEqual(quiet_call.run(demo.main), 0)
+
+
+
+
+
+class ReviewCoverageDemo(unittest.TestCase):
+    """Permanent fate: the operator scenario and both deliberate false-positive controls."""
+
+    def test_demo_normal_and_both_faults_reach_meaningful_assertions(self):
+        import demo_review_coverage
+        import quiet_call
+        for flag in (None,"--lose-coverage","--overcredit-gap"):
+            with self.subTest(fault=flag), contextlib.redirect_stdout(io.StringIO()) as output:
+                code = quiet_call.run(demo_review_coverage.main,[flag] if flag else [],stream=output)
+            self.assertEqual(1 if flag else 0,code,output.getvalue())
+            self.assertNotIn("ERROR:",output.getvalue(),"A harness error is not a falsification")
+            if flag:
+                self.assertIn("FAIL:",output.getvalue())
+                self.assertIn("AssertionError",output.getvalue())
+            else:
+                self.assertIn("production submit preview reaches mark-ready",output.getvalue())
 
 
 if __name__ == "__main__":

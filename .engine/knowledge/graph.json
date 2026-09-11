@@ -5307,7 +5307,7 @@
       },
       "slug": "result-contracts",
       "source": {
-        "fingerprint": "sha256:bd9709f3912a17628118ebe80ae80ee4e75b995dadda393cb0c725cb23ccaede",
+        "fingerprint": "sha256:bad2d37ba48a5140aa5be3929787dd379ba251e0d83fdce0ab78f83b3c398a2f",
         "path": ".engine/docs/result-contracts.md"
       },
       "status": "active",
@@ -5760,7 +5760,7 @@
       },
       "slug": "build-continuity",
       "source": {
-        "fingerprint": "sha256:5b137d23050ce7ec0f21e3251ffb461281003e224083a5bdc919f65c2cbd766c",
+        "fingerprint": "sha256:90aae9d878ba656422cfcad947f0dd203c3359f17c0323a4ed3cec43872c8fd4",
         "path": ".engine/operations/build-continuity.md"
       },
       "status": "active",
@@ -5920,7 +5920,7 @@
       },
       "slug": "build-validation-and-review",
       "source": {
-        "fingerprint": "sha256:7c00e4f79c5582af878a8f15193bfdb13a80d8d095d49e66ffdfd68e90fee3c5",
+        "fingerprint": "sha256:7a7f85ad3a44cb1dabd2d45e308b4b30b366cce330117288c5b458d6767e2746",
         "path": ".engine/operations/build-validation-and-review.md"
       },
       "status": "active",
@@ -9808,7 +9808,7 @@
       },
       "slug": "build_coordinator",
       "source": {
-        "fingerprint": "sha256:a7785e28de54a2c9d397f7767aa68c89aaf13d3e493ddacc66a8e3494a3aa639",
+        "fingerprint": "sha256:5242303c3f7b0e4c8b438726ebe97e1a8389bda1682d678a7502c0515900f594",
         "path": ".engine/tools/build_coordinator.py"
       },
       "status": "active",
@@ -9855,7 +9855,7 @@
       },
       "slug": "build_coordinator_core",
       "source": {
-        "fingerprint": "sha256:09f7a09df4ff3e793ab70b44a6a56b9023500e21963cf41d78589dd09f389fae",
+        "fingerprint": "sha256:7ef204d90dda0ca50444a0aa27d680903d6c8bbb89a59d5008921a35ebfdae17",
         "path": ".engine/tools/build_coordinator_core.py"
       },
       "status": "active",
@@ -9953,7 +9953,7 @@
       },
       "slug": "build_coordinator_review",
       "source": {
-        "fingerprint": "sha256:bddb62204f7f80e862c1f9fdb52eec2f556f22357501f96828b6b572f5b0ffa9",
+        "fingerprint": "sha256:8c9d2ea82a5a5caa3fc5f13ae76b1ad9d87bb2ff81131e6f0cafa3cadb90a24d",
         "path": ".engine/tools/build_coordinator_review.py"
       },
       "status": "active",
@@ -10121,7 +10121,7 @@
       },
       "slug": "build_review_range",
       "source": {
-        "fingerprint": "sha256:02d67b463b3de08b8da36bcc5f543a97bdeaca47fb7f8a1663b0eef0bc028563",
+        "fingerprint": "sha256:3fec3bb800c20a1135250e09b866610743f1eba562f46b2a5d1f73d9ff4213b6",
         "path": ".engine/tools/build_review_range.py"
       },
       "status": "active",
@@ -11804,7 +11804,7 @@
       },
       "slug": "demo_plan_to_ready_pr",
       "source": {
-        "fingerprint": "sha256:f8d46a8c2f649b3660b3374dde3a16ef2c6df20e524ea3aff88d9244ba5709ce",
+        "fingerprint": "sha256:2668928952922946c0dc9a0fb7ec34bed6f8d36f5ea0a09da667e6830f63da36",
         "path": ".engine/tools/demo_plan_to_ready_pr.py"
       },
       "status": "active",
@@ -12104,6 +12104,30 @@
       },
       "status": "active",
       "summary": "Operator-runnable demo of the BIDIRECTIONAL orientation walk (engine-template #37).",
+      "type": "tool"
+    },
+    {
+      "entrypoint": "demo",
+      "guarded": false,
+      "id": "tool:demo_review_coverage",
+      "name": ".engine/tools/demo_review_coverage.py",
+      "owner": "core",
+      "predicates": {
+        "imports": [
+          "tool:build_coordinator_review",
+          "tool:build_review_range"
+        ],
+        "provided_by": [
+          "module:core"
+        ]
+      },
+      "slug": "demo_review_coverage",
+      "source": {
+        "fingerprint": "sha256:45ee702c81e1e6eede5d4272261c59335f8d7c0644238dc1f625d0f6956c0874",
+        "path": ".engine/tools/demo_review_coverage.py"
+      },
+      "status": "active",
+      "summary": "Falsify cumulative coverage through real Git and the production submission gate.",
       "type": "tool"
     },
     {
@@ -15447,7 +15471,7 @@
       },
       "slug": "result_contracts",
       "source": {
-        "fingerprint": "sha256:7139c74a79ceae271a3019b335555ab9bc77fd6898245d79eb6db5a7dd2591e5",
+        "fingerprint": "sha256:42b53faf58e92f910ee37d64a2564bb1de6bf9929fabb383ad7293dd920cae13",
         "path": ".engine/tools/result_contracts.py"
       },
       "status": "active",
@@ -15543,7 +15567,7 @@
       },
       "slug": "reviewer_contracts",
       "source": {
-        "fingerprint": "sha256:0a661a99cd2262deb81a599a88cd7e539149b13aab16e059b56f90b3e95b19ec",
+        "fingerprint": "sha256:25e35aab210ed6cdfbb4fcfe546f5a577a5dfd8b69eeb48683f1e1067346e0f3",
         "path": ".engine/tools/reviewer_contracts.py"
       },
       "status": "active",
@@ -15719,7 +15743,7 @@
       },
       "slug": "scoped_agents",
       "source": {
-        "fingerprint": "sha256:0b5efa1597a0c5c78b2d9d408ef176b9e780356b5383b0288ba1b79439f4c031",
+        "fingerprint": "sha256:e8ce1adf4acd09f9d1829093dad5e97c15f480a9a1361fd2007decb8eda5783d",
         "path": ".engine/tools/scoped_agents.py"
       },
       "status": "active",
@@ -16843,12 +16867,13 @@
           "tool:spec_referent",
           "tool:test_build_coordinator_contract",
           "tool:test_build_state_store",
-          "tool:test_plan_store"
+          "tool:test_plan_store",
+          "tool:test_review_economy"
         ]
       },
       "slug": "test_build_coordinator",
       "source": {
-        "fingerprint": "sha256:7a041ad99eb49334159cc36d94bc4e3cba5bb7d837a2ae695f0f49e0812319ea",
+        "fingerprint": "sha256:16651f1fabc13ba6fceddf3b51b68930a90b9e9e47dac7ee1b3fb13b5871867e",
         "path": ".engine/tools/test_build_coordinator.py"
       },
       "status": "active",
@@ -16878,7 +16903,7 @@
       },
       "slug": "test_build_coordinator_contract",
       "source": {
-        "fingerprint": "sha256:3d8825788de5ca6bd156aa56fff7821ff564efb50f4e645c786abd6a267d3152",
+        "fingerprint": "sha256:1d8ff04924a06a368dce33cb1682fa8778419ecd0f4916e528299047833bff5e",
         "path": ".engine/tools/test_build_coordinator_contract.py"
       },
       "status": "active",
@@ -17138,12 +17163,13 @@
           "tool:project_manager",
           "tool:quiet_call",
           "tool:test_build_coordinator",
-          "tool:test_plan_store"
+          "tool:test_plan_store",
+          "tool:test_review_economy"
         ]
       },
       "slug": "test_build_state_store",
       "source": {
-        "fingerprint": "sha256:d4e6f9e07426c66b62f00a7e353ea37f5c948ff3c88f6d218a45d35af7bd043c",
+        "fingerprint": "sha256:1d2f3ae4331636c044b268ff3dca693206209a7244a28430df561bb8945763aa",
         "path": ".engine/tools/test_build_state_store.py"
       },
       "status": "active",
@@ -20793,7 +20819,7 @@
       },
       "slug": "test_result_contracts",
       "source": {
-        "fingerprint": "sha256:63bf2334b4f00e3c5a9f60ee5b48fadc4085bbab34ae11491c2b48c8ae8071d3",
+        "fingerprint": "sha256:ee33b4e794998f7ff984d241a424ef58b0a967f36ed938af0c763fd05a721812",
         "path": ".engine/tools/test_result_contracts.py"
       },
       "status": "active",
@@ -20892,6 +20918,7 @@
           "tool:build_coordinator",
           "tool:build_coordinator_review",
           "tool:build_review_range",
+          "tool:demo_review_coverage",
           "tool:demo_v1_plan_sunset_refused",
           "tool:quiet_call",
           "tool:selftest_support",
@@ -20901,7 +20928,7 @@
       },
       "slug": "test_review_economy",
       "source": {
-        "fingerprint": "sha256:d4815d55d1bdd72fff4bc3fd2ec6fee04ab939405423ecfe5d20e2978d79f629",
+        "fingerprint": "sha256:3c5d68338620e73f37a65c654d42dc6928646608d055ce998bdc6cff9c6d92d8",
         "path": ".engine/tools/test_review_economy.py"
       },
       "status": "active",
@@ -21006,7 +21033,7 @@
       },
       "slug": "test_reviewer_contracts",
       "source": {
-        "fingerprint": "sha256:7298b92c1143be74d4e81dd0c7e9d158e6720c5284de0f04c7da52969ebca40f",
+        "fingerprint": "sha256:da7d4cbd4967c26425b9a627396084977a1f1eff7fc1a6dd0cfdd4e2aa72bdb8",
         "path": ".engine/tools/test_reviewer_contracts.py"
       },
       "status": "active",

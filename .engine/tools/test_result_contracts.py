@@ -16,6 +16,47 @@ import result_contracts as rc
 
 
 class ResultContracts(unittest.TestCase):
+    def test_cached_schema_syntax_rechecks_source_presence_bytes_and_limits(self):
+        from unittest.mock import patch
+        with tempfile.TemporaryDirectory() as folder:
+            root = Path(folder)
+            source = root / "schema.json"
+            original = '{"type":"object","properties":{"value":{"type":"string"}}}'
+            source.write_text(original)
+            expected = rc.local_schema("schema.json", root)
+            self.assertEqual(expected, rc.local_schema("schema.json", root))
+            with patch.dict(rc.LIMITS, {"values": 1}):
+                with self.assertRaises(rc.Rejection):
+                    rc.local_schema("schema.json", root)
+            source.write_text('{"type":"string","type":"object"}')
+            with self.assertRaises(rc.Rejection):
+                rc.local_schema("schema.json", root)
+            source.write_text(original)
+            self.assertEqual(expected, rc.local_schema("schema.json", root))
+            source.unlink()
+            with self.assertRaises(rc.Rejection):
+                rc.local_schema("schema.json", root)
+
+    def test_cached_metaschema_check_never_credits_changed_schema_or_result(self):
+        from unittest.mock import patch
+        binding = copy.deepcopy(self.review)
+        rc._check_schema_bytes.cache_clear()
+        with patch.object(Draft202012Validator, "check_schema", wraps=Draft202012Validator.check_schema) as check:
+            rc.validate_retained_binding(binding)
+            rc.validate_retained_binding(copy.deepcopy(binding))
+            self.assertEqual(1, check.call_count)
+            # Reusing schema validation never means reusing result validation.
+            with self.assertRaises(rc.Rejection):
+                rc.ingest('[{"severity":"invented"}]', binding, retained=True)
+            changed = copy.deepcopy(binding)
+            changed["schema"]["type"] = "not-a-json-schema-type"
+            changed["schema_digest"] = rc.digest(changed["schema"])
+            with self.assertRaises(rc.Rejection):
+                rc.validate_retained_binding(changed)
+            self.assertEqual(2, check.call_count)
+            rc.validate_retained_binding(binding)
+            self.assertEqual(2, check.call_count)
+
     def test_disposable_demo_succeeds_and_deliberate_bypass_fails(self):
         import contextlib
         import demo_result_contracts

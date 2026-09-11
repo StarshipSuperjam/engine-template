@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import copy
 import hashlib
+from functools import lru_cache
 import json
 from pathlib import Path
 import sys
@@ -204,7 +205,14 @@ def _schema(reference, root):
     return local_schema(reference, Path(root) / ".engine/schemas")
 
 
-def local_schema(reference, directory):
+@lru_cache(maxsize=16)
+def _validate_schema_source(raw, limits):
+    # Pure bounded syntax validation by exact bytes AND resource policy. No file existence,
+    # reference resolution, reviewer result or acceptance is cached here.
+    parse(raw, limits=dict(limits))
+
+
+def local_schema(reference, directory, *, _documents=None):
     """Resolve a schema or fragment inside one explicit directory, without network access.
 
     Durable plan validation opts into this same bounded resolver. Other durable schemas keep
@@ -212,7 +220,7 @@ def local_schema(reference, directory):
     """
     directory = Path(directory).resolve()
     budget = [0, 0]
-    documents = {}
+    documents = {} if _documents is None else _documents
 
     def load(ref, source=None, chain=()):
         if not isinstance(ref, str):
@@ -231,7 +239,9 @@ def local_schema(reference, directory):
         try:
             if path not in documents:
                 with path.open("rb") as handle:
-                    documents[path] = parse(handle.read(LIMITS["bytes"] + 1))
+                    raw = handle.read(LIMITS["bytes"] + 1)
+                _validate_schema_source(raw, tuple(sorted(LIMITS.items())))
+                documents[path] = json.loads(raw.decode("utf-8"))
             value = documents[path]
             if fragment:
                 if not fragment.startswith("/"):
@@ -263,6 +273,23 @@ def local_schema(reference, directory):
     return load(reference)
 
 
+@lru_cache(maxsize=32)
+def _check_schema_bytes(serialized):
+    """Cache only the pure metaschema check of exact schema bytes, never review evidence.
+
+    A changed schema is a new key; failures are not cached. Callers still load current source,
+    check bounds/bindings and validate each result. At most 32 bounded schemas are retained.
+    """
+    from jsonschema import Draft202012Validator
+    Draft202012Validator.check_schema(json.loads(serialized))
+
+
+def _check_schema(schema):
+    serialized = json.dumps(schema, sort_keys=True, separators=(",", ":"), allow_nan=False)
+    check = _check_schema_bytes if len(serialized) <= 65536 else _check_schema_bytes.__wrapped__
+    check(serialized)
+
+
 def resolve(contract, *, role=None, root=ROOT):
     if not isinstance(contract, str) or contract not in CONTRACTS:
         reject("unknown_contract", category="authority")
@@ -272,12 +299,11 @@ def resolve(contract, *, role=None, root=ROOT):
     result = {"id": contract, "mode": entry["mode"], "enforcement": entry["enforcement"],
               "limits": dict(LIMITS), "schema": None, "schema_digest": None}
     if entry["mode"] == "structured":
-        from jsonschema import Draft202012Validator
         schema = _schema(entry["schema"], root)
         if entry.get("array"):
             schema = {"type": "array", "maxItems": LIMITS["array_items"], "items": schema}
         try:
-            Draft202012Validator.check_schema(schema)
+            _check_schema(schema)
         except Exception:
             reject("invalid_schema", category="authority", contract=contract)
         result.update(schema=schema, schema_digest=digest(schema))
@@ -324,9 +350,8 @@ def validate_retained_binding(binding, *, contract=None, role=None):
             for value in node:
                 closed(value)
     closed(schema)
-    from jsonschema import Draft202012Validator
     try:
-        Draft202012Validator.check_schema(schema)
+        _check_schema(schema)
     except Exception:
         reject("invalid_schema", category="authority", contract=identity)
     return binding
