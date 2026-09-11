@@ -206,7 +206,7 @@ older Engine versions are not promised to understand these records.
 ### Reviewer contract demonstration
 
 Run `uv run --directory .engine --frozen -- python tools/project_manager.py demo-review-contracts`.
-The two acceptance matrices cover #1087 (identity and per-lens renewal) and #1127 (frozen approval and
+The two acceptance matrices cover StarshipSuperjam/engine-template#1087 (identity and per-lens renewal) and StarshipSuperjam/engine-template#1127 (frozen approval and
 historical continuity). Disposable Git histories exercise a real rebase, packet refresh, candidate
 commands, preflight and submission without a new reviewer launch. They also prove refusal after evidence
 loss or a new unread authored delta. GitHub responses and transport observations are synthetic; this

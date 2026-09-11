@@ -51,11 +51,7 @@ A clean catch-up alone needs no receipt-loss flag or extra counted panel. Confli
 Failed remote verification grants no new exemption: check the clean checkout, pushed draft identity and fetched target, then retry. Intentional rebases use [Build continuity](build-continuity.md). Re-import final CI proof after later changes.
 
 See [Executable persona result contracts](../docs/result-contracts.md): dispatch binding, observed-report validation, substitution refusal, recovery and demo.
-## Done when
-The final head has green candidate and imported CI evidence, every finding has a disposition, and every divergence has its proportional judgment and required receipts.
-Status reports submission-preflight and names [Build submission](build-submission.md).
-
-## Reviewer contract continuity
+### Reviewer contract continuity
 
 The Build carries the approved reviewer envelope. Packet refresh preserves compatible receipts and
 findings; it does not rediscover a new panel from installed files. Use `review contract-preview` and
@@ -65,3 +61,8 @@ finding change invalidates the PR contract and preflight. Historical receipt rec
 `review historical-preview` / `review historical-apply` route described in
 [Result contracts](../docs/result-contracts.md#historical-adoption-and-its-limits), including original
 backup, packet and source proof. Never replace missing observed companion evidence with historical credit.
+
+
+## Done when
+The final head has green candidate and imported CI evidence, every finding has a disposition, and every divergence has its proportional judgment and required receipts.
+Status reports submission-preflight and names [Build submission](build-submission.md).
