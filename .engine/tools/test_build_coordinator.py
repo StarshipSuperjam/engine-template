@@ -203,6 +203,8 @@ def _entry_observation_fixture(root, repository, number, pr):
 
 class CoordinatorCase(unittest.TestCase):
     def setUp(self):
+        from selftest_support import review_fixture
+        review_fixture(self)
         self.temp = tempfile.TemporaryDirectory()
         self.addCleanup(self.temp.cleanup)
         stable = mock.patch.object(

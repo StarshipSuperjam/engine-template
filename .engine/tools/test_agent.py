@@ -464,15 +464,22 @@ class TestShippedRosterDelegationPosture(unittest.TestCase):
 
     LEAF_LOCKED = ("engine-grounding-scout", "engine-validation-runner",
                    "engine-worker-bounded", "engine-worker-builder")
-    JUDGMENT = ("engine-audit",
-                "engine-design-review-architecture", "engine-design-review-feasibility",
-                "engine-design-review-product-intent", "engine-design-review-risk-governance",
-                "engine-qa-review-divergence-hunter", "engine-qa-review-security-governance",
-                "engine-qa-review-spec-conformance", "engine-qa-review-technical-integrity",
-                "engine-qa-review-usability")
+    DESIGN_REVIEW = ("engine-design-review-architecture", "engine-design-review-feasibility",
+                     "engine-design-review-product-intent", "engine-design-review-risk-governance")
+    QA_REVIEW = ("engine-qa-review-divergence-hunter", "engine-qa-review-security-governance",
+                 "engine-qa-review-spec-conformance", "engine-qa-review-technical-integrity",
+                 "engine-qa-review-usability")
+    JUDGMENT = ("engine-audit",) + DESIGN_REVIEW + QA_REVIEW
     # Both platform names for the subagent tool. The tool has been called Task and Agent at
     # different times, and a denylist naming only one is a lock with a rename-shaped hole in it.
     SUBAGENT_TOOLS = ("Agent", "Task")
+
+    def _needs_persona(self, name):
+        from selftest_support import needs_modules
+        if name in self.DESIGN_REVIEW:
+            needs_modules(self, "design-review")
+        elif name in self.QA_REVIEW:
+            needs_modules(self, "qa-review")
 
     def _fm(self, name):
         return dict(validate.frontmatter(os.path.join(AGENTS_DIR, f"{name}.md")))
@@ -529,13 +536,15 @@ class TestShippedRosterDelegationPosture(unittest.TestCase):
 
     def test_every_judgment_persona_carries_the_bounded_delegation_mandate(self):
         for name in self.JUDGMENT:
-            body = self._body(name)
-            self.assertIn("engine-grounding-scout", body,
-                          f"{name} does not name the scout it is allowed to dispatch")
-            self.assertIn("the delegation stops at the scout", body,
-                          f"{name} does not state that its delegation is a leaf")
-            self.assertIn("never end on work handed to someone else", body,
-                          f"{name} does not carry the no-deferral rule")
+            with self.subTest(persona=name):
+                self._needs_persona(name)
+                body = self._body(name)
+                self.assertIn("engine-grounding-scout", body,
+                              f"{name} does not name the scout it is allowed to dispatch")
+                self.assertIn("the delegation stops at the scout", body,
+                              f"{name} does not state that its delegation is a leaf")
+                self.assertIn("never end on work handed to someone else", body,
+                              f"{name} does not carry the no-deferral rule")
 
     def test_the_judgment_fleet_is_not_leaf_locked(self):
         # The bounded-delegation decision was deliberate: the lenses KEEP the ability to dispatch a
@@ -547,12 +556,14 @@ class TestShippedRosterDelegationPosture(unittest.TestCase):
         # it is a decision someone records rather than a line someone changes in passing. If that is
         # the call, change this case and say why in the same edit.
         for name in self.JUDGMENT:
-            deny = self._fm(name).get("disallowedTools") or []
-            for tool in self.SUBAGENT_TOOLS:
-                self.assertNotIn(tool, deny,
-                                 f"{name} is hard-locked, reversing the operator's bounded-delegation "
-                                 f"decision. If that reversal is intended, change this test and record "
-                                 f"the reason; if it is not, restore the mandate instead of the lock")
+            with self.subTest(persona=name):
+                self._needs_persona(name)
+                deny = self._fm(name).get("disallowedTools") or []
+                for tool in self.SUBAGENT_TOOLS:
+                    self.assertNotIn(tool, deny,
+                                     f"{name} is hard-locked, reversing the operator's bounded-delegation "
+                                     f"decision. If that reversal is intended, change this test and record "
+                                     f"the reason; if it is not, restore the mandate instead of the lock")
 
     def test_the_validation_runner_keeps_its_containment_and_raw_log_clauses(self):
         # Mirrors agent_coherence_check._SCOUT_CONTAINMENT_TOKENS deliberately, and must be kept equal
