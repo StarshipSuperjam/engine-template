@@ -8175,8 +8175,7 @@ class TestFrozenBuildContracts(CoordinatorCase):
             self.assertNotEqual(marker,bc._review_lineage_marker(state))
 
 
-if __name__ == "__main__":
-    unittest.main()
+
 
 
 class TestCumulativeReviewScenario(unittest.TestCase):
@@ -8302,3 +8301,7 @@ class TestCumulativeReviewScenario(unittest.TestCase):
         print("Completed repair refresh/retry: zero reviewer assignments. Clean target merge: production submit preview reaches mark-ready.")
         print("Missing middle read blocks submission; later authored change leaves exactly one unread commit.")
         print("Reviewing that later change preserves the unaffected original panel after the base advances.")
+
+
+if __name__ == "__main__":
+    unittest.main()

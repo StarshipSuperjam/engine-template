@@ -913,8 +913,7 @@ class TheV1SunsetDemo(unittest.TestCase):
         self.assertEqual(quiet_call.run(demo.main), 0)
 
 
-if __name__ == "__main__":
-    unittest.main()
+
 
 
 class ReviewCoverageDemo(unittest.TestCase):
@@ -933,3 +932,7 @@ class ReviewCoverageDemo(unittest.TestCase):
                 self.assertIn("AssertionError",output.getvalue())
             else:
                 self.assertIn("production submit preview reaches mark-ready",output.getvalue())
+
+
+if __name__ == "__main__":
+    unittest.main()

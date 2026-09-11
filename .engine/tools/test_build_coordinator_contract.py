@@ -308,6 +308,7 @@ class TestPreviewEvidence(unittest.TestCase):
                            "results": [{"id": "engine-ci", "commit": "a" * 40, "passed": True,
                                         "log_digest": "sha256:abc", "log_path": "/tmp/secret.log"}]},
             "repair": None,
+            "reviews": {"deliverable": {"packet_digest": None, "receipts": [], "reviewer_contracts": []}},
             "findings": findings if findings is not None else [],
         }
 

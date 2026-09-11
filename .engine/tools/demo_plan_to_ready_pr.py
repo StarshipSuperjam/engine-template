@@ -25,7 +25,7 @@ with its own throwaway plan library, so no command can pass by leaning on this i
 and nothing here can touch your real plans, your real repository, or a real pull request. The Plan
 Coordinator and the Build Coordinator are both invoked as real subprocesses rooted in that copy.
 
-Three things are stood in for, and each is named rather than hidden:
+Four things are stood in for, and each is named rather than hidden:
 
   * TRANSPORT IDENTITY. A private Git wrapper substitutes only the exact origin-identity query,
     exposing the logical GitHub URL while insteadOf sends actual git transport to a local bare remote.
@@ -38,7 +38,7 @@ Three things are stood in for, and each is named rather than hidden:
     Those are seeded, exactly as demo_959 seeds them, because they are that demonstration's subject and
     this one's is the ENTRY DOOR.
   * THE REVIEWER. Synthetic launch, packet-read and completed-output events in the throwaway library
-    stand in for one reviewer. The real review acceptance command consumes them; this demonstration
+    stand in for reviewers. The real review acceptance commands consume them; this demonstration
     does not qualify any runtime's native agent execution. All entry and integration commands remain
     the real tools, refusing and succeeding on their own terms.
 
@@ -269,7 +269,7 @@ def _plan_cmd(copy, env, *args):
     return _tool(copy, "project_manager.py", env, *args)
 
 
-def _observe_demo_review(copy, env, plan_id, digest):
+def _observe_demo_review(copy, env, plan_id, digest, lens="architecture"):
     """Simulate one reviewer only inside this demonstration's disposable library."""
     script = """
 import sys
@@ -282,10 +282,10 @@ slug = library.resolve(sys.argv[2])
 text, digest, contract = project_manager.review_packet(library, slug)
 assert digest == sys.argv[3]
 observe_review_execution(library, slug, scoped_agents.plan_owner(library.read_record(slug)),
-                         'architecture', digest, [], root='demo-review-root',
+                         sys.argv[4], digest, [], root='demo-review-root',
                          review_contract=contract, packet_content=text)
 """
-    return subprocess.run([sys.executable, "-c", script, env["ENGINE_PLAN_DIR"], plan_id, digest],
+    return subprocess.run([sys.executable, "-c", script, env["ENGINE_PLAN_DIR"], plan_id, digest, lens],
                           cwd=os.path.join(copy, ".engine", "tools"), capture_output=True,
                           text=True, env=env)
 
@@ -575,10 +575,39 @@ def _normal_payload():
 def _seal_fixture(copy, env, holder, plan_id, payload):
     doc = _write(os.path.join(holder, "recovery-plan.json"), _document(plan_id, "Recover the widget cache", payload=payload))
     for args in (("init", "--document", doc), ("preview", plan_id),
-                 ("approve", plan_id, "--depth", "quick", "--operator-decided"),
-                 ("seal", plan_id, "--delta-judgment", "none", "--operator-decided")):
+                 ("approve", plan_id, "--depth", "thorough", "--operator-decided")):
         _require(_plan_cmd(copy, env, *args), "seal fixture " + args[0])
+    packet = json.loads(_require(_plan_cmd(copy, env, "review", "packet", plan_id), "plan review packet"))
+    lenses = ("architecture", "feasibility", "product-intent", "risk-governance")
+    for lens in lenses:
+        _require(_observe_demo_review(copy, env, plan_id, packet["packet_digest"], lens), "observe plan reviewer fixture")
+    _require(_plan_cmd(copy, env, "review", "record", plan_id, "--packet-digest", packet["packet_digest"],
+        *[arg for lens in lenses for arg in ("--lens", lens)], "--session", "demo-review-root"), "accept plan reviewer fixture")
+    _require(_plan_cmd(copy, env, "present-findings", plan_id, "--operator-decided"), "present empty simulated panel")
+    _require(_plan_cmd(copy, env, "seal", plan_id, "--delta-judgment", "none", "--operator-decided"), "seal reviewed fixture")
     return _write(os.path.join(holder, "recovery-payload.json"), payload)
+
+
+def _observe_demo_build_review(copy, env, state_path, packet, lens):
+    """Simulated native events; the caller records them through the actual review command."""
+    script = """
+import json, sys
+import build_coordinator as bc
+import plan_store, scoped_agents
+from test_build_coordinator import observe_review_execution
+state = json.loads(open(sys.argv[1]).read())
+packet = json.loads(sys.argv[2])
+lens = sys.argv[3]
+library = plan_store.PlanLibrary(sys.argv[4])
+slug = library.resolve(state['plan']['plan_id'])
+contract = next(c for c in packet['reviewer_contracts'] if c['lens'] == lens)
+observe_review_execution(library, slug, scoped_agents.build_owner(state), lens,
+    contract['lens_packet_digest'], [], root='demo-review-root',
+    review_contract=bc.reviewer_contracts.effective_build(state), packet_content=json.dumps(packet))
+"""
+    return subprocess.run([sys.executable, "-c", script, state_path, json.dumps(packet), lens,
+        env["ENGINE_PLAN_DIR"]], cwd=os.path.join(copy, ".engine", "tools"),
+        capture_output=True, text=True, env=env)
 
 
 def _seed_candidate_fixture(state_path, head):
@@ -593,7 +622,7 @@ def _seed_candidate_fixture(state_path, head):
 
 def _arc_three(copy, head, env, pr_state, holder):
     print("\n  ARC 3 — fresh admission, interrupted ownership, real rebase recovery and clean merge coverage.\n")
-    print("      Validation/review accounting below is explicitly seeded fixture data, not a test-run claim.")
+    print("      Validation is seeded; synthetic reviewer events pass real acceptance. Neither qualifies a runtime.")
     ok = True
     plan_id = "pln_" + "3" * 12
     payload = _seal_fixture(copy, env, holder, plan_id, _normal_payload())
@@ -647,7 +676,7 @@ def _arc_three(copy, head, env, pr_state, holder):
     ok &= _pass("active bind continues without new admission", continued.returncode == 0 and
         json.loads(continued.stdout).get("continuation") and Path(state_path).read_bytes() == before,
         "same canonical Build, unchanged evidence")
-    _require(build("approve", "--plan", payload, "--depth", "quick"), "approve fixture Build")
+    _require(build("approve", "--plan", payload, "--depth", "thorough"), "approve fixture Build")
     claim_result = json.loads(_require(build("work", "claim", "--item", "W1", "--provider", "claude",
         "--plan", payload, "--worktree", copy), "claim fixture work"))
     attempt = claim_result["attempt_id"]
@@ -700,21 +729,22 @@ def _arc_three(copy, head, env, pr_state, holder):
         and after_handoff["rewrite_recoveries"] == before_handoff["rewrite_recoveries"]
         and after_handoff["work"]["W1"]["integration"]["receipt"] == original["work"]["W1"]["integration"]["receipt"],
         "original commit receipt is re-derived, private recovery records stay canonical")
-    _require(build("approve", "--plan", payload, "--depth", "quick"), "ordinary mutation after restore")
-    # Explicitly synthetic completed-review bookkeeping. The merge and assess verbs remain real.
-    store = bc.StateStore(state_path)
-    current = store.read()
-    store.mutate(lambda s: s["reviews"]["deliverable"].update(reviewed_commit=clean_head,
-        base_commit=s["build"]["base_at_bind"]), from_revision=current["revision"])
+    _require(build("approve", "--plan", payload, "--depth", "thorough"), "ordinary mutation after restore")
+    def review_fixture(stage, commit):
+        _seed_candidate_fixture(state_path, commit)
+        packet = json.loads(_require(build("review", "packet", "--stage", stage, "--plan", payload, "--json"), "Build review packet"))
+        for contract in packet["reviewer_contracts"]:
+            lens = contract["lens"]
+            _require(_observe_demo_build_review(copy, env, state_path, packet, lens), "observe Build reviewer fixture")
+            _require(build("review", "record", "--stage", stage, "--lens", lens,
+                "--packet-digest", packet["packet_digest"], "--lens-packet-digest", contract["lens_packet_digest"],
+                "--code-execution", "none", "--session", "demo-review-root"), "accept Build reviewer fixture")
+    review_fixture("deliverable", clean_head)
     repaired = _commit(copy, work_path, "CACHE = {'local': 1, 'upstream': 2, 'repair': 3}\n", "Disposable authored repair")
     _publish_head(copy, pr_state, repaired)
     _require(build("repair", "assess", "--judgment", "scoped", "--lens", "usability", "--lens", "spec-conformance",
-        "--rationale", "DEMO FIXTURE: seed completed downstream repair panel accounting"), "assess authored repair")
-    receipts = [{"lens": lens, "packet_digest": "sha256:" + "1" * 64, "commit": repaired,
-        "finding_ids": [], "code_execution": "none", "reviewed_range": {"base": clean_head, "tip": repaired}}
-        for lens in ("usability", "spec-conformance")]
-    current = store.read()
-    store.mutate(lambda s: s["repair"].update(receipts=receipts), from_revision=current["revision"])
+        "--rationale", "DEMO FIXTURE: independently review the authored repair with simulated reviewer events"), "assess authored repair")
+    review_fixture("repair", repaired)
     _advance(copy, pr_state, "merge-upstream.txt", "target to merge\n")
     _require(_git(copy, "merge", "--no-ff", "--no-edit", "origin/main"), "merge current target")
     merged = _git(copy, "rev-parse", "HEAD").stdout.strip()
