@@ -127,8 +127,8 @@ def frozen_reason(record: dict, artifact: str, *, finding_id: str | None = None)
     if sealed:
         return sealed
     review = record.get("plan_review") or {}
-    findings = review.get("findings", [])
-    dispositioned = [f for f in findings if f.get("disposition")]
+    all_findings = findings(record)
+    dispositioned = [f for f in all_findings if f.get("disposition")]
 
     if artifact == "approval":
         if review:
@@ -148,9 +148,9 @@ def frozen_reason(record: dict, artifact: str, *, finding_id: str | None = None)
         return None
 
     if artifact == "finding":
-        match = [f for f in findings if f["id"] == finding_id]
+        match = [f for f in all_findings if f["id"] == finding_id]
         if not match:
-            known = ", ".join(f["id"] for f in findings) or "none"
+            known = ", ".join(f["id"] for f in all_findings) or "none"
             raise PlanLifecycleError(f"no finding {finding_id!r} in this review; it holds: {known}")
         if match[0].get("disposition"):
             return (f"{finding_id} was dispositioned as {match[0]['disposition']}, and that judgment was "
@@ -289,3 +289,25 @@ def translate_findings(raw, *, lenses: list) -> list:
             report, lens=lenses[0], contract="plan-review-finding.v1")["findings"]
     except result_contracts.Rejection as exc:
         raise PlanLifecycleError(str(exc)) from exc
+
+
+def reviews(record):
+    """Original and explicitly authorized supplements; never discard superseded findings."""
+    return ([record["plan_review"]] if record.get("plan_review") else []) + [
+        entry["review"] for entry in record.get("supplemental_reviews", [])]
+
+
+def findings(record):
+    return [finding for review in reviews(record) for finding in review.get("findings", [])]
+
+
+def review_lineage_digest(record):
+    return core.digest({"reviews": reviews(record),
+                        "renewals": record.get("review_contract_renewals", [])})
+
+
+def presentation_current(record):
+    shown = record.get("findings_presented") or {}
+    if (record.get("approval") or {}).get("review_contract") or record.get("supplemental_reviews"):
+        return shown.get("lineage_digest") == review_lineage_digest(record)
+    return not shown or shown.get("packet_digest") == (record.get("plan_review") or {}).get("packet_digest")

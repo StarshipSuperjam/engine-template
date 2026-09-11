@@ -651,7 +651,12 @@ class ConsentGates(_Ceremony):
                          "--disposition", "rejected", "--rationale", "No.",
                          "--does-not-block-this-pr")
         self.run_command("present-findings", slug, "--operator-decided")
-        self.lib.update_record(slug, lambda current: current.pop("findings_presented", None))
+        # This fixture predates both subject blocks and approval envelopes.
+        def historical(current):
+            current.pop("findings_presented", None)
+            current.pop("review_contract_format", None)
+            current["approval"].pop("review_contract", None)
+        self.lib.update_record(slug, historical)
         self.assertEqual(project_manager.seal_refusals(self.lib, slug), [])
         self.assertEqual(self.run_command("seal", slug, "--operator-decided")[0], 0)
 
@@ -1094,3 +1099,20 @@ class D16TheDisclosuresDoNotStateThingsTheCodeKnowsAreFalse(_Ceremony):
         disclosures = project_manager.seal_disclosures(self.lib, standalone)
         self.assertFalse(any("cannot be parsed" in line for line in disclosures),
                          "a schema-invalid record parses; only its schema fails")
+
+
+class SupplementalPresentation(unittest.TestCase):
+    def test_new_results_and_changed_dispositions_invalidate_presentation(self):
+        record = {'approval': {'review_contract': {'digest': 'frozen'}},
+                  'plan_review': {'findings': [{'id': 'A', 'disposition': 'accepted-fixed'}]}}
+        record['findings_presented'] = {'lineage_digest': plan_lifecycle.review_lineage_digest(record)}
+        self.assertTrue(plan_lifecycle.presentation_current(record))
+        record['supplemental_reviews'] = [{'renewal_digest': 'renewal', 'review': {
+            'findings': [{'id': 'R-A', 'severity': 'serious', 'summary': 'New obligation'}]}}]
+        self.assertFalse(plan_lifecycle.presentation_current(record))
+        self.assertEqual(['A', 'R-A'], [f['id'] for f in plan_lifecycle.findings(record)])
+        record['supplemental_reviews'][0]['review']['findings'][0]['disposition'] = 'accepted-fixed'
+        record['findings_presented']['lineage_digest'] = plan_lifecycle.review_lineage_digest(record)
+        self.assertTrue(plan_lifecycle.presentation_current(record))
+        record['supplemental_reviews'][0]['review']['findings'][0]['disposition'] = 'rejected'
+        self.assertFalse(plan_lifecycle.presentation_current(record))

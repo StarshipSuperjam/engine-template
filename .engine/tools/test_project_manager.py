@@ -2961,3 +2961,74 @@ class ObservedPlanReview(_Governed):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class TestFrozenApproval(_Surface):
+    def _approved(self):
+        slug, _ = self._plan(plan_id=plan_store.mint_plan_id())
+        self.assertEqual(0, self.run_command('preview', slug)[0])
+        self.assertEqual(0, self.run_command('approve', slug, '--depth', 'standard', '--operator-decided')[0])
+        return slug
+
+    def test_approval_captures_both_panels_and_effort_policy(self):
+        slug = self._approved()
+        r = self.lib.read_record(slug)
+        c = project_manager.reviewer_contracts.effective(r)
+        self.assertEqual(r['approval']['plan_digest'], c['referent']['plan_digest'])
+        self.assertEqual(4, len(c['panels']['plan-review']))
+        self.assertEqual(3, len(c['panels']['pre-submission-review']))
+        for panel in c['panels'].values():
+            for persona in panel:
+                self.assertEqual({'mode': 'harness-controlled', 'floor': None},
+                                 persona['semantic']['effort_policy'])
+                self.assertIn('instructions', persona['source'])
+
+    def test_renewal_requires_consent_and_preserves_original_approval(self):
+        slug = self._approved();original = self.lib.read_record(slug)['approval']
+        output = str(Path(self._tmp.name) / 'renewal.json')
+        rc, _, err = self.run_command('review-contract','preview',slug,'--action','retain','--output',output)
+        self.assertEqual(0,rc,err)
+        rc, _, _ = self.run_command('review-contract','apply',slug,'--input',output,'--reason','Retain the approved mandate')
+        self.assertNotEqual(0,rc)
+        self.assertNotIn('review_contract_renewals',self.lib.read_record(slug))
+        args=('review-contract','apply',slug,'--input',output,'--reason','Retain the approved mandate','--operator-decided')
+        rc, _, err = self.run_command(*args);self.assertEqual(0,rc,err)
+        r = self.lib.read_record(slug)
+        self.assertEqual(original,r['approval']);self.assertEqual(1,len(r['review_contract_renewals']))
+        self.assertEqual(0,self.run_command(*args)[0])
+        self.assertEqual(r,self.lib.read_record(slug))
+
+    def test_stale_or_tampered_renewal_does_not_write(self):
+        slug=self._approved();output=Path(self._tmp.name)/'renewal.json'
+        self.assertEqual(0,self.run_command('review-contract','preview',slug,'--action','adopt','--output',str(output))[0])
+        preview=json.loads(output.read_text());preview['contract']['depth']='quick';output.write_text(json.dumps(preview))
+        before=self.lib.read_record(slug)
+        rc,_,_=self.run_command('review-contract','apply',slug,'--input',str(output),'--reason','Change','--operator-decided')
+        self.assertNotEqual(0,rc);self.assertEqual(before,self.lib.read_record(slug))
+        self.assertEqual(0,self.run_command('review-contract','preview',slug,'--action','retain','--output',str(output))[0])
+        self.lib.update_record(slug,lambda r:r.setdefault('consent',[]).append({'gate':'approve','at':'2026-09-11T00:00:00Z'}))
+        before=self.lib.read_record(slug)
+        self.assertNotEqual(0,self.run_command('review-contract','apply',slug,'--input',str(output),'--reason','Retain','--operator-decided')[0])
+        self.assertEqual(before,self.lib.read_record(slug))
+
+    def test_modern_approval_cannot_drop_its_contract(self):
+        slug = self._approved()
+        before = self.lib.read_record(slug)
+        with self.assertRaises(project_manager.core.CoordinatorError):
+            self.lib.update_record(slug, lambda r: r['approval'].pop('review_contract'))
+        self.assertEqual(before, self.lib.read_record(slug))
+
+    def test_unreviewed_revision_reapproval_preserves_original_contract(self):
+        slug = self._approved()
+        original = self.lib.read_record(slug)['approval']
+        document = self.lib.head(slug)
+        document['revision'] = 2
+        document['revised_at'] = '2026-09-10T23:00:00Z'
+        document['title'] = 'Revised before review'
+        self.lib.append_revision(slug, document, expected_revision=1)
+        self.assertEqual(0, self.run_command('preview', slug)[0])
+        rc, _, err = self.run_command('approve', slug, '--depth', 'standard', '--operator-decided')
+        self.assertEqual(0, rc, err)
+        record = self.lib.read_record(slug)
+        self.assertEqual(original, record['approval_history'][0]['approval'])
+        self.assertEqual(2, record['approval']['review_contract']['referent']['revision'])

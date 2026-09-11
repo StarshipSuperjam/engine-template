@@ -208,6 +208,23 @@ def render_plan(document: dict, record: dict) -> str:
     add(f"- **Last revised**: {document['revised_at']}")
     add(f"- **Plan digest**: `{record['current']['plan_digest']}`")
     add(f"- **Build payload digest**: `{record['current']['build_plan_digest']}`")
+    if (record.get("approval") or {}).get("review_contract"):
+        import reviewer_contracts
+        contract = reviewer_contracts.effective(record)
+        add(f"- **Approved review contract**: `{contract['digest']}`")
+        for role, panel in contract["panels"].items():
+            label = "Plan review" if role == "plan-review" else "Build review"
+            add(f"- **{label} required**: " + (", ".join(p["lens"] for p in panel) or "none"))
+        add("- **Reviewer effort**: harness-controlled; no promised floor")
+        for decision in record.get("review_contract_renewals", []):
+            add(f"- **Contract renewal**: {decision['action']} at {decision['at']} — {decision['reason']}")
+    elif record.get("approval"):
+        add("- **Review contract**: historical approval; no approval-time envelope was recorded")
+    for supplement in record.get("supplemental_reviews", []):
+        add(f"- **Supplemental review**: renewal `{supplement['renewal_digest']}`")
+        for finding in supplement["review"].get("findings", []):
+            add(f"  - {finding['id']} ({finding['severity']}): {finding['summary']} — "
+                + finding.get("disposition", "undispositioned") + ": " + finding.get("rationale", ""))
     claim = (record.get('build_lease') or {}).get('current')
     if claim:
         add(f"- **Build ownership**: `{claim['build_id']}` · generation {claim['generation']} "

@@ -176,6 +176,8 @@ def validate(envelope):
             if declaration(fields) != semantic["mandate"] or fields.get("role") != role or fields.get("lens") != item["lens"]:
                 raise ContractError("frozen source does not declare its reviewer identity")
             bound = semantic["result_contract"]
+            if fields.get("output-contract") != bound["id"]:
+                raise ContractError("frozen source result contract mismatch")
             if bound.get("schema_digest") != result_contracts.digest(bound.get("schema")):
                 raise ContractError("frozen result schema digest mismatch")
     return envelope
@@ -206,3 +208,81 @@ def drift(envelope, root):
 
 def obligation_digest(referent, item):
     return core.digest({"referent": referent, "reviewer": item["semantic"]})
+
+
+def effective(record):
+    """The first approval and every renewal remain intact; only this selector advances."""
+    original = (record.get("approval") or {}).get("review_contract")
+    if original is None:
+        if record.get("review_contract_renewals"):
+            raise ContractError("renewals have no original frozen approval")
+        return None
+    validate(original)
+    current = original
+    previous = None
+    for entry in record.get("review_contract_renewals", []):
+        if entry["old_digest"] != current["digest"] or entry["previous_decision"] != previous:
+            raise ContractError("review contract renewal lineage is broken")
+        if entry["owner"] != original["referent"] or entry["contract"]["referent"] != original["referent"]:
+            raise ContractError("review contract renewal names another approved plan")
+        validate(entry["contract"])
+        if entry["delta"] != compare(current, entry["contract"]):
+            raise ContractError("review renewal delta does not describe the changed obligation")
+        if entry["action"] == "retain" and entry["contract"] != current:
+            raise ContractError("retaining a review obligation cannot change it")
+        current = entry["contract"]
+        previous = entry["preview_digest"]
+    return copy.deepcopy(current)
+
+
+def compare(old, new):
+    before = {(role, p["lens"]): p for role, ps in old["panels"].items() for p in ps}
+    after = {(role, p["lens"]): p for role, ps in new["panels"].items() for p in ps}
+    return [{"role": key[0], "lens": key[1],
+             "old": before[key]["semantic_digest"] if key in before else None,
+             "new": after[key]["semantic_digest"] if key in after else None}
+            for key in sorted(set(before) | set(after))
+            if before.get(key, {}).get("semantic_digest") != after.get(key, {}).get("semantic_digest")]
+
+
+def renewal_preview(record, proposed, root, action):
+    old = effective(record)
+    if old is None:
+        raise ContractError("historical approval has no frozen contract; use explicit historical adoption")
+    if action not in ("retain", "adopt"):
+        raise ContractError("renewal must explicitly retain or adopt an obligation")
+    validate(proposed)
+    if proposed["referent"] != old["referent"] or proposed["depth"] != old["depth"]:
+        raise ContractError("contract renewal cannot change the approved plan or review depth")
+    contract = old if action == "retain" else proposed
+    history = record.get("review_contract_renewals", [])
+    value = {"schema_version": "review-contract-renewal-preview.v1", "owner": old["referent"],
+             "record_digest": core.digest(record), "old_digest": old["digest"], "contract": contract,
+             "action": action, "delta": compare(old, contract),
+             "installation_digest": core.digest(discover(root)),
+             "observed_drift": drift(old, root),
+             "previous_decision": history[-1]["preview_digest"] if history else None}
+    value["preview_digest"] = core.digest(value)
+    return value
+
+
+def apply_renewal(record, preview, *, reason, at, operator_decided):
+    """Called under the owning store lock after recomputing the preview against live inputs."""
+    if not operator_decided or not isinstance(reason, str) or not reason.strip():
+        raise ContractError("review contract renewal requires the operator's decision and a reason")
+    if preview["preview_digest"] != core.digest({k: v for k, v in preview.items() if k != "preview_digest"}):
+        raise ContractError("review contract renewal preview was modified")
+    if any(x["preview_digest"] == preview["preview_digest"] for x in record.get("review_contract_renewals", [])):
+        return False
+    if core.digest(record) != preview["record_digest"]:
+        raise ContractError("review contract renewal preview is stale; preview the current evidence")
+    old = effective(record)
+    if old is None or old["digest"] != preview["old_digest"]:
+        raise ContractError("review contract renewal does not follow the current obligation")
+    entry = {k: copy.deepcopy(preview[k]) for k in
+             ("owner", "old_digest", "contract", "action", "delta", "installation_digest",
+              "observed_drift", "previous_decision", "preview_digest")}
+    entry.update(reason=reason, at=at, operator_decided=True)
+    record.setdefault("review_contract_renewals", []).append(entry)
+    effective(record)
+    return True
