@@ -5305,7 +5305,7 @@
       },
       "slug": "result-contracts",
       "source": {
-        "fingerprint": "sha256:66b2b402ce8d5563415abf2191dddf0a4c73a5a577758af08b5bf074afc14871",
+        "fingerprint": "sha256:6355cb10504c855234962ec088627761165165f314b363497aa12a973f698d0f",
         "path": ".engine/docs/result-contracts.md"
       },
       "status": "active",
@@ -7831,7 +7831,7 @@
       },
       "slug": "reviewer-contract.v1",
       "source": {
-        "fingerprint": "sha256:650634cba1d0a04d634e30127222799642f40d5276da52f5772df40583962d0e",
+        "fingerprint": "sha256:28be517f87ffcf8d67c09265f354f590299bed1a1320d4069657da53a7a22b32",
         "path": ".engine/schemas/reviewer-contract.v1.json"
       },
       "status": "active",
@@ -15412,7 +15412,7 @@
       },
       "slug": "reviewer_contracts",
       "source": {
-        "fingerprint": "sha256:975b6ea4b93cb4a7ae025cd1e7e4fd9b0d4a265645df5a6dd754fdf38a9677b5",
+        "fingerprint": "sha256:0957afb14a59629377ae87b0f0cb4030fb814a9703cadd66eadb74bb2b96a69c",
         "path": ".engine/tools/reviewer_contracts.py"
       },
       "status": "active",
@@ -15760,7 +15760,7 @@
       },
       "slug": "selftest_support",
       "source": {
-        "fingerprint": "sha256:8cf70505f3e70bf2f015df650bfffc5c47045cdb1f1a2eda6108f880b1426711",
+        "fingerprint": "sha256:03d6a5750c45cbcb49edd75bda6bb00206ebd87efe94ed226ef571be3fcac2b3",
         "path": ".engine/tools/selftest_support.py"
       },
       "status": "active",
@@ -16715,7 +16715,7 @@
       },
       "slug": "test_build_coordinator",
       "source": {
-        "fingerprint": "sha256:9c92f507c795d2ee32a212fac023a6a57907ddce31216fc99d31ddf07c0dee2f",
+        "fingerprint": "sha256:05689872ddfa238e47cfab0ec4a36e2eabe1d068a1d2a661a8ef1c3810c4c1de",
         "path": ".engine/tools/test_build_coordinator.py"
       },
       "status": "active",
@@ -20808,7 +20808,7 @@
       },
       "slug": "test_reviewer_contracts",
       "source": {
-        "fingerprint": "sha256:347b6f8f7c7a659e9301ccfe26d5977429bea9221a017c1da63f0d4922cd49df",
+        "fingerprint": "sha256:72bc30cc650268201cba1e02476e217efca07331c75dbd4641cdf80475a73778",
         "path": ".engine/tools/test_reviewer_contracts.py"
       },
       "status": "active",
