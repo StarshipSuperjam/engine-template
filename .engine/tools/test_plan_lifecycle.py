@@ -30,6 +30,8 @@ class _Ceremony(unittest.TestCase):
     """A real library driven through the real CLI. Nothing here writes a record by hand."""
 
     def setUp(self):
+        from selftest_support import review_fixture
+        review_fixture(self)
         self._tmp = tempfile.TemporaryDirectory()
         self.tmp = Path(self._tmp.name)
         self.root = self.tmp / "plans"

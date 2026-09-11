@@ -16,6 +16,8 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import boot
 import validate
 import wiring
+from selftest_select import project_owned_predicate
+from selftest_support import CONSTRUCTION
 
 _CLI_HOOKS = re.compile(r"(?<![\w.])/hooks(?!\w|\.json\b)")
 _UNSUPPORTED_DESKTOP = re.compile(
@@ -45,8 +47,11 @@ def _guidance_faults(text):
 class TestCodexTrustGuidance(unittest.TestCase):
     def test_current_markdown_guidance_is_qualified(self):
         reached = set()
+        project_owned = project_owned_predicate(validate.ROOT)
         for path in validate.markdown_files(set()):
             rel = os.path.relpath(path, validate.ROOT)
+            if project_owned(rel):
+                continue
             with open(path, encoding="utf-8") as stream:
                 text = stream.read()
             if list(_hooks_windows(text)):
@@ -73,6 +78,7 @@ class TestCodexTrustGuidance(unittest.TestCase):
             self.assertIn("actual hook event", text)
             self.assertIn("do not assume Desktop", text)
 
+    @unittest.skipUnless(CONSTRUCTION, "the Engine home README is adopter-owned after deployment")
     def test_readme_contains_actionable_trust_guidance(self):
         with open(os.path.join(validate.ROOT, "README.md"), encoding="utf-8") as stream:
             text = stream.read()

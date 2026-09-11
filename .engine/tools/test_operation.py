@@ -219,6 +219,8 @@ class TestProductIntakeRoutesWritesThroughBuild(unittest.TestCase):
     entry verb or a named bound leaves the file; whether the runbook reads right is the reviewer's cold read."""
 
     def _text(self):
+        from selftest_support import needs_modules
+        needs_modules(self, "product-design")
         path = os.path.join(validate.ENGINE_DIR, "operations", "product-intake.md")
         with open(path, encoding="utf-8") as fh:
             return " ".join(fh.read().split())
@@ -271,7 +273,11 @@ class TestTheLocalSchedulerIsAScheduledTask(unittest.TestCase):
             return " ".join(fh.read().split())
 
     def test_the_local_capability_is_a_scheduled_task_in_every_file(self):
+        from selftest_select import project_owned_predicate
+        project_owned = project_owned_predicate(self.ROOT)
         for path in self.FILES:
+            if project_owned(os.path.relpath(path, self.ROOT)):
+                continue
             text = self._text(path)
             self.assertNotRegex(text, re.compile(r"desktop\s+\*{0,2}routine", re.IGNORECASE), path)
             self.assertIn("scheduled task", text, path)

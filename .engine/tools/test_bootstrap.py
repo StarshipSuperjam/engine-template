@@ -1537,7 +1537,10 @@ class TestControlPlaneChecklessTerminal(unittest.TestCase):
                 text = fh.read()
             if "checkless=True" in text or "control_checkless=True" in text:
                 enabling.append(name)
-        self.assertEqual(set(enabling), {"instantiator.py"},
+        from selftest_support import CONSTRUCTION
+        expected = {"instantiator.py"} if CONSTRUCTION or os.path.isfile(
+            os.path.join(_TOOLS_DIR, "instantiator.py")) else set()
+        self.assertEqual(set(enabling), expected,
                          "checkless protection may be enabled only by the arrival path")
 
 

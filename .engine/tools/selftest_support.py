@@ -88,3 +88,109 @@ def needs_modules(case, *ids: str, reason: str | None = None) -> None:
     if missing:
         case.skipTest(reason or f"{', '.join(missing)} is not installed in this repository, so the file this "
                                 f"case reads is legitimately absent here")
+
+
+def review_fixture(case):
+    """Give protocol tests their own personas, independent of optional installed panels.
+
+    Discovery and result-contract resolution still run normally. Only the filesystem root is
+    redirected; tests of the shipped roster must continue to inspect the actual checkout.
+    """
+    from pathlib import Path
+    import tempfile
+    from unittest import mock
+    import build_coordinator as bc
+    import project_manager as pm
+    import scoped_agents
+
+    source = Path(__file__).resolve().parents[2]
+    temp = tempfile.TemporaryDirectory(prefix="review-fixture-")
+    case.addCleanup(temp.cleanup)
+    root = Path(temp.name)
+    agents = root / ".claude" / "agents"
+    agents.mkdir(parents=True)
+    engine = root / ".engine"
+    (engine / "tools").mkdir(parents=True)
+    (engine / "schemas").symlink_to(source / ".engine" / "schemas", target_is_directory=True)
+    (engine / "build-protocol.json").write_bytes((source / ".engine" / "build-protocol.json").read_bytes())
+    panels = (
+        ("engine-design-review-", "plan-review", "plan-review-finding.v1",
+         ("architecture", "feasibility", "product-intent", "risk-governance")),
+        ("engine-qa-review-", "pre-submission-review", "pre-submission-review-finding.v1",
+         ("divergence-hunter", "security-governance", "spec-conformance", "technical-integrity", "usability")),
+        ("engine-worker-", "worker", "worker-result.v1", ("builder", "bounded")),
+    )
+    for prefix, role, contract, lenses in panels:
+        for lens in lenses:
+            name = prefix + lens
+            (agents / (name + ".md")).write_text(
+                f"---\nname: {name}\nrole: {role}\nlens: {lens}\noutput-contract: {contract}\n---\n"
+                "Disposable protocol-test persona.\n", encoding="utf-8")
+    for module in (pm, scoped_agents):
+        filename = Path(module.__file__).name
+        (engine / "tools" / filename).write_bytes((source / ".engine" / "tools" / filename).read_bytes())
+        patch = mock.patch.object(module, "__file__", str(engine / "tools" / filename))
+        patch.start()
+        case.addCleanup(patch.stop)
+    patch = mock.patch.object(bc, "_installed", side_effect=lambda: bc.review.installed(
+        root if bc.ROOT == source else bc.ROOT))
+    patch.start()
+    case.addCleanup(patch.stop)
+    return root
+
+
+def accepted_hook_fixture_bytes(root, rel):
+    """Restore only declared optional hooks in a disposable approved-generation fixture.
+
+    The resulting bytes must match the existing pinned digest. Deployed upgrades can append an event
+    at a different JSON object position; normalize only that object-key order in the disposable fixture.
+    Never re-pin bytes: unknown drift, missing core hooks, and changed commands still fail comparison.
+    """
+    from pathlib import Path
+    import hashlib
+    import json
+    import hooks_path_health as hp
+    raw = (Path(root) / rel).read_bytes()
+    if rel in (".claude/settings.json", ".codex/hooks.json"):
+        document = json.loads(raw)
+        codex = rel == ".codex/hooks.json"
+        installed = installed_module_ids()
+        restorations = (
+            ("github-projects-sync", "SessionStart", "telemetry.py", "drain-inbox" if codex else "run-ambient",
+             "projects_sync/projects_sync.py", "session-start", codex),
+            ("product-design", "PreToolUse", "validate.py" if codex else "self_map.py",
+             "hook", "product_design/obligation_matrix.py", "hook", True),
+        )
+        changed = False
+        for owner, event, anchor, argument, script, target_argument, after in restorations:
+            if owner in installed:
+                continue
+            for group in document["hooks"].get(event, []):
+                entries = group["hooks"]
+                if any(script in entry.get("command", "") for entry in entries):
+                    continue
+                for index, entry in enumerate(entries):
+                    command = entry.get("command", "")
+                    if '/' + anchor + '" ' + argument in command:
+                        restored = command.replace('/' + anchor + '" ' + argument,
+                                                   '/' + script + '" ' + target_argument)
+                        entries.insert(index + int(after), {"type": "command", "command": restored})
+                        changed = True
+                        break
+        if not CONSTRUCTION:
+            # Object-key order is not dispatch order. Keep every event and all ordered hook lists;
+            # the exact approved hash below still rejects extra/missing entries or changed commands.
+            event_order = (("SessionStart", "PreToolUse", "PostToolUse", "Stop", "UserPromptSubmit",
+                            "PreCompact", "SubagentStart", "SubagentStop") if codex else
+                           ("SessionStart", "PreToolUse", "Stop", "PostToolUse", "PreCompact",
+                            "UserPromptSubmit", "SubagentStart", "SubagentStop"))
+            hooks = document["hooks"]
+            ordered = {key: hooks[key] for key in event_order if key in hooks}
+            ordered.update({key: value for key, value in hooks.items() if key not in ordered})
+            changed = changed or list(ordered) != list(hooks)
+            document["hooks"] = ordered
+        if changed:
+            raw = (json.dumps(document, indent=2, ensure_ascii=False) + "\n").encode()
+    if hashlib.sha256(raw).hexdigest() != hp._ACCEPTED_BUNDLE_SHA256[rel]:
+        raise AssertionError(f"{rel}: fixture does not match the pinned approved hook generation")
+    return raw

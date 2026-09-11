@@ -2358,6 +2358,8 @@ class TestGovernanceAlarms(unittest.TestCase):
         try:
             with mock.patch.object(boot, "protected_branch_signal", return_value=gate), \
                  mock.patch.object(boot, "open_findings", return_value=(count, register, low, rows)), \
+                 mock.patch.object(boot, "open_operator_count", return_value=(0, "")), \
+                 mock.patch.object(boot.license_health, "detect_foreign_license", return_value=None), \
                  mock.patch.object(boot.hooks, "HOOK_OUTPUT_CAP", 10**6), \
                  mock.patch.object(boot, "read_state",
                                    return_value=({"schema_version": 1, "standing_situation": {},

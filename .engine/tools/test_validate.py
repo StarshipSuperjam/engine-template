@@ -1204,7 +1204,11 @@ class AcknowledgmentDeadlineTests(unittest.TestCase):
                  oversized=False):
         import base64
         import weakening_guard
-        from product_design import lock_integrity
+        lock_integrity = None
+        if consumer == "product-lock-integrity":
+            from selftest_support import needs_modules
+            needs_modules(self, "product-design")
+            from product_design import lock_integrity
 
         class ProcessDeadline(BaseException):
             pass
@@ -1274,7 +1278,8 @@ class AcknowledgmentDeadlineTests(unittest.TestCase):
                                              "GITHUB_TOKEN": "fixture"}), \
                     mock.patch.object(weakening_guard, "get_page", side_effect=page), \
                     mock.patch.object(weakening_guard, "get_json", return_value={"changed_files": 2 if oversized else 1}), \
-                    mock.patch.object(lock_integrity, "get_json", side_effect=product_api), \
+                    (mock.patch.object(lock_integrity, "get_json", side_effect=product_api)
+                     if lock_integrity else contextlib.nullcontext()), \
                     mock.patch.object(weakening_guard.time, "sleep", side_effect=sleep), \
                     mock.patch.object(validate.subprocess, "run", side_effect=run_child):
                 passed, findings = validate.kind_custom_script(rule, {})

@@ -1,6 +1,8 @@
 """Tests for `release_gate.py` — the cut-time deployment gate.
 
-FAST + INJECTED by design. The real gate (a full self-test suite inside a projected deployment, and real
+Mostly FAST + INJECTED. TestDeployedClassificationRegression runs a bounded set of real assertions in a
+temporary deployed copy, including deliberately broken controls (#1054). It never launches a full suite.
+The real gate (a full self-test suite inside a projected deployment, and real
 practice upgrades from released baselines) takes many minutes and runs at CUT TIME, never in this per-PR
 suite — moving that cost out of every pull request is the whole point of the slice. So these exercise the
 gate's ORCHESTRATION and its fail-CLOSED contract with the heavy arms stubbed; the genuine operate/upgrade
@@ -45,6 +47,109 @@ _SKIP = "runs where a release is cut (the home repo, not a nested projection run
 
 def _proc(returncode=0, stdout="", stderr=""):
     return subprocess.CompletedProcess(args=[], returncode=returncode, stdout=stdout, stderr=stderr)
+
+
+@unittest.skipUnless(selftest_support.CONSTRUCTION, _SKIP)
+class TestDeployedClassificationRegression(unittest.TestCase):
+    """Operator-runnable proof: actual module removal passes; an undeclared omission or drift fails.
+
+    Only this outer projection driver is construction-scoped. Its child assertions must execute without
+    skips, including under the projection marker. TemporaryDirectory removes all mutated fixtures.
+    """
+
+    _INVENTORY = "test_seed.TestMetadataSuiteClassification.test_every_ci_rule_is_classified_exactly_once"
+    _GRAPH = "test_knowledge.TestCommittedGraph.test_committed_graph_is_in_sync_with_sources"
+    _FINGERPRINT = "test_knowledge.TestCoverageFingerprintMode.test_real_graph_passes_via_the_mode"
+    _CASES = ["test_seed.TestMetadataSuiteClassification", "test_knowledge.TestCommittedGraph",
+              "test_knowledge.TestCoverageFingerprintMode"]
+
+    def _assert_tests(self, tree, names, *, failures=()):
+        # Separate interpreters read the actual projected files; no patches to the assertions or gates.
+        script = """import io,json,sys,unittest
+sys.path.insert(0, 'tools')
+suite=unittest.defaultTestLoader.loadTestsFromNames(json.loads(sys.argv[1]))
+out=io.StringIO()
+result=unittest.TextTestRunner(stream=out).run(suite)
+print(json.dumps({'run':result.testsRun,'failures':[t.id() for t,_ in result.failures],
+                  'errors':[t.id() for t,_ in result.errors],'skipped':result.skipped,
+                  'detail':out.getvalue()}))
+sys.exit(not result.wasSuccessful())
+"""
+        result = subprocess.run([sys.executable, "-c", script, json.dumps(names)],
+                                cwd=os.path.join(tree, ".engine"), env=rg._nested_env(),
+                                capture_output=True, text=True, timeout=120)
+        self.assertIn(result.returncode, (0, 1), result.stderr)
+        report = json.loads(result.stdout)
+        self.assertGreater(report["run"], 0)
+        self.assertEqual(report["errors"], [], report["detail"])
+        self.assertEqual(report["skipped"], [], report["detail"])
+        self.assertEqual(sorted(report["failures"]), sorted(failures), report["detail"])
+        self.assertEqual(result.returncode, int(bool(failures)), report["detail"])
+
+    @contextlib.contextmanager
+    def _changed_file(self, path, replacement):
+        original = path.read_bytes()
+        try:
+            if replacement is None:
+                path.unlink()
+            else:
+                path.write_bytes(replacement)
+            yield
+        finally:
+            path.write_bytes(original)
+
+    def _finish_module_projection(self, eng):
+        # module_manager.remove is the removal primitive. Complete the same post-removal index
+        # preparation that _project_to_deployed performs, BEFORE running any drift assertions.
+        result = subprocess.run([sys.executable, "tools/derived_state.py", "regenerate", "--upgrade"], cwd=eng,
+                                env=rg._nested_env(), capture_output=True, text=True, timeout=300)
+        self.assertEqual(result.returncode, 0, result.stderr or result.stdout)
+
+    def _assert_structure(self, tree):
+        result = rg._validate_in(tree, "classification-control")
+        self.assertTrue(result["passed"], result["detail"])
+
+    def test_real_deployments_and_failure_controls(self):
+        with tempfile.TemporaryDirectory(prefix="engine-classification-control-") as tree:
+            rg.release_source._archive_tree("HEAD", tree)
+            eng = Path(tree) / ".engine"
+            with contextlib.redirect_stderr(io.StringIO()):
+                rg._project_to_deployed(tree, label="classification-control/default")
+            self._assert_tests(tree, self._CASES)
+            self._assert_structure(tree)
+
+            # Partial decline retains the other modules, whose missing checks must still be caught.
+            result = subprocess.run([sys.executable, "tools/module_manager.py", "remove",
+                                     "dependency-discipline", "--json"], cwd=eng,
+                                    env=rg._nested_env(), capture_output=True, text=True, timeout=300)
+            self.assertEqual(result.returncode, 0, result.stderr or result.stdout)
+            self._finish_module_projection(eng)
+            self._assert_tests(tree, self._CASES)
+            self._assert_structure(tree)
+            with self._changed_file(eng / "check/migration-rollback.json", None):
+                self._assert_tests(tree, [self._INVENTORY], failures=[self._INVENTORY])
+
+            with contextlib.redirect_stderr(io.StringIO()):
+                declined = rg._decline_optional_modules(tree, "classification-control/declined")
+            self.assertIn("product-design", declined)
+            self._finish_module_projection(eng)
+            self._assert_tests(tree, self._CASES)
+            self._assert_structure(tree)
+            with self._changed_file(eng / "check/protection.json", None):
+                self._assert_tests(tree, [self._INVENTORY], failures=[self._INVENTORY])
+
+            # A new classification whose omitted check has not been declared cannot silently disappear.
+            classification = eng / "check-classification.json"
+            raw = json.loads(classification.read_text())
+            raw["classification"]["engine/check/undeclared-optional-control"] = "code"
+            with self._changed_file(classification, json.dumps(raw).encode()):
+                self._assert_tests(tree, [self._INVENTORY], failures=[self._INVENTORY])
+
+            graph = eng / "knowledge/graph.json"
+            with self._changed_file(graph, graph.read_bytes() + b" "):
+                self._assert_tests(tree, [self._GRAPH, self._FINGERPRINT],
+                                   failures=[self._GRAPH, self._FINGERPRINT])
+            self._assert_tests(tree, self._CASES)
 
 
 @unittest.skipUnless(selftest_support.CONSTRUCTION, _SKIP)
@@ -202,6 +307,70 @@ class TestHomeTreeGuard(unittest.TestCase):
         self.assertTrue(result.get("home_tree_mutated"))
 
 
+class TestProjectionGeneratorCompatibility(unittest.TestCase):
+    def test_current_missing_registry_and_broken_legacy_registry_both_block(self):
+        for legacy in (False, True):
+            with self.subTest(legacy=legacy), tempfile.TemporaryDirectory() as directory:
+                root = Path(directory)
+                tools = root / ".engine/tools"
+                tools.mkdir(parents=True)
+                (root / "README.md").write_text("Fixture\n")
+                if legacy:
+                    (tools / "derived_state.py").write_text("raise RuntimeError('broken registry witness')\n")
+                with mock.patch.object(rg.module_manager, "retire_set", return_value=([], [])), \
+                     contextlib.redirect_stderr(io.StringIO()):
+                    with self.assertRaisesRegex(rg.GateError, "could not regenerate its lifecycle artifacts"):
+                        rg._project_to_deployed(directory, legacy_baseline=legacy)
+
+    def test_only_an_explicit_historical_baseline_uses_pre_registry_generators(self):
+        with tempfile.TemporaryDirectory() as directory:
+            tools = Path(directory) / ".engine/tools"
+            tools.mkdir(parents=True)
+            for generator in ("self_map.py", "knowledge_gen.py"):
+                (tools / generator).write_text(
+                    "from pathlib import Path\nwith Path('order').open('a') as out: out.write(__file__ + '\\n')\n")
+            with mock.patch.object(rg.module_manager, "retire_set", return_value=([], [])), \
+                 contextlib.redirect_stderr(io.StringIO()):
+                rg._project_to_deployed(directory, legacy_baseline=True)
+            order = (tools.parent / "order").read_text().splitlines()
+            self.assertEqual([Path(path).name for path in order], ["self_map.py", "knowledge_gen.py"])
+
+
+class TestUpgradedSuiteSnapshot(unittest.TestCase):
+    def test_snapshot_preserves_staged_rollback_subject_and_propagates_suite_failure(self):
+        for passed in (True, False):
+            with self.subTest(passed=passed), tempfile.TemporaryDirectory() as directory:
+                root = Path(directory)
+                def git(*args):
+                    return subprocess.check_output(["git", "-C", directory, *args], text=True).strip()
+                git("init", "-q", "-b", "main")
+                git("config", "user.name", "Fixture")
+                git("config", "user.email", "t@t")
+                source = root / "test_source.py"
+                source.write_text("old = True\n")
+                git("add", "-A")
+                git("commit", "-qm", "baseline")
+                baseline = git("rev-parse", "HEAD")
+                source.write_text("upgraded = True\n")
+                git("add", "-A")
+                (root / "generated.json").write_text("{}\n")
+                before = (git("write-tree"), git("status", "--porcelain"))
+                def suite(snapshot, label):
+                    self.assertNotEqual(Path(snapshot), root)
+                    self.assertEqual((Path(snapshot) / "test_source.py").read_text(), "upgraded = True\n")
+                    self.assertTrue((Path(snapshot) / "generated.json").is_file())
+                    blob = subprocess.check_output(["git", "-C", snapshot, "show", "HEAD:test_source.py"], text=True)
+                    self.assertEqual(blob, "upgraded = True\n")
+                    return {"passed": passed, "detail": "" if passed else "suite witness"}
+                with mock.patch.object(rg, "_suite_in", side_effect=suite):
+                    result = rg._suite_in_committed_snapshot(directory, "upgrade/fixture")
+                self.assertEqual(result["passed"], passed)
+                self.assertEqual(result["detail"], "" if passed else "suite witness")
+                self.assertRegex(result["tested_tree"], r"^[0-9a-f]{40}$")
+                self.assertEqual(git("rev-parse", "HEAD"), baseline)
+                self.assertEqual((git("write-tree"), git("status", "--porcelain")), before)
+
+
 @unittest.skipUnless(selftest_support.CONSTRUCTION, _SKIP)
 class TestUpgradeArmReporting(unittest.TestCase):
     """The UPGRADE leg (`_upgrade_leg`) reads the practice-upgrade result and blocks on refusal, non-
@@ -217,7 +386,7 @@ class TestUpgradeArmReporting(unittest.TestCase):
         with mock.patch.object(rg, "_run", return_value=_proc(rc, out, stderr)), \
              mock.patch.object(rg, "_candidate_ref", return_value="v9.9.9"), \
              mock.patch.object(rg, "_validate_in", return_value=validator), \
-             mock.patch.object(rg, "_suite_in", return_value=suite):
+             mock.patch.object(rg, "_suite_in_committed_snapshot", return_value=suite):
             return rg._upgrade_leg("/tmp/proj", "v9.9.9", "/tmp/candidate",
                                    run_complete_suite=run_complete_suite)
 
@@ -246,7 +415,7 @@ class TestUpgradeArmReporting(unittest.TestCase):
                                                   "findings": [], "notes": [mm.PRACTICE_RUN_NOTE]}), "")), \
              mock.patch.object(rg, "_candidate_ref", return_value="v9.9.9"), \
              mock.patch.object(rg, "_validate_in", return_value={"passed": True, "detail": ""}) as validator, \
-             mock.patch.object(rg, "_suite_in", return_value={"passed": True, "detail": ""}) as suite:
+             mock.patch.object(rg, "_suite_in_committed_snapshot", return_value={"passed": True, "detail": ""}) as suite:
             result = rg._upgrade_leg("/tmp/proj", "v9.9.9", "/tmp/candidate", run_complete_suite=False)
         self.assertTrue(result["passed"])
         validator.assert_called_once()
@@ -480,9 +649,12 @@ class TestTransitionComposition(unittest.TestCase):
              mock.patch.object(rg, "_project_to_deployed", return_value=[]), \
              mock.patch.object(rg, "_assert_isolated", return_value=None), \
              mock.patch.object(rg, "_candidate_ref", return_value="v9.9.9"), \
+             mock.patch.object(rg, "_suite_in_committed_snapshot",
+                               return_value={"passed": True, "detail": ""}) as suite, \
              mock.patch.object(rg, "_run", side_effect=_record):
             res = rg._upgrade_from("v9.9.9", "/tmp/candidate")
         self.assertTrue(res["passed"])
+        suite.assert_called_once_with("/tmp/proj", "upgrade/v9.9.9")
         drivers = [" ".join(c) for c in calls if "-c" in c]
         self.assertIn("module_manager.upgrade(", drivers[0])   # first driver spawn = the upgrade
         self.assertIn("cp.repair_owned", drivers[1])            # second driver spawn = owned-only repair

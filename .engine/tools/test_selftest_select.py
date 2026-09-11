@@ -38,6 +38,18 @@ import validate
 _TOOLS = S.TOOLS_ROOT_REL
 
 
+def _declined_guard_fallback(case, manifest):
+    """A missing optional generator must run everything, never silently lose its drift guard."""
+    from selftest_support import installed_module_ids
+    if "product-design" in installed_module_ids():
+        return False
+    case.assertEqual(manifest["classification"], "full")
+    case.assertEqual(manifest["full_reason"]["code"], "derived-guard-unreachable")
+    case.assertIn(".engine/tools/product_design/obligation_matrix.py", manifest["full_reason"]["detail"])
+    case.assertEqual(manifest["selected"], [])
+    return True
+
+
 def _p(name: str) -> str:
     """A repo-relative tools path for a bare module name (`boot` -> `.engine/tools/boot.py`)."""
     return f"{_TOOLS}/{name}.py"
@@ -270,6 +282,11 @@ class DerivedArtifactGuard(unittest.TestCase):
     def test_a_focused_run_always_includes_the_generated_map_drift_tests(self):
         importers = S.build_importer_index(validate.ROOT)
         guard, unreachable = S.derived_artifact_guard(importers)
+        from selftest_support import installed_module_ids
+        if "product-design" not in installed_module_ids():
+            self.assertEqual(unreachable, ".engine/tools/product_design/obligation_matrix.py")
+            self.assertEqual(guard, set())
+            return
         self.assertIsNone(unreachable)
         modules = {S.module_name(p) for p in guard}
         for expected in ("test_knowledge", "test_ci_assurance", "test_self_map",
@@ -281,6 +298,8 @@ class DerivedArtifactGuard(unittest.TestCase):
         selection excludes the very test that would have caught the resulting stale map."""
         importers = S.build_importer_index(validate.ROOT)
         m = S.classify([(f"{_TOOLS}/quiet_call.py", "M")], lambda: importers, changed_from="base")
+        if _declined_guard_fallback(self, m):
+            return
         self.assertEqual(m["classification"], "focused")
         self.assertIn("test_knowledge", {e["module"] for e in m["selected"]})
 
@@ -388,6 +407,9 @@ class ManifestHonesty(unittest.TestCase):
         self.assertTrue(exempt, "an empty exempt set would make this test vacuous")
         for member in derived_state.members():
             with self.subTest(member=member.path):
+                if member.optional_module:
+                    from selftest_support import needs_modules
+                    needs_modules(self, member.optional_module)
                 self.assertTrue(member.check_rules,
                                 f"{member.path} is exempt but declares no drift check")
                 for rule_id in member.check_rules:
@@ -416,6 +438,8 @@ class TheIterationLoopIsReachable(unittest.TestCase):
         after_regenerate = S.classify(
             [(f"{_TOOLS}/quiet_call.py", "M"), (".engine/knowledge/graph.json", "M")],
             lambda: importers, changed_from="base")
+        if _declined_guard_fallback(self, after_regenerate):
+            return
         self.assertEqual(after_regenerate["classification"], "focused",
                          "regenerating a stale map must not force the complete inventory")
         self.assertIn("test_knowledge", {e["module"] for e in after_regenerate["selected"]})
@@ -424,6 +448,8 @@ class TheIterationLoopIsReachable(unittest.TestCase):
         """A hand-edited generated map selects nothing by import, but the guard covers it."""
         importers = S.build_importer_index(validate.ROOT)
         m = S.classify([(".engine/knowledge/graph.json", "M")], lambda: importers, changed_from="base")
+        if _declined_guard_fallback(self, m):
+            return
         self.assertEqual(m["classification"], "focused")
         self.assertIn("test_knowledge", {e["module"] for e in m["selected"]})
 
@@ -621,10 +647,11 @@ class SelectOnADeployedClone(unittest.TestCase):
     def test_a_product_change_selects_the_guard_alone_and_an_engine_change_does_not(self):
         self._commit("src/app.py", "print(1)\n")
         m = S.select(self.root, self.base)
-        self.assertEqual(m["classification"], "project-only", m.get("full_reason"))
         self.assertEqual(m["project_paths"], ["src/app.py"])
-        self.assertTrue(m["selected"], "the derived-artifact guard is never empty on the real tree")
-        self.assertEqual({e["reason"]["code"] for e in m["selected"]}, {"derived-artifact-guard"})
+        if not _declined_guard_fallback(self, m):
+            self.assertEqual(m["classification"], "project-only", m.get("full_reason"))
+            self.assertTrue(m["selected"], "the derived-artifact guard is never empty on the real tree")
+            self.assertEqual({e["reason"]["code"] for e in m["selected"]}, {"derived-artifact-guard"})
         self._commit(".engine/tools/zz_new_tool.py", "VALUE = 1\n")
         m = S.select(self.root, self.base)
         self.assertNotEqual(m["classification"], "project-only")
@@ -648,6 +675,8 @@ class ThePartitionHasExactlyFourCategories(unittest.TestCase):
             with self.subTest(output=output):
                 self.assertIn(output, S.derived_output_paths())
                 m = S.classify([(output, "M")], lambda: importers, changed_from="base")
+                if _declined_guard_fallback(self, m):
+                    continue
                 self.assertEqual(m["classification"], "focused",
                                  "a regenerated map must not force the complete inventory")
                 self.assertEqual({e["reason"]["code"] for e in m["selected"]},
@@ -658,6 +687,8 @@ class ThePartitionHasExactlyFourCategories(unittest.TestCase):
         """Stated explicitly because it is the surprising half: deletions otherwise always force full."""
         importers = S.build_importer_index(validate.ROOT)
         m = S.classify([(".engine/knowledge/graph.json", "D")], lambda: importers, changed_from="base")
+        if _declined_guard_fallback(self, m):
+            return
         self.assertEqual(m["classification"], "focused")
         self.assertIn("test_knowledge", {e["module"] for e in m["selected"]},
                       "the drift test must still run — that is what makes the exemption safe")
@@ -687,11 +718,13 @@ class RealManifestMatchesItsSchema(unittest.TestCase):
         importers = S.build_importer_index(validate.ROOT)
         produced = S.classify([(f"{_TOOLS}/quiet_call.py", "M")], lambda: importers,
                               changed_from="base")
+        jsonschema.validate(produced, schema)
+        if _declined_guard_fallback(self, produced):
+            return
         self.assertEqual(produced["classification"], "focused")
         self.assertIn("derived-artifact-guard",
                       {e["reason"]["code"] for e in produced["selected"]},
                       "this case is only meaningful if it exercises the guard's own reason code")
-        jsonschema.validate(produced, schema)
 
     def test_every_reason_the_module_can_emit_is_in_the_published_schema(self):
         """Mechanical, so the two vocabularies cannot drift apart again."""
