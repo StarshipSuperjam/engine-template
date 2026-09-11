@@ -47,6 +47,35 @@ class ReviewContracts(unittest.TestCase):
         self.path.rename(self.path.with_name('z-architecture.md'))
         self.assertEqual(before,contracts.installation_digest(self.root))
 
+    def test_build_model_renewal_preserves_the_plan_panels_original_policy(self):
+        original = self.envelope()
+        state = {"review_contract": original, "review_contract_format": 1}
+        path = self.root / '.engine/policies/model-bindings.json'
+        policy = json.loads(path.read_text())
+        policy['providers']['codex']['tiers']['judgment']['model'] = 'new-review-model'
+        policy['providers']['codex']['overrides']['engine-qa-review-spec-conformance']['model'] = 'new-review-model'
+        path.write_text(json.dumps(policy))
+        proposed = contracts.propose_build(state, self.root, ['spec-conformance'])
+        old_plan = original['panels']['plan-review'][0]
+        retained = proposed['panels']['plan-review'][0]
+        self.assertEqual(old_plan['semantic'], retained['semantic'])
+        self.assertEqual(original['binding_policy'], retained['source']['binding_policy'])
+        self.assertEqual('new-review-model', proposed['panels']['pre-submission-review'][0]['semantic']['bindings']['codex']['model'])
+        self.assertEqual(original, state['review_contract'])
+        contracts.validate(proposed)
+        # A second renewal still retains the first plan review's actual policy.
+        state['review_contract'] = proposed
+        policy['providers']['codex']['tiers']['judgment']['model'] = 'third-review-model'
+        policy['providers']['codex']['overrides']['engine-qa-review-spec-conformance']['model'] = 'third-review-model'
+        path.write_text(json.dumps(policy))
+        next_contract = contracts.propose_build(state, self.root, ['spec-conformance'])
+        self.assertEqual(original['binding_policy'], next_contract['panels']['plan-review'][0]['source']['binding_policy'])
+        tampered = copy.deepcopy(next_contract)
+        tampered['panels']['plan-review'][0]['source']['binding_policy'] = policy
+        tampered['digest'] = contracts.envelope_digest(tampered)
+        with self.assertRaisesRegex(contracts.ContractError, 'binding policy'):
+            contracts.validate(tampered)
+
     def test_mandate_change_is_lens_scoped(self):
         old = self.envelope()
         self.path.write_text(self.path.read_text().replace('reviewer-contract-version: 1','reviewer-contract-version: 2'))

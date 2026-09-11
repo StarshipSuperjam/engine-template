@@ -173,7 +173,8 @@ shrink. Unavailable old mandates require a decision, not a substituted fresh ass
 
 Supplemental findings join the original findings, dispositions and presentation lineage. New findings
 must be settled and presented before sealing. Build renewals and finding changes invalidate prior PR
-contract/preflight evidence. Semantic credit does not prove a reviewer read new authored changes: Git
+contract/preflight evidence. A Build model renewal retains the original plan panel’s resolving policy as provenance; repeated renewals
+keep that original policy and validate its resolved models. Semantic credit does not prove a reviewer read new authored changes: Git
 range coverage is checked independently, including after reconciliation.
 
 ### Historical adoption and its limits

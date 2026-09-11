@@ -7672,6 +7672,28 @@ class TestFrozenBuildContracts(CoordinatorCase):
         self.assertEqual(original,state['reviews']['deliverable']['receipts'])
         self.assertNotIn('technical-integrity',bc._missing_receipts(state['reviews']['deliverable']))
 
+    def test_model_renewal_applies_without_changing_the_sealed_plan_panel(self):
+        import scoped_agents
+        root = Path(scoped_agents.__file__).resolve().parents[2]
+        path = root / '.engine/policies/model-bindings.json'
+        policy = json.loads(path.read_text())
+        policy['providers']['codex']['tiers']['judgment']['model'] = 'new-judgment-model'
+        path.write_text(json.dumps(policy))
+        with mock.patch.object(bc, 'ROOT', root):
+            preview = bc._build_contract_preview(self.store.read(), 'adopt')
+            self.assertEqual({'divergence-hunter', 'security-governance'}, {d['lens'] for d in preview['delta']})
+            self.assertTrue(all(d['role'] == 'pre-submission-review' for d in preview['delta']))
+            source = Path(self.temp.name) / 'model-renewal.json'
+            source.write_text(json.dumps(preview))
+            args = argparse.Namespace(plan=str(self.plan_path), input=str(source), reason='Adopt the changed QA model', operator_decided=True)
+            with contextlib.redirect_stdout(io.StringIO()):
+                bc.cmd_build_contract_apply(args, self.store)
+            current = bc.reviewer_contracts.effective_build(self.store.read())
+            self.assertEqual([p['semantic'] for p in self.frozen['panels']['plan-review']],
+                             [p['semantic'] for p in current['panels']['plan-review']])
+            self.assertEqual(self.frozen, self.store.read()['review_contract'])
+            self.assertEqual([], bc._build_review_drift(self.store.read()))
+
     def test_renewal_requires_current_owner_and_preserves_original_contract(self):
         with mock.patch.object(bc,'_installed',return_value=bc.review.installed(bc.ROOT)):
             preview = bc._build_contract_preview(self.store.read(),'retain')

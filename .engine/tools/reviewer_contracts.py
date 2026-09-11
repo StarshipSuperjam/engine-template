@@ -188,7 +188,7 @@ def validate(envelope):
             expected_effects = {"permissions": fields.get("permissions"), "tools": _tool_set(fields.get("tools")),
                                 "disallowed_tools": _tool_set(fields.get("disallowedTools")),
                                 "permission_mode": fields.get("permissionMode")}
-            if semantic["model_class"] != fields.get("model-tier") or semantic["effects"] != expected_effects or semantic["bindings"] != _models(fields, envelope["binding_policy"]):
+            if semantic["model_class"] != fields.get("model-tier") or semantic["effects"] != expected_effects or semantic["bindings"] != _models(fields, source.get("binding_policy", envelope["binding_policy"])):
                 raise ContractError("frozen structured mandate disagrees with its retained source or binding policy")
             bound = semantic["result_contract"]
             if fields.get("output-contract") != bound["id"]:
@@ -366,6 +366,11 @@ def propose_build(state, root, lenses):
     if {p["lens"] for p in selected} != set(lenses):
         raise ContractError("a proposed Build reviewer is unavailable")
     proposed["panels"]["pre-submission-review"] = selected
+    # The Build renews its panel, not the sealed plan review. Retain the policy that
+    # resolved the unchanged panel before replacing the current installation snapshot.
+    # This is provenance only: it must not alter those semantic obligations.
+    for item in proposed["panels"]["plan-review"]:
+        item["source"].setdefault("binding_policy", copy.deepcopy(original["binding_policy"]))
     policy = agent_bindings.load_bindings(str(root))
     proposed["binding_policy"] = policy
     proposed["binding_policy_digest"] = core.digest(policy)

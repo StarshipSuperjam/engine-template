@@ -301,6 +301,10 @@
             },
             "identity_mode": {
               "const": "legacy-source"
+            },
+            "binding_policy": {
+              "type": "object",
+              "description": "Retained policy that resolved this unchanged persona when a Build renewal replaces the envelope installation snapshot. Provenance only; resolved models remain checked against it."
             }
           },
           "required": [
