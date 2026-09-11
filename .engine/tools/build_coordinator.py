@@ -584,48 +584,71 @@ def _coverage_result(stage: dict, kind: str, state: dict, lens: str) -> dict:
 
     receipts, rejected = review.eligible_coverage_receipts(state, contract, verified,
         lambda r: reviewer_contracts.adopted_obligation(state, r, r["lens"]))
-    base, tip = _stage_range(stage, kind)
-    # A proportional repair advances the delivery anchor without reissuing its original packet.
-    # Unaffected lenses still answer that original packet; the separate repair gate checks the
-    # requested lenses. A spliced repair receipt cannot take this path: its producing packet differs.
-    original_scope = False
-    if kind == "deliverable":
+    def original_question(base, tip):
+        # A proportional repair advances branch anchors without reissuing unaffected lenses'
+        # original packet. Its accepted range remains the question, even after a target merge.
+        # Require the original line and base to survive; a rewrite needs the proof path below.
+        if kind != "deliverable":
+            return None
         for receipt in stage.get("receipts", []):
             if receipt not in receipts:
                 continue
-            question = dict(stage, reviewed_commit=receipt.get("commit"))
+            read = receipt.get("reviewed_range") or {}
+            question = dict(stage, base_commit=read.get("base"), reviewed_commit=receipt.get("commit"))
             if (receipt.get("referent_digest") == stage.get("referent_digest")
-                    and review.receipt_attests_scope(question, receipt, kind)):
-                tip = receipt["commit"]
-                original_scope = True
-                break
-    result = ranges.cumulative_coverage(ROOT, receipts, base, tip, stage.get("base_advances", []))
-    # A zero authored delta cannot stand in for the required initial review.
-    result["covered"] = bool(receipts) and result["covered"]
-    if not result["covered"] and result["verified"] and receipts:
-        wanted_base, wanted_tip = base, tip
-        for entry in reversed(state.get("reconciles", [])):
-            if not entry.get("contribution_identical") or entry.get("base_after") != wanted_base:
+                    and review.receipt_attests_scope(question, receipt, kind)
+                    and base and tip and _is_ancestor(read["base"], base)
+                    and _is_ancestor(base, tip) and _is_ancestor(receipt["commit"], tip)):
+                return read["base"], receipt["commit"]
+        return None
+
+    def measure(base, tip, reconciles):
+        original = original_question(base, tip)
+        if original:
+            result = ranges.cumulative_coverage(ROOT, receipts, *original)
+            result["original_packet_scope"] = True
+            result["scope_note"] = "original deliverable packet; proportional repair requirements are checked separately"
+            return result
+        advances = stage.get("base_advances", [])
+        result = ranges.cumulative_coverage(ROOT, receipts, base, tip, advances)
+        if result["covered"] or not result["verified"] or not receipts:
+            return result
+        # Re-prove each identical-contribution link. A fully evidenced old prefix may stand for
+        # that equivalent new prefix; any authored tail still needs its own exact original reads.
+        # Shrinking the ledger on recursion prevents cycles, and never maps a partially read prefix.
+        for index in range(len(reconciles)-1, -1, -1):
+            entry = reconciles[index]
+            if not entry.get("contribution_identical") or entry.get("base_after") != base:
                 continue
             try:
-                if entry["to_commit"] != wanted_tip and (not _is_ancestor(entry["to_commit"], wanted_tip) or
-                        ranges.authored_between(ROOT, entry["to_commit"], wanted_tip)):
+                if not _is_ancestor(entry["to_commit"], tip):
                     continue
                 if _contribution_divergence(entry["base_before"], entry["from_commit"],
                                             entry["base_after"], entry["to_commit"]):
-                    break
-                wanted_base, wanted_tip = entry["base_before"], entry["from_commit"]
-                prior = ranges.cumulative_coverage(ROOT, receipts, wanted_base, wanted_tip)
-                if prior["covered"]:
-                    result = prior
-                    break
+                    continue
+                prior = measure(entry["base_before"], entry["from_commit"], reconciles[:index])
+                if not prior["covered"]:
+                    continue
+                if prior.get("original_packet_scope"):
+                    return prior
+                prefix = set(ranges.authored_between(ROOT, base, entry["to_commit"], advances))
+                wanted = ranges.authored_between(ROOT, base, tip, advances)
+                credit = set(result["read"]) | prefix
+                result.update(read=[sha for sha in wanted if sha in credit],
+                              unread=[sha for sha in wanted if sha not in credit])
+                result["covered"] = not result["unread"]
+                result["scope_note"] = "includes a reverified identical-contribution prefix; original receipt ranges are unchanged"
+                return result
             except (CoordinatorError, ranges.RangeUnreadable, _Unmeasurable, KeyError, TypeError):
-                break
+                continue
+        return result
+
+    result = measure(*_stage_range(stage, kind), state.get("reconciles", []))
+    # A zero authored delta cannot stand in for the required initial review.
+    result["covered"] = bool(receipts) and result["covered"]
     result["unverified"].extend(rejected)
     if not receipts:
         result["unverified"].append("no eligible original review retained; restore evidence or review unread work")
-    if original_scope:
-        result["scope_note"] = "original deliverable packet; proportional repair requirements are checked separately"
     return result
 
 

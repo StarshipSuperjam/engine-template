@@ -7849,6 +7849,48 @@ class TestFrozenBuildContracts(CoordinatorCase):
             self.assertFalse(result["covered"])
             self.assertIn("original accepted execution evidence is unavailable", result["unverified"])
 
+    def test_reconciled_prefix_combines_with_later_accepted_read_and_repeated_rebase(self):
+        repo,first,old,_ = self._real_original_and_repair(full_panel=True)
+        repo.git("checkout","-q","-b","target",repo.base)
+        target = repo.commit("upstream.py","first target advance")
+        repo.git("checkout","-q","main"); repo.git("rebase","target")
+        rewritten = repo.git("rev-parse","HEAD")
+        def reconcile(s, before, source, after, dest):
+            s["reconciles"].append({"base_before":before,"from_commit":source,"base_after":after,
+                "to_commit":dest,"contribution_identical":True,"divergent_paths":[],
+                "unmeasurable":None,"anchored_to":dest})
+            s["reviews"]["deliverable"].update(base_commit=after,reviewed_commit=dest)
+        self.store.mutate(lambda s:reconcile(s,repo.base,old,target,rewritten))
+        late = repo.commit("source-after-rebase.py","new authored repair")
+        state = self.state(); question = dict(state["reviews"]["deliverable"],reviewed_commit=late)
+        with mock.patch.object(bc,"ROOT",repo.repo):
+            self.assertEqual([late],bc._coverage_result(question,"deliverable",state,"technical-integrity")["unread"])
+        def repair(s):
+            s["validation"] = {"commit":late,"results":[{"id":"self-test","commit":late,"passed":True,"summary":"fixture green"}]}
+            s["repair"] = {"reviewed_commit":rewritten,"final_commit":late,"base_commit":target,
+                "summary":"new repair","judgment":"scoped","rationale":"Changed logic",
+                "lenses":["technical-integrity"],"packet_digest":None,"receipts":[]}
+        self.store.mutate(repair)
+        cumulative = bc.ranges.cumulative_coverage
+        with mock.patch(__name__+".BASE",target), mock.patch.object(bc,"_head",return_value=late), \
+                mock.patch.object(bc.ranges,"cumulative_coverage",side_effect=lambda root,*a,**k:cumulative(repo.repo,*a,**k)):
+            packet = self.packet(stage="repair",head=late); self.record_frozen(packet,"technical-integrity")
+        with mock.patch.object(bc,"ROOT",repo.repo):
+            state = self.state()
+            self.assertEqual([],bc._missing_receipts(state["reviews"]["deliverable"],state=state))
+        repo.git("checkout","-q","target"); second_target = repo.commit("second-upstream.py","second advance")
+        repo.git("checkout","-q","main"); repo.git("rebase","target")
+        second_head = repo.git("rev-parse","HEAD")
+        self.store.mutate(lambda s:reconcile(s,target,late,second_target,second_head))
+        with mock.patch.object(bc,"ROOT",repo.repo):
+            state = self.state(); delivery = state["reviews"]["deliverable"]
+            self.assertEqual([],bc._missing_receipts(delivery,state=state))
+            newest = repo.commit("latest.py","unread tail")
+            question = dict(delivery,reviewed_commit=newest)
+            self.assertEqual([newest],bc._coverage_result(question,"deliverable",state,"technical-integrity")["unread"])
+            state["reconciles"][0]["from_commit"] = first
+            self.assertFalse(bc._coverage_result(delivery,"deliverable",state,"technical-integrity")["covered"])
+
     def _assert_public_missing_prefix(self, repo, first, head):
         cumulative = bc.ranges.cumulative_coverage
         out = io.StringIO()
@@ -8249,6 +8291,14 @@ class TestCumulativeReviewScenario(unittest.TestCase):
             self.assertEqual([late],result["unread"])
             self.assertFalse(result["covered"])
             self.assertNotEqual("ready",bc._status(state)["phase"])
+            candidate(late); assess("scoped")
+            with mock.patch(__name__+".BASE",target):
+                packet = fixture.packet(stage="repair",head=late)
+                accept(packet,[])
+            state = fixture.state()
+            self.assertEqual([],bc._missing_receipts(state["reviews"]["deliverable"],state=state),
+                "A scoped repair after a proven target merge must not ask unaffected original lenses again")
         print("Initial panel + four repairs: exact cumulative reads retained; originals and findings survive.")
         print("Completed repair refresh/retry: zero reviewer assignments. Clean target merge: production submit preview reaches mark-ready.")
         print("Missing middle read blocks submission; later authored change leaves exactly one unread commit.")
+        print("Reviewing that later change preserves the unaffected original panel after the base advances.")
