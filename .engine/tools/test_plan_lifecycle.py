@@ -44,7 +44,7 @@ class _Ceremony(unittest.TestCase):
         # Historical fixtures must earn review coverage through the observed execution path.
         if tool is project_manager and len(argv) > 2 and argv[:2] in (("review", "record"), ("review", "amend")):
             import scoped_agents
-            from test_build_coordinator import observe_review_execution
+            from test_project_manager import observe_review_execution
             parsed = project_manager.build_parser().parse_args(["--library", str(self.root), *argv])
             slug = self.lib.resolve(parsed.plan)
             record = self.lib.read_record(slug)
@@ -64,8 +64,11 @@ class _Ceremony(unittest.TestCase):
                               for f in supplied if f["lens"] == lens]
                 else:
                     output = supplied
-                observe_review_execution(self.lib, slug, scoped_agents.plan_owner(record), lens,
-                                         parsed.packet_digest, output)
+                try:
+                    observe_review_execution(self.lib, slug, scoped_agents.plan_owner(record), lens,
+                                             parsed.packet_digest, output)
+                except scoped_agents.EvidenceError:
+                    pass  # Negative packet fixtures must reach the command's own refusal too.
             argv = (*argv, "--session", "fixture-root")
         with contextlib.redirect_stdout(out), contextlib.redirect_stderr(err):
             code = tool.main(["--library", str(self.root), *argv])
@@ -77,8 +80,7 @@ class _Ceremony(unittest.TestCase):
     def packet_digest(self, slug):
         """The digest `review record` will verify against — re-rendered exactly as the verb does."""
         import plan_projection
-        return project_manager.core.digest(
-            plan_projection.render_plan(self.lib.head(slug), self.lib.read_record(slug)).encode("utf-8"))
+        return project_manager.review_packet(self.lib, slug)[1]
 
     def recorded_packet_digest(self, slug):
         """The digest the RECORDED review names. An amendment must match this, not a fresh render:

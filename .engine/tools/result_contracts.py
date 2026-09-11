@@ -100,7 +100,7 @@ def _pointer(parts):
     return "".join("/" + str(p).replace("~", "~0").replace("/", "~1") for p in parts)
 
 
-def _scan(text, contract):
+def _scan(text, contract, limits=LIMITS):
     # This bounds parser recursion before json.loads. JSON syntax remains the parser's job.
     depth = values = 0
     quoted = escaped = token = False
@@ -121,7 +121,7 @@ def _scan(text, contract):
             depth += 1
             values += 1
             token = False
-            if depth > LIMITS["depth"]:
+            if depth > limits["depth"]:
                 reject("maxDepth", contract=contract)
         elif char in "]}":
             depth -= 1
@@ -131,43 +131,43 @@ def _scan(text, contract):
         elif not token:
             values += 1
             token = True
-        if values > LIMITS["values"]:
+        if values > limits["values"]:
             reject("maxValues", contract=contract)
 
 
-def _limits(value, contract, parts=()):
+def _limits(value, contract, parts=(), limits=LIMITS):
     if isinstance(value, str):
         try:
             size = len(value.encode("utf-8"))
         except UnicodeError:
             reject("unicode", category="syntax", contract=contract, path=_pointer(parts))
-        if size > LIMITS["string_bytes"]:
+        if size > limits["string_bytes"]:
             reject("maxStringBytes", contract=contract, path=_pointer(parts))
     elif isinstance(value, list):
-        if len(value) > LIMITS["array_items"]:
+        if len(value) > limits["array_items"]:
             reject("maxItems", contract=contract, path=_pointer(parts))
         for i, child in enumerate(value):
-            _limits(child, contract, (*parts, i))
+            _limits(child, contract, (*parts, i), limits)
     elif isinstance(value, dict):
         for key, child in value.items():
-            _limits(key, contract, parts)
+            _limits(key, contract, parts, limits)
             # Before schema validation, object keys are untrusted payload, not safe paths.
-            _limits(child, contract, ())
+            _limits(child, contract, (), limits)
 
 
-def parse(raw, *, contract=None):
+def parse(raw, *, contract=None, limits=LIMITS):
     if not isinstance(raw, (bytes, str)):
         reject("raw_input_required", category="syntax", contract=contract)
-    if len(raw) > LIMITS["bytes"]:
+    if len(raw) > limits["bytes"]:
         reject("maxBytes", contract=contract)
     try:
         data = raw.encode("utf-8") if isinstance(raw, str) else raw
-        if len(data) > LIMITS["bytes"]:
+        if len(data) > limits["bytes"]:
             reject("maxBytes", contract=contract)
         text = data.decode("utf-8")
     except UnicodeError:
         reject("utf8", category="syntax", contract=contract)
-    _scan(text, contract)
+    _scan(text, contract, limits)
 
     def pairs(entries):
         result = {}
@@ -195,7 +195,7 @@ def parse(raw, *, contract=None):
             for child in (node.values() if isinstance(node, dict) else node):
                 finite(child)
     finite(value)
-    _limits(value, contract)
+    _limits(value, contract, limits=limits)
     return value
 
 
@@ -297,16 +297,52 @@ def validate_binding(binding, *, contract=None, role=None, root=ROOT):
     return expected
 
 
-def ingest(raw, binding, *, contract=None, role=None, root=ROOT, envelope_key=None):
+def validate_retained_binding(binding, *, contract=None, role=None):
+    """Validate an Engine-owned frozen binding, not an arbitrary reviewer-supplied schema."""
+    if not isinstance(binding, dict) or set(binding) != {"id", "mode", "enforcement", "limits", "schema", "schema_digest"}:
+        reject("missing_binding", category="authority", contract=contract)
+    identity = contract or binding["id"]
+    entry = CONTRACTS.get(identity)
+    if not entry or binding["id"] != identity or (role and role not in entry["roles"]):
+        reject("producer_role", category="authority", contract=identity)
+    if binding["mode"] != "structured" or binding["enforcement"] != "canonical-ingress":
+        reject("retained_enforcement", category="authority", contract=identity)
+    limits = binding["limits"]
+    if not isinstance(limits, dict) or set(limits) != set(LIMITS) or any(
+            type(v) is not int or not 0 < v <= LIMITS[k] for k, v in limits.items()):
+        reject("retained_limits", category="authority", contract=identity)
+    schema = binding["schema"]
+    if digest(schema) != binding["schema_digest"] or len(json.dumps(schema).encode()) > LIMITS["bytes"]:
+        reject("retained_schema_digest", category="authority", contract=identity)
+    def closed(node):
+        if isinstance(node, dict):
+            if any(k in node for k in ("$ref", "$dynamicRef", "$recursiveRef", "$id")):
+                reject("retained_schema_reference", category="authority", contract=identity)
+            for value in node.values():
+                closed(value)
+        elif isinstance(node, list):
+            for value in node:
+                closed(value)
+    closed(schema)
+    from jsonschema import Draft202012Validator
+    try:
+        Draft202012Validator.check_schema(schema)
+    except Exception:
+        reject("invalid_schema", category="authority", contract=identity)
+    return binding
+
+
+def ingest(raw, binding, *, contract=None, role=None, root=ROOT, envelope_key=None, retained=False):
     """Validate original wire bytes, optionally selecting a consumer-owned panel member.
 
     A panel consumer validates its exact envelope keys first; selection never removes
     the complete input's byte, syntax or resource checks and never reserializes it.
     """
-    bound = validate_binding(binding, contract=contract, role=role, root=root)
+    bound = (validate_retained_binding(binding, contract=contract, role=role) if retained else
+             validate_binding(binding, contract=contract, role=role, root=root))
     if bound["mode"] != "structured":
         reject("prose_is_not_evidence", category="authority", contract=bound["id"])
-    value = parse(raw, contract=bound["id"])
+    value = parse(raw, contract=bound["id"], limits=bound["limits"])
     if envelope_key is not None:
         if not isinstance(value, dict) or envelope_key not in value:
             reject("report_envelope", category="semantic", contract=bound["id"])

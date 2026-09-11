@@ -374,7 +374,7 @@ def _next_step(status: str, record: dict, blockers: list) -> str:
                 f"  To keep working on the idea instead:\n"
                 f"    project_manager.py clone {plan} --reason \"<why a new plan>\"")
     if status == "review-recorded":
-        outstanding = [f for f in (record["plan_review"] or {}).get("findings", [])
+        outstanding = [f for f in plan_lifecycle.findings(record)
                        if not f.get("disposition")]
         if outstanding:
             first = outstanding[0]["id"]
@@ -387,7 +387,7 @@ def _next_step(status: str, record: dict, blockers: list) -> str:
             return (f"revise to clear what still blocks the seal, then seal:\n"
                     f"    project_manager.py revise {plan} --document <revision.json> "
                     f"--expect-revision {record['current']['revision']}")
-        if not plan_lifecycle.consent_for(record, "findings-presented"):
+        if not plan_lifecycle.consent_for(record, "findings-presented") or not plan_lifecycle.presentation_current(record):
             return (f"show the operator what the panel found and what was done about each, then record "
                     f"that you did:\n    project_manager.py present-findings {plan} "
                     "(add --operator-decided only after the operator's go)")
@@ -802,6 +802,50 @@ def _require_consent(record: dict, gate: str, args) -> dict:
     return plan_lifecycle.attestation(gate, at=_now())
 
 
+def review_packet(library, slug, record=None):
+    """Canonical packet identity includes every requirement before any presentation is rendered."""
+    record = record or library.read_record(slug)
+    contract = reviewer_contracts.effective(record)
+    if contract is None:
+        text = plan_projection.render_plan(library.head(slug), record)
+        return text, core.digest(text.encode()), None
+    packet = {"schema_version": "plan-review-packet.v1", "referent": contract["referent"],
+              "required_lenses": [p["lens"] for p in contract["panels"]["plan-review"]],
+              "depth": contract["depth"], "instructions": contract["instructions"],
+              "review_contract": contract,
+              "plan": library.read_revision(slug, contract["referent"]["revision"])}
+    packet["packet_digest"] = core.digest(packet)
+    return json.dumps(packet, indent=2, ensure_ascii=False) + "\n", packet["packet_digest"], contract
+
+
+def review_requirements(record):
+    contract = reviewer_contracts.effective(record)
+    return ([p["lens"] for p in contract["panels"]["plan-review"]] if contract else
+            required_lenses((record.get("approval") or {}).get("depth"), installed_lenses()))
+
+
+def unresolved_review_drift(record):
+    contract = reviewer_contracts.effective(record)
+    if contract is None:
+        return []
+    root = Path(__file__).resolve().parents[2]
+    changes = reviewer_contracts.drift(contract, root)["changed"]
+    decisions = record.get("review_contract_renewals", [])
+    if decisions and decisions[-1]["action"] == "retain" and decisions[-1]["installation_digest"] == core.digest(reviewer_contracts.discover(root)):
+        return []
+    return [f"{c['role']}/{c['lens']}: reviewer mandate changed; explicitly retain or adopt the obligation" for c in changes]
+
+
+def review_coverage(record):
+    contract = reviewer_contracts.effective(record)
+    if contract is None:
+        return set((record.get("plan_review") or {}).get("lenses", []))
+    return {p["lens"] for p in contract["panels"]["plan-review"]
+            if any(r.get("obligation_digests", {}).get(p["lens"]) ==
+                   reviewer_contracts.obligation_digest(contract["referent"], p)
+                   for r in plan_lifecycle.reviews(record))}
+
+
 def cmd_review_packet(args) -> int:
     """Emit the packet the cold lenses read: the whole plan, at a named digest.
 
@@ -819,19 +863,13 @@ def cmd_review_packet(args) -> int:
             f"the approval covers revision {approval['revision']}, but the plan has been revised since "
             f"and never reviewed. Re-preview and re-approve at revision {record['current']['revision']} "
             "so the review reads what the operator actually approved.")
-    document = library.head(slug)
-    packet = plan_projection.render_plan(document, record)
-    packet_digest = core.digest(packet.encode("utf-8"))
-    import result_contracts
-    result_binding = result_contracts.resolve("plan-review-finding.v1", role="plan-review")
-    covering = required_lenses(approval["depth"], installed_lenses())
-    header = (f"Plan review packet — {record['plan_id']} revision {record['current']['revision']}\n"
-              f"Plan digest: {record['current']['plan_digest']}\n"
-              f"Packet digest: {packet_digest}\n"
-              f"Required lenses: {', '.join(covering) or 'none at this depth'}\n"
-              f"Depth: {approval['depth']} — {DEPTHS[approval['depth']]}\n"
-              f"Result contract: {json.dumps(result_binding, sort_keys=True)}\n"
-              + "=" * 78 + "\n\n")
+    packet, packet_digest, contract = review_packet(library, slug, record)
+    covering = review_requirements(record)
+    header = ""  # Modern packets are the complete canonical envelope, including their identity.
+    if contract is None:
+        header = f"Historical plan review packet — no approval-time contract\nPacket digest: {packet_digest}\n"
+    if record.get("plan_review"):
+        covering = [lens for lens in covering if lens not in review_coverage(record)]
     if args.output:
         Path(args.output).write_text(header + packet, encoding="utf-8")
         print(f"packet written to {args.output}")
@@ -843,8 +881,9 @@ def cmd_review_packet(args) -> int:
         core.atomic_write(source, header + packet, mode=0o600)
         assignments = scoped_agents.prepare_packets(library, slug, scoped_agents.plan_owner(record),
             args.session, source, {lens: packet_digest for lens in covering},
-            {lens: "engine-design-review-" + lens for lens in covering},
-            expected_file_digest=core.digest((header + packet).encode("utf-8")))
+            {lens: next(p["source"]["name"] for p in contract["panels"]["plan-review"] if p["lens"] == lens)
+             if contract else "engine-design-review-" + lens for lens in covering},
+            expected_file_digest=core.digest((header + packet).encode("utf-8")), review_contract=contract)
         print("\nFresh assignments (native task name, role and immutable packet):")
         for a in assignments:
             print(f"  {a['id']} | {a['role']} | {a['packet_path']}")
@@ -853,18 +892,18 @@ def cmd_review_packet(args) -> int:
     return 0
 
 
-def ingest_review_report(raw, binding, *, lens, envelope_key=None):
+def ingest_review_report(raw, binding, *, lens, envelope_key=None, retained=False):
     """Canonical plan-review boundary; controller fields never enter a model report."""
     import result_contracts
     try:
         report = result_contracts.ingest(raw, binding, contract="plan-review-finding.v1",
-                                         role="plan-review", envelope_key=envelope_key)
+                                         role="plan-review", envelope_key=envelope_key, retained=retained)
         return result_contracts.compile_review(report, lens=lens, contract="plan-review-finding.v1")
     except result_contracts.Rejection as exc:
         raise ProjectManagerError(str(exc)) from exc
 
 
-def _review_input(source, lenses, *, controller=False):
+def _review_input(source, lenses, *, controller=False, contract=None):
     import result_contracts
     try:
         if not source:
@@ -882,10 +921,12 @@ def _review_input(source, lenses, *, controller=False):
                    {lenses[0]: parsed} if len(lenses) == 1 and isinstance(parsed, list) else parsed)
         if not isinstance(reports, dict) or set(reports) != set(lenses):
             result_contracts.reject("exact_lens_reports", category="semantic")
-        binding = result_contracts.resolve("plan-review-finding.v1", role="plan-review")
+        bindings = {p["lens"]: p["semantic"]["result_contract"] for p in contract["panels"]["plan-review"]} if contract else {}
+        if contract and not set(lenses) <= set(bindings):
+            raise ProjectManagerError("review lens is outside the approved contract")
         return reports, [finding for lens in lenses for finding in ingest_review_report(
-            raw, binding, lens=lens,
-            envelope_key=lens if isinstance(parsed, dict) else None)["findings"]]
+            raw, bindings[lens] if contract else result_contracts.resolve("plan-review-finding.v1", role="plan-review"), lens=lens,
+            envelope_key=lens if isinstance(parsed, dict) else None, retained=bool(contract))["findings"]]
     except result_contracts.Rejection as exc:
         raise ProjectManagerError(str(exc)) from exc
 
@@ -909,7 +950,16 @@ def cmd_review_record(args) -> int:
             "this plan is sealed, and its review is what the pull request publishes — a review recorded "
             "now would appear at merge as though it had been read before the plan was locked. Reviews "
             "belong before the seal. If this plan needs one, clone it and review the clone.")
-    if record.get("plan_review"):
+    renewal_id = getattr(args, "renewal", None)
+    decision = next((d for d in record.get("review_contract_renewals", []) if d["preview_digest"] == renewal_id), None) if renewal_id else None
+    if renewal_id:
+        if not record.get("plan_review") or not decision or decision["action"] != "adopt" or decision["contract"] != reviewer_contracts.effective(record):
+            raise ProjectManagerError("supplement requires the current explicitly adopted renewal and original cold panel")
+        changed = {d["lens"] for d in decision["delta"] if d["role"] == "plan-review" and d["new"]}
+        used = {lens for e in record.get("supplemental_reviews", []) if e["renewal_digest"] == renewal_id for lens in e["review"]["lenses"]}
+        if not set(args.lens) <= changed or set(args.lens) & used:
+            raise ProjectManagerError("supplement may execute only an unrecorded changed/new lens from this renewal")
+    if record.get("plan_review") and not renewal_id:
         existing = record["plan_review"]
         raise ProjectManagerError(
             f"a plan review is already recorded for revision {existing['revision']} of this plan, and "
@@ -930,13 +980,12 @@ def cmd_review_record(args) -> int:
     # which carries no id and no lens; mapping it here is what stopped a panel's whole output from
     # dying on a schema refusal at the end of the run that produced it.
     reports, findings = _review_input(args.findings, list(args.lens),
-        controller=getattr(args, "controller_findings", False))
+        controller=getattr(args, "controller_findings", False), contract=reviewer_contracts.effective(record))
     # Record-time verification of the packet digest, moved from the Build side with the panel. A receipt
     # that names a digest nobody can reproduce vouches for nothing; this re-renders the packet for the
     # APPROVED revision and refuses a receipt that does not match it, so the digest in the record is a
     # fact rather than a claim.
-    rendered = plan_projection.render_plan(library.head(slug), record)
-    expected = core.digest(rendered.encode("utf-8"))
+    _, expected, contract = review_packet(library, slug, record)
     if args.packet_digest != expected:
         raise ProjectManagerError(
             f"this receipt names packet digest {args.packet_digest}, but the packet for the approved "
@@ -945,7 +994,7 @@ def cmd_review_record(args) -> int:
             "re-cut it with `review packet` and re-run the lenses against what it actually says.")
     # The coverage the approved depth demands is checked here too, not only at the seal, so the gap is
     # surfaced while the reviewers are still warm rather than at the terminal act.
-    gap = coverage_gap(approval["depth"], list(args.lens))
+    gap = sorted(set(review_requirements(record)) - set(args.lens))
     # The findings fail on their own terms, here, before any ceremony gate: a mistyped severity should
     # be reported as a mistyped severity, not survive to the write and surface as a complaint about the
     # enclosing record — and not be pre-empted by a flag the author has not reached yet.
@@ -959,7 +1008,20 @@ def cmd_review_record(args) -> int:
         "lenses": list(args.lens),
         "findings": findings,
     }
+    if contract:
+        obligations = {p["lens"]: reviewer_contracts.obligation_digest(contract["referent"], p)
+                       for p in contract["panels"]["plan-review"]}
+        if not set(args.lens) <= set(obligations):
+            raise ProjectManagerError("review includes a lens outside the approved contract")
+        review.update(contract_digest=contract["digest"],
+                      obligation_digests={lens: obligations[lens] for lens in args.lens})
+    prefix = "R" + renewal_id.split(":")[-1][:12] + "-" if renewal_id else ""
+    if prefix and review["findings"] is not None:
+        for finding in review["findings"]:
+            finding["id"] = prefix + finding["id"]
     def record_review(current):
+        if reviewer_contracts.effective(current) != contract:
+            raise ProjectManagerError("review contract changed during acceptance")
         # INSIDE the lock. Recording a review does not mint a revision, so the compare-and-swap on
         # `current.revision` cannot catch a concurrent second review — only re-checking here can, and
         # "exactly one review per plan" is worth exactly as much as this line.
@@ -967,13 +1029,18 @@ def cmd_review_record(args) -> int:
             raise ProjectManagerError(
                 "this plan was sealed while the review was being prepared; a seal is terminal and the "
                 "review it published is the one the pull request carries")
-        if current.get("plan_review"):
+        if current.get("plan_review") and not renewal_id:
             raise ProjectManagerError(
                 "another session recorded a plan review while this one was being prepared, and there "
                 "is exactly one per plan. Re-read the plan before deciding what to do next.")
+        if renewal_id and core.digest(current) != core.digest(record):
+            raise ProjectManagerError("review lineage changed during supplemental acceptance")
         scoped_agents.accept_plan(library, slug, current, review, list(args.lens),
-                                  providers.resolve_session(explicit=getattr(args, "session", None)), supplied_reports=reports)
-        current["plan_review"] = review
+                                  providers.resolve_session(explicit=getattr(args, "session", None)), supplied_reports=reports, finding_prefix=prefix)
+        if renewal_id:
+            current.setdefault("supplemental_reviews", []).append({"renewal_digest": renewal_id, "review": review})
+        else:
+            current["plan_review"] = review
 
     library.update_record(slug, record_review)
     findings = review["findings"]
@@ -1029,7 +1096,7 @@ def cmd_review_amend(args) -> int:
             f"against the recorded packet, or `review packet {args.plan}` again and check they match.")
     added_lenses = [lens for lens in (args.lens or []) if lens not in review["lenses"]]
     reports, added = _review_input(args.findings, list(args.lens or review["lenses"]),
-        controller=getattr(args, "controller_findings", False))
+        controller=getattr(args, "controller_findings", False), contract=reviewer_contracts.effective(record))
     if added is None:
         raise ProjectManagerError("review amendments require an explicit report file")
     _validate_findings(added)
@@ -1048,7 +1115,16 @@ def cmd_review_amend(args) -> int:
             raise ProjectManagerError(
                 "this review was sealed or began being dispositioned while the amendment was being "
                 "prepared; re-read it before deciding what to do next")
+        contract = reviewer_contracts.effective(current)
+        if contract and current["plan_review"].get("contract_digest") != contract["digest"]:
+            raise ProjectManagerError("a renewed contract requires a supplemental record, not an amendment of the original panel")
         prior = copy.deepcopy(current["plan_review"])
+        if contract:
+            for lens in added_lenses:
+                item = next((p for p in contract["panels"]["plan-review"] if p["lens"] == lens), None)
+                if item is None:
+                    raise ProjectManagerError("lens is outside the approved contract")
+                current["plan_review"].setdefault("obligation_digests", {})[lens] = reviewer_contracts.obligation_digest(contract["referent"], item)
         current["plan_review"]["lenses"] = current["plan_review"]["lenses"] + added_lenses
         current["plan_review"].setdefault("findings", []).extend(added)
         scoped_agents.accept_plan(library, slug, current, current["plan_review"],
@@ -1251,6 +1327,7 @@ def seal_refusals(library: plan_store.PlanLibrary, slug: str) -> list:
         refusals.append(
             f"the approval covers revision {approval['revision']} but the plan changed before it was "
             "ever reviewed, so nothing reviewed reflects what was approved; re-preview and re-approve")
+    refusals.extend(unresolved_review_drift(record))
     review = record.get("plan_review")
     depth = (approval or {}).get("depth")
     # The coverage rule moves here WITH the panel. On the Build side this was BC-12's "approved reviewer
@@ -1258,7 +1335,7 @@ def seal_refusals(library: plan_store.PlanLibrary, slug: str) -> list:
     # makes "a sealed plan is by definition a reviewed one" true rather than assumed. At `quick` the
     # roster is empty by the operator's own choice at approval, and their read IS the review — so the
     # demand for a recorded review is keyed on the roster, not asserted regardless of the depth chosen.
-    required = required_lenses(depth, installed_lenses()) if depth in DEPTHS else []
+    required = review_requirements(record) if depth in DEPTHS else []
     if not review:
         if required:
             refusals.append("no cold plan review has been recorded, and the approved depth requires "
@@ -1272,13 +1349,17 @@ def seal_refusals(library: plan_store.PlanLibrary, slug: str) -> list:
             refusals.append("the recorded review has no verified execution evidence. Historical "
                             "records remain readable, but cannot authorize a new seal. Restore the "
                             "original companion and frozen packets, or clone the plan for fresh review.")
-        gap = coverage_gap(depth, review.get("lenses", []))
+        gap = sorted(set(required) - review_coverage(record))
         if gap:
             refusals.append(
                 f"the review covers {', '.join(review.get('lenses', [])) or 'no lenses'}, but the "
                 f"approved {depth} depth requires {', '.join(required)}: missing {', '.join(gap)}. "
                 "Run the missing lenses and record them, or re-approve at a depth that matches what "
                 "you actually intend to run.")
+    for supplement in record.get("supplemental_reviews", []):
+        receipt = supplement["review"]
+        if not scoped_agents.Store(library, slug).receipt_verified(receipt, scoped_agents.plan_owner(record, receipt)):
+            refusals.append("supplemental review lacks verified original execution evidence")
     if review:
         outstanding = [f["id"] for f in plan_lifecycle.findings(record) if not f.get("disposition")]
         if outstanding:
@@ -1493,11 +1574,19 @@ def cmd_seal(args) -> int:
         if current.get("seal"):          # re-asserted inside the lock; a seal is minted once
             raise ProjectManagerError("another session sealed this plan while this one was reading it")
         current_review = current.get("plan_review")
-        if current_review and required_lenses(current["approval"]["depth"], installed_lenses()):
+        for receipt in plan_lifecycle.reviews(current):
+            if not scoped_agents.Store(library, slug).receipt_verified(receipt, scoped_agents.plan_owner(current, receipt)):
+                raise ProjectManagerError("review lineage execution evidence became unverified before sealing")
+        if unresolved_review_drift(current):
+            raise ProjectManagerError("review mandate drift requires an explicit decision before sealing")
+        if current_review and review_requirements(current):
             if not scoped_agents.Store(library, slug).receipt_verified(
                     current_review, scoped_agents.plan_owner(current, current_review)):
                 raise ProjectManagerError("review execution became unverified before sealing; "
                                           "preserve the record and restore evidence or clone for fresh review")
+        contract = reviewer_contracts.effective(current)
+        if contract:
+            seal["review_contract_digest"] = contract["digest"]
         current["seal"] = seal
         current.setdefault("consent", []).append(consent)
 
@@ -2391,6 +2480,7 @@ def build_parser() -> argparse.ArgumentParser:
     packet.set_defaults(func=cmd_review_packet)
     record_review = review.add_parser("record", help="record the review — once per plan")
     record_review.add_argument("plan")
+    record_review.add_argument("--renewal", help="explicit adopted renewal digest; records only its changed lenses as a supplement")
     record_review.add_argument("--session", help="actual owning root session")
     record_review.add_argument("--lens", action="append", required=True)
     record_review.add_argument("--packet-digest", required=True)

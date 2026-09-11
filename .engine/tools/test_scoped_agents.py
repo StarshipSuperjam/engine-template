@@ -128,6 +128,9 @@ class ScopedAssignments(unittest.TestCase):
         self.assertEqual(Path(assignments[0]["packet_path"]).read_bytes(), self.packet.read_bytes())
 
     def test_result_binding_is_frozen_and_invalid_acceptance_does_not_mutate(self):
+        from test_plan_store import _document
+        slug = self.library.create(_document())
+        self.store = scoped.Store(self.library, slug)
         self.owner["kind"] = "plan"
         self.a = self.register("architecture")
         self.launch(); self.child_read(); self.stop()

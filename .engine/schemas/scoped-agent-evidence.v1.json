@@ -356,6 +356,9 @@
         },
         "result_contract": {
           "$ref": "#/$defs/result_binding"
+        },
+        "review_contract": {
+          "$ref": "reviewer-contract.v1.json"
         }
       }
     },

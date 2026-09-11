@@ -22,6 +22,7 @@ import moment
 import plan_store
 import providers
 import result_contracts
+import reviewer_contracts
 
 VERSION = "scoped-agent-evidence.v1"
 FILENAME = "scoped-agent-evidence.v1.json"
@@ -94,7 +95,7 @@ class Store:
             raise EvidenceError("unsupported or damaged scoped-assignment companion; review is unverified")
         schema = Path(__file__).resolve().parents[1] / "schemas" / (VERSION + ".json")
         try:
-            core.validate(value, schema)
+            core.validate(value, schema, local_refs=True)
         except core.CoordinatorError as exc:
             raise EvidenceError("damaged scoped-assignment companion; review is unverified: " + str(exc)) from exc
         return value
@@ -111,7 +112,7 @@ class Store:
                 self.write_locked(data)
             return result
 
-    def register(self, *, owner, root, purpose, lens, role, packet, packet_digest, expected_file_digest=None):
+    def register(self, *, owner, root, purpose, lens, role, packet, packet_digest, expected_file_digest=None, review_contract=None):
         """Freeze a uniquely located packet before native dispatch. Provider is not caller-selected."""
         if not all(_text(x) for x in (root, purpose, role, packet_digest)) or not isinstance(owner, dict):
             raise EvidenceError("assignment requires explicit owner, root, purpose, role and packet identity")
@@ -127,6 +128,25 @@ class Store:
             raise EvidenceError("registered persona is missing; cannot bind its result contract")
         fields = frontmatter(str(persona))
         binding = result_contracts.resolve(fields.get("output-contract"), role=fields.get("role"))
+        if review_contract is None and owner.get("kind") == "plan" and purpose == "review":
+            review_contract = reviewer_contracts.effective(self.library.read_record(self.slug))
+        if review_contract:
+            reviewer_contracts.validate(review_contract)
+            panel_role = "plan-review" if owner["kind"] == "plan" else "pre-submission-review"
+            obligations = [p for p in review_contract["panels"][panel_role] if p["lens"] == lens]
+            if len(obligations) != 1 or obligations[0]["source"]["name"] != role:
+                raise EvidenceError("review lens/role is outside the frozen approval contract")
+            obligation = obligations[0]
+            available = reviewer_contracts.discover(Path(__file__).resolve().parents[2], panel_role)
+            matching = [p for p in available if p["lens"] == lens and p["semantic_digest"] == obligation["semantic_digest"]]
+            if not matching:
+                raise EvidenceError(f"{lens}: installed capability differs from the frozen mandate; restore it or explicitly renew this lens")
+            binding = obligation["semantic"]["result_contract"]
+            if owner["kind"] == "plan":
+                from project_manager import review_packet
+                expected, expected_digest, current = review_packet(self.library, self.slug)
+                if current != review_contract or content != expected.encode() or packet_digest != expected_digest:
+                    raise EvidenceError("plan packet headers or approved contract differ from the canonical envelope")
         token = "sa_" + uuid.uuid4().hex
         directory = self.path.parent / "scoped-packets"
         self.library._mkdir(directory)
@@ -139,6 +159,8 @@ class Store:
                       "file_digest": core.digest(content), "created_at": moment.utc_now(),
                       "launch": None, "child": None, "start": None, "read": None,
                       "continuations": [], "supplements": [], "stops": [], "faults": [], "accepted": False}
+        if review_contract:
+            assignment["review_contract"] = copy.deepcopy(review_contract)
         self.change(lambda data: data["assignments"].__setitem__(token, assignment))
         return assignment
 
@@ -217,6 +239,12 @@ class Store:
                     return hooks.block("Use one unique Engine packet per native assignment.")
                 a = matches[0]
                 if event == "PreToolUse":
+                    if a.get("review_contract"):
+                        role = "plan-review" if a["owner"]["kind"] == "plan" else "pre-submission-review"
+                        old = next(p for p in a["review_contract"]["panels"][role] if p["lens"] == a["lens"])
+                        available = reviewer_contracts.discover(Path(__file__).resolve().parents[2], role)
+                        if not any(p["lens"] == a["lens"] and p["semantic_digest"] == old["semantic_digest"] for p in available):
+                            return hooks.block("The installed reviewer mandate changed after packet preparation; restore it or explicitly renew the obligation.")
                     if a["launch"] and a["launch"]["call_id"] == call.get("call_id") and a["launch"]["input_digest"] == core.digest(call["input"]):
                         return hooks.proceed()  # repeat observation of the same native call
                     if (a["launch"] and call["provider"] == providers.CODEX and
@@ -483,19 +511,40 @@ class Store:
                 from project_manager import ingest_review_report
             else:
                 from build_coordinator_review import ingest_review_report
+            contract = assignment.get("review_contract")
+            if contract:
+                reviewer_contracts.validate(contract)
+                panel_role = "plan-review" if owner["kind"] == "plan" else "pre-submission-review"
+                item = next(p for p in contract["panels"][panel_role] if p["lens"] == assignment["lens"])
+                if assignment.get("result_contract") != item["semantic"]["result_contract"]:
+                    raise EvidenceError("retained result binding differs from the frozen obligation")
+                report = result_contracts.ingest(stop["output"], assignment["result_contract"], role=panel_role, retained=True)
+                return result_contracts.compile_review(report, lens=assignment["lens"], contract=assignment["result_contract"]["id"])
             return ingest_review_report(stop["output"], assignment.get("result_contract"), lens=assignment["lens"])
         except (result_contracts.Rejection, core.CoordinatorError) as exc:
             raise EvidenceError(str(exc)) from exc
 
     def accept_locked(self, *, owner, root, receipt, lenses, packet_digests, prior_receipt=None,
-                      supplied_reports=None, controller_entries=None, existing_entries=()):
+                      supplied_reports=None, controller_entries=None, existing_entries=(), finding_prefix=""):
         """Called inside the existing plan/Build transaction, before publishing its receipt.
 
         Persisting this first can leave an orphan after a crash. An orphan is never coverage:
         history lookup also needs the matching published legacy receipt. Retrying is idempotent.
         """
+        if owner["kind"] == "plan":
+            from project_manager import unresolved_review_drift
+            drift = unresolved_review_drift(self.library.read_record(self.slug))
+            if drift:
+                raise EvidenceError("; ".join(drift))
         assignments = [self.verified_locked(owner=owner, root=root, lens=lens,
                                              packet_digest=packet_digests[lens]) for lens in lenses]
+        for a in assignments:
+            if a.get("review_contract") and owner["kind"] == "plan":
+                current = reviewer_contracts.effective(self.library.read_record(self.slug))
+                item = next((p for p in (current or {}).get("panels", {}).get("plan-review", []) if p["lens"] == a["lens"]), None)
+                old = next(p for p in a["review_contract"]["panels"]["plan-review"] if p["lens"] == a["lens"])
+                if item is None or old["semantic_digest"] != item["semantic_digest"]:
+                    raise EvidenceError("assignment mandate is no longer the effective approved obligation")
         if any(a["purpose"] != "review" for a in assignments):
             raise EvidenceError("a worker/scout completion cannot satisfy independent review")
         if prior_receipt is not None:
@@ -521,6 +570,8 @@ class Store:
         # replace them. Previously accepted findings may have explicit controller corrections.
         expected = [f for a in assignments if a["lens"] in lenses for f in compiled[a["id"]]["findings"]]
         if owner["kind"] == "plan":
+            for finding in expected:
+                finding["id"] = finding_prefix + finding["id"]
             if receipt["findings"] is None:
                 receipt["findings"] = expected
             supplied = [f for f in receipt["findings"] if f["lens"] in lenses]
@@ -578,8 +629,21 @@ class Store:
             for assignment_id in accepted["assignments"]:
                 a = data["assignments"][assignment_id]
                 # Historical facts remain readable, but missing contract evidence is unverified.
+                if receipt.get("contract_digest"):
+                    frozen = a.get("review_contract")
+                    if not frozen:
+                        return False
+                    role = "plan-review" if owner["kind"] == "plan" else "pre-submission-review"
+                    item = next((p for p in frozen["panels"][role] if p["lens"] == a["lens"]), None)
+                    if item is None:
+                        return False
+                    if owner["kind"] == "plan" and receipt.get("obligation_digests", {}).get(a["lens"]) != reviewer_contracts.obligation_digest(frozen["referent"], item):
+                        return False
                 binding = a.get("result_contract")
-                result_contracts.validate_binding(binding)
+                if a.get("review_contract"):
+                    result_contracts.validate_retained_binding(binding)
+                else:
+                    result_contracts.validate_binding(binding)
                 if accepted.get("result_contracts", {}).get(assignment_id) != binding:
                     return False
                 if accepted.get("reports", {}).get(assignment_id) != self.review_report(a, recorded)["report"]:
@@ -603,19 +667,19 @@ class Store:
             return False
 
 
-def prepare_packets(library, slug, owner, root, packet, digest_by_lens, roles, *, expected_file_digest):
+def prepare_packets(library, slug, owner, root, packet, digest_by_lens, roles, *, expected_file_digest, review_contract=None):
     if not _text(root):
         raise EvidenceError("fresh review dispatch requires the current root session identity; supply --session")
     store = Store(library, slug)
     return [store.register(owner=owner, root=root, purpose="review", lens=lens, role=roles[lens],
-                           packet=packet, packet_digest=digest, expected_file_digest=expected_file_digest)
+                           packet=packet, packet_digest=digest, expected_file_digest=expected_file_digest, review_contract=review_contract)
             for lens, digest in digest_by_lens.items()]
 
 
-def accept_plan(library, slug, record, receipt, lenses, root, prior_receipt=None, *, supplied_reports=None):
+def accept_plan(library, slug, record, receipt, lenses, root, prior_receipt=None, *, supplied_reports=None, finding_prefix=""):
     Store(library, slug).accept_locked(owner=plan_owner(record), root=root, receipt=receipt,
         lenses=lenses, packet_digests={lens: receipt["packet_digest"] for lens in lenses},
-        prior_receipt=prior_receipt, supplied_reports=supplied_reports)
+        prior_receipt=prior_receipt, supplied_reports=supplied_reports, finding_prefix=finding_prefix)
 
 
 def accept_build(library, state, receipt, root, *, supplied_reports=None, controller_entries=None):

@@ -95,8 +95,7 @@ class _Dogfood(unittest.TestCase):
         """The digest of the packet the coordinator would really cut for this plan's head."""
         import project_manager
         import plan_projection
-        return project_manager.core.digest(
-            plan_projection.render_plan(self.lib.head(slug), self.lib.read_record(slug)).encode("utf-8"))
+        return project_manager.review_packet(self.lib, slug)[1]
 
 
 class TheSeededPlanIsReal(_Dogfood):
@@ -169,7 +168,7 @@ class TheFullDistance(_Dogfood):
         findings_file = Path(self._tmp.name) / "findings.json"
         findings_file.write_text(json.dumps(sorted(REVIEW_FINDINGS, key=lambda f: f["lens"])), encoding="utf-8")
         import scoped_agents
-        from test_build_coordinator import observe_review_execution
+        from test_project_manager import observe_review_execution
         owner = scoped_agents.plan_owner(self.lib.read_record(slug))
         digest = self._packet_digest(slug)
         for lens in ("architecture", "feasibility", "product-intent", "risk-governance"):

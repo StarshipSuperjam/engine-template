@@ -31,6 +31,20 @@ import plan_store
 from test_plan_store import _document
 
 
+def observe_review_execution(library, slug, owner, lens, digest, output, **kwargs):
+    """Feed the production packet into the existing synthetic native-event fixture."""
+    import scoped_agents
+    from test_build_coordinator import observe_review_execution as observe
+    register = scoped_agents.Store.register
+    def canonical(store, **args):
+        packet, expected, contract = project_manager.review_packet(library, slug)
+        if contract and digest == expected:
+            Path(args["packet"]).write_text(packet)
+        return register(store, **args)
+    with mock.patch.object(scoped_agents.Store, "register", canonical):
+        return observe(library, slug, owner, lens, digest, output, **kwargs)
+
+
 class _Surface(unittest.TestCase):
     def setUp(self):
         self._tmp = tempfile.TemporaryDirectory()
@@ -42,7 +56,6 @@ class _Surface(unittest.TestCase):
         out, err = io.StringIO(), io.StringIO()
         if observe and len(argv) > 2 and argv[:2] in (("review", "record"), ("review", "amend")):
             import scoped_agents
-            from test_build_coordinator import observe_review_execution
             parsed = project_manager.build_parser().parse_args(["--library", str(self.root), *argv])
             try:
                 slug = self.lib.resolve(parsed.plan)
@@ -100,12 +113,10 @@ class LocationIngress(_Surface):
         return slug
 
     def packet(self, slug):
-        return project_manager.core.digest(plan_projection.render_plan(
-            self.lib.head(slug), self.lib.read_record(slug)).encode())
+        return project_manager.review_packet(self.lib, slug)[1]
 
     def observed(self, slug, lens, report, packet):
         import scoped_agents
-        from test_build_coordinator import observe_review_execution
         return observe_review_execution(self.lib, slug, scoped_agents.plan_owner(self.lib.read_record(slug)),
                                         lens, packet, report)[0]
 
@@ -569,8 +580,7 @@ class _Governed(_Surface):
         The two were interchangeable while nothing verified the receipt; now that `review record`
         re-renders and compares, a receipt has to name the packet it really read."""
         import plan_projection as _pp
-        return project_manager.core.digest(
-            _pp.render_plan(self.lib.head(slug), self.lib.read_record(slug)).encode("utf-8"))
+        return project_manager.review_packet(self.lib, slug)[1]
 
     def _covering_lenses(self, depth="standard"):
         """Every lens the approved depth requires — the seal refuses anything short of it."""
@@ -645,7 +655,7 @@ class OneReviewPerPlan(_Governed):
         self.run_command("approve", slug, "--depth", "standard", "--operator-decided")
         code, out, err = self.run_command("review", "packet", slug)
         self.assertEqual(code, 0)
-        self.assertIn("Packet digest: sha256:", out)
+        self.assertIn('"packet_digest": "sha256:', out)
         self.assertIn(self.lib.read_record(slug)["current"]["plan_digest"], out)
         self.assertIn("packet digest:", err)
 
@@ -2774,7 +2784,6 @@ class ObservedPlanReview(_Governed):
 
     def test_raw_report_substitution_refuses_without_mutating_either_store(self):
         import scoped_agents
-        from test_build_coordinator import observe_review_execution
         slug = self.prepared()
         digest = self._packet_digest(slug)
         report = [{"severity": "blocking", "message": "first", "location": {"file": "a", "line": None}},
@@ -2886,7 +2895,7 @@ class ObservedPlanReview(_Governed):
 
     def test_clarification_completes_plan_review_without_a_second_child(self):
         import scoped_agents
-        from test_build_coordinator import observe_review_execution, clarify_review_execution
+        from test_build_coordinator import clarify_review_execution
         slug = self.prepared()
         digest = self._packet_digest(slug)
         record = self.lib.read_record(slug)
@@ -2906,7 +2915,6 @@ class ObservedPlanReview(_Governed):
 
     def test_interrupted_plan_receipt_preserves_unaccepted_history_and_retries_once(self):
         import scoped_agents
-        from test_build_coordinator import observe_review_execution
         slug = self.prepared()
         record = self.lib.read_record(slug)
         digest = self._packet_digest(slug)
@@ -2936,7 +2944,6 @@ class ObservedPlanReview(_Governed):
     def test_concurrent_plan_receipts_cannot_overwrite_or_combine_coverage(self):
         import concurrent.futures
         import scoped_agents
-        from test_build_coordinator import observe_review_execution
         slug = self.prepared()
         digest = self._packet_digest(slug)
         record = self.lib.read_record(slug)
@@ -3032,3 +3039,92 @@ class TestFrozenApproval(_Surface):
         record = self.lib.read_record(slug)
         self.assertEqual(original, record['approval_history'][0]['approval'])
         self.assertEqual(2, record['approval']['review_contract']['referent']['revision'])
+
+    def test_renewed_lens_finding_requires_disposition_and_new_presentation(self):
+        import copy
+        import scoped_agents
+        slug = self._approved()
+        record = self.lib.read_record(slug)
+        contract = record['approval']['review_contract']
+        packet = project_manager.review_packet(self.lib, slug)[1]
+        lenses = [p['lens'] for p in contract['panels']['plan-review']]
+        for lens in lenses:
+            observe_review_execution(self.lib, slug, scoped_agents.plan_owner(record), lens, packet, [])
+        argv = ['review', 'record', slug, '--packet-digest', packet, '--session', 'fixture-root']
+        for lens in lenses:
+            argv.extend(['--lens', lens])
+        rc, _, err = self.run_command(*argv, observe=False)
+        self.assertEqual(0, rc, err)
+        self.assertEqual(0, self.run_command('present-findings', slug, '--operator-decided')[0])
+        original = copy.deepcopy(self.lib.read_record(slug)['plan_review'])
+        changed = copy.deepcopy(contract)
+        item = changed['panels']['plan-review'][0]
+        item['semantic']['mandate']['version'] += 1
+        item['semantic_digest'] = project_manager.core.digest(item['semantic'])
+        item['source']['instructions'] = item['source']['instructions'].replace('reviewer-contract-version: 1', 'reviewer-contract-version: 2')
+        item['source']['digest'] = project_manager.core.digest(item['source']['instructions'].encode())
+        changed['digest'] = project_manager.core.digest({k:v for k,v in changed.items() if k != 'digest'})
+        installed = [p for panel in changed['panels'].values() for p in panel]
+        def discover(root, role=None):
+            return [p for p in installed if role is None or p['semantic']['role'] == role]
+        output = Path(self._tmp.name) / 'changed-contract.json'
+        with mock.patch.object(project_manager, '_capture_review_contract', return_value=changed), mock.patch.object(project_manager.reviewer_contracts, 'discover', side_effect=discover):
+            self.assertEqual(0, self.run_command('review-contract','preview',slug,'--action','adopt','--output',str(output))[0])
+            renewal = json.loads(output.read_text())['preview_digest']
+            self.assertEqual(0, self.run_command('review-contract','apply',slug,'--input',str(output),'--reason','Adopt changed architecture mandate','--operator-decided')[0])
+            record = self.lib.read_record(slug)
+            packet = project_manager.review_packet(self.lib, slug)[1]
+            lens = item['lens']
+            observe_review_execution(self.lib, slug, scoped_agents.plan_owner(record), lens, packet,
+                [{'severity':'serious','message':'Resolve the new obligation','location':{'file':'plan'}}])
+            rc, _, err = self.run_command('review','record',slug,'--renewal',renewal,'--lens',lens,'--packet-digest',packet,'--session','fixture-root',observe=False)
+            self.assertEqual(0,rc,err)
+            record = self.lib.read_record(slug)
+            self.assertEqual(original, record['plan_review'])
+            self.assertIn('no disposition', ' '.join(project_manager.seal_refusals(self.lib,slug)))
+            finding = record['supplemental_reviews'][0]['review']['findings'][0]
+            rc, _, err = self.run_command('finding','dispose',slug,'--id',finding['id'],'--disposition','accepted-fixed','--rationale','Implemented','--does-not-block-this-pr')
+            self.assertEqual(0,rc,err)
+            self.assertIn('lineage', ' '.join(project_manager.seal_refusals(self.lib,slug)))
+            self.assertEqual(0,self.run_command('present-findings',slug,'--operator-decided')[0])
+            self.assertEqual([],project_manager.seal_refusals(self.lib,slug))
+            self.assertEqual(original,self.lib.read_record(slug)['plan_review'])
+
+    def test_packet_header_tampering_is_rejected_before_dispatch(self):
+        import scoped_agents
+        slug = self._approved()
+        record = self.lib.read_record(slug)
+        text, digest, contract = project_manager.review_packet(self.lib, slug)
+        packet = json.loads(text)
+        source = Path(self._tmp.name) / 'packet.json'
+        store = scoped_agents.Store(self.lib, slug)
+        for key in packet:
+            with self.subTest(field=key):
+                changed = dict(packet)
+                changed[key] = None
+                source.write_text(json.dumps(changed))
+                with self.assertRaises(scoped_agents.EvidenceError):
+                    store.register(owner=scoped_agents.plan_owner(record),root='fixture-root',purpose='review',
+                        lens='architecture',role='engine-design-review-architecture',packet=source,packet_digest=digest)
+                self.assertEqual({},store.read()['assignments'])
+        source.write_text(text)
+        a = store.register(owner=scoped_agents.plan_owner(record),root='fixture-root',purpose='review',
+            lens='architecture',role='engine-design-review-architecture',packet=source,packet_digest=digest)
+        self.assertEqual(contract,a['review_contract'])
+        # Render identity does not churn when a review/disposition is recorded.
+        self.assertEqual(digest,project_manager.review_packet(self.lib,slug)[1])
+
+    def test_retained_review_survives_live_schema_resolution_change(self):
+        import scoped_agents
+        import result_contracts
+        slug = self._approved(); record = self.lib.read_record(slug)
+        packet = project_manager.review_packet(self.lib,slug)[1]
+        store, _ = observe_review_execution(self.lib,slug,scoped_agents.plan_owner(record),'architecture',packet,[])
+        rc,_,err = self.run_command('review','record',slug,'--lens','architecture','--packet-digest',packet,'--session','fixture-root',observe=False)
+        self.assertEqual(0,rc,err)
+        record = self.lib.read_record(slug)
+        with mock.patch.object(result_contracts,'resolve',side_effect=AssertionError('retained validation must not resolve live schema')):
+            self.assertTrue(store.receipt_verified(record['plan_review'],scoped_agents.plan_owner(record)))
+        assignment_id = next(iter(store.read()['assignments']))
+        store.change(lambda data: data['assignments'][assignment_id].pop('review_contract'))
+        self.assertFalse(store.receipt_verified(record['plan_review'],scoped_agents.plan_owner(record)))
