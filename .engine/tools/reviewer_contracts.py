@@ -7,6 +7,7 @@ This module reads bounded local sources and returns values. Plan/Build owners pe
 from __future__ import annotations
 
 import copy
+from functools import lru_cache
 import json
 import re
 from pathlib import Path
@@ -36,6 +37,14 @@ def _source(path):
 
 
 def frontmatter(text):
+    # Frozen sources recur across receipts. Cache parsing by exact source, returning an independent
+    # object so callers cannot mutate a later validation's input. Source reads remain fresh.
+    parse = _frontmatter if len(text) <= 65536 else _frontmatter.__wrapped__
+    return copy.deepcopy(parse(text))
+
+
+@lru_cache(maxsize=32)
+def _frontmatter(text):
     import yaml  # Setup imports the owner before the private runtime exists.
     if not text.startswith("---\n"):
         raise ContractError("reviewer source has no frontmatter")

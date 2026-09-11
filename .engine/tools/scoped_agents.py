@@ -444,7 +444,11 @@ class Store:
         return self.change(update)
 
     def verified_locked(self, *, owner, root, lens, packet_digest, assignment_id=None):
-        candidates = [a for a in self.read()["assignments"].values() if a["owner"] == owner and
+        return self._verified(self.read(), owner=owner, root=root, lens=lens,
+                              packet_digest=packet_digest, assignment_id=assignment_id)
+
+    def _verified(self, data, *, owner, root, lens, packet_digest, assignment_id=None):
+        candidates = [a for a in data["assignments"].values() if a["owner"] == owner and
                       a["root"] == root and a["lens"] == lens and a["packet_digest"] == packet_digest
                       and (assignment_id is None or a["id"] == assignment_id)]
         valid = []
@@ -650,7 +654,7 @@ class Store:
                     return False
                 if a["owner"] != recorded or not a["accepted"] or a["faults"] or not a["stops"]:
                     return False
-                verified = self.verified_locked(owner=recorded, root=a["root"], lens=a["lens"],
+                verified = self._verified(data, owner=recorded, root=a["root"], lens=a["lens"],
                                                 packet_digest=a["packet_digest"], assignment_id=assignment_id)
                 if verified["id"] != assignment_id:
                     return False

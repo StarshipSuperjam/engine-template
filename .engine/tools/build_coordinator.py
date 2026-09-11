@@ -569,16 +569,32 @@ def _archive_replaced_review(state, lens, replacement):
             prior["effective"] = entry["effective"]
 
 
-def _coverage_result(stage: dict, kind: str, state: dict, lens: str) -> dict:
+def _coverage_results(stage, kind, state, lenses=None, *, _facts=None):
+    # One calculation, one set of freshly observed facts. Never retain this across commands.
+    facts = {} if _facts is None else _facts
+    lenses = lenses if lenses is not None else [c["lens"] for c in stage.get("reviewer_contracts", [])]
+    return {lens: _coverage_result(stage, kind, state, lens, _facts=facts) for lens in lenses}
+
+
+def _coverage_result(stage: dict, kind: str, state: dict, lens: str, *, _facts=None) -> dict:
     """One authority-filtered cumulative answer for every coverage consumer."""
-    panel = reviewer_contracts.build_panel(state)
+    facts = {} if _facts is None else _facts
+    def once(key, compute):
+        if key not in facts:
+            facts[key] = compute()
+        return facts[key]
+    def ancestor(base, tip):
+        return once(("ancestor", base, tip), lambda: _is_ancestor(base, tip))
+    query = once(("git-query",), lambda: ranges.ReadQuery(ROOT))
+    panel = once(("panel",), lambda: reviewer_contracts.build_panel(state))
     contracts = panel if panel is not None else (stage.get("reviewer_contracts") or
         state["reviews"]["deliverable"].get("reviewer_contracts", []))
     contract = next((c for c in contracts if c["lens"] == lens), {"lens": lens})
 
     def verified(receipt):
         try:
-            return not scoped_agents.missing_build_evidence(_library(), state, [receipt])
+            return once(("execution", core.canonical(receipt)),
+                lambda: not scoped_agents.missing_build_evidence(_library(), state, [receipt]))
         except (OSError, ValueError, core.CoordinatorError):
             return False
 
@@ -589,8 +605,11 @@ def _coverage_result(stage: dict, kind: str, state: dict, lens: str) -> dict:
         and r.get("referent_digest") == state["reviews"]["deliverable"].get("referent_digest")]
 
     def identical(entry):
-        return (entry.get("contribution_identical") and not _contribution_divergence(
-            entry["base_before"], entry["from_commit"], entry["base_after"], entry["to_commit"]))
+        return (entry.get("contribution_identical") and not divergence(entry))
+
+    def divergence(entry):
+        values = tuple(entry[k] for k in ("base_before", "from_commit", "base_after", "to_commit"))
+        return once(("divergence", *values), lambda: _contribution_divergence(*values))
 
     def after_original(anchor, reconciles):
         # An accepted original packet bounds which later proportional decisions can narrow its
@@ -598,9 +617,9 @@ def _coverage_result(stage: dict, kind: str, state: dict, lens: str) -> dict:
         # only a freshly re-proven identical contribution can carry that bound forward.
         tips = list(original_tips)
         for entry in reconciles:
-            if any(_is_ancestor(tip, entry["from_commit"]) for tip in tips) and identical(entry):
+            if any(ancestor(tip, entry["from_commit"]) for tip in tips) and identical(entry):
                 tips.append(entry["to_commit"])
-        return any(_is_ancestor(tip, anchor) for tip in tips)
+        return any(ancestor(tip, anchor) for tip in tips)
 
     def apply_scope(result, tip, reconciles):
         if kind != "deliverable" or not result["verified"]:
@@ -613,10 +632,10 @@ def _coverage_result(stage: dict, kind: str, state: dict, lens: str) -> dict:
             anchor = decision.get("anchor") or decision.get("reviewed_commit")
             final = decision.get("final_commit")
             try:
-                if (anchor and final and _is_ancestor(anchor, tip) and _is_ancestor(anchor, final)
-                        and (_is_ancestor(final, tip) or _is_ancestor(tip, final))
+                if (anchor and final and ancestor(anchor, tip) and ancestor(anchor, final)
+                        and (ancestor(final, tip) or ancestor(tip, final))
                         and after_original(anchor, reconciles)):
-                    unassigned.update(ranges.authored_between(ROOT, anchor, final))
+                    unassigned.update(query.authored(anchor, final))
             except (CoordinatorError, ranges.RangeUnreadable, _Unmeasurable, KeyError, TypeError):
                 continue
         if unassigned:
@@ -628,7 +647,7 @@ def _coverage_result(stage: dict, kind: str, state: dict, lens: str) -> dict:
     def measure(base, tip, reconciles):
         advances = list({p["merge_commit"]:p for p in [*state.get("base_advances", []),
             *stage.get("base_advances", [])]}.values())
-        result = apply_scope(ranges.cumulative_coverage(ROOT, receipts, base, tip, advances), tip, reconciles)
+        result = apply_scope(ranges.cumulative_coverage(ROOT, receipts, base, tip, advances, query=query), tip, reconciles)
         if result["covered"] or not result["verified"] or not receipts:
             return result
         # Re-prove each identical-contribution link. A fully evidenced old prefix may stand for
@@ -639,16 +658,15 @@ def _coverage_result(stage: dict, kind: str, state: dict, lens: str) -> dict:
             if not entry.get("contribution_identical") or entry.get("base_after") != base:
                 continue
             try:
-                if not _is_ancestor(entry["to_commit"], tip):
+                if not ancestor(entry["to_commit"], tip):
                     continue
-                if _contribution_divergence(entry["base_before"], entry["from_commit"],
-                                            entry["base_after"], entry["to_commit"]):
+                if divergence(entry):
                     continue
                 prior = measure(entry["base_before"], entry["from_commit"], reconciles[:index])
                 if not prior["covered"]:
                     continue
-                prefix = set(ranges.authored_between(ROOT, base, entry["to_commit"], advances))
-                wanted = ranges.authored_between(ROOT, base, tip, advances)
+                prefix = set(query.authored(base, entry["to_commit"], advances))
+                wanted = query.authored(base, tip, advances)
                 credit = set(result["read"]) | prefix
                 result.update(read=[sha for sha in wanted if sha in credit],
                               unread=[sha for sha in wanted if sha not in credit])
@@ -671,8 +689,7 @@ def _coverage_result(stage: dict, kind: str, state: dict, lens: str) -> dict:
 def _missing_receipts(stage: dict, kind: str = "deliverable", *, state=None) -> list[str]:
     if state is None:
         return review.missing_receipts(stage, _coverage(stage, kind))
-    return [c["lens"] for c in stage.get("reviewer_contracts", [])
-            if not _coverage_result(stage, kind, state, c["lens"])["covered"]]
+    return [lens for lens, result in _coverage_results(stage, kind, state).items() if not result["covered"]]
 
 
 def _outstanding_repair_lenses(repair: dict | None, *, state=None) -> list[str]:
@@ -680,8 +697,8 @@ def _outstanding_repair_lenses(repair: dict | None, *, state=None) -> list[str]:
     if not repair:
         return []
     if state is not None:
-        return [lens for lens in repair.get("lenses", [])
-                if not _coverage_result(repair, "repair", state, lens)["covered"]]
+        return [lens for lens, result in _coverage_results(
+            repair, "repair", state, repair.get("lenses", [])).items() if not result["covered"]]
     covers = _coverage(repair, "repair")
     standing = {r["lens"] for r in repair.get("receipts", []) if
                 review.receipt_attests_scope(repair, r, "repair") or covers(r)}
@@ -958,15 +975,26 @@ def _status(state: dict, plan: dict | None = None) -> dict:
         required_evidence.append("green candidate validation for the final commit")
     if not _final_ok(state, head):
         required_evidence.append("imported engine-ci proof for the final commit — `validate final import`")
+    review_facts = {}
+    delivery_results = _coverage_results(delivery, "deliverable", state, _facts=review_facts)
+    missing_delivery = [lens for lens, result in delivery_results.items() if not result["covered"]]
+    repair_results = {}
     if delivery["packet_digest"] is None and not fast_path:
         required_evidence.append("deliverable-review packet")
     else:
         required_evidence.extend(f"deliverable-review receipt: {x} — " + ranges.cumulative_report(
-            x, _coverage_result(delivery, "deliverable", state, x)) for x in _missing_receipts(delivery, state=state))
+            x, delivery_results[x]) for x in missing_delivery)
     live_receipts = [receipt for _, receipt in review.live_receipts(state)]
     if live_receipts:
         try:
-            unverified = scoped_agents.missing_build_evidence(_library(), state, live_receipts)
+            unverified = []
+            for receipt in live_receipts:
+                key = ("execution", core.canonical(receipt))
+                if key not in review_facts:
+                    review_facts[key] = not scoped_agents.missing_build_evidence(_library(), state, [receipt])
+                if not review_facts[key]:
+                    unverified.append(receipt["lens"])
+            unverified = sorted(set(unverified))
         except (OSError, ValueError, core.CoordinatorError):
             unverified = sorted({receipt["lens"] for receipt in live_receipts})
         required_evidence.extend(f"verified fresh review execution: {lens}" for lens in unverified)
@@ -982,14 +1010,15 @@ def _status(state: dict, plan: dict | None = None) -> dict:
                 "it ends the repair loop without a re-review and clears the repair packet, so reach for "
                 "it when the divergence genuinely carries nothing a lens would find.")
         elif repair["judgment"] != "none":
-            outstanding = _outstanding_repair_lenses(repair, state=state)
+            repair_results = _coverage_results(repair, "repair", state, repair["lenses"], _facts=review_facts)
+            outstanding = [lens for lens, result in repair_results.items() if not result["covered"]]
             # Name the DELTA each outstanding lens still owes, never a bare "run it again". The wall this
             # replaces was a session told to re-run two lenses with no way to see that one of them had
             # already read everything in the range.
             base, tip = _stage_range(repair, "repair")
             by_lens = {r["lens"]: r for r in repair.get("receipts", [])}
             for lens in outstanding:
-                detail = " — " + ranges.cumulative_report(lens, _coverage_result(repair, "repair", state, lens))
+                detail = " — " + ranges.cumulative_report(lens, repair_results[lens])
                 required_evidence.append(f"repair-review receipt: {lens}{detail}")
     protocol = _protocol()
     if state["approval"]:
@@ -1065,11 +1094,11 @@ def _status(state: dict, plan: dict | None = None) -> dict:
     approval_ready = state["approval"] is not None and state["approval"].get("plan_digest") == state["plan"]["digest"]
     dispositions_ready = not missing_findings and not blocking
     valid = _candidate_ok(state, head)
-    delivery_ready = fast_path or (delivery["packet_digest"] is not None and not _missing_receipts(delivery, state=state) and delivery_coverage_current)
+    delivery_ready = fast_path or (delivery["packet_digest"] is not None and not missing_delivery and delivery_coverage_current)
     repair_ready = not delivery["reviewed_commit"] or delivery["reviewed_commit"] == head or (
         state["repair"] is not None and state["repair"]["reviewed_commit"] == delivery["reviewed_commit"]
         and state["repair"]["final_commit"] == head and (state["repair"]["judgment"] == "none" or
-        not _outstanding_repair_lenses(state["repair"], state=state)))
+        all(result["covered"] for result in repair_results.values())))
     preflight_ready = not [x for x in required_preflights if x["id"] not in passed]
     contract_ready = bool(state["pr_contract"] and state["pr_contract"]["commit"] == head and state["pr_contract"]["complete"] and _review_contract_current(state))
     final_ready = _final_ok(state, head)

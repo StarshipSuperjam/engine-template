@@ -7712,6 +7712,15 @@ class TestFrozenBuildContracts(CoordinatorCase):
         body = bcc.compose(claim, evidence)
         self.assertIn(bc._review_lineage_marker(state), body)
 
+    def test_status_measures_each_lens_scope_once_per_read(self):
+        from collections import Counter
+        self.packet()
+        with mock.patch.object(bc, "_coverage_result", wraps=bc._coverage_result) as measure:
+            bc._status(self.state())
+        counts = Counter((call.args[1], call.args[3]) for call in measure.call_args_list)
+        self.assertEqual(set(self.DELIVERABLE_LENSES), {lens for _, lens in counts})
+        self.assertTrue(all(count == 1 for count in counts.values()), counts)
+
     def test_rerecording_legacy_execution_recovers_composition_without_rewriting_history(self):
         import copy
         from test_build_coordinator_contract import TestPreviewEvidence
@@ -7755,7 +7764,9 @@ class TestFrozenBuildContracts(CoordinatorCase):
             s["validation"] = {"commit":head,"results":[{"id":"self-test","commit":head,"passed":True,"summary":"green"}]}
         # Packet contracts use the Engine fixture; range arithmetic uses these actual Git objects.
         cumulative = bc.ranges.cumulative_coverage
+        query_type = bc.ranges.ReadQuery
         with mock.patch(__name__ + ".BASE", repo.base), contextlib.ExitStack() as stack:
+            stack.enter_context(mock.patch.object(bc.ranges, "ReadQuery", side_effect=lambda root: query_type(repo.repo)))
             stack.enter_context(mock.patch.object(bc.ranges, "cumulative_coverage",
                 side_effect=lambda root, *args, **kw: cumulative(repo.repo, *args, **kw)))
             self.store.mutate(lambda s: green(s, original_head))
@@ -7902,7 +7913,9 @@ class TestFrozenBuildContracts(CoordinatorCase):
                 "judgment":"scoped","lenses":["technical-integrity"],"counted":False})
         self.store.mutate(repair)
         cumulative = bc.ranges.cumulative_coverage
-        with mock.patch(__name__+".BASE",target), mock.patch.object(bc,"_head",return_value=late), \
+        query_type = bc.ranges.ReadQuery
+        with mock.patch.object(bc.ranges, "ReadQuery", side_effect=lambda root: query_type(repo.repo)), \
+                mock.patch(__name__+".BASE",target), mock.patch.object(bc,"_head",return_value=late), \
                 mock.patch.object(bc.ranges,"cumulative_coverage",side_effect=lambda root,*a,**k:cumulative(repo.repo,*a,**k)):
             packet = self.packet(stage="repair",head=late); self.record_frozen(packet,"technical-integrity")
         with mock.patch.object(bc,"ROOT",repo.repo):
@@ -7924,8 +7937,10 @@ class TestFrozenBuildContracts(CoordinatorCase):
 
     def _assert_public_missing_prefix(self, repo, first, head):
         cumulative = bc.ranges.cumulative_coverage
+        query_type = bc.ranges.ReadQuery
         out = io.StringIO()
-        with mock.patch.object(bc.ranges, "cumulative_coverage",
+        with mock.patch.object(bc.ranges, "ReadQuery", side_effect=lambda root: query_type(repo.repo)), \
+                mock.patch.object(bc.ranges, "cumulative_coverage",
                 side_effect=lambda root,*a,**k: cumulative(repo.repo,*a,**k)), \
                 mock.patch.object(bc,"_head",return_value=head), \
                 mock.patch.object(bc,"_base",return_value=repo.base), \

@@ -265,16 +265,43 @@ def coverage_report(root: Path, receipt: dict, new_base: str | None, new_tip: st
             f"{', …' if len(unread) > 4 else ''})")
 
 
+class ReadQuery:
+    """Reuse exact Git questions only within one synchronous coverage calculation.
+
+    A new status, dispatch or submission calculation creates a new query and re-verifies the
+    evidence. This object is never persisted or shared between commands.
+    """
+    def __init__(self, root):
+        self.root = root
+        self._commits = {}
+        self._authored = {}
+
+    def commits(self, base, tip):
+        key = (base, tip)
+        if key not in self._commits:
+            self._commits[key] = commits(self.root, base, tip)
+        return self._commits[key]
+
+    def authored(self, base, tip, advances=()):
+        key = (base, tip, core.canonical(advances))
+        if key not in self._authored:
+            self._authored[key] = authored_between(self.root, base, tip, advances)
+        return self._authored[key]
+
+
 def cumulative_coverage(root: Path, receipts: list[dict], base: str | None,
-                        tip: str | None, base_advances=()) -> dict:
+                        tip: str | None, base_advances=(), *, query=None) -> dict:
     """Exact union of eligible original reads, never an aggregate reviewer receipt.
 
     Eligibility belongs to the caller's mandate/execution owners. Bad source ranges contribute
     nothing; independent valid reads may still cover the question. An unreadable QUESTION has no
     unread count and cannot be confused with a verified empty range.
     """
+    query = query or ReadQuery(root)
     try:
-        wanted = authored_between(root, base, tip, base_advances)
+        if Path(query.root).resolve() != Path(root).resolve():
+            raise RangeUnreadable("coverage query belongs to a different checkout")
+        wanted = query.authored(base, tip, base_advances)
     except RangeUnreadable as exc:
         return {"verified": False, "covered": False, "read": [], "unread": None,
                 "unverified": [str(exc)]}
@@ -283,7 +310,7 @@ def cumulative_coverage(root: Path, receipts: list[dict], base: str | None,
     for receipt in receipts:
         recorded = receipt.get("reviewed_range") or {}
         try:
-            read.update(commits(root, recorded.get("base"), recorded.get("tip")))
+            read.update(query.commits(recorded.get("base"), recorded.get("tip")))
         except RangeUnreadable as exc:
             unverified.append(str(exc))
     unread = [sha for sha in wanted if sha not in read]

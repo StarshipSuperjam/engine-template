@@ -68,6 +68,18 @@ class _RealRepo(unittest.TestCase):
 
 
 class CumulativeOriginalReads(_RealRepo):
+    def test_read_query_reuses_only_one_calculation_and_new_queries_recheck_git(self):
+        from unittest.mock import patch
+        tip = self.commit("app.py", "reviewed")
+        with patch.object(ranges, "commits", wraps=ranges.commits) as read:
+            query = ranges.ReadQuery(self.repo)
+            self.assertEqual([tip], query.commits(self.base, tip))
+            self.assertEqual([tip], query.commits(self.base, tip))
+            self.assertEqual(1, read.call_count)
+        with patch.object(ranges, "commits", side_effect=ranges.RangeUnreadable("object disappeared")):
+            with self.assertRaises(ranges.RangeUnreadable):
+                ranges.ReadQuery(self.repo).commits(self.base, tip)
+
     def test_four_repairs_accumulate_without_bridging_a_gap(self):
         heads = [self.base] + [self.commit("src.py", str(n)) for n in range(6)]
         originals = [self.receipt("security-governance", heads[n], heads[n+1]) for n in range(5)]

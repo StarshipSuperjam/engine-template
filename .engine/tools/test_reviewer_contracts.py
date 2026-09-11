@@ -33,6 +33,16 @@ class ReviewContracts(unittest.TestCase):
         return contracts.capture(self.root, self.ref, 'thorough', ['architecture'],
                                  ['spec-conformance'], instructions='Read all approved obligations.')
 
+    def test_source_parse_cache_is_detached_and_changed_sources_are_reparsed(self):
+        source = self.path.read_text()
+        expected = contracts.frontmatter(source)
+        changed = contracts.frontmatter(source)
+        changed["lens"] = "tampered"
+        self.assertEqual(expected, contracts.frontmatter(source))
+        with self.assertRaises(contracts.ContractError):
+            contracts.frontmatter("---\n[malformed\n---\n")
+        self.assertEqual(expected, contracts.frontmatter(source))
+
     def test_editorial_change_retains_obligation_and_original_source(self):
         old = self.envelope()
         original = copy.deepcopy(old)
