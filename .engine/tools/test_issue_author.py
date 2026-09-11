@@ -162,6 +162,9 @@ _GOOD = {
 _TRUSTED_ENV = {"GITHUB_REPOSITORY": "StarshipSuperjam/engine-template", "GITHUB_TOKEN": "tok"}
 
 
+from test_issue_recovery import MemoryStore
+
+
 class _CapturingIssues:
     """A stand-in for telemetry.GitHubIssues: records the (repo, token) it was built with and the open_issue
     call, and returns a created-Issue dict — so the whole create path runs offline with no network."""
@@ -172,15 +175,17 @@ class _CapturingIssues:
         self.repo, self.token, self.opened = repo, token, []
         _CapturingIssues.last = self
 
-    def open_issue(self, title, body):
-        self.opened.append((title, body))
-        return {"html_url": f"https://github.com/{self.repo}/issues/7", "number": 7}
-
-    def file_assessed_issue(self, title, body, **kwargs):
-        import issue_triage
-        created=self.open_issue(title,body)
-        return issue_triage.filing_result(self.repo, 'test-submission-1', 'created',
-                                         issue_triage.parse(body), issue=created)
+    def _transport(self, method, path, body=None):
+        if method == 'POST':
+            self.opened.append((body['title'], body['body']))
+            self.issue = {'id': 107, 'number': 7, 'html_url': f'https://github.com/{self.repo}/issues/7',
+                          'state': 'open', **body}
+            return 201, self.issue
+        if '/issues?' in path:
+            return 200, []
+        if path.endswith('/issues/7'):
+            return 200, self.issue
+        return 404, None
 
 
 class TestInputLoadingAndValidation(unittest.TestCase):
@@ -188,7 +193,7 @@ class TestInputLoadingAndValidation(unittest.TestCase):
         import issue_triage
         from unittest.mock import patch
         with patch.object(issue_triage, 'load_config', side_effect=issue_triage.TriageError('invalid milestone configuration: missing patch')):
-            result = issue_author.create_issue_result(dict(_GOOD), env=_TRUSTED_ENV, issues_factory=_CapturingIssues)
+            result = issue_author.create_issue_result(dict(_GOOD), env=_TRUSTED_ENV, issues_factory=_CapturingIssues, recovery_store=MemoryStore())
         self.assertEqual(result['filing'], 'created')
         self.assertIn('missing patch', result['configuration_error'])
 
@@ -259,7 +264,7 @@ class TestCreateIssue(unittest.TestCase):
     def test_files_through_the_trusted_target_and_returns_link(self):
         with mock.patch("checkout_health.recorded_product_build_target", return_value=None):
             link = issue_author.create_issue(dict(_GOOD), env=dict(_TRUSTED_ENV),
-                                             issues_factory=_CapturingIssues)
+                                             issues_factory=_CapturingIssues, recovery_store=MemoryStore())
         self.assertEqual(link, "https://github.com/StarshipSuperjam/engine-template/issues/7")
         self.assertEqual(_CapturingIssues.last.repo, "StarshipSuperjam/engine-template")
         self.assertEqual(_CapturingIssues.last.token, "tok")
@@ -274,27 +279,27 @@ class TestCreateIssue(unittest.TestCase):
         with mock.patch("checkout_health.recorded_product_build_target", return_value="acme/product"):
             issue_author.create_issue({**_GOOD, "repository": "acme/product"},
                                       env={"GITHUB_REPOSITORY": "acme/mechanic", "GITHUB_TOKEN": "tok"},
-                                      issues_factory=_CapturingIssues)
+                                      issues_factory=_CapturingIssues, recovery_store=MemoryStore())
         self.assertEqual(_CapturingIssues.last.repo, "acme/product")
 
     def test_refuses_when_input_repository_matches_no_trusted_target(self):
         with mock.patch("checkout_health.recorded_product_build_target", return_value=None):
             env = {"GITHUB_REPOSITORY": "someone/else", "GITHUB_TOKEN": "tok"}
             with self.assertRaises(issue_author.IssueInputError) as ctx:
-                issue_author.create_issue(dict(_GOOD), env=env, issues_factory=_CapturingIssues)
+                issue_author.create_issue(dict(_GOOD), env=env, issues_factory=_CapturingIssues, recovery_store=MemoryStore())
         self.assertIn("trusted target", str(ctx.exception))
 
     def test_refuses_without_a_token(self):
         env = {"GITHUB_REPOSITORY": "StarshipSuperjam/engine-template"}   # no GITHUB_TOKEN
         with mock.patch("checkout_health.recorded_product_build_target", return_value=None):
             with self.assertRaises(issue_author.IssueInputError):
-                issue_author.create_issue(dict(_GOOD), env=env, issues_factory=_CapturingIssues)
+                issue_author.create_issue(dict(_GOOD), env=env, issues_factory=_CapturingIssues, recovery_store=MemoryStore())
 
     def test_refuses_when_target_unresolvable(self):
         with tempfile.TemporaryDirectory() as d:
             with self.assertRaises(issue_author.IssueInputError):
                 issue_author.create_issue(dict(_GOOD), env={"GITHUB_TOKEN": "tok"},
-                                          root=d, issues_factory=_CapturingIssues)
+                                          root=d, issues_factory=_CapturingIssues, recovery_store=MemoryStore())
 
 
 class TestCliDispatch(unittest.TestCase):
@@ -424,6 +429,65 @@ class TestKindAtFiling(unittest.TestCase):
     def test_preview_shows_the_rendered_title(self):
         text = issue_author.preview_text(dict(_GOOD), ["StarshipSuperjam/engine-template"])
         self.assertIn("Fix: A finding", text)
+
+
+
+
+class TestSubmissionEnvelope(unittest.TestCase):
+    def envelope(self, **request):
+        return {'schema_version': 'issue-submission-input.v1', 'scope': 'product',
+                'request': {'repository': _TRUSTED_ENV['GITHUB_REPOSITORY'], 'title': 'Ordinary title',
+                            'body': 'Ordinary body', **request}}
+
+    def test_product_preserves_fields_and_never_retries(self):
+        calls = []
+        class Client:
+            repo = _TRUSTED_ENV['GITHUB_REPOSITORY']
+            def _transport(self, method, path, payload):
+                calls.append((method, path, payload))
+                return 201, {'number': 8, 'html_url': 'https://github.com/' + self.repo + '/issues/8'}
+        data = self.envelope(labels=['bug'], assignees=['alice'], milestone=4)
+        result = issue_author.create_issue_result(data, env=_TRUSTED_ENV, issues_factory=lambda *_: Client())
+        self.assertEqual(result['filing'], 'created')
+        self.assertEqual(calls[0][2], {k: v for k,v in data['request'].items() if k != 'repository'})
+        issue_author.create_issue_result(data, env=_TRUSTED_ENV, issues_factory=lambda *_: Client(), retry=True)
+        self.assertEqual(len(calls), 1)
+
+    def test_envelope_refuses_missing_scope_unknown_fields_and_engine_label(self):
+        for mutate in (lambda d: d.pop('scope'), lambda d: d.update(scope='other'),
+                       lambda d: d.update(extra=True), lambda d: d['request'].update(labels=['Engine'])):
+            data = self.envelope()
+            mutate(data)
+            with self.assertRaises(issue_author.IssueInputError):
+                issue_author.submission_input(data)
+
+    def test_wrong_bound_client_refused(self):
+        class Client:
+            repo = 'wrong/repo'
+        with self.assertRaises(issue_author.IssueInputError):
+            issue_author.create_issue_result(self.envelope(), env=_TRUSTED_ENV, issues_factory=lambda *_: Client())
+
+    def test_product_uncertainty_is_not_success(self):
+        class Client:
+            repo = _TRUSTED_ENV['GITHUB_REPOSITORY']
+            def _transport(self, *_):
+                raise TimeoutError('lost response')
+        result = issue_author.create_issue_result(self.envelope(), env=_TRUSTED_ENV, issues_factory=lambda *_: Client())
+        self.assertEqual(result['filing'], 'creation-uncertain')
+
+    def test_engine_envelope_uses_existing_validation_and_preview(self):
+        data = {'schema_version': 'issue-submission-input.v1', 'scope': 'engine', 'request': dict(_GOOD)}
+        self.assertEqual(issue_author.preview_submission(data, [_GOOD['repository']]),
+                         issue_author.preview_text(_GOOD, [_GOOD['repository']]))
+
+
+class ProductMetadataRefusal(unittest.TestCase):
+    def test_blank_title_and_engine_label_spelling_refuse_before_transport(self):
+        for fields in ({'title': '   '}, {'labels': [' ENGINE ']}):
+            data = {'schema_version': 'issue-submission-input.v1', 'scope': 'product',
+                    'request': {'repository': 'o/r', 'title': 'x', 'body': '', **fields}}
+            with self.assertRaises(issue_author.IssueInputError):
+                issue_author.validate_submission(data)
 
 
 if __name__ == "__main__":

@@ -53,7 +53,7 @@ SESSION_ENV_CHAIN = ("ENGINE_SESSION_ID", "CLAUDE_CODE_SESSION_ID")
 # and its shell tool names. "Bash" itself needs no entry — Codex reports simple shell as Bash; these
 # are the sibling names that may appear on other shell paths, mapped defensively.
 CODEX_EDIT_TOOL = "apply_patch"
-CODEX_SHELL_TOOLS = frozenset({"shell", "local_shell", "unified_exec"})
+CODEX_SHELL_TOOLS = frozenset({"exec_command", "shell", "local_shell", "unified_exec"})
 # The first spelling is documented; the second was observed in CLI 0.153.4.
 # Keep the matcher here with the names the adapter understands, not in gate logic.
 CODEX_SPAWN_TOOLS = frozenset({"spawn_agent", "collaborationspawn_agent"})
@@ -132,7 +132,7 @@ def _shell_command(tool_input) -> str:
     """The one command string a Codex shell payload carries — joined shell-safely when the runtime
     reports an argv list instead of a string."""
     if isinstance(tool_input, dict):
-        cmd = tool_input.get("command")
+        cmd = tool_input.get("command", tool_input.get("cmd"))
         if isinstance(cmd, str):
             return cmd
         if isinstance(cmd, list):
@@ -635,10 +635,15 @@ def normalize(event: str, payload):
         out["provider_raw"] = {"tool_name": tool, "tool_input": raw}
         return out
     if tool in CODEX_SHELL_TOOLS:
+        raw = payload.get("tool_input")
         out = dict(payload)
         out["tool_name"] = "Bash"
-        out["tool_input"] = {"command": _shell_command(payload.get("tool_input"))}
-        out["provider_raw"] = {"tool_name": tool, "tool_input": payload.get("tool_input")}
+        out["tool_input"] = {"command": _shell_command(raw)}
+        # Retain a command-selected workdir for target lookup, but never replace the session cwd:
+        # only the latter may resolve the trusted repository set.
+        if isinstance(raw, dict) and isinstance(raw.get("workdir"), str):
+            out["tool_input"]["workdir"] = raw["workdir"]
+        out["provider_raw"] = {"tool_name": tool, "tool_input": raw}
         return out
     return payload
 

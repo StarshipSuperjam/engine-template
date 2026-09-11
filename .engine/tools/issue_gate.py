@@ -2,10 +2,10 @@
 """The engine-Issue reroute gate — the matcher (modes registers it; this holds the logic).
 
 WHAT THIS IS. A pure-logic matcher the Explore/Build PreToolUse hook (modes.handler) consults on every tool
-call: when a session makes a DIRECT creation of an `engine`-labelled GitHub Issue — a Bash `gh`/API command, or
-a connector issue-creation tool — this returns a plain redirect reason; modes wraps it in
+call: when a session makes a recognized direct GitHub Issue creation for an Engine-labelled Issue or a trusted
+Engine repository — a Bash `gh`/API command, or a connector issue-creation tool — this returns a plain redirect reason; modes wraps it in
 hooks.decide("deny", reason) so the platform blocks the call and feeds the reason back to the session, which
-re-files through the issue-authoring helper's `create` CLI. An unlabelled or non-engine Issue, every read /
+re-files through the issue-authoring helper's `create` CLI. An external unlabelled Issue, every read /
 list / view / comment / close, and anything the matcher cannot parse all return None → the call proceeds.
 
 WHY EVERY ENGINE-LABELLED CREATION, NOT JUST A MALFORMED ONE. The helper now offers a supported create path
@@ -22,7 +22,7 @@ fail-loud catch-all is the `on:issues` conformance workflow (`issue_conformance_
 landed body against the contract MARKERS. Those markers live HERE as the single source that backstop imports
 (`CONTRACT_MARKERS`), coupled to issue_author's real output by test_issue_conformance_ci — so an operator-facing
 copy change to the framing or the headers breaks that test, never the backstop silently. This gate no longer
-inspects the body itself (it reroutes on the creation + label alone); the markers remain the backstop's contract.
+inspects the body itself (it reroutes on recognized creation plus trusted target or explicit Engine label); the markers remain the backstop's contract.
 
 LABEL DETECTION IS PRECISE. Only a real `--label`/`-l`/`--label=`/`labels[]=` field carrying `engine`, never a
 loose "any token containing both 'label' and 'engine'" (which would false-deny an innocent Issue whose body
@@ -38,8 +38,9 @@ The connector arm covers only GitHub issue-creation tools (a name ending `create
 guarantee is the protected-branch merge. The helper's OWN create path files through a Python GitHub boundary
 (not Bash, not a connector), so it is never caught by this gate.
 
-SELF-CONTAINED RUNTIME. No network, no label application, no import of the helper at runtime (it holds no
-producer roster).
+SELF-CONTAINED RUNTIME. No network and no label application occur here. The matcher reads the helper's trusted
+repository configuration from the session checkout only; command text and a command-selected checkout never
+extend that set.
 
 CLI (operator-runnable demo; the live gate is what modes' wired hook invokes):
   uv run --directory .engine -- python tools/issue_gate.py demo   # a scripted allow/deny demonstration
@@ -49,9 +50,11 @@ from __future__ import annotations
 import re
 import shlex
 import sys
+import os
 
 # The engine-domain label marking the channel the gate governs (telemetry.ENGINE_DOMAIN_LABEL). An Issue
-# without it is ordinary backlog or a human/operator Issue, and is never gated.
+# without it is ordinary backlog or a human/operator Issue unless it explicitly targets a trusted Engine
+# repository, which is routed as well.
 ENGINE_LABEL = "engine"
 
 # The body-contract markers the issue-authoring helper always emits (issue_author.py: the framing floor + the
@@ -68,17 +71,18 @@ CONTRACT_MARKERS = (
 HELPER = ".engine/tools/issue_author.py"
 
 # The redirect reason, surfaced to the session by modes.handler via hooks.decide. Names why the call was held,
-# the supported create path (with its preview companion), AND the escape hatch (drop the label) — so a
-# legitimate non-engine note that tripped the gate is never stranded.
+# the complete create path and its explicit product classification.
 DENY_REASON = (
-    f"This directly creates an engine Issue — it carries the `{ENGINE_LABEL}` label. Engine Issues are filed "
-    "through the engine's Issue helper, which resolves the correct target repository, applies the label by "
-    "construction, and renders the body in the engine's format. File it through the helper instead:\n\n"
-    f"    uv run --directory .engine -- python {HELPER} preview --input <file|->   # see exactly what will be filed\n"
-    f"    uv run --directory .engine -- python {HELPER} create  --input <file|-> --confirm\n\n"
-    "The input is the engine-issue-input.v1 shape (repository, title, what_this_is, whats_next, optional "
-    "references/urgency). If you actually meant a plain personal note rather than an engine Issue, drop the "
-    f"`{ENGINE_LABEL}` label and re-run."
+    f"This direct Issue create requires classification through the Issue helper (`{HELPER}`); preview first, then "
+    "create with the explicit confirmation:\n\n"
+    "    uv run --directory .engine --frozen -- python tools/issue_author.py preview --input <file|->\n"
+    "    uv run --directory .engine --frozen -- python tools/issue_author.py create --input <file|-> --confirm\n\n"
+    "Use the `issue-submission-input.v1` envelope; its schema is `.engine/schemas/issue-submission-input.v1.json`. "
+    "Choose one fresh, stable `submission_id` for an Engine request and retain it if a send is uncertain:\n"
+    "    {\"schema_version\":\"issue-submission-input.v1\",\"scope\":\"engine\",\"request\":{\"submission_id\":\"engine-routing-001\",\"assessment\":{\"state\":\"pending\",\"unknown\":\"Remedy not established.\",\"next_action\":\"Inspect the failure.\"},\"repository\":\"OWNER/REPO\",\"kind\":\"Fix\",\"title\":\"Short title\",\"what_this_is\":\"What happened.\",\"whats_next\":\"What to do next.\"}}\n"
+    "Product scope uses ordinary fields and no Engine markers:\n"
+    "    {\"schema_version\":\"issue-submission-input.v1\",\"scope\":\"product\",\"request\":{\"repository\":\"OWNER/REPO\",\"title\":\"Short title\",\"body\":\"Details.\",\"labels\":[\"bug\"]}}\n"
+    "The helper validates the target and does not use a connector fallback when credentials are missing."
 )
 
 
@@ -98,19 +102,237 @@ def _find_command(tokens: list[str], seq: tuple[str, ...]) -> bool:
     return False
 
 
-def _is_issue_creation(tokens: list[str]) -> bool:
-    """`gh issue create …`, or `gh api …/issues` with a write method or fields (an Issue body write). The
-    `gh api` arm also matches a PATCH that SETS a body on an existing engine Issue — also a non-conforming-body
-    write worth rerouting — so it is intentionally not POST-only."""
-    if _find_command(tokens, ("gh", "issue", "create")):
-        return True
-    if _find_command(tokens, ("gh", "api")):
-        joined = " ".join(tokens)
-        if "/issues" in joined and re.search(
-            r"(-X\s+POST|--method\s+POST|(?:^|\s)-[fF](?:\s|$)|--field|--raw-field|--input)", joined
-        ):
-            return True
-    return False
+def _commands(tokens: list[str]):
+    """Yield command-local token groups. Flags never cross a shell boundary."""
+    current = []
+    for token in tokens:
+        if token in _SEPARATORS:
+            if current:
+                yield current
+            current = []
+        else:
+            current.append(token)
+    if current:
+        yield current
+
+
+def _heredoc_delimiter(word: str) -> str:
+    """Remove shell quotes without expansion; double quotes also escape dollar and backtick."""
+    result, quote, escaped = [], None, False
+    for char in word:
+        if escaped:
+            if quote == '"' and char not in '\\"$`\n':
+                result.append('\\')
+            if char != '\n':
+                result.append(char)
+            escaped = False
+        elif char == '\\' and quote != "'":
+            escaped = True
+        elif quote:
+            if char == quote:
+                quote = None
+            else:
+                result.append(char)
+        elif char in ("'", '"'):
+            quote = char
+        else:
+            result.append(char)
+    return ''.join(result)
+
+
+def _shell_command_texts(command: str):
+    """Yield physical commands, excluding here-document data.
+
+    This deliberately covers only the boundary the gate needs: quotes retain embedded newlines, comments end
+    at their physical line, and a backslash-newline is joined as the shell joins it. Punctuation inside each
+    line remains shlex's job; this is not a shell parser. Here-document words undergo quote removal only;
+    their following data lines are consumed in redirection order, never inspected as command positions.
+    """
+    current = []
+    quote = None
+    escaped = False
+    comment = False
+    heredocs = []
+    position = 0
+    word = re.compile(r'''(?:[^ \t\r\n;&|()<>'"\\]+|'[^']*'|"(?:\\.|[^"\\])*"|\\[^\n])+''')
+    while position < len(command):
+        char = command[position]
+        position += 1
+        if char == "\n" and (comment or (not quote and not escaped)):
+            yield "".join(current)
+            current, comment = [], False
+            for delimiter, strip_tabs in heredocs:
+                while position < len(command):
+                    end = command.find("\n", position)
+                    end = len(command) if end == -1 else end
+                    line = command[position:end]
+                    position = min(end + 1, len(command))
+                    if (line.lstrip("\t") if strip_tabs else line) == delimiter:
+                        break
+            heredocs = []
+            continue
+        if comment:
+            current.append(char)
+            continue
+        if escaped:
+            if char == "\n" and quote != "'":
+                current.pop()
+                escaped = False
+                continue
+            current.append(char)
+            escaped = False
+            continue
+        if char == "\\" and quote != "'":
+            current.append(char)
+            escaped = True
+            continue
+        if quote:
+            current.append(char)
+            if char == quote:
+                quote = None
+            continue
+        start = position - 1
+        if command.startswith("<<", start) and not command.startswith("<<<", start) and (
+                start == 0 or command[start - 1] != "<"):
+            end = start + 2
+            strip_tabs = command[end:end + 1] == "-"
+            end += int(strip_tabs)
+            while command[end:end + 1] in (" ", "\t"):
+                end += 1
+            match = word.match(command, end)
+            if match:
+                heredocs.append((_heredoc_delimiter(match.group()), strip_tabs))
+                current.extend(command[start:match.end()])
+                position = match.end()
+                continue
+        if char in ("'", '"'):
+            current.append(char)
+            quote = char
+        elif char == "#":
+            current.append(char)
+            comment = True
+        else:
+            current.append(char)
+    yield "".join(current)
+
+
+def _shell_tokens(command: str) -> list[str]:
+    """Tokenize shell punctuation separately while retaining quoted arguments as one token."""
+    lexer = shlex.shlex(command, posix=True, punctuation_chars=";&|()")
+    lexer.whitespace_split = True
+    return list(lexer)
+
+
+def _gh_arguments(tokens: list[str]):
+    """Separate gh positionals and options once; consumed data never becomes another flag.
+
+    Supported create/api switches without values are explicit. Other switches consume a value (or their
+    attached value), including fields irrelevant to routing such as title/body. Unknown syntax remains
+    best effort; this is not command validation. Repeated scalar flags retain gh's last-value semantics.
+    """
+    switches = {'--help', '--version', '--web', '--editor', '--paginate', '--include',
+                '--verbose', '--silent', '--slurp', '-h', '-v', '-w', '-e', '-i'}
+    words, options, index = [], [], 1
+    while index < len(tokens):
+        token = tokens[index]
+        index += 1
+        if token == '--':
+            words.extend(tokens[index:])
+            break
+        if not token.startswith('-') or token == '-':
+            words.append(token)
+            continue
+        if token.startswith('--'):
+            name, equal, value = token.partition('=')
+            attached = bool(equal)
+        else:
+            # Boolean short switches can be clustered before an option with a value.
+            offset = 1
+            while offset < len(token) and '-' + token[offset] in switches:
+                options.append(('-' + token[offset], None))
+                offset += 1
+            if offset == len(token):
+                continue
+            name, value = '-' + token[offset], token[offset + 1:]
+            attached = bool(value)
+            if value.startswith('='):
+                value = value[1:]
+        if not attached:
+            value = None
+            if name not in switches and index < len(tokens):
+                value = tokens[index]
+                index += 1
+        options.append((name, value))
+    return words, options
+
+
+def _option_value(tokens: list[str], names: tuple[str, ...]) -> str | None:
+    values = [value for name, value in _gh_arguments(tokens)[1] if name in names]
+    return values[-1] if values else None
+
+
+def _is_dynamic(value: str) -> bool:
+    return any(mark in value for mark in ("$", "`", "$(`", "${"))
+
+
+def _parse_repo(value: str) -> str | None:
+    if _is_dynamic(value):
+        return None
+    match = re.fullmatch(
+        r"(?:https://github\.com/|git@github\.com:|github\.com[:/])?"
+        r"([A-Za-z0-9_.-]+)/([A-Za-z0-9_.-]+)(?:\.git)?/?", value)
+    return f"{match.group(1)}/{match.group(2)}" if match else None
+
+
+def _explicit_repo(tokens: list[str]) -> tuple[bool, str | None]:
+    value = _option_value(tokens, ("-R", "--repo"))
+    present = any(name in ("-R", "--repo") for name, _ in _gh_arguments(tokens)[1])
+    if not present:
+        return False, None
+    return True, _parse_repo(value) if value else None
+
+
+_ISSUE_COLLECTION = re.compile(r"^/?repos/([A-Za-z0-9_.-]+)/([A-Za-z0-9_.-]+)/issues/?$")
+
+
+def _api_issue_target(tokens: list[str]) -> str | None:
+    """Read gh api's endpoint positional argument, never an option value such as --input."""
+    words, _ = _gh_arguments(tokens)
+    match = _ISSUE_COLLECTION.match(words[1]) if len(words) > 1 and words[0] == 'api' else None
+    return f"{match.group(1)}/{match.group(2)}" if match else None
+
+
+def _is_post_creation(tokens: list[str]) -> bool:
+    method = _option_value(tokens, ("-X", "--method"))
+    if method is not None:
+        return method.upper() == "POST"
+    return any(name in ("-f", "-F", "--field", "--raw-field", "--input")
+               for name, _ in _gh_arguments(tokens)[1])
+
+
+def _gh_subcommand(tokens: list[str]) -> list[str] | None:
+    """Recognize subcommand words without interpreting option values as command syntax."""
+    if tokens[:1] != ["gh"]:
+        return None
+    return _gh_arguments(tokens)[0]
+
+
+def _command_creation(tokens: list[str]):
+    """Return `(target, labelled, unresolved_target)` for one supported creation, else None.
+
+    A missing target is deliberate: its caller may resolve the effective checkout offline.
+    """
+    subcommand = _gh_subcommand(tokens)
+    if subcommand is None:
+        return None
+    if subcommand[:2] == ["issue", "create"]:
+        explicit, target = _explicit_repo(tokens)
+        return target, _has_engine_label(tokens), explicit and target is None
+    if subcommand[:1] == ["api"]:
+        target = _api_issue_target(tokens)
+        if target and _is_post_creation(tokens):
+            return target, _has_engine_label(tokens), False
+    return None
 
 
 def _label_value_carries_engine(value: str) -> bool:
@@ -129,14 +351,16 @@ def _has_engine_label(tokens: list[str]) -> bool:
     """True iff the command carries the engine-domain label at a REAL label flag/field — never a loose substring
     match on body/title text (a `"label" in tok and "engine" in tok` clause would false-deny an innocent Issue
     whose prose merely mentioned both words)."""
-    for i, tok in enumerate(tokens):
-        if tok in ("--label", "-l") and i + 1 < len(tokens) and _label_value_carries_engine(tokens[i + 1]):
+    api = (_gh_subcommand(tokens) or [])[:1] == ["api"]
+    for name, value in _gh_arguments(tokens)[1]:
+        if value is None:
+            continue
+        if name in ("--label", "-l") and _label_value_carries_engine(value):
             return True
-        if tok.startswith("--label=") and _label_value_carries_engine(tok.split("=", 1)[1]):
-            return True
-        m = _API_LABEL_FIELD.match(tok)
-        if m and _label_value_carries_engine(m.group(2)):
-            return True
+        if api and name in ("-f", "-F", "--field", "--raw-field"):
+            m = _API_LABEL_FIELD.match(value)
+            if m and _label_value_carries_engine(m.group(2)):
+                return True
     return False
 
 
@@ -165,26 +389,143 @@ def _is_connector_issue_creation(tool_name) -> bool:
     return lowered.endswith("create_issue") and "github" in lowered
 
 
-def reroute_reason(tool_name, tool_input) -> str | None:
-    """The reroute decision for one tool call. Returns the redirect REASON string when the call is a DIRECT
-    engine-labelled Issue creation (a Bash `gh`/API form, or a connector issue-creation tool); otherwise None
-    (out of scope, not engine-labelled, or not inspectable → fail-open ALLOW). Pure and side-effect-free;
-    modes.handler wraps a returned reason in hooks.decide("deny", reason)."""
-    if _is_connector_issue_creation(tool_name):
-        return DENY_REASON if _connector_carries_engine(tool_input) else None
-    if tool_name != "Bash":
-        return None
-    command = ""
-    if isinstance(tool_input, dict):
-        command = tool_input.get("command") or ""
-    if not isinstance(command, str) or not command:  # a non-str / absent command is not inspectable → allow
+def _connector_repo(tool_input) -> tuple[bool, str | None]:
+    """Read only structured connector repository fields; bodies are never classification input."""
+    if not isinstance(tool_input, dict):
+        return False, None
+    value = tool_input.get("repository_full_name") or tool_input.get("repository")
+    if not value and tool_input.get("owner") and tool_input.get("repo"):
+        value = f"{tool_input['owner']}/{tool_input['repo']}"
+    if not isinstance(value, str):
+        return False, None
+    return True, _parse_repo(value.strip())
+
+
+def _trusted_repositories(cwd, trusted_targets):
+    if trusted_targets is not None:
+        return list(trusted_targets)
+    if not isinstance(cwd, str) or not cwd:
+        return []
+    try:
+        import issue_author
+        return issue_author.resolve_issue_repositories(env=os.environ, root=cwd)
+    except Exception:
+        # The gate cannot establish target trust when the checkout is unavailable; retain fail-open.
+        return []
+
+
+def _same_repo(left: str | None, targets) -> bool:
+    if not left:
+        return False
+    try:
+        import repo_identity
+        return any(repo_identity.slug_eq(left, target) for target in targets)
+    except Exception:
+        return any(left.casefold() == str(target).casefold() for target in targets)
+
+
+def _origin_for_directory(path: str | None) -> str | None:
+    if not isinstance(path, str) or not path:
         return None
     try:
-        tokens = shlex.split(command)
+        import repo_identity
+        return repo_identity.origin_slug(path)
+    except Exception:
+        return None
+
+
+def _effective_directory(tokens: list[str], session_cwd: str | None) -> str | None:
+    """A local `cd`/`gh -C` only resolves the request target; it never expands trusted targets."""
+    base = session_cwd
+    if tokens[:1] == ["cd"] and len(tokens) > 1:
+        if _is_dynamic(tokens[1]):
+            return None
+        return tokens[1] if os.path.isabs(tokens[1]) else (os.path.join(base, tokens[1]) if base else None)
+    value = _option_value(tokens, ("-C",))
+    if value:
+        if _is_dynamic(value):
+            return None
+        return value if os.path.isabs(value) else (os.path.join(base, value) if base else None)
+    return base
+
+
+CLASSIFICATION_LIMITATION = (
+    "This looks like a direct GitHub Issue creation, but the routing check could not classify this call. "
+    "Normal stance checks still apply; use an explicit owner/repo or GitHub URL, or run from a checkout with "
+    "a known session cwd if you intend Engine routing."
+)
+
+
+def classification_limitation(tool_name, tool_input, *, cwd=None) -> str | None:
+    """A pure per-call diagnostic for recognized creates whose unlabelled target is unresolved."""
+    if _is_connector_issue_creation(tool_name):
+        present, target = _connector_repo(tool_input)
+        return CLASSIFICATION_LIMITATION if not _connector_carries_engine(tool_input) and (
+            not present or target is None or not isinstance(cwd, str) or not cwd) else None
+    if tool_name != "Bash" or not isinstance(tool_input, dict):
+        return None
+    command = tool_input.get("command")
+    if not isinstance(command, str) or not command:
+        return None
+    try:
+        groups = [group for text in _shell_command_texts(command)
+                  for group in _commands(_shell_tokens(text))]
     except ValueError:
-        return None  # unparseable shell string (unbalanced quotes, etc.) — fail open
-    if _is_issue_creation(tokens) and _has_engine_label(tokens):
-        return DENY_REASON
+        return None
+    effective_cwd = tool_input.get("workdir") if isinstance(tool_input.get("workdir"), str) else cwd
+    for group in groups:
+        if group[:1] == ["cd"]:
+            effective_cwd = _effective_directory(group, effective_cwd)
+            continue
+        creation = _command_creation(group)
+        if creation is None:
+            continue
+        target, labelled, unresolved = creation
+        if not labelled:
+            if unresolved or not isinstance(cwd, str) or not cwd:
+                return CLASSIFICATION_LIMITATION
+            if target is None and _origin_for_directory(_effective_directory(group, effective_cwd)) is None:
+                return CLASSIFICATION_LIMITATION
+    return None
+
+
+def reroute_reason(tool_name, tool_input, *, cwd=None, trusted_targets=None) -> str | None:
+    """Return the helper redirect for a recognized Engine or trusted unlabelled creation.
+
+    `trusted_targets` is an offline test seam. Production derives it exclusively from the session
+    checkout, never from command text or a command-selected checkout.
+    """
+    targets = _trusted_repositories(cwd, trusted_targets)
+    if _is_connector_issue_creation(tool_name):
+        if _connector_carries_engine(tool_input):
+            return DENY_REASON
+        _present, target = _connector_repo(tool_input)
+        return DENY_REASON if _same_repo(target, targets) else None
+    if tool_name != "Bash":
+        return None
+    command = tool_input.get("command") if isinstance(tool_input, dict) else None
+    if not isinstance(command, str) or not command:
+        return None
+    try:
+        groups = [group for text in _shell_command_texts(command)
+                  for group in _commands(_shell_tokens(text))]
+    except ValueError:
+        return None
+    effective_cwd = tool_input.get("workdir") if isinstance(tool_input.get("workdir"), str) else cwd
+    for group in groups:
+        if group[:1] == ["cd"]:
+            effective_cwd = _effective_directory(group, effective_cwd)
+            continue
+        creation = _command_creation(group)
+        if creation is None:
+            continue
+        target, labelled, unresolved = creation
+        if labelled:
+            return DENY_REASON
+        if not unresolved and target is None:
+            target = _origin_for_directory(_effective_directory(group, effective_cwd))
+        if _same_repo(target, targets):
+            return DENY_REASON
     return None
 
 
@@ -197,7 +538,7 @@ def _demo() -> int:
     different-labelled creation, a mere mention of "engine", and a non-creation are allowed. Self-checks and
     returns 1 on any unexpected verdict (the failure path)."""
     def verdict(tool_name: str, tool_input) -> str:
-        return "REROUTE" if reroute_reason(tool_name, tool_input) else "ALLOW"
+        return "REROUTE" if reroute_reason(tool_name, tool_input, cwd="/nonexistent-offline-demo") else "ALLOW"
 
     heredoc = "gh issue create --label engine --body-file - <<'EOF'\njust some free text\nEOF"
     conforming = (
@@ -231,7 +572,100 @@ def _demo() -> int:
     return 0
 
 
+def _submission_demo(argv):
+    """Permanent offline regression: real normalized gate, helper and Git journal, fake service only."""
+    import argparse
+    import copy
+    import json
+    import tempfile
+    from pathlib import Path
+    from unittest.mock import patch
+    import issue_author
+    import issue_recovery
+    import issue_recovery_store
+    import modes
+    import providers
+    from test_issue_recovery import Remote, REPO, INTENT, ENV
+
+    parser = argparse.ArgumentParser(description='Offline normalized routing and durable submission demonstration')
+    parser.add_argument('--scope', choices=['engine', 'product'], default='engine')
+    parser.add_argument('--label', choices=['engine', 'none'], default='none')
+    parser.add_argument('--target', choices=['trusted', 'external'], default='trusted')
+    parser.add_argument('--assessment', choices=['pending', 'missing'], default='pending')
+    parser.add_argument('--failure', choices=['none', 'response-loss', 'closed-before-recovery', 'claim-loss', 'recurrence'], default='response-loss')
+    parser.add_argument('--expected-posts', type=int)
+    args = parser.parse_args(argv)
+    class DemoRemote(Remote):
+        def call(self, method, path, body=None):
+            if (getattr(self, 'lose_on_claim', False) and method == 'PATCH' and '/git/refs/' in path
+                    and sum(m == 'PATCH' and '/git/refs/' in p for m, p, _ in self.calls) == 1):
+                self.lose_on_claim = False
+                self.lose_ref_response = True
+            return super().call(method, path, body)
+    remote = DemoRemote()
+    activation = issue_recovery_store.initialize(remote.client())
+    target = REPO if args.target == 'trusted' else 'outside/project'
+    command = f'gh issue create --repo {target} -t Example' + (' --label engine' if args.label == 'engine' else '')
+    with tempfile.TemporaryDirectory(prefix='issue-routing-demo-') as directory, patch.dict(os.environ, ENV):
+        payload = providers.normalize('PreToolUse', {'tool_name': 'exec_command', 'tool_input': {'cmd': command}, 'cwd': directory})
+        decision = modes.handler(payload)
+        routed = decision.get('permissionDecision') == 'deny' or decision.get('decision') == 'deny'
+        # hooks.decide uses a portable internal decision; preserve the full observed result below.
+        routed = routed or decision.get('hookSpecificOutput', {}).get('permissionDecision') == 'deny'
+        expected_route = args.target == 'trusted' or args.label == 'engine'
+        intent = copy.deepcopy(INTENT)
+        intent['repository'] = target
+        if args.assessment == 'missing':
+            intent.pop('assessment')
+        envelope = {'schema_version': 'issue-submission-input.v1', 'scope': args.scope, 'request': intent}
+        if args.scope == 'product':
+            envelope['request'] = {'repository': target, 'title': 'Example', 'body': 'Ordinary product issue.',
+                                   'labels': ['engine'] if args.label == 'engine' else []}
+        remote.lose_issue_response = args.failure in ('response-loss', 'closed-before-recovery')
+        remote.lose_on_claim = args.failure == 'claim-loss'
+        outcomes = []
+        def submit():
+            try:
+                result = issue_author.create_issue_result(envelope, env=ENV, issues_factory=lambda *_: remote.client(),
+                    recovery_store=issue_recovery_store.GitStore(remote.client(), activation))
+                outcomes.append(result['filing'])
+            except issue_author.IssueInputError:
+                outcomes.append('refused')
+        submit()
+        if args.scope == 'engine':
+            if args.failure == 'closed-before-recovery' and remote.issues:
+                remote.issues[0]['state'] = 'closed'
+            # Persist only fake remote service state; discard all clients, stores and live permits.
+            state = Path(directory) / 'remote.json'
+            state.write_text(json.dumps(remote.__dict__))
+            restored = DemoRemote()
+            restored.__dict__.update(json.loads(state.read_text()))
+            remote = restored
+            submit()
+            if args.failure == 'recurrence' and args.target == 'trusted' and args.assessment == 'pending':
+                # Automatic recurrence is separately keyed by its source; manual retries never recur.
+                signal = {'source_id': 'demo:recurrence', 'severity': 'trust-critical', 'message': 'Demo failure'}
+                observations = ('2026-09-10T00:00:00Z', '2026-09-10T01:00:00Z', '2026-09-10T02:00:00Z')
+                for now in observations:
+                    client = remote.client()
+                    issue_author.create_producer_result('telemetry', {'record': signal, 'first_seen': observations[0], 'now': now}, client,
+                        env=ENV, recovery_store=issue_recovery_store.GitStore(client, activation))
+                    if now == observations[0]:
+                        remote.issues[-1]['state'] = 'closed'
+        valid = args.target == 'trusted' and (args.scope == 'product' and args.label != 'engine' or args.scope == 'engine' and args.assessment == 'pending')
+        expected = (3 if args.failure == 'recurrence' and args.scope == 'engine' else 1) if valid else 0
+        if args.failure == 'claim-loss' and args.scope == 'engine':
+            expected = 0
+        expected = expected if args.expected_posts is None else args.expected_posts
+        ok = routed == expected_route and remote.posts == expected
+        print(json.dumps({'routing': decision, 'scope': args.scope, 'failure': args.failure, 'outcomes': outcomes,
+                          'issue_posts': remote.posts, 'expected_posts': expected, 'passed': ok}, indent=2))
+        return 0 if ok else 1
+
+
 def main(argv: list) -> int:
+    if argv and argv[0] == "submission-demo":
+        return _submission_demo(argv[1:])
     if argv and argv[0] == "demo":
         return _demo()
     print(__doc__)

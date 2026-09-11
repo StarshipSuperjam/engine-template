@@ -541,7 +541,7 @@ def _replace_report(previous: str, candidate: str) -> str:
 
 
 def producer_body(body: str, evidence, now: str, *, previous: str | None = None,
-                  final_marker: str | None = None) -> str:
+                  final_marker: str | None = None, submission_id: str | None = None) -> str:
     """Explicit unknown-remedy classification for automatic reporters; never infer from severity.
 
     Evidence is producer-normalized semantic content; observation timestamps and run links do not
@@ -556,7 +556,7 @@ def producer_body(body: str, evidence, now: str, *, previous: str | None = None,
         assessment = issue_triage.pending('The remedy and its compatibility impact have not been established.',
                                           'Inspect the reported failure, establish a remedy, and assess its release impact.')
         record = (issue_triage.refresh(old, assessment, evidence, now=now) if old else
-                  issue_triage.new_record(assessment, uuid.uuid4().hex, evidence, now=now))
+                  issue_triage.new_record(assessment, submission_id or uuid.uuid4().hex, evidence, now=now))
         tail = ''
         if final_marker and body.rstrip().endswith(final_marker):
             body = body.rstrip()[:-len(final_marker)].rstrip()
@@ -579,11 +579,12 @@ class GitHubIssues:
     injectable so tests/demo replace ONLY the network and run the real logic above. Every read raises
     DegradedReadError on failure (never returns [])."""
 
-    def __init__(self, repo: str, token: str, label: str = ENGINE_DOMAIN_LABEL, transport=None):
+    def __init__(self, repo: str, token: str, label: str = ENGINE_DOMAIN_LABEL, transport=None, recovery_store=None):
         self.repo = repo
         self.token = token
         self.label = label
         self._transport = transport or self._http
+        self.recovery_store = recovery_store
 
     def _http(self, method: str, path: str, body=None):
         # The shared JSON-transport mechanics (encode, build-with-off-host-guard, execute, HTTPError->status,
@@ -641,28 +642,12 @@ class GitHubIssues:
         return out
 
     def open_issue(self, title: str, body: str) -> dict:
-        """Compatibility issue-dict wrapper over the mandatory assessment filing operation."""
-        import issue_triage
-        configuration_error = None
-        try:
-            config = issue_triage.load_config()
-        except issue_triage.TriageError as exc:
-            config = None
-            configuration_error = str(exc)
-        result = self.file_assessed_issue(title, body, config=config)
-        if configuration_error:
-            result['configuration_error'] = configuration_error
-            print('Issue milestone configuration is invalid: ' + configuration_error, file=sys.stderr)
-        if result['filing'] != 'created' or not result.get('number'):
-            raise DegradedReadError(result['reason'])
-        if result['assignment']['state'] not in issue_triage.TERMINAL_ASSIGNMENTS:
-            print('Issue filed; release triage remains pending: ' + result['assignment']['reason'])
-        return {'id': result['issue_id'], 'number': result['number'], 'html_url': result['url'], 'triage': result}
+        """Retired raw-body API. Every new Engine issue uses the structured helper operation."""
+        raise DegradedReadError('Raw issue creation is retired; use issue_author create or create_producer_result.')
 
-    def file_assessed_issue(self, title: str, body: str, *, config=None, retry=False) -> dict:
-        """Supported typed submission; raw open_issue is the legacy transport seam."""
-        import issue_triage
-        return issue_triage.file_issue(self, title, body, config=config, retry=retry)
+    def file_assessed_issue(self, title: str, body: str, **kwargs) -> dict:
+        """Retired compatibility entry; assessment alone cannot authorize a durable send."""
+        return self.open_issue(title, body)
 
     def update_issue(self, number: int, body: str) -> dict:
         import issue_triage
@@ -910,7 +895,7 @@ def degraded_readout(count, as_of) -> str:
 
 class Report:
     def __init__(self, *, degraded, debt=None, pressure_line=None, opened=0, updated=0, closed=0,
-                 degraded_line=None):
+                 degraded_line=None, recovery=None):
         self.degraded = degraded
         self.debt = debt
         self.pressure_line = pressure_line
@@ -918,6 +903,15 @@ class Report:
         self.updated = updated
         self.closed = closed
         self.degraded_line = degraded_line
+        self.recovery = recovery
+
+
+def _report_recovery_notice(report: Report | None) -> None:
+    """Surface a retained-send hold without misdescribing the normal GitHub pass as down."""
+    recovery = getattr(report, 'recovery', None)
+    if recovery and recovery.get('state') == 'held':
+        print(f"Engine Issue recovery is held: {recovery.get('reason', 'verification is incomplete.')}",
+              file=sys.stderr)
 
 
 def run(github: GitHubIssues, records: list, cache: Cache, thresholds: dict, now: str,
@@ -941,23 +935,49 @@ def run(github: GitHubIssues, records: list, cache: Cache, thresholds: dict, now
     seam, and silently swallowing a real bug would let self-monitoring quietly do nothing."""
     try:
         github.ensure_label()
-        open_issues = github.list_open_engine_issues()
     except DegradedReadError:
         count, as_of = read_state_debt(state_path or DEFAULT_STATE_PATH)
         return Report(degraded=True, degraded_line=degraded_readout(count, as_of))
 
+    recovery = issue_author.recover_producer_records('telemetry', github, observation=now)
+    # Read the open snapshot after all-state recovery, before normal update/close decisions.
+    try:
+        open_issues = github.list_open_engine_issues()
+    except DegradedReadError:
+        count, as_of = read_state_debt(state_path or DEFAULT_STATE_PATH)
+        return Report(degraded=True, degraded_line=degraded_readout(count, as_of), recovery=recovery)
+    # Absence from the complete open list selects candidates only; recovery verifies each
+    # issue by number before recording closure, including a previous close with a lost journal write.
+    observed_closures = issue_author.recover_producer_records('telemetry', github, observation=now,
+        open_issue_numbers=[issue['number'] for issue in open_issues])
+    if observed_closures['state'] == 'held' or (observed_closures['state'] == 'recovered' and recovery['state'] != 'held'):
+        recovery = observed_closures
     plan = reconcile(records, open_issues, cache.load(), thresholds, now,
                      authoritative=authoritative, live=live)
     record_by_source = {derive_source_key(r): r for r in records}
     previous_by_number = {i['number']: i for i in open_issues}
     opened = updated = closed = 0
+    closed_numbers = []
+    def record_closures():
+        nonlocal recovery
+        if closed_numbers:
+            closure = issue_author.recover_producer_records('telemetry', github, observation=now,
+                                                            closed_issue_numbers=closed_numbers)
+            if closure['state'] == 'held':
+                recovery = closure
     try:
         for sid, title, body in plan.to_open:
-            body = producer_body(body, _semantic_finding(record_by_source.get(sid, {})), now)
-            created = github.open_issue(title, body)
+            source = record_by_source[sid]
+            try:
+                created = issue_author.create_producer_result('telemetry',
+                    {'record': source, 'first_seen': parse_first_noticed(body) or now, 'now': now}, github)
+            except issue_author.IssueInputError as exc:
+                raise DegradedReadError(str(exc)) from exc
+            if created['filing'] != 'created':
+                raise DegradedReadError(created['reason'])
             if sid in plan.next_counts:
                 plan.next_counts[sid]["issue"] = created.get("number")
-            opened += 1
+            opened += int(created.get('newly_created', False))
         for number, body in plan.to_update:
             previous = previous_by_number.get(number, {})
             source = record_by_source.get(previous.get('source_id') or parse_source_id(body))
@@ -968,11 +988,14 @@ def run(github: GitHubIssues, records: list, cache: Cache, thresholds: dict, now
         for number in plan.to_close:
             github.close_issue(number)
             closed += 1
+            closed_numbers.append(number)
     except DegradedReadError:
+        record_closures()
         cache.store(plan.next_counts)   # persist accrued counts; the writes already applied stand
         count, as_of = read_state_debt(state_path or DEFAULT_STATE_PATH)
         return Report(degraded=True, degraded_line=degraded_readout(count, as_of),
-                      opened=opened, updated=updated, closed=closed)
+                      opened=opened, updated=updated, closed=closed, recovery=recovery)
+    record_closures()
     cache.store(plan.next_counts)
 
     debt = {"open_count": plan.open_count, "as_of": now, "register": github.issues_query_url()}
@@ -994,7 +1017,7 @@ def run(github: GitHubIssues, records: list, cache: Cache, thresholds: dict, now
         refresh_state(state_path, debt, standing)
     pressure = triage_pressure_line(plan.low_severity_open_count, int(thresholds.get("triage_pressure", 0)))
     return Report(degraded=False, debt=debt, pressure_line=pressure,
-                  opened=opened, updated=updated, closed=closed)
+                  opened=opened, updated=updated, closed=closed, recovery=recovery)
 
 
 def _consolidation_note(survivor_number: int) -> str:
@@ -1068,6 +1091,11 @@ def promote_finding(github: GitHubIssues, record: dict, now: str, *, title: str 
 
     try:
         github.ensure_label()
+        # A one-shot producer can also arrive while its earlier send is uncertain.  Reconcile
+        # only this source before choosing an existing report to refresh or attempting creation.
+        recovery = issue_author.recover_producer_records('telemetry', github, source_key=sid, observation=now)
+        if recovery['state'] == 'held':
+            print(f"Engine Issue recovery is held: {recovery['reason']}", file=sys.stderr)
         matches = sorted((i for i in github.list_open_engine_issues() if i.get("source_id") == sid),
                          key=lambda i: i["number"])
         if matches:
@@ -1087,7 +1115,14 @@ def promote_finding(github: GitHubIssues, record: dict, now: str, *, title: str 
                 github.update_issue(dup["number"], _consolidation_note(survivor["number"]) + (dup.get("body") or ""))
                 github.close_issue(dup["number"])
             return survivor["number"]
-        return github.open_issue(ttl, producer_body(_render(record.get('first_seen') or now), _semantic_finding(record), now)).get('number')
+        try:
+            result = issue_author.create_producer_result('telemetry',
+                {'record': record, 'first_seen': record.get('first_seen') or now, 'now': now}, github)
+        except issue_author.IssueInputError as exc:
+            raise DegradedReadError(str(exc)) from exc
+        if result['filing'] != 'created':
+            raise DegradedReadError(result['reason'])
+        return result.get('number')
     except DegradedReadError:
         return False
 
@@ -1783,6 +1818,28 @@ def derive_ambient_records(path: str = DEFAULT_AMBIENT_CACHE_PATH, watermark: st
 
 # ---- the operator demo (faked GitHub, REAL reconcile logic) ----------------
 
+class _DemoRecoveryStore:
+    """Offline-demo dependency only; production uses the activated Git-data store."""
+    def __init__(self):
+        self.tip = '0' * 40
+        self.snapshot = {'schema_version': 'issue-recovery.v1', 'repository_id': 42, 'revision': 0, 'records': {}}
+
+    def load(self):
+        import copy
+        return self.tip, copy.deepcopy(self.snapshot)
+
+    def compare_and_swap(self, expected, snapshot):
+        import copy
+        import issue_recovery
+        import issue_recovery_store
+        if expected != self.tip:
+            raise issue_recovery.RecoveryError('Competing demo writer.')
+        issue_recovery_store.GitStore._history_transition(self.snapshot, snapshot)
+        self.snapshot = copy.deepcopy(snapshot)
+        self.tip = issue_recovery.digest(snapshot)[:40]
+        return self.tip
+
+
 class _FakeGitHub:
     """An in-memory stand-in for GitHub used ONLY by the demo: it records issues in a dict and serves
     the (method, path, body) transport contract. The harness it drives is the REAL GitHubIssues +
@@ -1790,6 +1847,7 @@ class _FakeGitHub:
 
     def __init__(self, *, fail_status: int | None = None, check_runs: list | None = None):
         self.issues: dict = {}
+        self.recovery_store = _DemoRecoveryStore()
         self.labels: set = set()
         self._next = 1
         self.fail_status = fail_status
@@ -1810,12 +1868,12 @@ class _FakeGitHub:
             return (200, {"name": name}) if name in self.labels else (404, None)
         if path.split("?")[0].endswith("/issues") and method == "GET":
             page = int(re.search(r"[?&]page=(\d+)", path).group(1)) if "page=" in path else 1
-            rows = [i for i in self.issues.values() if i["state"] == "open"]
+            rows = [i for i in self.issues.values() if "state=all" in path or i["state"] == "open"]
             return 200, (rows if page == 1 else [])
         if path.split("?")[0].endswith("/issues") and method == "POST":
             num = self._next
             self._next += 1
-            self.issues[num] = {"number": num, "title": body["title"], "body": body["body"],
+            self.issues[num] = {"id": num + 1000, "html_url": "https://github.com/" + path.split("/repos/", 1)[1].removesuffix("/issues") + f"/issues/{num}", "number": num, "title": body["title"], "body": body["body"],
                                 "labels": body.get("labels", []), "state": "open"}
             return 201, self.issues[num]
         match = re.search(r'/issues/(\d+)$', path)
@@ -1840,21 +1898,21 @@ def _demo(_argv) -> int:
     feeds, its inbox spool — lives in ONE per-run temporary directory that is removed on the way out (even
     when a section fails), so a hand-run demo never touches the live telemetry state under
     .engine/telemetry/.cache/ and never leaves a stranded aside for the SessionStart sweep to find."""
-    import functools
     from unittest.mock import patch
     import issue_triage
     with tempfile.TemporaryDirectory(prefix="telemetry-demo-") as scratch:
         # Configuration is project-owned just like the scratch counters. Exercise its
         # real reader against this isolated root, never the operator's live worktrees.
-        read_config = functools.partial(issue_triage.load_config, root=scratch)
-        with patch.object(issue_triage, 'load_config', read_config):
+        read_config = issue_triage.load_config
+        with patch.object(issue_triage, 'load_config', lambda root=None: read_config(scratch)), patch.dict(
+                os.environ, {"GITHUB_REPOSITORY": "you/your-project"}):
             return _demo_walkthrough(scratch)
 
 
 def _demo_walkthrough(scratch: str) -> int:
     th = {"persistence": 3, "auto_resolve": 2, "triage_pressure": 10}
     fake = _FakeGitHub()
-    gh = GitHubIssues("you/your-project", "demo-token", transport=fake.transport)
+    gh = GitHubIssues("you/your-project", "demo-token", transport=fake.transport, recovery_store=fake.recovery_store)
     cache = Cache(os.path.join(scratch, "_demo.json"))
     clock = ["2026-06-05T0%d:00:00Z" % n for n in range(1, 9)]
 
@@ -1916,7 +1974,7 @@ def _demo_walkthrough(scratch: str) -> int:
     print("    did not look at (the source-scoping safety rail):")
     ci_fake = _FakeGitHub(check_runs=[{"name": "engine-ci", "conclusion": "failure"},
                                       {"name": "actionlint", "conclusion": "success"}])
-    ci_gh = GitHubIssues("you/your-project", "demo-token", transport=ci_fake.transport)
+    ci_gh = GitHubIssues("you/your-project", "demo-token", transport=ci_fake.transport, recovery_store=ci_fake.recovery_store)
     ci_cache = Cache(os.path.join(scratch, "_demo_ci.json"))
     cclock = ["2026-06-06T0%d:00:00Z" % n for n in range(1, 9)]
     # An UNRELATED, out-of-band item (a "gate could not run" alarm) is opened directly, the way a hook does.
@@ -1950,7 +2008,7 @@ def _demo_walkthrough(scratch: str) -> int:
                                    "body": issue_body(dup_rec, seen, seen),
                                    "labels": [ENGINE_DOMAIN_LABEL], "state": "open"}
     dup_fake._next = 435
-    dup_gh = GitHubIssues("you/your-project", "demo-token", transport=dup_fake.transport)
+    dup_gh = GitHubIssues("you/your-project", "demo-token", transport=dup_fake.transport, recovery_store=dup_fake.recovery_store)
     before = sum(1 for i in dup_fake.issues.values() if i["state"] == "open")
     survivor = promote_finding(dup_gh, dup_rec, cclock[5])        # cclock[5] is 'now' — must NOT become first-noticed
     after_open = sorted(n for n, i in dup_fake.issues.items() if i["state"] == "open")
@@ -1963,7 +2021,7 @@ def _demo_walkthrough(scratch: str) -> int:
     print("    that keeps failing across sessions is tracked after it persists; once it is seen passing again")
     print("    — or its file is gone — its item clears; and it NEVER touches an unrelated item:")
     amb_fake = _FakeGitHub()
-    amb_gh = GitHubIssues("you/your-project", "demo-token", transport=amb_fake.transport)
+    amb_gh = GitHubIssues("you/your-project", "demo-token", transport=amb_fake.transport, recovery_store=amb_fake.recovery_store)
     amb_cache = Cache(os.path.join(scratch, "_demo_ambient_streams.json"))
     amb_ndjson = os.path.join(scratch, "_demo_ambient.ndjson")
     aclock = ["2026-06-07T0%d:00:00Z" % n for n in range(1, 9)]
@@ -1982,7 +2040,7 @@ def _demo_walkthrough(scratch: str) -> int:
     # A ONE-TIME fail that is never re-run must NOT promote — persistence is a patience window over recurring
     # FRESH fails, not a stale replay of one observation (the freshness watermark makes this real):
     tr_fake = _FakeGitHub()
-    tr_gh = GitHubIssues("you/your-project", "demo-token", transport=tr_fake.transport)
+    tr_gh = GitHubIssues("you/your-project", "demo-token", transport=tr_fake.transport, recovery_store=tr_fake.recovery_store)
     tr_cache = Cache(os.path.join(scratch, "_demo_ambient_tr.json"))
     tr_ndjson = os.path.join(scratch, "_demo_ambient_tr.ndjson")
     append_ambient([ambient_record("engine/check/one-off", False, "x.md", aclock[0])], tr_ndjson)  # fires ONCE
@@ -2033,7 +2091,7 @@ def _demo_walkthrough(scratch: str) -> int:
     print("    drain NEVER touches an unrelated item. Walked on the demo's own temporary spool and counter,")
     print("    never the live inbox:")
     inbox_fake = _FakeGitHub()
-    inbox_gh = GitHubIssues("you/your-project", "demo-token", transport=inbox_fake.transport)
+    inbox_gh = GitHubIssues("you/your-project", "demo-token", transport=inbox_fake.transport, recovery_store=inbox_fake.recovery_store)
     inbox_spool = os.path.join(scratch, "inbox", "findings-inbox.ndjson")
     inbox_cache = Cache(os.path.join(scratch, "inbox", "inbox-streams.json"))
     paths_ok = (inbox_spool != INBOX_SPOOL_PATH and inbox_cache.path != DEFAULT_INBOX_STREAMS_PATH
@@ -2304,6 +2362,7 @@ def _run_cli(argv: list) -> int:
     # first observed failure, resolve on the first observed pass, keyed off the durable Issue set — NOT the
     # gitignored stream cache, which this ephemeral scheduled runner wipes every run.
     report = run(gh, records, cache, load_thresholds(), now, authoritative=authoritative, live=True)
+    _report_recovery_notice(report)
     if report.degraded:
         if report.opened or report.updated or report.closed:
             print(f"GitHub became unreachable partway through the engine's CI-health triage; opened="
@@ -2347,6 +2406,7 @@ def _run_ambient_cli(argv: list) -> int:
     watermark = load_ambient_watermark()
     records, authoritative, new_watermark = derive_ambient_records(watermark=watermark)
     report = run(gh, records, cache, load_thresholds(), now, authoritative=authoritative, live=False)
+    _report_recovery_notice(report)
     if report.degraded:
         print("Could not reach GitHub to run the engine's ambient check-health triage; nothing was changed.")
         return 0   # leave the watermark unadvanced — the un-consumed fires stay fresh for the next pass
@@ -2383,6 +2443,7 @@ def _run_drain_cli(argv: list) -> int:
     _sweep_stranded_asides(INBOX_SPOOL_PATH)
     cache = Cache(argv[0]) if argv else Cache(DEFAULT_INBOX_STREAMS_PATH)
     report = drain_inbox(gh, cache=cache, thresholds=load_thresholds(), now=moment.utc_now())
+    _report_recovery_notice(report)
     if report is not None and report.degraded:
         print("Could not reach GitHub to check the engine's own health inbox; nothing was changed.")
         return 0

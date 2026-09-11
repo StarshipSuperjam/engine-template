@@ -13,6 +13,7 @@ from __future__ import annotations
 
 import shlex
 import unittest
+from unittest import mock
 
 import issue_author
 import issue_gate
@@ -24,9 +25,9 @@ CONFORMING = issue_author.render_engine_issue_body(what_this_is="a demo item", w
 FREE_TEXT = "just some free text with no contract markers at all"
 
 
-def _reason(command: str):
+def _reason(command: str, **kwargs):
     """The gate's verdict for a Bash command string: a reason str (reroute) or None (allow)."""
-    return issue_gate.reroute_reason("Bash", {"command": command})
+    return issue_gate.reroute_reason("Bash", {"command": command}, **kwargs)
 
 
 def _create(body: str, *, label: str | None = "engine", flag: str = "-b") -> str:
@@ -67,12 +68,26 @@ class TestEveryEngineCreationReroutes(unittest.TestCase):
     def test_chained_command_is_rerouted(self):
         self.assertIsNotNone(_reason("cd /tmp && " + _create(FREE_TEXT)))
 
-    def test_reason_names_the_create_cli_and_the_escape_hatch(self):
+    def test_reason_names_the_private_runtime_envelope_and_no_fallback(self):
         reason = _reason(_create(FREE_TEXT))
         self.assertIn(".engine/tools/issue_author.py", reason)   # the in-repo helper, not a cross-repo path
         self.assertIn("create", reason)                          # points at the supported create path
         self.assertIn("--confirm", reason)
-        self.assertIn("drop the `engine` label", reason)         # the not-an-engine-Issue escape hatch
+        self.assertIn("--frozen", reason)
+        self.assertIn("submission_id", reason)
+        self.assertIn("assessment", reason)
+        self.assertIn("Product scope", reason)
+        self.assertIn(".engine/schemas/issue-submission-input.v1.json", reason)
+        self.assertNotIn("drop the `engine` label", reason)
+
+    def test_redirect_examples_are_accepted_by_the_helper(self):
+        import json
+        examples = [json.loads(line.strip()) for line in issue_gate.DENY_REASON.splitlines()
+                    if line.strip().startswith('{')]
+        self.assertEqual([example['scope'] for example in examples], ['engine', 'product'])
+        for example in examples:
+            self.assertEqual(issue_author.submission_input(example), example)
+
 
 
 class TestConnectorArm(unittest.TestCase):
@@ -98,6 +113,20 @@ class TestConnectorArm(unittest.TestCase):
     def test_connector_without_engine_label_is_allowed(self):
         self.assertIsNone(issue_gate.reroute_reason(
             "mcp__github__github_create_issue", {"title": "x", "labels": ["bug"]}))
+
+    def test_current_connector_repository_full_name_routes_unlabelled_trusted_create(self):
+        self.assertIsNotNone(issue_gate.reroute_reason(
+            "mcp__codex_apps__github_create_issue",
+            {"title": "x", "repository_full_name": "trusted/project"},
+            trusted_targets=["trusted/project"]))
+
+    def test_legacy_connector_owner_repo_and_external_repository_stay_distinct(self):
+        self.assertIsNotNone(issue_gate.reroute_reason(
+            "mcp__github__create_issue", {"owner": "trusted", "repo": "project"},
+            trusted_targets=["trusted/project"]))
+        self.assertIsNone(issue_gate.reroute_reason(
+            "mcp__github__create_issue", {"repository": "elsewhere/project"},
+            trusted_targets=["trusted/project"]))
 
     def test_connector_with_no_labels_field_is_allowed(self):
         self.assertIsNone(issue_gate.reroute_reason("some__github_create_issue", {"title": "x"}))
@@ -132,6 +161,197 @@ class TestAllows(unittest.TestCase):
         # command-position anchored: the verb inside an argument (echo/grep) is not a real invocation
         self.assertIsNone(_reason('echo gh issue create --label engine -b "free text"'))
         self.assertIsNone(_reason('grep "gh issue create" notes.md'))
+
+
+class TestTrustedTargetRouting(unittest.TestCase):
+    """Unlabelled direct creates route only after an offline trusted-target match."""
+
+    def test_porcelain_and_exact_rest_collection_route_trusted_targets(self):
+        targets = ["trusted/project"]
+        self.assertIsNotNone(_reason("gh issue create -R trusted/project -t x", trusted_targets=targets))
+        self.assertIsNotNone(_reason("gh api repos/trusted/project/issues -f title=x", trusted_targets=targets))
+
+    def test_explicit_get_item_comment_and_external_target_do_not_route(self):
+        targets = ["trusted/project"]
+        for command in (
+                "gh api -X GET repos/trusted/project/issues",
+                "gh api -X POST repos/trusted/project/issues/12",
+                "gh api -X POST repos/trusted/project/issues/12/comments",
+                "gh issue create -R elsewhere/project -t x"):
+            self.assertIsNone(_reason(command, trusted_targets=targets), command)
+
+    def test_command_boundaries_prevent_target_and_label_leaks(self):
+        targets = ["trusted/project"]
+        self.assertIsNone(_reason(
+            "gh issue create -R elsewhere/project -t x; echo --label engine",
+            trusted_targets=targets))
+        self.assertIsNone(_reason(
+            "gh api repos/elsewhere/project/issues -f title=x && echo --repo trusted/project",
+            trusted_targets=targets))
+
+    def test_newline_boundaries_route_trusted_creates_without_flag_leaks(self):
+        targets = ["trusted/project"]
+        self.assertIsNotNone(_reason("echo ready\ngh issue create -R trusted/project -t x",
+                                     trusted_targets=targets))
+        self.assertIsNone(_reason("gh issue create -R elsewhere/project -t x\necho --label engine",
+                                  trusted_targets=targets))
+
+    def test_newline_boundaries_handle_comments_quotes_continuations_and_repeated_separators(self):
+        targets = ["trusted/project"]
+        self.assertIsNotNone(_reason("echo ready # preparation\n# still preparation\ngh issue create -R trusted/project -t x",
+                                     trusted_targets=targets))
+        self.assertIsNone(_reason("echo 'gh issue create\n--label engine'\necho ready",
+                                  trusted_targets=targets))
+        continued = "gh issue " + "\\" + "\n" + "create -R trusted/project -t x"
+        self.assertIsNotNone(_reason(continued, trusted_targets=targets))
+        self.assertIsNotNone(_reason("true && && gh issue create -R trusted/project -t x",
+                                     trusted_targets=targets))
+
+    def test_normalized_modes_handler_routes_newline_create_in_every_stance(self):
+        import modes
+        import providers
+        with mock.patch.object(issue_gate, "_trusted_repositories", return_value=["trusted/project"]):
+            for stance in (modes.EXPLORE, modes.BUILD, modes.ROUTINE):
+                payload = providers.normalize("PreToolUse", {
+                    "session_id": "newline-routing", "tool_name": "exec_command",
+                    "tool_input": {"cmd": "echo ready\ngh issue create -R trusted/project -t x"},
+                })
+                with mock.patch.object(modes, 'current_stance', return_value=stance):
+                    self.assertEqual(modes.handler(payload).get("permissionDecision"), "deny", stance)
+
+    def test_heredoc_payload_is_data_and_following_commands_still_route(self):
+        literal = "gh issue create --label engine"
+        for opener, ending in (("<<'EOF'", "EOF"), ('<<"EOF"', "EOF"),
+                               ("<<E'OF'", "EOF"), (r"<<\EOF", "EOF"),
+                               ("<<-EOF", "\tEOF"), ("<<''", "")):
+            command = f"cat {opener}\n{literal}\n{ending}\n"
+            with self.subTest(opener=opener):
+                self.assertIsNone(_reason(command))
+                self.assertIsNotNone(_reason(command + literal))
+        self.assertIsNone(_reason("cat <<'EOF'\ngh issue create --repo $REPO\nEOF"))
+        self.assertIsNone(issue_gate.classification_limitation(
+            "Bash", {"command": "cat <<'EOF'\ngh issue create --repo $REPO\nEOF"}))
+        self.assertIsNone(_reason(f"cat <<ONE <<'TWO'\n{literal}\nONE\n{literal}\nTWO"))
+        self.assertIsNotNone(_reason(f"cat <<ONE <<'TWO'\n{literal}\nONE\n{literal}\nTWO\n{literal}"))
+        self.assertIsNotNone(_reason(f"{literal} --body-file - <<'EOF'\nbody\nEOF"))
+
+    def test_quoted_redirection_and_here_string_do_not_consume_later_commands(self):
+        for prefix in ("echo '<<EOF'", 'echo "<<EOF"', "cat <<< 'text'", "echo ready # <<EOF"):
+            self.assertIsNotNone(_reason(prefix + "\ngh issue create --label engine"), prefix)
+
+    def test_double_quoted_heredoc_delimiters_use_shell_quote_removal(self):
+        import subprocess
+        for word, delimiter in ((r'"E\$OF"', 'E$OF'), (r'"E\`OF"', 'E`OF'),
+                                (r'"E\\$OF"', r'E\$OF'), (r'"E\qOF"', r'E\qOF'),
+                                (r'"E\"OF"', 'E"OF')):
+            with self.subTest(word=word):
+                # The real shell is an independent delimiter oracle; this executes only cat and printf.
+                preamble = f"cat <<{word}\ndata\n{delimiter}\n"
+                observed = subprocess.run(['bash', '-c', preamble + "printf reached"],
+                                          capture_output=True, text=True, check=True)
+                self.assertEqual(observed.stdout, 'data\nreached')
+                self.assertIsNotNone(_reason(preamble + "gh issue create --label engine"))
+
+    def test_repository_flags_before_between_and_after_subcommands_route(self):
+        for flag in ('--repo trusted/project', '--repo=trusted/project', '-R trusted/project',
+                     '-Rtrusted/project', '-R=trusted/project'):
+            for command in (f'gh {flag} issue create -t x', f'gh issue {flag} create -t x',
+                            f'gh issue create {flag} -t x', f'gh -C /tmp {flag} issue create -t x'):
+                with self.subTest(command=command):
+                    self.assertIsNotNone(_reason(command, trusted_targets=['trusted/project']))
+                    self.assertIsNone(_reason(command.replace('trusted/project', 'external/project'),
+                                              trusted_targets=['trusted/project']))
+        self.assertIsNotNone(issue_gate.classification_limitation(
+            'Bash', {'command':'gh --repo $REPO issue create -t x'}))
+
+    def test_option_values_never_supply_target_label_or_command_metadata(self):
+        import shlex
+        for name in ('--title', '--body', '--body-file', '--template', '-t', '-b', '-F'):
+            for value in ('-Rexternal/project', '--repo=external/project', '--label=engine', '-lengine',
+                          '-C/external', '--method=GET', 'issue', 'create', '--repo'):
+                for target in ('trusted/project', 'external/project'):
+                    command = f'gh issue create {name} {shlex.quote(value)} --repo {target}'
+                    with self.subTest(command=command):
+                        self.assertEqual(_reason(command, trusted_targets=['trusted/project']) is not None,
+                                         target == 'trusted/project')
+        self.assertIsNotNone(_reason("gh --title '-Rexternal/project' issue create -Rtrusted/project",
+                                     trusted_targets=['trusted/project']))
+        self.assertIsNone(_reason("gh issue create -Rexternal/project -- --repo=trusted/project",
+                                  trusted_targets=['trusted/project']))
+
+    def test_repeated_scalar_flags_use_the_final_actual_option(self):
+        for first, last in (('external/project', 'trusted/project'), ('trusted/project', 'external/project')):
+            command = f'gh -R{first} issue create --repo {last}'
+            self.assertEqual(_reason(command, trusted_targets=['trusted/project']) is not None,
+                             last == 'trusted/project')
+        self.assertIsNotNone(_reason('gh api repos/trusted/project/issues -X GET --method POST',
+                                     trusted_targets=['trusted/project']))
+        self.assertIsNone(_reason('gh api repos/trusted/project/issues -X POST --method GET',
+                                  trusted_targets=['trusted/project']))
+
+    def test_api_option_values_do_not_override_method_or_endpoint(self):
+        targets = ['trusted/project']
+        self.assertIsNotNone(_reason('gh api repos/trusted/project/issues --input --method=GET -X POST',
+                                     trusted_targets=targets))
+        self.assertIsNone(_reason('gh api --input repos/trusted/project/issues repos/external/project/issues -X POST',
+                                  trusted_targets=targets))
+        self.assertIsNone(_reason("gh api repos/external/project/issues --input 'labels[]=engine' -X POST",
+                                  trusted_targets=targets))
+
+    def test_normalized_build_hook_does_not_block_literal_heredoc_as_issue_create(self):
+        import modes
+        import providers
+        payload = providers.normalize("PreToolUse", {
+            "session_id": "heredoc-routing", "tool_name": "exec_command",
+            "tool_input": {"cmd": "cat <<'EOF'\ngh issue create --label engine\nEOF"},
+        })
+        with mock.patch.object(modes, 'current_stance', return_value=modes.BUILD):
+            self.assertNotEqual(modes.handler(payload).get("permissionDecision"), "deny")
+
+    def test_opaque_or_dynamic_forms_fail_open(self):
+        targets = ["trusted/project"]
+        for command in ("eval 'gh issue create -R trusted/project'", "gh issue create -R $REPO -t x"):
+            self.assertIsNone(_reason(command, trusted_targets=targets), command)
+
+    def test_invalid_explicit_target_never_falls_back_to_checkout_origin(self):
+        with mock.patch.object(issue_gate, "_origin_for_directory", return_value="trusted/project"):
+            self.assertIsNone(_reason("gh issue create -R $REPO -t x", cwd="/session",
+                                      trusted_targets=["trusted/project"]))
+        self.assertEqual(issue_gate.classification_limitation(
+            "Bash", {"command": "gh issue create --repo https://evil.example/trusted/project -t x"},
+            cwd="/session"), issue_gate.CLASSIFICATION_LIMITATION)
+
+    def test_github_url_target_is_accepted_and_unresolved_forms_are_visible(self):
+        self.assertIsNotNone(_reason("gh issue create -R https://github.com/trusted/project -t x",
+                                     trusted_targets=["trusted/project"]))
+        self.assertEqual(issue_gate.classification_limitation(
+            "Bash", {"command": "gh issue create -R $REPO -t x"}, cwd="/session"),
+            issue_gate.CLASSIFICATION_LIMITATION)
+
+    def test_missing_origin_and_absent_session_context_are_visible_limitations(self):
+        with mock.patch.object(issue_gate, "_origin_for_directory", return_value=None):
+            self.assertEqual(issue_gate.classification_limitation(
+                "Bash", {"command": "gh issue create -t x"}, cwd="/known-checkout"),
+                issue_gate.CLASSIFICATION_LIMITATION)
+        self.assertEqual(issue_gate.classification_limitation(
+            "Bash", {"command": "gh issue create -R elsewhere/project -t x"}),
+            issue_gate.CLASSIFICATION_LIMITATION)
+
+    def test_body_label_text_and_api_input_filename_are_not_creation_metadata(self):
+        targets = ["trusted/project"]
+        self.assertIsNone(_reason(
+            "gh issue create -R elsewhere/project -b 'labels[]=engine'", trusted_targets=targets))
+        self.assertIsNone(_reason(
+            "gh api -X POST repos/elsewhere/project/issues/12/comments --input repos/trusted/project/issues",
+            trusted_targets=targets))
+
+    def test_command_checkout_resolves_target_but_never_enlarges_trust(self):
+        with mock.patch.object(issue_gate, "_origin_for_directory", return_value="elsewhere/project"):
+            self.assertIsNone(_reason("gh -C /other issue create -t x",
+                                      cwd="/session", trusted_targets=["trusted/project"]))
+        with mock.patch.object(issue_gate, "_origin_for_directory", return_value="trusted/project"):
+            self.assertIsNotNone(_reason("cd /trusted && gh issue create -t x",
+                                         cwd="/session", trusted_targets=["trusted/project"]))
 
 
 class TestLabelDetectionPrecise(unittest.TestCase):
@@ -176,6 +396,23 @@ class TestBackstopMarkerCoupling(unittest.TestCase):
 
 
 class TestDemo(unittest.TestCase):
+    def test_submission_demo_variations_and_false_expectation(self):
+        for options in ([], ['--failure', 'closed-before-recovery'], ['--failure', 'claim-loss'],
+                        ['--failure', 'recurrence'], ['--scope', 'product'],
+                        ['--scope', 'product', '--label', 'engine'], ['--target', 'external'],
+                        ['--target', 'external', '--label', 'engine'], ['--assessment', 'missing']):
+            with self.subTest(options=options):
+                self.assertEqual(quiet_call.run(issue_gate.main, ['submission-demo', *options]), 0)
+        self.assertEqual(quiet_call.run(issue_gate.main, ['submission-demo', '--expected-posts', '99']), 1)
+
+    def test_redirect_command_resolves_under_uv_engine_directory(self):
+        from pathlib import Path
+        for line in issue_gate.DENY_REASON.splitlines():
+            if 'uv run' in line:
+                tokens = shlex.split(line)
+                target = tokens[tokens.index('python') + 1]
+                self.assertTrue((Path(__file__).resolve().parents[1] / target).is_file())
+
     def test_demo_self_check_passes(self):
         self.assertEqual(quiet_call.run(issue_gate.main, ["demo"]), 0)
 

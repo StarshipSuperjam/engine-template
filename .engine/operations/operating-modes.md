@@ -99,17 +99,11 @@ to the operator in plain words rather than refused in silence.
 
 ## Notes
 
-The gate is a **deliberate-effort nudge, not a wall** — stated honestly, never overstated. The current
-platform honors the gate's deny (emitted as the exit-0 + `hookSpecificOutput` form, across built-in and
-GitHub-MCP tools); it is still fallible for two durable reasons: a crashing gate fails open (the action
-proceeds, by design — a gate must never strand the operator), and detecting a build verb in a shell
-string is best-effort (an alias, `eval`, substitution, or chaining evades it). The only unbypassable
-guarantee is the **protected-branch merge** — any write that ever slips the gate (a crash, an evaded
-verb, or a `permissions.allow` entry that outranks the hook, which is why the engine never allow-lists a
-gated tool) still cannot reach the protected branch without the operator's own merge. That merge is the
-operator's **informed consent**, not a review of the code — in solo it clears with zero required approvals
-(team adds a code-owner review) — and the session never performs it in any stance (a best-effort nudge
-refuses a session `gh pr merge`; the wall is the merge itself). Never dress the local gate as the wall.
+The gate is a **deliberate-effort nudge, not a wall**. A crashing hook fails open, and shell recognition
+is best-effort: aliases, eval and opaque substitutions can evade it. The protected-branch merge remains the
+operator's consent boundary. Solo requires the operator's merge; team adds code-owner review. No session
+merges in any stance. The local `gh pr merge` refusal is another fallible nudge, and the Engine never
+allow-lists gated tools. Never describe those local checks as an unbypassable guarantee.
 
 Intake is fail-safe too, in every direction. If an intake adapter never fires — including accepting a plan
 with the context cleared, which does not fire it (claude-code#20397) — nothing is imported and the typed
@@ -120,3 +114,8 @@ benign case it once was. A message that merely mentions or quotes the Codex acce
 not an acceptance, because the line only counts at the very start of the message. And none of it can reach
 the stance: no hook writes the signal, so a miss, a misfire, or a failed import all leave the session in
 explore, never falsely in build.
+
+Recognized trusted-repository creates reroute before stance handling in Explore, Build and Routine, regardless
+of label. The helper requires explicit Engine/product scope and independently verifies the target. Engine-labelled
+external creates route too; reads, comments, edits and closes remain separate. See [Issue recovery](issue-recovery.md)
+for the supported-surface matrix, unclassified-call notices, setup refusals and offline verification limits.

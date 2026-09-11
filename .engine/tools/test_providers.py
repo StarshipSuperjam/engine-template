@@ -91,6 +91,14 @@ class TestNormalizeCodexEdit(unittest.TestCase):
         self.assertEqual(out["tool_name"], "Bash")
         self.assertEqual(out["tool_input"]["command"], "git commit -m 'x y'")
 
+    def test_actual_exec_command_preserves_session_cwd_and_retains_command_workdir(self):
+        out = providers.normalize("PreToolUse", {"tool_name": "exec_command", "tool_input": {
+            "cmd": "gh issue create -t x", "workdir": "/external/project"}, "cwd": "/session/project"})
+        self.assertEqual(out["tool_name"], "Bash")
+        self.assertEqual(out["tool_input"]["command"], "gh issue create -t x")
+        self.assertEqual(out["tool_input"]["workdir"], "/external/project")
+        self.assertEqual(out["cwd"], "/session/project")
+
 
 class TestSessionResolution(unittest.TestCase):
     def test_payload_session_id_wins(self):

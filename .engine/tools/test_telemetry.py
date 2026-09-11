@@ -55,6 +55,7 @@ class FakeGH:
     def __init__(self, *, labels=None, fail_read=None, fail_label=None, fail_write=None,
                  check_runs=None, fail_checks=None):
         self.issues: dict = {}
+        self.recovery_store = telemetry._DemoRecoveryStore()
         self.labels: set = set(labels or [])
         self._next = 1
         self.fail_read = fail_read      # status the issues GET returns
@@ -76,7 +77,7 @@ class FakeGH:
         if base.endswith("/issues") and method == "GET":
             if self.fail_read:
                 return self.fail_read, None
-            rows = [i for i in self.issues.values() if i["state"] == "open"]
+            rows = [i for i in self.issues.values() if "state=all" in path or i["state"] == "open"]
             return 200, rows  # single page (the fake never needs pagination)
         if base.endswith("/labels") and method == "POST":
             self.labels.add(body["name"])
@@ -91,7 +92,7 @@ class FakeGH:
                 return self.fail_write, None
             num = self._next
             self._next += 1
-            self.issues[num] = {"number": num, "title": body["title"], "body": body["body"],
+            self.issues[num] = {"id": num + 1000, "html_url": "https://github.com/" + base.split("/repos/", 1)[1].removesuffix("/issues") + f"/issues/{num}", "number": num, "title": body["title"], "body": body["body"],
                                 "labels": body.get("labels", []), "state": "open"}
             return 201, self.issues[num]
         if base.split('/')[-1].isdigit() and method == 'GET':
@@ -112,7 +113,7 @@ class FakeGH:
 
 
 def gh(fake):
-    return telemetry.GitHubIssues("you/proj", "tok", transport=fake.transport)
+    return telemetry.GitHubIssues("you/proj", "tok", transport=fake.transport, recovery_store=fake.recovery_store)
 
 
 def run(gh_obj, records, cache, thresholds, now, state_path=None, *,
@@ -125,6 +126,98 @@ def run(gh_obj, records, cache, thresholds, now, state_path=None, *,
     return telemetry.run(gh_obj, records, cache, thresholds, now, state_path=state_path,
                          authoritative=authoritative)
 
+
+
+# These fixtures replace trusted configuration and only the remote journal service. The
+# production helper, rendering, identity lifecycle, assessment and issue transport all run.
+def setUpModule():
+    from unittest.mock import patch
+    import issue_recovery
+    global _producer_fixtures
+    store_type = issue_recovery.GitStore
+    def store(client, activation):
+        return client._transport.__self__.recovery_store
+    _producer_fixtures = [patch('issue_author.resolve_issue_repositories', return_value=['you/proj', 'you/your-project', 'o/r', 'ambient/repo']),
+                          patch('issue_recovery.load_activation', return_value={'repository_id': 42, 'genesis': '0' * 40}),
+                          patch('issue_recovery.GitStore', side_effect=store)]
+    for fixture in _producer_fixtures:
+        fixture.start()
+
+
+def tearDownModule():
+    for fixture in reversed(_producer_fixtures):
+        fixture.stop()
+
+
+def _seed_issue(client, title, body):
+    """Fixture setup for tests of existing issue updates, not a producer creation path."""
+    import issue_triage
+    try:
+        config = issue_triage.load_config()
+    except issue_triage.TriageError:
+        config = None
+    result = issue_triage.file_issue(client, title, body, config=config)
+    if result['filing'] != 'created':
+        raise telemetry.DegradedReadError(result['reason'])
+    return {'number': result['number'], 'triage': result}
+
+
+class TestAutomaticRecoveryBeforeTelemetryDecisions(unittest.TestCase):
+    """The real run caller reconciles retained sends even when it has no new creation to plan."""
+
+    def test_uncertain_post_then_empty_observation_recovers_without_a_second_post(self):
+        fake = FakeGH()
+        original = fake.transport
+        lost = {'once': True}
+
+        def transport(method, path, body):
+            result = original(method, path, body)
+            if method == 'POST' and path.endswith('/issues') and lost['once']:
+                lost['once'] = False
+                raise TimeoutError('response lost after accepted POST')
+            return result
+
+        client = telemetry.GitHubIssues('you/proj', 'tok', transport=transport,
+                                        recovery_store=fake.recovery_store)
+        with tempfile.TemporaryDirectory() as directory:
+            cache = telemetry.Cache(os.path.join(directory, 'streams.json'))
+            first = run(client, [rec('recovery/green', telemetry.TRUST_CRITICAL)], cache, TH, T[0])
+            self.assertTrue(first.degraded)
+            self.assertEqual(len([c for c in fake.calls if c == ('POST', '/repos/you/proj/issues')]), 1)
+            later = telemetry.GitHubIssues('you/proj', 'tok', transport=transport,
+                                           recovery_store=fake.recovery_store)
+            second = run(later, [], cache, TH, T[1])
+        self.assertFalse(second.degraded)
+        self.assertEqual(second.recovery['state'], 'recovered')
+        self.assertEqual(len([c for c in fake.calls if c == ('POST', '/repos/you/proj/issues')]), 1)
+
+    def test_explicit_store_recovers_without_reading_local_activation(self):
+        import issue_author
+        fake = FakeGH()
+        client = gh(fake)
+        with mock.patch('issue_recovery.load_activation', side_effect=AssertionError('must not read local setup')):
+            result = issue_author.recover_producer_records(
+                'telemetry', client, observation=T[0], recovery_store=fake.recovery_store)
+        self.assertEqual(result['state'], 'none')
+
+    def test_unknown_producer_is_held_without_a_journal_read(self):
+        import issue_author
+        result = issue_author.recover_producer_records('unknown', gh(FakeGH()), observation=T[0])
+        self.assertEqual(result['state'], 'held')
+        self.assertIn('unknown automatic producer', result['reason'])
+
+    def test_run_cli_prints_recovery_hold_without_claiming_github_is_down(self):
+        held = {'state': 'held', 'reason': 'Recovery is held: journal verification is incomplete.'}
+        report = telemetry.Report(degraded=False, opened=0, updated=0, closed=0, recovery=held)
+        out = io.StringIO()
+        with mock.patch.dict(os.environ, {'GITHUB_REPOSITORY': 'you/proj', 'GITHUB_TOKEN': 'tok'}, clear=False), \
+             mock.patch.object(telemetry.repo_identity, 'resolve_default_branch', return_value='main'), \
+             mock.patch.object(telemetry, 'derive_ci_records', return_value=([], frozenset())), \
+             mock.patch.object(telemetry, 'run', return_value=report), \
+             contextlib.redirect_stderr(out):
+            self.assertEqual(telemetry._run_cli([]), 0)
+        self.assertIn('Engine Issue recovery is held', out.getvalue())
+        self.assertNotIn('Could not reach GitHub', out.getvalue())
 
 class TestSeverityRank(unittest.TestCase):
     """severity_rank grades a tracked finding's severity CLASS into the numeric severity attention's
@@ -805,19 +898,17 @@ class TestSentinelRecovery(unittest.TestCase):
         self.assertEqual(r.opened, 0)                            # cache recovered the match
         self.assertEqual(f.open_count(), 1)
 
-    def test_only_the_unkeyable_stripped_marker_duplicate_is_tolerated(self):
-        # The one genuinely UNKEYABLE case: the marker was stripped AND the cache wiped, so no pass can
-        # key this Issue to the signal. One duplicate opens (never a missed signal) — the honest limit of
-        # body+cache dedup. (Contrast test_a_keyable_duplicate_pair_is_consolidated_not_tolerated: when the
-        # markers survive, a duplicate is CONSOLIDATED, not tolerated.)
+    def test_durable_identity_holds_when_marker_and_cache_are_lost(self):
+        # The journal retains the source identity even after local cache and remote markers are lost.
         f, cache = FakeGH(labels={"engine"}), telemetry.Cache(_tmpcache())
         run(gh(f), [rec("check/p", "trust-critical")], cache, TH, T[0])
         num = next(iter(f.issues))
         f.issues[num]["body"] = "stripped"
         os.remove(cache.path)
         r = run(gh(f), [rec("check/p", "trust-critical")], cache, TH, T[1])
-        self.assertEqual(r.opened, 1)                            # a duplicate, not a missed signal
-        self.assertEqual(f.open_count(), 2)
+        self.assertEqual(r.opened, 0)
+        self.assertTrue(r.degraded)
+        self.assertEqual(f.open_count(), 1)
 
     def test_a_keyable_duplicate_pair_is_consolidated_not_tolerated(self):
         # When BOTH duplicates keep their markers (a create/create race), the next pass consolidates them
@@ -1072,7 +1163,7 @@ class TestPromoteFindingBodyOverride(unittest.TestCase):
     def test_uses_the_supplied_title_and_body_core(self):
         f = FakeGH(labels={"engine"})
         telemetry.promote_finding(gh(f), self.rec("soft-budget:x.md"), T[0],
-                                  title="A lane-aware title", body_core="Lane-aware prose.")
+                                  title="A lane-aware title", body_core=telemetry.issue_author.render_engine_issue_body(what_this_is="Lane-aware prose.", whats_next="Investigate."))
         created = next(iter(f.issues.values()))
         self.assertEqual(created["title"], "A lane-aware title")
         self.assertIn("Lane-aware prose.", created["body"])
@@ -1081,7 +1172,7 @@ class TestPromoteFindingBodyOverride(unittest.TestCase):
     def test_appends_exactly_one_recoverable_signal_marker(self):
         f = FakeGH(labels={"engine"})
         telemetry.promote_finding(gh(f), self.rec("soft-budget:x.md"), T[0],
-                                  title="t", body_core="prose")
+                                  title="t", body_core=telemetry.issue_author.render_engine_issue_body(what_this_is="prose", whats_next="Investigate."))
         body = next(iter(f.issues.values()))["body"]
         self.assertEqual(body.count("<!-- engine-signal:"), 1)          # exactly one marker, telemetry-owned
         self.assertEqual(telemetry.parse_source_id(body), "soft-budget:x.md")   # round-trips for dedup
@@ -1089,8 +1180,8 @@ class TestPromoteFindingBodyOverride(unittest.TestCase):
 
     def test_override_still_dedups_by_source_id(self):
         f = FakeGH(labels={"engine"})
-        telemetry.promote_finding(gh(f), self.rec("soft-budget:x.md"), T[0], title="t", body_core="one")
-        telemetry.promote_finding(gh(f), self.rec("soft-budget:x.md"), T[1], title="t", body_core="two")
+        telemetry.promote_finding(gh(f), self.rec("soft-budget:x.md"), T[0], title="t", body_core=telemetry.issue_author.render_engine_issue_body(what_this_is="one", whats_next="Investigate."))
+        telemetry.promote_finding(gh(f), self.rec("soft-budget:x.md"), T[1], title="t", body_core=telemetry.issue_author.render_engine_issue_body(what_this_is="two", whats_next="Investigate."))
         self.assertEqual(f.open_count(), 1)                             # one Issue — the override path dedups
         self.assertEqual(len([c for c in f.writes() if c[0] == "POST"]), 1)
 
@@ -1831,7 +1922,7 @@ class TestFindingsInbox(unittest.TestCase):
 
     def _gh(self, **kw):
         fake = telemetry._FakeGitHub(**kw)
-        return fake, telemetry.GitHubIssues("o/r", "tok", transport=fake.transport)
+        return fake, telemetry.GitHubIssues("o/r", "tok", transport=fake.transport, recovery_store=fake.recovery_store)
 
     def _drain(self, gh):
         return telemetry.drain_inbox(gh, cache=telemetry.Cache(self.cachep),
@@ -2103,12 +2194,12 @@ class TestCaptureRecoveryResolve(unittest.TestCase):
 
     def _gh(self, **kw):
         fake = telemetry._FakeGitHub(**kw)
-        return fake, telemetry.GitHubIssues("o/r", "tok", transport=fake.transport)
+        return fake, telemetry.GitHubIssues("o/r", "tok", transport=fake.transport, recovery_store=fake.recovery_store)
 
     def _stuck(self, gh):
         body = ("The engine keeps failing to save session conversations to this project's memory.\n\n"
                 f"<!-- engine-signal: {self._SID} -->")
-        return gh.open_issue("Engine health: capture keeps failing", telemetry.producer_body(body, {"source": "capture"}, "2026-09-10T00:00:00Z"))["number"]
+        return _seed_issue(gh, "Engine health: capture keeps failing", telemetry.producer_body(body, {"source": "capture"}, "2026-09-10T00:00:00Z"))["number"]
 
     def test_recovered_everywhere_closes_with_a_plain_note(self):
         wt = self._worktree("wt-a")
@@ -2163,7 +2254,7 @@ class TestCaptureRecoveryResolve(unittest.TestCase):
         self._marker(self.repo, "captured")
         fake, gh = self._gh()
         num = self._stuck(gh)
-        other = gh.open_issue("Engine health: something else",
+        other = _seed_issue(gh, "Engine health: something else",
                               telemetry.producer_body("body\n\n<!-- engine-signal: ambient/other-signal -->", {"source":"other"}, "2026-09-10T00:00:00Z"))["number"]
         self.assertTrue(telemetry.resolve_capture_marker(gh, root=self.repo, cache_path=self.cachep))
         self.assertEqual(fake.issues[num]["state"], "closed")
@@ -2292,7 +2383,7 @@ class TestProducerAssessment(unittest.TestCase):
     def test_refresh_and_closure_recheck_engine_scope(self):
         fake = FakeGH(); client = gh(fake)
         body = telemetry.producer_body('Failure', {'case':'a'}, '2026-09-10T00:00:00Z')
-        number = client.open_issue('Fix: failure', body)['number']
+        number = _seed_issue(client, 'Fix: failure', body)['number']
         fake.issues[number]['labels'] = []
         fake.calls.clear()
         for action in (lambda: client.update_issue(number, body), lambda: client.close_issue(number)):
@@ -2303,7 +2394,7 @@ class TestProducerAssessment(unittest.TestCase):
     def test_refresh_readback_detects_a_server_that_drops_the_body(self):
         fake = FakeGH(); client = gh(fake)
         body = telemetry.producer_body('Failure', {'case':'a'}, '2026-09-10T00:00:00Z')
-        number = client.open_issue('Fix: failure', body)['number']
+        number = _seed_issue(client, 'Fix: failure', body)['number']
         def transport(method, path, payload):
             if method == 'PATCH':
                 return 200, fake.issues[number]
@@ -2323,7 +2414,7 @@ class TestProducerAssessment(unittest.TestCase):
             with self.subTest(notice=notice):
                 fake = FakeGH(); client = gh(fake)
                 body = telemetry.producer_body('Failure', {'case':'a'}, '2026-09-10T00:00:00Z')
-                number = client.open_issue('Fix: failure', body)['number']
+                number = _seed_issue(client, 'Fix: failure', body)['number']
                 stale = fake.issues[number]['body']
                 live = 'Human note added after listing.\n' + stale + '\nHuman tail.'
                 fake.issues[number]['body'] = live
