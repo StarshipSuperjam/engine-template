@@ -230,10 +230,16 @@
                   "minLength": 1
                 },
                 "mode": {
-                  "const": "structured"
+                  "enum": [
+                    "structured",
+                    "historical-receipt"
+                  ]
                 },
                 "enforcement": {
-                  "const": "canonical-ingress"
+                  "enum": [
+                    "canonical-ingress",
+                    "historical-unverified"
+                  ]
                 },
                 "limits": {
                   "type": "object"
@@ -292,6 +298,9 @@
               "type": "string",
               "minLength": 1,
               "maxLength": 1048576
+            },
+            "identity_mode": {
+              "const": "legacy-source"
             }
           },
           "required": [
@@ -307,6 +316,292 @@
         "semantic",
         "semantic_digest",
         "source"
+      ]
+    },
+    "adoption": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "schema_version": {
+          "const": "review-contract-adoption.v1"
+        },
+        "owner": {
+          "oneOf": [
+            {
+              "type": "object",
+              "additionalProperties": false,
+              "properties": {
+                "kind": {
+                  "const": "plan"
+                },
+                "plan": {
+                  "type": "string",
+                  "minLength": 1
+                },
+                "revision": {
+                  "type": "integer",
+                  "minimum": 1
+                },
+                "digest": {
+                  "type": "string",
+                  "pattern": "^sha256:[0-9a-f]{64}$"
+                }
+              },
+              "required": [
+                "kind",
+                "plan",
+                "revision",
+                "digest"
+              ]
+            },
+            {
+              "type": "object",
+              "additionalProperties": false,
+              "properties": {
+                "kind": {
+                  "const": "build"
+                },
+                "plan": {
+                  "type": "string",
+                  "minLength": 1
+                },
+                "build_id": {
+                  "type": "string",
+                  "pattern": "^bld_[0-9a-f]{32}$"
+                },
+                "generation": {
+                  "type": "integer",
+                  "minimum": 1
+                },
+                "digest": {
+                  "type": "string",
+                  "pattern": "^sha256:[0-9a-f]{64}$"
+                }
+              },
+              "required": [
+                "kind",
+                "plan",
+                "build_id",
+                "generation",
+                "digest"
+              ]
+            }
+          ]
+        },
+        "record_digest": {
+          "type": "string",
+          "pattern": "^sha256:[0-9a-f]{64}$"
+        },
+        "plan_record_digest": {
+          "type": "string",
+          "pattern": "^sha256:[0-9a-f]{64}$"
+        },
+        "old_contract_digest": {
+          "type": "null"
+        },
+        "contract": {
+          "type": "object"
+        },
+        "source": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "commit": {
+              "type": "string",
+              "pattern": "^[0-9a-f]{40}$"
+            },
+            "capabilities": {
+              "type": "object",
+              "additionalProperties": false,
+              "properties": {
+                "native-collector": {
+                  "type": "boolean"
+                },
+                "result-binding": {
+                  "type": "boolean"
+                }
+              },
+              "required": [
+                "native-collector",
+                "result-binding"
+              ]
+            },
+            "sources": {
+              "type": "object",
+              "additionalProperties": {
+                "type": "string",
+                "pattern": "^sha256:[0-9a-f]{64}$"
+              }
+            },
+            "contract": {
+              "type": "object"
+            },
+            "protocol_digest": {
+              "type": "string",
+              "pattern": "^sha256:[0-9a-f]{64}$"
+            }
+          },
+          "required": [
+            "commit",
+            "capabilities",
+            "sources",
+            "contract",
+            "protocol_digest"
+          ]
+        },
+        "cohort": {
+          "enum": [
+            "observed-pre-envelope",
+            "historical-unverified"
+          ]
+        },
+        "gaps": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "minLength": 1
+          }
+        },
+        "receipts": {
+          "type": "array",
+          "maxItems": 100,
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "properties": {
+              "receipt_key": {
+                "type": "string",
+                "pattern": "^sha256:[0-9a-f]{64}$"
+              },
+              "receipt": {
+                "type": "object"
+              },
+              "stage": {
+                "enum": [
+                  "plan",
+                  "deliverable",
+                  "repair"
+                ]
+              },
+              "obligations": {
+                "type": "object",
+                "additionalProperties": {
+                  "type": "string",
+                  "pattern": "^sha256:[0-9a-f]{64}$"
+                },
+                "minProperties": 1
+              },
+              "packet_digest": {
+                "type": "string",
+                "pattern": "^sha256:[0-9a-f]{64}$"
+              }
+            },
+            "required": [
+              "receipt_key",
+              "receipt",
+              "stage",
+              "obligations",
+              "packet_digest"
+            ]
+          }
+        },
+        "artifacts": {
+          "type": "array",
+          "maxItems": 101,
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "properties": {
+              "path": {
+                "type": "string",
+                "minLength": 1
+              },
+              "digest": {
+                "type": "string",
+                "pattern": "^sha256:[0-9a-f]{64}$"
+              },
+              "content": {
+                "type": "string",
+                "maxLength": 1048576
+              }
+            },
+            "required": [
+              "path",
+              "digest",
+              "content"
+            ]
+          }
+        },
+        "locator": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "source_root": {
+              "type": "string",
+              "minLength": 1
+            },
+            "source_commit": {
+              "type": "string",
+              "pattern": "^[0-9a-f]{40}$"
+            },
+            "backup": {
+              "type": "string",
+              "minLength": 1
+            },
+            "packets": {
+              "type": "array",
+              "items": {
+                "type": "string",
+                "minLength": 1
+              },
+              "maxItems": 100
+            }
+          },
+          "required": [
+            "source_root",
+            "source_commit",
+            "backup",
+            "packets"
+          ]
+        },
+        "installation_digest": {
+          "type": "string",
+          "pattern": "^sha256:[0-9a-f]{64}$"
+        },
+        "preview_digest": {
+          "type": "string",
+          "pattern": "^sha256:[0-9a-f]{64}$"
+        },
+        "reason": {
+          "type": "string",
+          "minLength": 1
+        },
+        "at": {
+          "type": "string",
+          "minLength": 1
+        },
+        "operator_decided": {
+          "const": true
+        }
+      },
+      "required": [
+        "schema_version",
+        "owner",
+        "record_digest",
+        "plan_record_digest",
+        "old_contract_digest",
+        "contract",
+        "source",
+        "cohort",
+        "gaps",
+        "receipts",
+        "artifacts",
+        "locator",
+        "installation_digest",
+        "preview_digest",
+        "reason",
+        "at",
+        "operator_decided"
       ]
     }
   }

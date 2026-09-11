@@ -208,10 +208,13 @@ def render_plan(document: dict, record: dict) -> str:
     add(f"- **Last revised**: {document['revised_at']}")
     add(f"- **Plan digest**: `{record['current']['plan_digest']}`")
     add(f"- **Build payload digest**: `{record['current']['build_plan_digest']}`")
-    if (record.get("approval") or {}).get("review_contract"):
+    if (record.get("approval") or {}).get("review_contract") or record.get("review_contract_adoptions"):
         import reviewer_contracts
         contract = reviewer_contracts.effective(record)
-        add(f"- **Approved review contract**: `{contract['digest']}`")
+        disclosure = reviewer_contracts.historical_disclosure(record)
+        if disclosure:
+            add("- **Historical review adoption**: " + disclosure)
+        add(f"- **Effective review contract**: `{contract['digest']}`")
         for role, panel in contract["panels"].items():
             label = "Plan review" if role == "plan-review" else "Build review"
             add(f"- **{label} required**: " + (", ".join(p["lens"] for p in panel) or "none"))

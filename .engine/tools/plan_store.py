@@ -57,6 +57,9 @@ def validate_record(record):
     approval = record.get("approval") or {}
     if record.get("review_contract_format") == 1 and not approval.get("review_contract"):
         raise PlanStoreError("frozen approval contract is missing; it cannot downgrade to legacy")
+    adopted = reviewer_contracts.adoption(record)
+    if adopted and adopted["owner"] != {"kind": "plan", "plan": record["plan_id"], "revision": approval["revision"], "digest": approval["plan_digest"]}:
+        raise PlanStoreError("historical adoption names another plan approval")
     contract = reviewer_contracts.effective(record)
     if contract and contract["referent"] != {"plan_id": record["plan_id"],
             "revision": approval["revision"], "plan_digest": approval["plan_digest"]}:

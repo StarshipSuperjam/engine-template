@@ -290,7 +290,7 @@ def _expected_identity(args):
 _READ_ONLY_VERBS = frozenset({
     ("status", None), ("depths", None),
     ("state", "where"), ("state", "continue"),
-    ("review", "packet"), ("review", "contract-preview"),
+    ("review", "packet"), ("review", "contract-preview"), ("review", "historical-preview"),
     ("work", "frontier"), ("work", "packet"),
     ("contract", "template"), ("contract", "preview"),
     ("submit", "preview"),
@@ -476,18 +476,41 @@ def _stage_range(stage: dict, kind: str) -> tuple[str | None, str | None]:
     return stage.get("base_commit"), stage.get("reviewed_commit")
 
 
-def _coverage(stage: dict, kind: str):
-    """The carry-forward predicate for one stage: does a receipt's recorded range already contain every
-    authored commit this stage asks about? Built here because it needs git and ROOT; consumed by the pure
-    `build_coordinator_review` through injection, so that module keeps no repository knowledge."""
+def _coverage(stage: dict, kind: str, state=None):
+    """Actual reads, optionally carried through re-derived, patch-equivalent reconciles.
+
+    Reconcile is evidence about the contribution, never a fresh receipt. Walk its exact range chain
+    backwards and re-measure each link; a stored `contribution_identical` flag alone grants no credit.
+    """
     base, tip = _stage_range(stage, kind)
-    return lambda receipt: ranges.receipt_covers(ROOT, receipt, base, tip, stage.get("base_advances", []))
+    def covers(receipt):
+        if ranges.receipt_covers(ROOT, receipt, base, tip, stage.get("base_advances", [])):
+            return True
+        wanted_base, wanted_tip = base, tip
+        for entry in reversed((state or {}).get("reconciles", [])):
+            if not entry.get("contribution_identical") or entry.get("base_after") != wanted_base:
+                continue
+            try:
+                if entry["to_commit"] != wanted_tip and (not _is_ancestor(entry["to_commit"], wanted_tip) or
+                        ranges.authored_between(ROOT, entry["to_commit"], wanted_tip)):
+                    continue
+                if _contribution_divergence(entry["base_before"], entry["from_commit"],
+                                            entry["base_after"], entry["to_commit"]):
+                    return False
+                wanted_base, wanted_tip = entry["base_before"], entry["from_commit"]
+                if ranges.receipt_covers(ROOT, receipt, wanted_base, wanted_tip):
+                    return True
+            except (CoordinatorError, ranges.RangeUnreadable, _Unmeasurable, KeyError, TypeError):
+                return False
+        return False
+    return covers
 
 
 def _review_lineage_digest(state):
     frozen = reviewer_contracts.effective_build(state)
     return core.digest({"contract": frozen["digest"] if frozen else None,
         "renewals": state.get("review_contract_renewals", []),
+        "adoptions": state.get("review_contract_adoptions", []),
         "receipts": review.live_receipts(state), "history": state.get("review_evidence_history", []),
         "findings": state["findings"]})
 
@@ -504,9 +527,12 @@ def _build_review_drift(state):
     contract = reviewer_contracts.effective_build(state)
     if contract is None:
         return []
+    adopted = reviewer_contracts.adoption(state)
+    if adopted and not state.get("review_contract_renewals") and adopted["installation_digest"] == reviewer_contracts.installation_digest(ROOT):
+        return []
     changes = [c for c in reviewer_contracts.drift(contract, ROOT)["changed"] if c["role"] == "pre-submission-review"]
     decisions = state.get("review_contract_renewals", [])
-    if decisions and decisions[-1]["action"] == "retain" and decisions[-1]["installation_digest"] == core.digest(reviewer_contracts.discover(ROOT)):
+    if decisions and decisions[-1]["action"] == "retain" and decisions[-1]["installation_digest"] == reviewer_contracts.installation_digest(ROOT):
         return []
     return [f"{c['lens']}: changed reviewer mandate requires explicit retention or adoption" for c in changes]
 
@@ -529,20 +555,22 @@ def _archive_replaced_review(state, lens, replacement):
             history.append(entry)
 
 
-def _missing_receipts(stage: dict, kind: str = "deliverable") -> list[str]:
-    return review.missing_receipts(stage, _coverage(stage, kind))
+def _missing_receipts(stage: dict, kind: str = "deliverable", *, state=None) -> list[str]:
+    return review.missing_receipts(stage, _coverage(stage, kind, state),
+        lambda r: reviewer_contracts.adopted_obligation(state or {}, r, r["lens"]))
 
 
-def _outstanding_repair_lenses(repair: dict | None) -> list[str]:
+def _outstanding_repair_lenses(repair: dict | None, *, state=None) -> list[str]:
     """The repair lenses that still owe a read — the requested lenses minus those with a receipt that
     stands, whether it attests this packet or carries forward from a range that already covered it.
     Single-homed because the status render, the readiness predicate and `_repair_round_complete` must
     agree; when they disagreed, `status` reported a repair satisfied that the gate then refused."""
     if not repair:
         return []
-    covers = _coverage(repair, "repair")
+    covers = _coverage(repair, "repair", state)
     if any(c.get("obligation_digest") for c in repair.get("reviewer_contracts", [])):
-        standing = review.current_receipt_lenses(repair, covers)
+        standing = review.current_receipt_lenses(repair, covers,
+            lambda r: reviewer_contracts.adopted_obligation(state or {}, r, r["lens"]))
     else:
         standing = {r["lens"] for r in repair.get("receipts", []) if
                     r.get("packet_digest") == repair.get("packet_digest") or covers(r)}
@@ -822,7 +850,7 @@ def _status(state: dict, plan: dict | None = None) -> dict:
     if delivery["packet_digest"] is None and not fast_path:
         required_evidence.append("deliverable-review packet")
     else:
-        required_evidence.extend(f"deliverable-review receipt: {x}" for x in _missing_receipts(delivery))
+        required_evidence.extend(f"deliverable-review receipt: {x}" for x in _missing_receipts(delivery, state=state))
     live_receipts = [receipt for _, receipt in review.live_receipts(state)]
     if live_receipts:
         try:
@@ -842,7 +870,7 @@ def _status(state: dict, plan: dict | None = None) -> dict:
                 "it ends the repair loop without a re-review and clears the repair packet, so reach for "
                 "it when the divergence genuinely carries nothing a lens would find.")
         elif repair["judgment"] != "none":
-            outstanding = _outstanding_repair_lenses(repair)
+            outstanding = _outstanding_repair_lenses(repair, state=state)
             # Name the DELTA each outstanding lens still owes, never a bare "run it again". The wall this
             # replaces was a session told to re-run two lenses with no way to see that one of them had
             # already read everything in the range.
@@ -926,11 +954,11 @@ def _status(state: dict, plan: dict | None = None) -> dict:
     approval_ready = state["approval"] is not None and state["approval"].get("plan_digest") == state["plan"]["digest"]
     dispositions_ready = not missing_findings and not blocking
     valid = _candidate_ok(state, head)
-    delivery_ready = fast_path or (delivery["packet_digest"] is not None and not _missing_receipts(delivery) and delivery_coverage_current)
+    delivery_ready = fast_path or (delivery["packet_digest"] is not None and not _missing_receipts(delivery, state=state) and delivery_coverage_current)
     repair_ready = not delivery["reviewed_commit"] or delivery["reviewed_commit"] == head or (
         state["repair"] is not None and state["repair"]["reviewed_commit"] == delivery["reviewed_commit"]
         and state["repair"]["final_commit"] == head and (state["repair"]["judgment"] == "none" or
-        not _outstanding_repair_lenses(state["repair"])))
+        not _outstanding_repair_lenses(state["repair"], state=state)))
     preflight_ready = not [x for x in required_preflights if x["id"] not in passed]
     contract_ready = bool(state["pr_contract"] and state["pr_contract"]["commit"] == head and state["pr_contract"]["complete"] and _review_contract_current(state))
     final_ready = _final_ok(state, head)
@@ -979,6 +1007,10 @@ def _status(state: dict, plan: dict | None = None) -> dict:
                                        "import the merge proof with `validate final import`",
                                        ["push the head and wait for engine-ci, then import the proof "
                                         "with `validate final import`"])
+    elif required_evidence:
+        phase, next_one, available = DELIVERABLE_REVIEW, "resolve the missing or incompatible review evidence", []
+    elif judgments:
+        phase, next_one, available = ENGINEERING_DECISION, None, ["resolve the recorded engineering decision"]
     else:
         phase, next_one, available = READY, "preview submission", []
     ordered_items = [] if not plan else [item["id"] for item in plan["work_items"]]
@@ -1647,7 +1679,7 @@ def cmd_plan_adopt(args, store: Snapshot) -> None:
         # adoption's whole purpose. Invisible in a project with no settled specification, and a wall in
         # every project that has one.
         frozen = reviewer_contracts.effective(record)
-        for key in ("review_contract", "review_contract_format", "review_contract_renewals", "review_evidence_history", "review_receipt_origins"):
+        for key in ("review_contract", "review_contract_format", "review_contract_renewals", "review_evidence_history", "review_receipt_origins", "review_contract_adoptions", "review_contract_build_decisions"):
             current.pop(key, None)
         if frozen:
             current.update(review_contract=frozen, review_contract_format=1)
@@ -1956,6 +1988,41 @@ def cmd_build_contract_apply(args, store):
     print("Recorded Build reviewer renewal; original sealed contract and all review evidence retained.")
 
 
+def cmd_build_historical_preview(args, store):
+    state = store.read(); _assert_plan(state, _plan(args.plan))
+    library = _library(); slug = library.resolve(state["plan"]["plan_id"])
+    value = reviewer_contracts.adoption_preview(state, library, slug, json.loads(_input(args.input)), ROOT)
+    text = json.dumps(value, indent=2) + "\n"
+    if args.output:
+        core.write_private_path(Path(args.output), text)
+    else:
+        print(text)
+
+
+def cmd_build_historical_apply(args, store):
+    preview = json.loads(_input(args.input)); plan = _plan(args.plan)
+    current = store.read(); _assert_plan(current, plan)
+    if preview.get("owner") != scoped_agents.build_owner(current):
+        raise CoordinatorError("historical decision belongs to another Build owner or generation")
+    if any(e["preview_digest"] == preview.get("preview_digest") for e in current.get("review_contract_adoptions", [])):
+        reviewer_contracts.apply_adoption(current, preview, reason=args.reason, at=moment.utc_now(), operator_decided=args.operator_decided)
+        print("Historical adoption already recorded; original evidence retained.")
+        return
+    def change(state):
+        _assert_plan(state, plan)
+        library = _library(); slug = library.resolve(state["plan"]["plan_id"])
+        expected = reviewer_contracts.adoption_preview(state, library, slug, preview.get("locator"), ROOT)
+        if expected != preview:
+            raise CoordinatorError("historical preview is stale or modified; preview the retained evidence again")
+        reviewer_contracts.apply_adoption(state, preview, reason=args.reason, at=moment.utc_now(), operator_decided=args.operator_decided)
+        _remember_review_evidence(state)
+        state["pr_contract"] = None
+        state["preflights"] = []
+        state["submission"] = "draft"
+    store.mutate(change)
+    print("Recorded receipt-scoped historical adoption; refresh the packet and merge disclosure, preserving original evidence.")
+
+
 def _packet(args, store: Snapshot | None) -> None:
     plan = _plan(args.plan)
     impact = json.loads(_input(args.impact)) if args.impact else {}
@@ -2151,7 +2218,7 @@ def _packet(args, store: Snapshot | None) -> None:
         core.write_private_path(source, packet_content)
         fresh = store.read()
         target = fresh["repair"] if stage == "repair" else fresh["reviews"][stage]
-        owed = set(_outstanding_repair_lenses(target) if stage == "repair" else _missing_receipts(target))
+        owed = set(_outstanding_repair_lenses(target, state=fresh) if stage == "repair" else _missing_receipts(target, state=fresh))
         dispatch_contracts = [c for c in contracts if c["lens"] in owed] if frozen else contracts
         assignments = scoped_agents.prepare_packets(
             library, slug, scoped_agents.build_owner(state), args.session, source,
@@ -2160,7 +2227,8 @@ def _packet(args, store: Snapshot | None) -> None:
             expected_file_digest=core.digest(packet_content.encode("utf-8")), review_contract=frozen)
         print("Scoped assignments: " + json.dumps(assignments, sort_keys=True), file=sys.stderr)
     else:
-        print("Execution freshness is unverified: prepare scoped assignments with --session before dispatch.",
+        note = reviewer_contracts.historical_disclosure(state)
+        print(note or "Execution freshness is unverified: prepare scoped assignments with --session before dispatch.",
               file=sys.stderr)
     _emit_packet(packet, args)
     if store is not None:
@@ -2325,7 +2393,7 @@ def cmd_review_record(args, store: Snapshot) -> None:
             delivery["reviewer_contracts"] = [
                 item for item in delivery["reviewer_contracts"] if item["lens"] != args.lens
             ] + [contract]
-            if not _outstanding_repair_lenses(target):
+            if not _outstanding_repair_lenses(target, state=state):
                 # `base_commit` advances WITH `reviewed_commit`, never behind it. Advancing only the
                 # reviewed commit left the pair naming two different points in history, so any later
                 # measurement across `base_commit..reviewed_commit` spanned a wider range than the branch
@@ -3191,7 +3259,7 @@ def cmd_sync_artifacts(args, store: Snapshot) -> None:
                       "regenerated": [r.path for r in results if r.changed]}, indent=2, sort_keys=True))
 
 
-def _repair_round_complete(repair: dict | None) -> bool:
+def _repair_round_complete(repair: dict | None, state=None) -> bool:
     """Whether a repair round finished the re-review it asked for. A `none` judgment requests no lenses
     and so never satisfies this -- it terminates the loop without re-review rather than completing one.
     Single-homed because two readers need it and a second copy could drift: the reviewed-commit advance
@@ -3199,7 +3267,7 @@ def _repair_round_complete(repair: dict | None) -> bool:
     the escalation gate creates."""
     if not repair or repair["judgment"] == "none":
         return False
-    return not _outstanding_repair_lenses(repair)
+    return not _outstanding_repair_lenses(repair, state=state)
 
 
 class _Unmeasurable(Exception):
@@ -3293,7 +3361,7 @@ def _effective_reviewed(state: dict) -> str | None:
     twice and one fabricated round counted against the escalation threshold."""
     reviewed = state["reviews"]["deliverable"]["reviewed_commit"]
     prior = state["repair"]
-    if _repair_round_complete(prior):
+    if _repair_round_complete(prior, state):
         final = prior["final_commit"]
         # SUPERSESSION retires a repair anchor, not orphanhood. A rebase orphans the round's final commit,
         # but the commit stays readable and is still exactly what was last reviewed, so it remains the
@@ -3953,7 +4021,7 @@ def cmd_repair_assess(args, store: Snapshot) -> None:
     # head, `_same_episode` correctly read the generated commit as nothing authored, and the abandoned
     # round was re-pointed instead of counted. Repeated, the ledger never grew -- the counted budget
     # refunded every time and the ceiling never reached, because the ceiling counts entries.
-    fanned_out = bool(prior and prior.get("packet_digest") and not _repair_round_complete(prior))
+    fanned_out = bool(prior and prior.get("packet_digest") and not _repair_round_complete(prior, state))
 
     def _same_episode(entry: dict) -> bool:
         """Whether this assess is the round `entry` already recorded, re-pointed rather than repeated.
@@ -4660,7 +4728,7 @@ def _submit_preview(store: Snapshot, plan_path: str) -> dict:
     base = pr.get("baseRefOid")
     if not base or _run(["git", "merge-base", "--is-ancestor", base, status["head_commit"]]).returncode:
         raise CoordinatorError("the final commit does not contain the live target-branch base; reconcile, validate, and assess review proportionally")
-    if status["phase"] != "ready":
+    if status["phase"] != "ready" or status["required_evidence"] or status["engineering_judgment"]:
         raise CoordinatorError("submission evidence is incomplete: " + "; ".join(status["required_evidence"] + status["engineering_judgment"]))
     # The live rollup, re-read at the moment of submission: importing the proof once does not excuse
     # presenting a head whose required check is no longer green. Three distinct states, three messages.
@@ -5565,6 +5633,9 @@ def _plan_review_clause(state: dict) -> str:
         return ("Whether the sealed plan was reviewed could NOT be established while composing this "
                 "body — the plan this Build names could not be read from the local plan library. Read "
                 "the plan's own record before merging")
+    adoption_note = reviewer_contracts.historical_disclosure(record or {})
+    if adoption_note:
+        return adoption_note + (" The executed plan differs from the sealed plan; the historical decision does not cover that delta." if diverged else "")
     if plan_review and diverged:
         return (f"The sealed plan was reviewed at {depth} depth by "
                 + ", ".join(plan_review.get("lenses", [])) +
@@ -5717,7 +5788,11 @@ def _drift_line(state: dict, head: str) -> str:
     lines = [_review_drift_line(state, head), *_base_advance_lines(state)]
     frozen = reviewer_contracts.effective_build(state)
     if frozen:
-        lines.append(f"Reviewer obligations are frozen at approval; {len(state.get('review_contract_renewals', []))} explicit renewal(s). Reviewer effort remains harness-controlled, with no promised floor.")
+        adopted_line = reviewer_contracts.historical_disclosure(state)
+        if adopted_line:
+            lines.append(adopted_line)
+        historical_sources = any(p["source"].get("identity_mode") == "legacy-source" for ps in frozen["panels"].values() for p in ps)
+        lines.append(f"Reviewer obligations are {'adopted from retained sources' if adopted_line or historical_sources else 'frozen at approval'}; {len(state.get('review_contract_renewals', []))} explicit renewal(s). Reviewer effort remains harness-controlled, with no promised floor.")
         lines.append(_review_lineage_marker(state))
     return " ".join(lines)
 
@@ -6186,6 +6261,13 @@ def parser() -> argparse.ArgumentParser:
     status = sub.add_parser("status"); status.add_argument("--plan"); status.add_argument("--json", action="store_true"); status.set_defaults(func=cmd_status)
     depths = sub.add_parser("depths"); depths.add_argument("--json", action="store_true"); depths.set_defaults(func=cmd_depths)
     review = sub.add_parser("review").add_subparsers(dest="review_command", required=True)
+    history_preview = review.add_parser("historical-preview")
+    history_preview.add_argument("--plan", required=True); history_preview.add_argument("--input", required=True)
+    history_preview.add_argument("--output"); history_preview.set_defaults(func=cmd_build_historical_preview)
+    history_apply = review.add_parser("historical-apply")
+    history_apply.add_argument("--plan", required=True); history_apply.add_argument("--input", required=True)
+    history_apply.add_argument("--reason", required=True); history_apply.add_argument("--operator-decided", action="store_true")
+    history_apply.set_defaults(func=cmd_build_historical_apply)
     renew_preview = review.add_parser("contract-preview")
     renew_preview.add_argument("--plan", required=True)
     renew_preview.add_argument("--action", choices=["retain", "adopt"], required=True)

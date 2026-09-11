@@ -94,13 +94,13 @@ def _never_covers(receipt: dict) -> bool:
     return False
 
 
-def compatible(receipt, contract):
+def compatible(receipt, contract, adopted=None):
     """A matching git range never substitutes for a matching approved mandate."""
-    return (receipt.get("obligation_digest") == contract["obligation_digest"]
+    return ((receipt.get("obligation_digest") or adopted) == contract["obligation_digest"]
             if contract.get("obligation_digest") else True)
 
 
-def current_receipt_lenses(stage: dict, covers=_never_covers) -> set[str]:
+def current_receipt_lenses(stage: dict, covers=_never_covers, adopted=lambda receipt: None) -> set[str]:
     """The lenses this stage has a standing receipt from.
 
     Two ways to stand. A receipt whose `lens_packet_digest` matches the current contract attests THIS
@@ -119,13 +119,13 @@ def current_receipt_lenses(stage: dict, covers=_never_covers) -> set[str]:
     return {
         receipt["lens"]
         for receipt in stage["receipts"]
-        if receipt["lens"] in expected and compatible(receipt, expected[receipt["lens"]])
+        if receipt["lens"] in expected and compatible(receipt, expected[receipt["lens"]], adopted(receipt))
         and (receipt.get("lens_packet_digest") == expected[receipt["lens"]]["lens_packet_digest"] or covers(receipt))
     }
 
 
-def missing_receipts(stage: dict, covers=_never_covers) -> list[str]:
-    done = current_receipt_lenses(stage, covers)
+def missing_receipts(stage: dict, covers=_never_covers, adopted=lambda receipt: None) -> list[str]:
+    done = current_receipt_lenses(stage, covers, adopted)
     return [item["lens"] for item in stage.get("reviewer_contracts", []) if item["lens"] not in done]
 
 

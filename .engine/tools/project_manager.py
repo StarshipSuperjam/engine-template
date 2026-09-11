@@ -292,8 +292,7 @@ def cmd_show(args) -> int:
         if value:
             print(f"  {label:<11} revision {value.get('revision', '—')} at {value['at']}")
     historical_review = record.get("plan_review")
-    if historical_review and not scoped_agents.Store(library, slug).receipt_verified(
-            historical_review, scoped_agents.plan_owner(record, historical_review)):
+    if historical_review and not _review_execution_satisfied(library, slug, record, historical_review):
         print("  execution   unverified — historical review is readable; observed fresh execution is absent")
     if record.get("closure"):
         print(f"  closed      {record['closure']['state']} — {record['closure']['reason']}")
@@ -686,6 +685,40 @@ def cmd_contract_apply(args):
     return 0
 
 
+def cmd_historical_preview(args):
+    library = _library(args); slug = _select(library, args.plan)
+    record = library.read_record(slug)
+    if record.get("build_binding"):
+        raise ProjectManagerError("active Build owns adoption; use its review historical-preview")
+    value = reviewer_contracts.adoption_preview(record, library, slug,
+        json.loads(core.input_text(args.input)), Path(__file__).resolve().parents[2])
+    text = json.dumps(value, indent=2) + "\n"
+    if args.output:
+        core.write_private_path(Path(args.output), text)
+    else:
+        print(text)
+    return 0
+
+
+def cmd_historical_apply(args):
+    library = _library(args); slug = _select(library, args.plan)
+    preview = json.loads(core.input_text(args.input))
+    def change(record):
+        if record.get("build_binding"):
+            raise ProjectManagerError("active Build owns historical adoption")
+        if any(e["preview_digest"] == preview.get("preview_digest") for e in record.get("review_contract_adoptions", [])):
+            reviewer_contracts.apply_adoption(record, preview, reason=args.reason, at=_now(), operator_decided=args.operator_decided)
+            return
+        expected = reviewer_contracts.adoption_preview(record, library, slug, preview.get("locator"), Path(__file__).resolve().parents[2])
+        if expected != preview:
+            raise ProjectManagerError("historical preview is stale or modified; preview the retained evidence again")
+        reviewer_contracts.apply_adoption(record, preview, reason=args.reason, at=_now(), operator_decided=args.operator_decided)
+    library.update_record(slug, change)
+    plan_projection.project_library(library)
+    print("Recorded historical adoption now; original approval, seal, receipts and companions are unchanged.")
+    return 0
+
+
 def cmd_approve(args) -> int:
     library = _library(args)
     slug = _select(library, args.plan)
@@ -829,11 +862,22 @@ def unresolved_review_drift(record):
     if contract is None:
         return []
     root = Path(__file__).resolve().parents[2]
+    adopted = reviewer_contracts.adoption(record)
+    if adopted and not record.get("review_contract_renewals") and adopted["installation_digest"] == reviewer_contracts.installation_digest(root):
+        return []
     changes = reviewer_contracts.drift(contract, root)["changed"]
     decisions = record.get("review_contract_renewals", [])
-    if decisions and decisions[-1]["action"] == "retain" and decisions[-1]["installation_digest"] == core.digest(reviewer_contracts.discover(root)):
+    if decisions and decisions[-1]["action"] == "retain" and decisions[-1]["installation_digest"] == reviewer_contracts.installation_digest(root):
         return []
     return [f"{c['role']}/{c['lens']}: reviewer mandate changed; explicitly retain or adopt the obligation" for c in changes]
+
+
+def _review_execution_satisfied(library, slug, record, receipt):
+    owner = scoped_agents.plan_owner(record, receipt)
+    adopted = reviewer_contracts.adoption(record)
+    retained = adopted["contract"] if adopted and all(reviewer_contracts.adopted_obligation(record, receipt, lens) for lens in receipt.get("lenses", [])) else None
+    return (scoped_agents.Store(library, slug).receipt_verified(receipt, owner, retained_contract=retained) or
+            reviewer_contracts.historical_execution(record, receipt, owner))
 
 
 def review_coverage(record):
@@ -841,7 +885,7 @@ def review_coverage(record):
     if contract is None:
         return set((record.get("plan_review") or {}).get("lenses", []))
     return {p["lens"] for p in contract["panels"]["plan-review"]
-            if any(r.get("obligation_digests", {}).get(p["lens"]) ==
+            if any((r.get("obligation_digests", {}).get(p["lens"]) or reviewer_contracts.adopted_obligation(record, r, p["lens"])) ==
                    reviewer_contracts.obligation_digest(contract["referent"], p)
                    for r in plan_lifecycle.reviews(record))}
 
@@ -1344,8 +1388,7 @@ def seal_refusals(library: plan_store.PlanLibrary, slug: str) -> list:
         refusals.append(f"the review covers revision {review['revision']} but the approval covers "
                         f"revision {approval['revision']}")
     if review and required:
-        if not scoped_agents.Store(library, slug).receipt_verified(
-                review, scoped_agents.plan_owner(record, review)):
+        if not _review_execution_satisfied(library, slug, record, review):
             refusals.append("the recorded review has no verified execution evidence. Historical "
                             "records remain readable, but cannot authorize a new seal. Restore the "
                             "original companion and frozen packets, or clone the plan for fresh review.")
@@ -1512,7 +1555,9 @@ def seal_disclosures(library: plan_store.PlanLibrary, slug: str) -> list:
         document = library.head(slug)
     except ProjectManagerError:
         return []
-    return _program_check(library, record, document)[1]
+    disclosures = _program_check(library, record, document)[1]
+    historical = reviewer_contracts.historical_disclosure(record)
+    return disclosures + ([historical] if historical else [])
 
 
 def cmd_seal(args) -> int:
@@ -1575,13 +1620,12 @@ def cmd_seal(args) -> int:
             raise ProjectManagerError("another session sealed this plan while this one was reading it")
         current_review = current.get("plan_review")
         for receipt in plan_lifecycle.reviews(current):
-            if not scoped_agents.Store(library, slug).receipt_verified(receipt, scoped_agents.plan_owner(current, receipt)):
+            if not _review_execution_satisfied(library, slug, current, receipt):
                 raise ProjectManagerError("review lineage execution evidence became unverified before sealing")
         if unresolved_review_drift(current):
             raise ProjectManagerError("review mandate drift requires an explicit decision before sealing")
         if current_review and review_requirements(current):
-            if not scoped_agents.Store(library, slug).receipt_verified(
-                    current_review, scoped_agents.plan_owner(current, current_review)):
+            if not _review_execution_satisfied(library, slug, current, current_review):
                 raise ProjectManagerError("review execution became unverified before sealing; "
                                           "preserve the record and restore evidence or clone for fresh review")
         contract = reviewer_contracts.effective(current)
@@ -2457,6 +2501,14 @@ def build_parser() -> argparse.ArgumentParser:
     apply.add_argument("plan"); apply.add_argument("--input", required=True)
     apply.add_argument("--reason", required=True); apply.add_argument("--operator-decided", action="store_true")
     apply.set_defaults(func=cmd_contract_apply)
+
+    historical = contract_sub.add_parser("historical-preview", help="verify a locator for retained historical backup and packets")
+    historical.add_argument("plan"); historical.add_argument("--input", required=True)
+    historical.add_argument("--output"); historical.set_defaults(func=cmd_historical_preview)
+    adopt_history = contract_sub.add_parser("historical-apply", help="append a receipt-specific historical decision now")
+    adopt_history.add_argument("plan"); adopt_history.add_argument("--input", required=True)
+    adopt_history.add_argument("--reason", required=True); adopt_history.add_argument("--operator-decided", action="store_true")
+    adopt_history.set_defaults(func=cmd_historical_apply)
 
     approve = sub.add_parser("approve", help="bind a review depth to this revision's digest")
     approve.add_argument("plan")

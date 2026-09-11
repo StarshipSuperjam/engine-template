@@ -303,7 +303,7 @@ def findings(record):
 
 def review_lineage_digest(record):
     return core.digest({"reviews": reviews(record),
-                        "renewals": record.get("review_contract_renewals", [])})
+                        "renewals": record.get("review_contract_renewals", []), "adoptions": record.get("review_contract_adoptions", [])})
 
 
 def presentation_current(record):

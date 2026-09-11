@@ -501,7 +501,7 @@ class Store:
             raise EvidenceError(f"{lens}: fresh completed execution is unverified ({len(valid)} unambiguous candidates); preserve evidence and finish or replace the assignment")
         return valid[0]
 
-    def review_report(self, assignment, owner):
+    def review_report(self, assignment, owner, *, retained_contract=None):
         """Read the entire bound, observed report without changing acceptance metadata."""
         try:
             stop = assignment["stops"][-1]
@@ -511,7 +511,7 @@ class Store:
                 from project_manager import ingest_review_report
             else:
                 from build_coordinator_review import ingest_review_report
-            contract = assignment.get("review_contract")
+            contract = assignment.get("review_contract") or retained_contract
             if contract:
                 reviewer_contracts.validate(contract)
                 panel_role = "plan-review" if owner["kind"] == "plan" else "pre-submission-review"
@@ -609,7 +609,7 @@ class Store:
                                      "outputs": {a["id"]: a["stops"][-1]["digest"] for a in assignments}}
         self.write_locked(data)
 
-    def receipt_verified(self, receipt, owner):
+    def receipt_verified(self, receipt, owner, *, retained_contract=None):
         """History remains readable; a missing companion never upgrades it to fresh execution."""
         try:
             data = self.read()
@@ -640,13 +640,13 @@ class Store:
                     if owner["kind"] == "plan" and receipt.get("obligation_digests", {}).get(a["lens"]) != reviewer_contracts.obligation_digest(frozen["referent"], item):
                         return False
                 binding = a.get("result_contract")
-                if a.get("review_contract"):
+                if a.get("review_contract") or retained_contract:
                     result_contracts.validate_retained_binding(binding)
                 else:
                     result_contracts.validate_binding(binding)
                 if accepted.get("result_contracts", {}).get(assignment_id) != binding:
                     return False
-                if accepted.get("reports", {}).get(assignment_id) != self.review_report(a, recorded)["report"]:
+                if accepted.get("reports", {}).get(assignment_id) != self.review_report(a, recorded, retained_contract=retained_contract)["report"]:
                     return False
                 if a["owner"] != recorded or not a["accepted"] or a["faults"] or not a["stops"]:
                     return False
@@ -714,7 +714,10 @@ def missing_build_evidence(library, state, receipts):
         return []
     try:
         store = Store(library, library.resolve(state["plan"]["plan_id"]))
-        return sorted({r["lens"] for r in receipts if not store.receipt_verified(r, build_owner(state))})
+        adopted = reviewer_contracts.adoption(state)
+        return sorted({r["lens"] for r in receipts if not store.receipt_verified(r, build_owner(state),
+                       retained_contract=adopted["contract"] if adopted and reviewer_contracts.adopted_obligation(state, r, r["lens"]) else None)
+                       and not reviewer_contracts.historical_execution(state, r, build_owner(state))})
     except (OSError, ValueError, KeyError, core.CoordinatorError):
         return sorted({r["lens"] for r in receipts})
 
