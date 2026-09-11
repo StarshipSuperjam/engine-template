@@ -286,3 +286,56 @@ def apply_renewal(record, preview, *, reason, at, operator_decided):
     record.setdefault("review_contract_renewals", []).append(entry)
     effective(record)
     return True
+
+
+def build_record(state):
+    """Shared decision lineage viewed through the Build's independently owned original snapshot."""
+    return {"approval": {"review_contract": state.get("review_contract")},
+            "review_contract_renewals": state.get("review_contract_renewals", [])}
+
+
+def effective_build(state):
+    if state.get("review_contract_format") == 1 and not state.get("review_contract"):
+        raise ContractError("Build approval contract is missing; modern evidence cannot downgrade to legacy")
+    if state.get("review_contract_renewals"):
+        from jsonschema import Draft202012Validator
+        schema = result_contracts.local_schema("plan-record.v1.json#/properties/review_contract_renewals",
+            Path(__file__).resolve().parents[1] / "schemas")
+        if not Draft202012Validator(schema).is_valid(state["review_contract_renewals"]):
+            raise ContractError("Build renewal lineage does not satisfy the canonical plan renewal schema")
+        for decision in state["review_contract_renewals"]:
+            owner = state.get("review_contract_build_decisions", {}).get(decision["preview_digest"])
+            if not isinstance(owner, dict) or set(owner) != {"kind", "plan", "build_id", "generation", "digest"} or owner.get("kind") != "build" or type(owner.get("generation")) is not int or not 1 <= owner["generation"] <= state.get("ownership", {}).get("generation", 0) or owner.get("build_id") != state.get("ownership", {}).get("build_id") or owner.get("plan") != state.get("plan", {}).get("plan_id"):
+                raise ContractError("Build review renewal has no matching durable owner decision")
+    return effective(build_record(state))
+
+
+def build_panel(state):
+    contract = effective_build(state)
+    if contract is None:
+        return None
+    return [{"lens": p["lens"], "path": p["source"]["path"], "digest": p["source"]["digest"],
+             "semantic_digest": p["semantic_digest"],
+             "obligation_digest": obligation_digest(contract["referent"], p),
+             "result_contract": p["semantic"]["result_contract"]}
+            for p in contract["panels"]["pre-submission-review"]]
+
+
+def propose_build(state, root, lenses):
+    original = effective_build(state)
+    if original is None:
+        raise ContractError("historical Build requires evidence-scoped adoption before contract renewal")
+    available = discover(root)
+    proposed = copy.deepcopy(original)
+    selected = [p for p in available if p["semantic"]["role"] == "pre-submission-review" and p["lens"] in lenses]
+    if {p["lens"] for p in selected} != set(lenses):
+        raise ContractError("a proposed Build reviewer is unavailable")
+    proposed["panels"]["pre-submission-review"] = selected
+    policy = agent_bindings.load_bindings(str(root))
+    proposed["binding_policy"] = policy
+    proposed["binding_policy_digest"] = core.digest(policy)
+    proposed["digest"] = core.digest({k:v for k,v in proposed.items() if k != "digest"})
+    if available != discover(root):
+        raise ContractError("review installation changed during Build renewal capture")
+    validate(proposed)
+    return proposed

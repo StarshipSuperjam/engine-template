@@ -7,6 +7,8 @@ finding remedy, operator escalation, or re-review depth, and it has no merge ope
 from __future__ import annotations
 
 import argparse
+import copy
+import plan_lifecycle
 import json
 import os
 from pathlib import Path
@@ -28,6 +30,7 @@ import build_coordinator_core as core
 import build_coordinator_dag as dag
 import build_coordinator_github as github
 import build_coordinator_review as review
+import reviewer_contracts
 import build_coordinator_spec as spec_service
 import build_coordinator_work as work
 import build_entry_preflight as entry
@@ -218,6 +221,9 @@ def _state_schema_for(state: dict) -> Path:
         raise CoordinatorError(
             f"unrecognized Build snapshot version {version!r}; expected "
             + " or ".join(sorted(STATE_SCHEMAS)))
+    contract = reviewer_contracts.effective_build(state)
+    if contract and contract["referent"]["plan_id"] != state["plan"]["plan_id"]:
+        raise CoordinatorError("Build review contract names another sealed plan")
     return schema
 
 
@@ -284,7 +290,7 @@ def _expected_identity(args):
 _READ_ONLY_VERBS = frozenset({
     ("status", None), ("depths", None),
     ("state", "where"), ("state", "continue"),
-    ("review", "packet"),
+    ("review", "packet"), ("review", "contract-preview"),
     ("work", "frontier"), ("work", "packet"),
     ("contract", "template"), ("contract", "preview"),
     ("submit", "preview"),
@@ -478,6 +484,51 @@ def _coverage(stage: dict, kind: str):
     return lambda receipt: ranges.receipt_covers(ROOT, receipt, base, tip, stage.get("base_advances", []))
 
 
+def _review_lineage_digest(state):
+    frozen = reviewer_contracts.effective_build(state)
+    return core.digest({"contract": frozen["digest"] if frozen else None,
+        "renewals": state.get("review_contract_renewals", []),
+        "receipts": review.live_receipts(state), "history": state.get("review_evidence_history", []),
+        "findings": state["findings"]})
+
+
+def _review_lineage_marker(state):
+    return "<!-- engine-review-lineage:" + _review_lineage_digest(state) + " -->"
+
+
+def _review_contract_current(state):
+    return not reviewer_contracts.effective_build(state) or (state.get("pr_contract") or {}).get("review_lineage_digest") == _review_lineage_digest(state)
+
+
+def _build_review_drift(state):
+    contract = reviewer_contracts.effective_build(state)
+    if contract is None:
+        return []
+    changes = [c for c in reviewer_contracts.drift(contract, ROOT)["changed"] if c["role"] == "pre-submission-review"]
+    decisions = state.get("review_contract_renewals", [])
+    if decisions and decisions[-1]["action"] == "retain" and decisions[-1]["installation_digest"] == core.digest(reviewer_contracts.discover(ROOT)):
+        return []
+    return [f"{c['lens']}: changed reviewer mandate requires explicit retention or adoption" for c in changes]
+
+
+def _remember_review_evidence(state):
+    """Save original origins before packet regeneration can change their inferred stage."""
+    for stage, receipt in review.live_receipts(state):
+        state.setdefault("review_receipt_origins", {}).setdefault(scoped_agents.receipt_key(receipt), stage)
+
+
+def _archive_replaced_review(state, lens, replacement):
+    _remember_review_evidence(state)
+    for stage, old in review.live_receipts(state):
+        if old["lens"] != lens or old == replacement:
+            continue
+        entry = {"stage": stage, "receipt": copy.deepcopy(old),
+                 "effective": old.get("obligation_digest") != replacement.get("obligation_digest")}
+        history = state.setdefault("review_evidence_history", [])
+        if not any(e["receipt"] == old for e in history):
+            history.append(entry)
+
+
 def _missing_receipts(stage: dict, kind: str = "deliverable") -> list[str]:
     return review.missing_receipts(stage, _coverage(stage, kind))
 
@@ -490,8 +541,11 @@ def _outstanding_repair_lenses(repair: dict | None) -> list[str]:
     if not repair:
         return []
     covers = _coverage(repair, "repair")
-    standing = {r["lens"] for r in repair.get("receipts", []) if
-                r.get("packet_digest") == repair.get("packet_digest") or covers(r)}
+    if any(c.get("obligation_digest") for c in repair.get("reviewer_contracts", [])):
+        standing = review.current_receipt_lenses(repair, covers)
+    else:
+        standing = {r["lens"] for r in repair.get("receipts", []) if
+                    r.get("packet_digest") == repair.get("packet_digest") or covers(r)}
     return [lens for lens in repair.get("lenses", []) if lens not in standing]
 
 
@@ -801,20 +855,23 @@ def _status(state: dict, plan: dict | None = None) -> dict:
     protocol = _protocol()
     if state["approval"]:
         depth = state["approval"]["depth"]
-        current_delivery = _required(protocol, depth, _installed())
-        def contracts_current(current, recorded):
-            actual = {item["lens"]: (item["path"], item["digest"])
-                      for item in recorded.get("reviewer_contracts", [])}
-            return all(actual.get(item["lens"]) == (item["path"], item["digest"]) for item in current)
-        delivery_coverage_current = contracts_current(current_delivery, delivery)
+        frozen_panel = reviewer_contracts.build_panel(state)
+        current_delivery = frozen_panel if frozen_panel is not None else _required(protocol, depth, _installed())
+        actual = {item["lens"]: item for item in delivery.get("reviewer_contracts", [])}
+        if frozen_panel is not None:
+            delivery_coverage_current = set(actual) == {p["lens"] for p in frozen_panel} and all(
+                actual.get(p["lens"], {}).get("obligation_digest") == p["obligation_digest"] for p in frozen_panel)
+            required_evidence.extend(_build_review_drift(state))
+        else:
+            delivery_coverage_current = all((actual.get(p["lens"], {}).get("path"), actual.get(p["lens"], {}).get("digest")) == (p["path"], p["digest"]) for p in current_delivery)
         if delivery["packet_digest"] and not delivery_coverage_current:
-            required_evidence.append("refresh deliverable-review coverage for the currently installed reviewers")
+            required_evidence.append("refresh deliverable-review coverage for the approved reviewer obligations" if frozen_panel is not None else "refresh deliverable-review coverage for the currently installed reviewers")
     else:
         delivery_coverage_current = True
     passed = {x["id"] for x in state["preflights"] if x["commit"] == head and x["passed"]}
     required_preflights = [x for x in protocol["preflights"] if x["required"]]
     required_evidence.extend(f"green preflight: {x['id']}" for x in required_preflights if x["id"] not in passed)
-    if not state["pr_contract"] or state["pr_contract"]["commit"] != head or not state["pr_contract"]["complete"]:
+    if not state["pr_contract"] or state["pr_contract"]["commit"] != head or not state["pr_contract"]["complete"] or not _review_contract_current(state):
         required_evidence.append("complete PR contract for the final commit")
     if state["plan"].get("diverged_from_seal"):
         warnings.append(f"the executed plan differs from the sealed plan {state['plan']['plan_id']}; the "
@@ -875,7 +932,7 @@ def _status(state: dict, plan: dict | None = None) -> dict:
         and state["repair"]["final_commit"] == head and (state["repair"]["judgment"] == "none" or
         not _outstanding_repair_lenses(state["repair"])))
     preflight_ready = not [x for x in required_preflights if x["id"] not in passed]
-    contract_ready = bool(state["pr_contract"] and state["pr_contract"]["commit"] == head and state["pr_contract"]["complete"])
+    contract_ready = bool(state["pr_contract"] and state["pr_contract"]["commit"] == head and state["pr_contract"]["complete"] and _review_contract_current(state))
     final_ready = _final_ok(state, head)
 
     if not approval_ready:
@@ -1245,6 +1302,10 @@ def cmd_plan_bind(args, store: Snapshot) -> None:
     admission = _observe_admission(args, plan, pr, library, identity)
     state = _initial_state(args.repository, args.pr, pr.get("baseRefOid") or _base(), plan_id,
                            sealed_digest, plan, issue, mode)
+    frozen = reviewer_contracts.effective(library.read_record(slug))
+    if frozen:
+        state["review_contract"] = frozen
+        state["review_contract_format"] = 1
     state['admission'] = admission
     # Where this Build's evidence lands. With no --state it goes to the durable store beside its own
     # sealed plan, which is the default because the alternative is what actually happened: a killed
@@ -1585,6 +1646,11 @@ def cmd_plan_adopt(args, store: Snapshot) -> None:
         # approval" — which had not happened — and pointed at a plan revision that would have undone the
         # adoption's whole purpose. Invisible in a project with no settled specification, and a wall in
         # every project that has one.
+        frozen = reviewer_contracts.effective(record)
+        for key in ("review_contract", "review_contract_format", "review_contract_renewals", "review_evidence_history", "review_receipt_origins"):
+            current.pop(key, None)
+        if frozen:
+            current.update(review_contract=frozen, review_contract_format=1)
         approval = record.get("approval")
         if approval:
             current["approval"] = {"plan_digest": current["plan"]["digest"],
@@ -1833,6 +1899,63 @@ def _emit_packet(packet: dict, args) -> None:
           f"{len(packet['required_lenses'])} required lens(es), commit {packet.get('commit') or 'plan'}")
 
 
+def _build_contract_preview(state, action):
+    old = reviewer_contracts.effective_build(state)
+    if old is None:
+        raise CoordinatorError("historical Build requires evidence-scoped contract adoption")
+    lenses = [p["lens"] for p in _required(_protocol(), old["depth"], _installed())]
+    proposed = reviewer_contracts.propose_build(state, ROOT, lenses)
+    preview = reviewer_contracts.renewal_preview(reviewer_contracts.build_record(state), proposed, ROOT, action)
+    preview["build_owner"] = scoped_agents.build_owner(state)
+    preview["state_digest"] = core.digest(state)
+    preview["preview_digest"] = core.digest({k:v for k,v in preview.items() if k != "preview_digest"})
+    return preview
+
+
+def cmd_build_contract_preview(args, store):
+    state = store.read()
+    _assert_plan(state, _plan(args.plan))
+    preview = _build_contract_preview(state, args.action)
+    text = json.dumps(preview, indent=2, ensure_ascii=False) + "\n"
+    if args.output:
+        core.write_private_path(Path(args.output), text)
+    else:
+        print(text)
+
+
+def cmd_build_contract_apply(args, store):
+    preview = json.loads(_input(args.input))
+    if not args.operator_decided or not args.reason.strip():
+        raise CoordinatorError("Build reviewer renewal requires the operator's decision and reason")
+    plan = _plan(args.plan)
+    if preview.get("preview_digest") != core.digest({k:v for k,v in preview.items() if k != "preview_digest"}):
+        raise CoordinatorError("Build renewal preview was modified")
+    current = store.read()
+    _assert_plan(current, plan)
+    if preview.get("build_owner") != scoped_agents.build_owner(current):
+        raise CoordinatorError("renewal belongs to another Build owner or generation")
+    if any(d["preview_digest"] == preview["preview_digest"] for d in current.get("review_contract_renewals", [])):
+        print("Build reviewer renewal already recorded; original evidence retained.")
+        return
+    def change(state):
+        _assert_plan(state, plan)
+        if preview.get("build_owner") != scoped_agents.build_owner(state):
+            raise CoordinatorError("renewal belongs to another Build owner or generation")
+        if any(d["preview_digest"] == preview.get("preview_digest") for d in state.get("review_contract_renewals", [])):
+            return
+        if _build_contract_preview(state, preview.get("action")) != preview:
+            raise CoordinatorError("Build renewal preview is stale or modified; preview the current evidence")
+        adapter = reviewer_contracts.build_record(state)
+        reviewer_contracts.apply_renewal(adapter, preview, reason=args.reason, at=moment.utc_now(), operator_decided=True)
+        state["review_contract_renewals"] = adapter["review_contract_renewals"]
+        state.setdefault("review_contract_build_decisions", {})[preview["preview_digest"]] = preview["build_owner"]
+        state["pr_contract"] = None
+        state["preflights"] = []
+        state["submission"] = "draft"
+    store.mutate(change)
+    print("Recorded Build reviewer renewal; original sealed contract and all review evidence retained.")
+
+
 def _packet(args, store: Snapshot | None) -> None:
     plan = _plan(args.plan)
     impact = json.loads(_input(args.impact)) if args.impact else {}
@@ -1873,7 +1996,7 @@ def _packet(args, store: Snapshot | None) -> None:
                   "intent_digest": _digest(plan["raw_intent"].encode()), "spec": canonical_spec,
                   "commit": commit, "base_commit": args.base if commit else None, "impact": impact,
                   "protocol_digest": _digest(protocol), "installed_lenses": installed_names,
-                  "required_lenses": required, "standalone": True}
+                  "required_lenses": required, "standalone": True, "approval_authority": "none — standalone packet has no approval authority"}
         if stage == "deliverable":
             declarations = _hard_check_declarations()
             path, digest = _write_json_artifact("build-hard-check-declarations", declarations)
@@ -1897,6 +2020,10 @@ def _packet(args, store: Snapshot | None) -> None:
     canonical_spec = _assert_spec_current(state, plan, check_issue=True)
     if not state["approval"]:
         raise CoordinatorError("approve the plan and depth before preparing review packets")
+    frozen = reviewer_contracts.effective_build(state)
+    if frozen:
+        installed = reviewer_contracts.build_panel(state)
+        installed_names = [item["lens"] for item in installed]
     if stage == "repair":
         repair = state["repair"]
         if not repair or repair["judgment"] == "none":
@@ -1907,7 +2034,7 @@ def _packet(args, store: Snapshot | None) -> None:
         if not _candidate_ok(state, commit):
             raise CoordinatorError("green candidate validation for the repaired commit is required before re-review")
     else:
-        required_contracts = _required(protocol, state["approval"]["depth"], installed)
+        required_contracts = installed if frozen else _required(protocol, state["approval"]["depth"], installed)
         required = [item["lens"] for item in required_contracts]
         commit = _head()
         if not _candidate_ok(state, commit):
@@ -1925,6 +2052,9 @@ def _packet(args, store: Snapshot | None) -> None:
               "spec": canonical_spec, "commit": commit, "base_commit": _base() if commit else None,
               "impact": impact, "protocol_digest": _digest(protocol),
               "installed_lenses": installed_names, "required_lenses": required}
+    if frozen:
+        referent["review_contract"] = frozen
+        referent["approval_authority"] = {"owner": scoped_agents.build_owner(state), "sealed_digest": state["plan"]["sealed_digest"]}
     if stage == "repair":
         # Point the re-review at the REPAIR, mechanically. `base_commit` is the merge base — the whole
         # PR — so without this a repair reviewer is handed the entire change again and left to work out
@@ -1966,6 +2096,8 @@ def _packet(args, store: Snapshot | None) -> None:
 
     def change(s):
         old = s["repair"] if stage == "repair" else s["reviews"][stage]
+        if frozen:
+            _remember_review_evidence(s)
         expected = {item["lens"]: item["lens_packet_digest"] for item in contracts}
         # A receipt survives on either ground: it attests THIS packet, or the range it recorded reading
         # already contains every authored commit this packet asks about. It is kept byte-identical
@@ -1977,6 +2109,8 @@ def _packet(args, store: Snapshot | None) -> None:
                               if receipt["lens"] in expected
                               and (receipt.get("lens_packet_digest") == expected[receipt["lens"]]
                                    or covers(receipt))]
+        if frozen:
+            preserved_receipts = list((old or {}).get("receipts", []))
         if stage == "repair":
             s["repair"]["packet_digest"] = packet["packet_digest"]
             s["repair"]["referent_digest"] = referent_digest
@@ -2015,11 +2149,15 @@ def _packet(args, store: Snapshot | None) -> None:
         source = library.plan_dir(slug) / "scoped-build-review-source.json"
         packet_content = json.dumps(packet, indent=2, sort_keys=True) + "\n"
         core.write_private_path(source, packet_content)
+        fresh = store.read()
+        target = fresh["repair"] if stage == "repair" else fresh["reviews"][stage]
+        owed = set(_outstanding_repair_lenses(target) if stage == "repair" else _missing_receipts(target))
+        dispatch_contracts = [c for c in contracts if c["lens"] in owed] if frozen else contracts
         assignments = scoped_agents.prepare_packets(
             library, slug, scoped_agents.build_owner(state), args.session, source,
-            {c["lens"]: c["lens_packet_digest"] for c in contracts},
-            {c["lens"]: Path(c["path"]).stem for c in contracts},
-            expected_file_digest=core.digest(packet_content.encode("utf-8")))
+            {c["lens"]: c["lens_packet_digest"] for c in dispatch_contracts},
+            {c["lens"]: Path(c["path"]).stem for c in dispatch_contracts},
+            expected_file_digest=core.digest(packet_content.encode("utf-8")), review_contract=frozen)
         print("Scoped assignments: " + json.dumps(assignments, sort_keys=True), file=sys.stderr)
     else:
         print("Execution freshness is unverified: prepare scoped assignments with --session before dispatch.",
@@ -2124,6 +2262,10 @@ def _receipt_finding_ids(args) -> list[str]:
 
 
 def cmd_review_record(args, store: Snapshot) -> None:
+    before = store.read() if store is not None else {}
+    if _build_review_drift(before):
+        raise CoordinatorError("; ".join(_build_review_drift(before)))
+    frozen = reviewer_contracts.effective_build(before)
     finding_ids = _receipt_finding_ids(args)
     if len(finding_ids) != len(set(finding_ids)):
         raise CoordinatorError("review finding ids must be unique")
@@ -2134,16 +2276,26 @@ def cmd_review_record(args, store: Snapshot) -> None:
         import result_contracts
         try:
             compiled = review.ingest_review_report(result_contracts.read_input(args.report),
-                result_contracts.resolve("pre-submission-review-finding.v1"), lens=args.lens)
+                next(p["result_contract"] for p in reviewer_contracts.build_panel(before) if p["lens"] == args.lens)
+                if frozen else result_contracts.resolve("pre-submission-review-finding.v1"), lens=args.lens, retained=bool(frozen))
             reports = {args.lens: compiled["report"]}
-            expected_ids = [f["id"] for f in compiled["findings"]]
+            prefix = "B" + args.packet_digest.split(":")[-1][:12] + "-" if frozen else ""
+            expected_ids = [prefix + f["id"] for f in compiled["findings"]]
             if finding_ids and finding_ids != expected_ids:
                 result_contracts.reject("observed_report_mismatch", category="authority")
             finding_ids = expected_ids
         except result_contracts.Rejection as exc:
             raise CoordinatorError(str(exc)) from exc
 
+    if store is None:
+        raise CoordinatorError("review acceptance requires a bound Build snapshot")
     def change(state):
+        if frozen:
+            for _, previous in review.live_receipts(state):
+                if previous["packet_digest"] != args.packet_digest and set(previous["finding_ids"]) & set(finding_ids):
+                    raise CoordinatorError("new review findings need unique ids; original findings cannot be overwritten")
+        if reviewer_contracts.effective_build(state) != frozen:
+            raise CoordinatorError("Build review contract changed during receipt acceptance")
         if args.stage == "repair":
             target = state["repair"]
             if not target or target["packet_digest"] != args.packet_digest:
@@ -2163,6 +2315,10 @@ def cmd_review_record(args, store: Snapshot) -> None:
                        # What this lens actually READ, so a later re-bind can ask whether anything in the
                        # new range is new to it instead of assuming everything is.
                        "reviewed_range": {"base": target["reviewed_commit"], "tip": target["final_commit"]}}
+            if frozen:
+                receipt.update(contract_digest=frozen["digest"], obligation_digest=contract["obligation_digest"])
+                _archive_replaced_review(state, args.lens, receipt)
+                state.setdefault("review_receipt_origins", {})[scoped_agents.receipt_key(receipt)] = args.stage
             target["receipts"] = [r for r in target["receipts"] if r["lens"] != args.lens] + [receipt]
             delivery = state["reviews"]["deliverable"]
             delivery["receipts"] = [r for r in delivery["receipts"] if r["lens"] != args.lens] + [receipt]
@@ -2198,12 +2354,27 @@ def cmd_review_record(args, store: Snapshot) -> None:
                        "commit": target["reviewed_commit"], "finding_ids": finding_ids,
                        "code_execution": args.code_execution,
                        "reviewed_range": {"base": target["base_commit"], "tip": target["reviewed_commit"]}}
+            if frozen:
+                receipt.update(contract_digest=frozen["digest"], obligation_digest=contract["obligation_digest"])
+                _archive_replaced_review(state, args.lens, receipt)
+                state.setdefault("review_receipt_origins", {})[scoped_agents.receipt_key(receipt)] = args.stage
             target["receipts"] = [r for r in target["receipts"] if r["lens"] != args.lens] + [receipt]
+        if frozen:
+            library = _library()
+            assignment = scoped_agents.Store(library, library.resolve(state["plan"]["plan_id"])).verified_locked(
+                owner=scoped_agents.build_owner(state), root=providers.resolve_session(explicit=getattr(args, "session", None)),
+                lens=args.lens, packet_digest=receipt["lens_packet_digest"])
+            bound = assignment.get("review_contract")
+            item = next((p for p in (bound or {}).get("panels", {}).get("pre-submission-review", []) if p["lens"] == args.lens), None)
+            if item is None or reviewer_contracts.obligation_digest(bound["referent"], item) != receipt["obligation_digest"]:
+                raise CoordinatorError("review execution did not bind the approved Build obligation")
         scoped_agents.accept_build(_library(), state, receipt,
             providers.resolve_session(explicit=getattr(args, "session", None)), supplied_reports=reports,
             controller_entries=controller_entries)
     store.mutate(change)
     print(f"recorded {args.stage} review from {args.lens} with {len(finding_ids)} finding(s)")
+    if finding_ids:
+        print("finding IDs: " + ", ".join(finding_ids))
     _read_now(store)
 
 
@@ -2303,6 +2474,8 @@ def cmd_finding_record(args, store: Snapshot) -> None:
                           and f.get("lens_packet_digest") == lens_packet_digest), None)
             if by_receipt and prior is None:
                 scoped_agents.validate_initial_build_finding(_library(), state, receipt, entry)
+            if reviewer_contracts.effective_build(state) and any(f["id"] == finding_id and f["packet_digest"] != packet for f in state["findings"]):
+                raise CoordinatorError("new findings require unique ids; cannot overwrite an earlier review outcome")
             recorded.append({"id": finding_id, "stage": args.stage, "lens": lens, "packet_digest": packet,
                              "lens_packet_digest": lens_packet_digest, "commit": commit,
                              "severity": entry["severity"], "summary": entry["summary"],
@@ -3845,7 +4018,7 @@ def cmd_repair_assess(args, store: Snapshot) -> None:
                 f"as blocking this PR. Name the lenses this round should put back on the diff.")
         roster_provenance = "blocker-union"
     if args.judgment == "full":
-        lenses = [item["lens"] for item in _required(_protocol(), "thorough", _installed())]
+        lenses = [item["lens"] for item in (reviewer_contracts.build_panel(state) if reviewer_contracts.effective_build(state) else _required(_protocol(), "thorough", _installed()))]
         roster_provenance = "none"
 
     # A round costs what it SPENDS. Dispatching a panel -- two or more cold lenses -- is the spend; a `none`
@@ -4008,6 +4181,9 @@ def _compute_preflight_legs(state: dict, head: str, pr_data: dict, body: str) ->
     if missing_rounds:
         contract_passed = False
         contract_summary += f"; missing {len(missing_rounds)} line(s) of the repair-rounds disclosure"
+    if reviewer_contracts.effective_build(state) and _review_lineage_marker(state) not in body:
+        contract_passed = False
+        contract_summary += "; PR body does not present the complete current review lineage"
     profile = _run([sys.executable, str(ROOT / ".engine" / "tools" / "scope_profile.py"), base])
     profile_summary = (profile.stdout or profile.stderr or "no scope-profile output").strip()
     declarations = _hard_check_declarations()
@@ -4068,6 +4244,8 @@ def cmd_preflight(args, store: Snapshot) -> None:
         def change(s):
             s["preflights"] = results
             s["pr_contract"] = {"commit": head, "body_digest": _digest(body.encode()), "complete": contract_passed}
+            if reviewer_contracts.effective_build(s):
+                s["pr_contract"]["review_lineage_digest"] = _review_lineage_digest(s)
     store.mutate(change, from_revision=revision)
     if getattr(args, "json", False):
         print(json.dumps(results, indent=2, sort_keys=True))
@@ -5257,7 +5435,8 @@ def _sealed_plan_review(state: dict) -> dict | None:
     receipt at all. Structural immunity rather than a flag to remember to set.
     """
     record, _ = _sealed_plan_record(state)
-    return (record or {}).get("plan_review")
+    original = (record or {}).get("plan_review")
+    return {**original, "findings": plan_lifecycle.findings(record)} if original else None
 
 
 def _break_closing_keywords(text: str) -> str:
@@ -5500,7 +5679,7 @@ def _plan_finding_lines(state: dict) -> list[str]:
     plan_review = (record or {}).get("plan_review")
     if not plan_review:
         return []
-    findings = plan_review.get("findings", [])
+    findings = plan_lifecycle.findings(record)
     if not findings:
         return []
     full, counted = partition_findings(findings)
@@ -5535,7 +5714,12 @@ def _plan_disagreement_lines(state: dict) -> list[str]:
 
 
 def _drift_line(state: dict, head: str) -> str:
-    return " ".join([_review_drift_line(state, head), *_base_advance_lines(state)])
+    lines = [_review_drift_line(state, head), *_base_advance_lines(state)]
+    frozen = reviewer_contracts.effective_build(state)
+    if frozen:
+        lines.append(f"Reviewer obligations are frozen at approval; {len(state.get('review_contract_renewals', []))} explicit renewal(s). Reviewer effort remains harness-controlled, with no promised floor.")
+        lines.append(_review_lineage_marker(state))
+    return " ".join(lines)
 
 
 def _review_drift_line(state: dict, head: str) -> str:
@@ -5608,6 +5792,9 @@ def _assemble_evidence(state: dict, plan: dict, claim: dict, head: str, pr_data:
         closes.append(authorizing)
 
     # Report-only change profile, over the live base — the same invocation the preflight records.
+    if reviewer_contracts.effective_build(state) and _review_lineage_marker(state) not in body:
+        contract_passed = False
+        contract_summary += "; PR body does not present the complete current review lineage"
     profile = _run([sys.executable, str(ROOT / ".engine" / "tools" / "scope_profile.py"), base])
     change_profile = (profile.stdout or "").strip()
     # An ADDED workflow discloses itself. The weakening guard only inspects files that already existed, so
@@ -5968,6 +6155,8 @@ def cmd_contract_apply(args, store: Snapshot) -> None:
         def change(s):
             s["preflights"] = legs["results"]
             s["pr_contract"] = {"commit": head, "body_digest": body_digest, "complete": legs["contract_passed"]}
+            if reviewer_contracts.effective_build(s):
+                s["pr_contract"]["review_lineage_digest"] = _review_lineage_digest(s)
     store.mutate(change, from_revision=revision)
     result = {"commit": head, "body_digest": body_digest, "complete": legs["contract_passed"],
               "summary": legs["contract_summary"], "ready": False, "merge": False}
@@ -5997,6 +6186,17 @@ def parser() -> argparse.ArgumentParser:
     status = sub.add_parser("status"); status.add_argument("--plan"); status.add_argument("--json", action="store_true"); status.set_defaults(func=cmd_status)
     depths = sub.add_parser("depths"); depths.add_argument("--json", action="store_true"); depths.set_defaults(func=cmd_depths)
     review = sub.add_parser("review").add_subparsers(dest="review_command", required=True)
+    renew_preview = review.add_parser("contract-preview")
+    renew_preview.add_argument("--plan", required=True)
+    renew_preview.add_argument("--action", choices=["retain", "adopt"], required=True)
+    renew_preview.add_argument("--output")
+    renew_preview.set_defaults(func=cmd_build_contract_preview)
+    renew_apply = review.add_parser("contract-apply")
+    renew_apply.add_argument("--plan", required=True)
+    renew_apply.add_argument("--input", required=True)
+    renew_apply.add_argument("--reason", required=True)
+    renew_apply.add_argument("--operator-decided", action="store_true")
+    renew_apply.set_defaults(func=cmd_build_contract_apply)
     packet = review.add_parser("packet"); packet.add_argument("--stage", choices=["deliverable", "repair"], required=True); packet.add_argument("--plan", required=True); packet.add_argument("--impact"); packet.add_argument("--output"); packet.add_argument("--json", action="store_true"); packet.add_argument("--standalone", action="store_true"); packet.add_argument("--repository"); packet.add_argument("--commit"); packet.add_argument("--base"); packet.add_argument("--depth", choices=["quick", "standard", "thorough"]); packet.set_defaults(func=_packet)
     record = review.add_parser("record"); record.add_argument("--stage", choices=["deliverable", "repair"], required=True); record.add_argument("--lens", required=True); record.add_argument("--packet-digest", required=True); record.add_argument("--lens-packet-digest", required=True); record.add_argument("--finding", action="append"); record.add_argument("--findings-from-file", help="A build-findings-batch.v1 file (or -) whose ids this receipt demands. The SAME file `finding record --from-file` reads, so a receipt and its findings cannot disagree; mutually exclusive with --finding."); record.add_argument("--code-execution", choices=["none", "discarded-copy", "in-place"], required=True); record.add_argument("--report", help="Strict raw reviewer JSON; must equal the observed child report. Compiles Engine finding ids."); record.set_defaults(func=cmd_review_record)
     finding = sub.add_parser("finding").add_subparsers(dest="finding_command", required=True)

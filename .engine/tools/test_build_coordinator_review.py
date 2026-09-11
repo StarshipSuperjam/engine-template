@@ -78,6 +78,47 @@ class TestReviewerContractFreshness(unittest.TestCase):
         stage["reviewer_contracts"] = changed
         self.assertEqual(review.current_receipt_lenses(stage), {"feasibility"})
 
+    def test_matching_range_cannot_bypass_a_changed_obligation(self):
+        old = {"lens": "architecture", "path": "a.md", "digest": "sha256:" + "1" * 64,
+               "obligation_digest": "sha256:" + "a" * 64}
+        current = {**old, "obligation_digest": "sha256:" + "b" * 64}
+        stage = {"reviewer_contracts": review.lens_packets("sha256:" + "2" * 64, [current]),
+                 "receipts": [{"lens": "architecture", "packet_digest": "sha256:" + "3" * 64,
+                               "lens_packet_digest": "sha256:" + "4" * 64,
+                               "obligation_digest": old["obligation_digest"]}]}
+        self.assertEqual(review.current_receipt_lenses(stage, covers=lambda _: True), set())
+
+    def test_same_obligation_and_range_carry_forward_across_packet_provenance(self):
+        contract = {"lens": "architecture", "path": "a.md", "digest": "sha256:" + "1" * 64,
+                    "obligation_digest": "sha256:" + "a" * 64}
+        current = review.lens_packets("sha256:" + "2" * 64, [contract])[0]
+        receipt = {"lens": "architecture", "packet_digest": "sha256:" + "old" * 16,
+                   "lens_packet_digest": "sha256:" + "stale" * 12 + "abcd",
+                   "obligation_digest": contract["obligation_digest"]}
+        stage = {"reviewer_contracts": [current], "receipts": [receipt]}
+        self.assertEqual(review.current_receipt_lenses(stage, covers=lambda item: item["packet_digest"].startswith("sha256:")),
+                         {"architecture"})
+
+    def test_new_mandatory_lens_is_missing_until_it_has_a_receipt(self):
+        contracts = review.lens_packets("sha256:" + "a" * 64, [
+            {"lens": "architecture", "obligation_digest": "sha256:" + "1" * 64},
+            {"lens": "security", "obligation_digest": "sha256:" + "2" * 64}])
+        stage = {"reviewer_contracts": contracts, "receipts": [{"lens": "architecture",
+                   "lens_packet_digest": contracts[0]["lens_packet_digest"],
+                   "obligation_digest": contracts[0]["obligation_digest"]}]}
+        self.assertEqual(review.missing_receipts(stage), ["security"])
+
+    def test_effective_archived_renewal_stays_live_but_inactive_archive_does_not(self):
+        receipt = {"lens": "architecture", "packet_digest": "sha256:" + "1" * 64}
+        base = {"reviews": {"deliverable": {"receipts": [], "packet_digest": "sha256:" + "2" * 64}},
+                "repair": None}
+        renewed = {**base, "review_evidence_history": [{"stage": "deliverable", "receipt": receipt,
+                                                        "effective": True}]}
+        inactive = {**base, "review_evidence_history": [{"stage": "deliverable", "receipt": receipt,
+                                                          "effective": False}]}
+        self.assertEqual(review.live_receipts(renewed), [("deliverable", receipt)])
+        self.assertEqual(review.live_receipts(inactive), [])
+
     def test_downgraded_blocking_finding_line_publishes_only_operator_summary(self):
         # StarshipSuperjam/engine-template#981: the disagreement line is published verbatim to the
         # public PR body, so it must carry ONLY the operator-safe summary — never `private_reference`.
