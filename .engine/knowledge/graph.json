@@ -5920,7 +5920,7 @@
       },
       "slug": "build-validation-and-review",
       "source": {
-        "fingerprint": "sha256:ef3e8168b2e93f354ce002946a4ab9cc2d1d0538083913120b10dc796d9e8d24",
+        "fingerprint": "sha256:c0c61aedd73f15fc599f402305e0eedcd5801b818de954d3cb7535a81346c5b9",
         "path": ".engine/operations/build-validation-and-review.md"
       },
       "status": "active",
@@ -11804,7 +11804,7 @@
       },
       "slug": "demo_plan_to_ready_pr",
       "source": {
-        "fingerprint": "sha256:f8d46a8c2f649b3660b3374dde3a16ef2c6df20e524ea3aff88d9244ba5709ce",
+        "fingerprint": "sha256:2668928952922946c0dc9a0fb7ec34bed6f8d36f5ea0a09da667e6830f63da36",
         "path": ".engine/tools/demo_plan_to_ready_pr.py"
       },
       "status": "active",
@@ -16873,7 +16873,7 @@
       },
       "slug": "test_build_coordinator",
       "source": {
-        "fingerprint": "sha256:3e7add17eb7963c17584f7325050094a5085e0a5458fb84f8c21ed1b9a3f1897",
+        "fingerprint": "sha256:8b402a535276f6de9313f513dbf3cbe1341e3f522a373a2c7d597596a573ba97",
         "path": ".engine/tools/test_build_coordinator.py"
       },
       "status": "active",
@@ -16903,7 +16903,7 @@
       },
       "slug": "test_build_coordinator_contract",
       "source": {
-        "fingerprint": "sha256:3d8825788de5ca6bd156aa56fff7821ff564efb50f4e645c786abd6a267d3152",
+        "fingerprint": "sha256:0e4eeaa40925633b2250755148df0364be7a9e97e47ff896d1f86e57d0f491fb",
         "path": ".engine/tools/test_build_coordinator_contract.py"
       },
       "status": "active",
@@ -20928,7 +20928,7 @@
       },
       "slug": "test_review_economy",
       "source": {
-        "fingerprint": "sha256:66a0b62059ffacc3b840e375392f60b566cd8487c541d4b9a566979abee444be",
+        "fingerprint": "sha256:64f2eefc09fbb4753cb15ea7ed666fc1614027c58e447d1fc58c86d6efe6a116",
         "path": ".engine/tools/test_review_economy.py"
       },
       "status": "active",
