@@ -3012,6 +3012,31 @@ class TestRemoveEngine(unittest.TestCase):
             # block-reverses it → whitespace-only → the file is deleted (nothing operator-owned to keep).
             fh.write(wiring.fence_apply("", module_manager._FLOOR_FENCE, ["# floor"], style=wiring.MD_FENCE))
 
+    def test_module_owned_audit_workflow_is_removed_but_product_workflow_survives(self):
+        manifest_rel = ".engine/modules/audit-library/manifest.json"
+        audit = validate.load_json(os.path.join(validate.ROOT, manifest_rel))
+        opener, transport, _, _ = self._fakes(True)
+        with tempfile.TemporaryDirectory() as directory:
+            with module_manager._redirect_root(directory):
+                self._fixture_with_github(directory)
+                manifest_path = os.path.join(directory, manifest_rel)
+                os.makedirs(os.path.dirname(manifest_path), exist_ok=True)
+                with open(manifest_path, "w", encoding="utf-8") as stream:
+                    json.dump(audit, stream)
+                audit_path = os.path.join(directory, ".github/workflows/audit-prep.yml")
+                product_path = os.path.join(directory, ".github/workflows/product.yml")
+                for path in (audit_path, product_path):
+                    with open(path, "w", encoding="utf-8") as stream:
+                        stream.write("workflow sentinel\n")
+                result = module_manager.remove_engine(
+                    opener=opener, transport=transport, choice="keep", announce=lambda _: None,
+                    repo="fixture/project", token="fixture-token")
+                self.assertFalse(result["refused"], result)
+                self.assertFalse(os.path.exists(audit_path))
+                self.assertIn(".github/workflows/audit-prep.yml", result["deleted"])
+                with open(product_path, encoding="utf-8") as stream:
+                    self.assertEqual(stream.read(), "workflow sentinel\n")
+
     def test_reverses_wires_deletes_all_engine_files_and_opens_a_pr(self):
         opener, transport, prs, _ = self._fakes(True)
         with tempfile.TemporaryDirectory() as d:

@@ -186,6 +186,7 @@ The dependency graph — each module is listed after the ones it builds on (`→
   - agent: `.claude/agents/engine-audit.md`
   - audits: `.engine/audits/audit-digest.md`, `.engine/audits/concern-list.json`, `.engine/audits/self-review-setup.md`
   - codex-agent: `.codex/agents/engine-audit.toml`
+  - workflow: `.github/workflows/audit-prep.yml`
 - wires: none (this module adds no shared-state edits)
 
 ## Commands and routes
