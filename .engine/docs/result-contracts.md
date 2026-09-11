@@ -231,7 +231,7 @@ Each of `--break-identity-preservation`, `--break-envelope-validation` and
 `--break-fresh-legacy-separation` deliberately breaks one safeguard in memory and must exit nonzero
 because its acceptance assertion fails. Nothing touches the real plan library.
 
-## Cumulative review coverage demonstration
+### Cumulative review coverage demonstration
 
 Run `uv run --directory .engine --frozen -- python tools/demo_review_coverage.py` to exercise an
 initial five-lens review, four repairs by one lens, packet refresh/retry, a clean target merge and a
