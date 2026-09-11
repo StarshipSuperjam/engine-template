@@ -1,0 +1,313 @@
+{
+  "type": "object",
+  "additionalProperties": false,
+  "properties": {
+    "schema_version": {
+      "const": "reviewer-contract.v1"
+    },
+    "referent": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "plan_id": {
+          "type": "string",
+          "pattern": "^pln_[0-9a-f]{12}$"
+        },
+        "revision": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "plan_digest": {
+          "type": "string",
+          "pattern": "^sha256:[0-9a-f]{64}$"
+        }
+      },
+      "required": [
+        "plan_id",
+        "revision",
+        "plan_digest"
+      ]
+    },
+    "depth": {
+      "enum": [
+        "quick",
+        "standard",
+        "thorough"
+      ]
+    },
+    "panels": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "plan-review": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/obligation"
+          },
+          "maxItems": 100
+        },
+        "pre-submission-review": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/obligation"
+          },
+          "maxItems": 100
+        }
+      },
+      "required": [
+        "plan-review",
+        "pre-submission-review"
+      ]
+    },
+    "binding_policy_digest": {
+      "type": "string",
+      "pattern": "^sha256:[0-9a-f]{64}$"
+    },
+    "binding_policy": {
+      "type": "object"
+    },
+    "instructions": {
+      "type": "string",
+      "minLength": 1
+    },
+    "digest": {
+      "type": "string",
+      "pattern": "^sha256:[0-9a-f]{64}$"
+    }
+  },
+  "required": [
+    "schema_version",
+    "referent",
+    "depth",
+    "panels",
+    "binding_policy_digest",
+    "binding_policy",
+    "instructions",
+    "digest"
+  ],
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "reviewer-contract.v1 \u2014 the two-panel approval obligation",
+  "$defs": {
+    "obligation": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "lens": {
+          "type": "string",
+          "minLength": 1
+        },
+        "semantic": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "mandate": {
+              "type": "object",
+              "additionalProperties": false,
+              "properties": {
+                "id": {
+                  "type": "string",
+                  "pattern": "^[a-z][a-z0-9.-]*:[a-z][a-z0-9.-]*$"
+                },
+                "version": {
+                  "type": "integer",
+                  "minimum": 1
+                }
+              },
+              "required": [
+                "id",
+                "version"
+              ]
+            },
+            "role": {
+              "enum": [
+                "plan-review",
+                "pre-submission-review"
+              ]
+            },
+            "lens": {
+              "type": "string",
+              "minLength": 1
+            },
+            "model_class": {
+              "enum": [
+                "judgment",
+                "mechanical"
+              ]
+            },
+            "bindings": {
+              "type": "object",
+              "minProperties": 1,
+              "additionalProperties": {
+                "type": "object",
+                "additionalProperties": false,
+                "properties": {
+                  "model": {
+                    "type": "string",
+                    "minLength": 1
+                  }
+                },
+                "required": [
+                  "model"
+                ]
+              }
+            },
+            "effort_policy": {
+              "type": "object",
+              "additionalProperties": false,
+              "properties": {
+                "mode": {
+                  "const": "harness-controlled"
+                },
+                "floor": {
+                  "type": "null"
+                }
+              },
+              "required": [
+                "mode",
+                "floor"
+              ]
+            },
+            "effects": {
+              "type": "object",
+              "additionalProperties": false,
+              "properties": {
+                "permissions": {
+                  "const": "read-only"
+                },
+                "tools": {
+                  "oneOf": [
+                    {
+                      "type": "null"
+                    },
+                    {
+                      "type": "array",
+                      "items": {
+                        "type": "string",
+                        "minLength": 1
+                      },
+                      "maxItems": 100
+                    }
+                  ]
+                },
+                "disallowed_tools": {
+                  "oneOf": [
+                    {
+                      "type": "null"
+                    },
+                    {
+                      "type": "array",
+                      "items": {
+                        "type": "string",
+                        "minLength": 1
+                      },
+                      "maxItems": 100
+                    }
+                  ]
+                },
+                "permission_mode": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                }
+              },
+              "required": [
+                "permissions",
+                "tools",
+                "disallowed_tools",
+                "permission_mode"
+              ]
+            },
+            "isolation": {
+              "const": "fresh-native-assignment"
+            },
+            "result_contract": {
+              "type": "object",
+              "additionalProperties": false,
+              "properties": {
+                "id": {
+                  "type": "string",
+                  "minLength": 1
+                },
+                "mode": {
+                  "const": "structured"
+                },
+                "enforcement": {
+                  "const": "canonical-ingress"
+                },
+                "limits": {
+                  "type": "object"
+                },
+                "schema": {
+                  "type": "object"
+                },
+                "schema_digest": {
+                  "type": "string",
+                  "pattern": "^sha256:[0-9a-f]{64}$"
+                }
+              },
+              "required": [
+                "id",
+                "mode",
+                "enforcement",
+                "limits",
+                "schema",
+                "schema_digest"
+              ]
+            }
+          },
+          "required": [
+            "mandate",
+            "role",
+            "lens",
+            "model_class",
+            "bindings",
+            "effort_policy",
+            "effects",
+            "isolation",
+            "result_contract"
+          ]
+        },
+        "semantic_digest": {
+          "type": "string",
+          "pattern": "^sha256:[0-9a-f]{64}$"
+        },
+        "source": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "path": {
+              "type": "string",
+              "pattern": "^\\.claude/agents/[^/]+\\.md$"
+            },
+            "name": {
+              "type": "string",
+              "minLength": 1
+            },
+            "digest": {
+              "type": "string",
+              "pattern": "^sha256:[0-9a-f]{64}$"
+            },
+            "instructions": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 1048576
+            }
+          },
+          "required": [
+            "path",
+            "name",
+            "digest",
+            "instructions"
+          ]
+        }
+      },
+      "required": [
+        "lens",
+        "semantic",
+        "semantic_digest",
+        "source"
+      ]
+    }
+  }
+}

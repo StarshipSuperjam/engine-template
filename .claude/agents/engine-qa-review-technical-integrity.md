@@ -6,6 +6,8 @@ lens: technical-integrity
 model-tier: judgment
 model: sonnet
 permissions: read-only
+reviewer-contract: engine:engine-qa-review-technical-integrity
+reviewer-contract-version: 1
 output-contract: pre-submission-review-finding.v1
 disallowedTools: [Edit, Write, NotebookEdit]
 ---
