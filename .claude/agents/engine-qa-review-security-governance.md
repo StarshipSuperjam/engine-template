@@ -6,6 +6,8 @@ lens: security-governance
 model-tier: judgment
 model: opus
 permissions: read-only
+reviewer-contract: engine:engine-qa-review-security-governance
+reviewer-contract-version: 1
 output-contract: pre-submission-review-finding.v1
 disallowedTools: [Edit, Write, NotebookEdit]
 ---

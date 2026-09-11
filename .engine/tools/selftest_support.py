@@ -111,6 +111,8 @@ def review_fixture(case):
     agents.mkdir(parents=True)
     engine = root / ".engine"
     (engine / "tools").mkdir(parents=True)
+    (engine / "policies").mkdir()
+    (engine / "policies/model-bindings.json").write_bytes((source / ".engine/policies/model-bindings.json").read_bytes())
     (engine / "schemas").symlink_to(source / ".engine" / "schemas", target_is_directory=True)
     (engine / "build-protocol.json").write_bytes((source / ".engine" / "build-protocol.json").read_bytes())
     panels = (
@@ -123,8 +125,12 @@ def review_fixture(case):
     for prefix, role, contract, lenses in panels:
         for lens in lenses:
             name = prefix + lens
+            declaration = (f"reviewer-contract: engine:{name}\nreviewer-contract-version: 1\n"
+                           "model-tier: judgment\npermissions: read-only\n"
+                           + ("disallowedTools: [Edit, Write, NotebookEdit, Bash]\n" if role == "plan-review"
+                              else "disallowedTools: [Edit, Write, NotebookEdit]\n")) if role != "worker" else ""
             (agents / (name + ".md")).write_text(
-                f"---\nname: {name}\nrole: {role}\nlens: {lens}\noutput-contract: {contract}\n---\n"
+                f"---\nname: {name}\nrole: {role}\nlens: {lens}\noutput-contract: {contract}\n{declaration}---\n"
                 "Disposable protocol-test persona.\n", encoding="utf-8")
     for module in (pm, scoped_agents):
         filename = Path(module.__file__).name

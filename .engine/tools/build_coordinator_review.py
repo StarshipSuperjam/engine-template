@@ -6,13 +6,14 @@ from pathlib import Path
 import build_coordinator_core as core
 import close_linkage_preflight
 import result_contracts
+import reviewer_contracts
 
 
-def ingest_review_report(raw, binding, *, lens):
+def ingest_review_report(raw, binding, *, lens, retained=False):
     """Canonical deliverable/repair report ingress, before controller adjudication."""
     try:
         report = result_contracts.ingest(raw, binding,
-            contract="pre-submission-review-finding.v1", role="pre-submission-review")
+            contract="pre-submission-review-finding.v1", role="pre-submission-review", retained=retained)
         return result_contracts.compile_review(report, lens=lens)
     except result_contracts.Rejection as exc:
         raise core.CoordinatorError(str(exc)) from exc
@@ -81,7 +82,7 @@ def lens_packet_digest(referent_digest: str, contract: dict) -> str:
 
 
 def lens_packets(referent_digest: str, contracts: list[dict]) -> list[dict]:
-    contracts = [{**c, "result_contract": result_contracts.resolve(
+    contracts = [{**c, "result_contract": c.get("result_contract") or result_contracts.resolve(
         "pre-submission-review-finding.v1", role="pre-submission-review")} for c in contracts]
     return [
         {**contract, "lens_packet_digest": lens_packet_digest(referent_digest, contract)}
@@ -93,7 +94,13 @@ def _never_covers(receipt: dict) -> bool:
     return False
 
 
-def current_receipt_lenses(stage: dict, covers=_never_covers) -> set[str]:
+def compatible(receipt, contract, adopted=None):
+    """A matching git range never substitutes for a matching approved mandate."""
+    return ((receipt.get("obligation_digest") or adopted) == contract["obligation_digest"]
+            if contract.get("obligation_digest") else True)
+
+
+def current_receipt_lenses(stage: dict, covers=_never_covers, adopted=lambda receipt: None) -> set[str]:
     """The lenses this stage has a standing receipt from.
 
     Two ways to stand. A receipt whose `lens_packet_digest` matches the current contract attests THIS
@@ -108,16 +115,17 @@ def current_receipt_lenses(stage: dict, covers=_never_covers) -> set[str]:
     The finding keys hang off the receipt's digests, so restamping would supersede every disposition
     recorded against it — the same evidence loss the carry-forward exists to prevent, arriving by a
     different door. The receipt stays a fact; only this question changed."""
-    expected = {item["lens"]: item["lens_packet_digest"] for item in stage.get("reviewer_contracts", [])}
+    expected = {item["lens"]: item for item in stage.get("reviewer_contracts", [])}
     return {
         receipt["lens"]
         for receipt in stage["receipts"]
-        if receipt.get("lens_packet_digest") == expected.get(receipt["lens"]) or covers(receipt)
+        if receipt["lens"] in expected and compatible(receipt, expected[receipt["lens"]], adopted(receipt))
+        and (receipt.get("lens_packet_digest") == expected[receipt["lens"]]["lens_packet_digest"] or covers(receipt))
     }
 
 
-def missing_receipts(stage: dict, covers=_never_covers) -> list[str]:
-    done = current_receipt_lenses(stage, covers)
+def missing_receipts(stage: dict, covers=_never_covers, adopted=lambda receipt: None) -> list[str]:
+    done = current_receipt_lenses(stage, covers, adopted)
     return [item["lens"] for item in stage.get("reviewer_contracts", []) if item["lens"] not in done]
 
 
@@ -138,11 +146,19 @@ def live_receipts(state: dict) -> list[tuple[str, dict]]:
     found = []
     stage = state["reviews"]["deliverable"]
     for receipt in stage["receipts"]:
-        produced_by = "repair" if receipt["packet_digest"] != stage["packet_digest"] else "deliverable"
+        import scoped_agents
+        produced_by = state.get("review_receipt_origins", {}).get(scoped_agents.receipt_key(receipt)) or (
+            "repair" if receipt["packet_digest"] != stage["packet_digest"] else "deliverable")
         found.append((produced_by, receipt))
     if state["repair"]:
         for receipt in state["repair"]["receipts"]:
             found.append(("repair", receipt))
+    for entry in state.get("review_evidence_history", []):
+        if not entry.get("effective"):
+            continue
+        pair = (entry["stage"], entry["receipt"])
+        if pair not in found:
+            found.append(pair)
     return found
 
 

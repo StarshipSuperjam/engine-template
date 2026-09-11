@@ -473,7 +473,7 @@ _HARD_SCRIPT_ROOTS = {
 # with a reason at the edge. These are reviewed expectations, never auto-populated
 # from candidate imports at runtime; changing them changes this hard-floor file.
 ENFORCEMENT_SOURCE_INVENTORY = {'.engine/tools/agent_bindings.py': {'dependencies': ('.engine/tools/repo_identity.py',), 'exclusions': {}},
- '.engine/tools/agent_coherence_check.py': {'dependencies': ('.engine/tools/build_coordinator_review.py',
+ '.engine/tools/agent_coherence_check.py': {'dependencies': ('.engine/tools/reviewer_contracts.py', '.engine/tools/build_coordinator_review.py',
                   '.engine/tools/build_coordinator_work.py',
                   '.engine/tools/conformance_sweep.py',
                   '.engine/tools/project_manager.py',
@@ -1210,7 +1210,7 @@ ENFORCEMENT_SOURCE_INVENTORY = {'.engine/tools/agent_bindings.py': {'dependencie
                                                                                                 'comparison.'}},
  '.engine/tools/product_design/spec_form.py': {'dependencies': ('.engine/tools/validate.py',),
                                                'exclusions': {}},
- '.engine/tools/project_manager.py': {'dependencies': ('.engine/tools/plan_store.py', '.engine/tools/result_contracts.py'),
+ '.engine/tools/project_manager.py': {'dependencies': ('.engine/tools/reviewer_contracts.py', '.engine/tools/plan_store.py', '.engine/tools/result_contracts.py'),
  'exclusions': {'.engine/tools/providers.py': 'Hard-check paths read PLAN_REVIEW_LENSES and call pure '
                                               'ingest_review_report; plan lifecycle, persistence, '
                                               'provider and GitHub operations are not invoked.',
@@ -1285,7 +1285,7 @@ ENFORCEMENT_SOURCE_INVENTORY = {'.engine/tools/agent_bindings.py': {'dependencie
                                                       '.engine/tools/validate.py'),
                                      'exclusions': {}},
  '.engine/tools/scoped_agents.py': {'dependencies': (),
- 'exclusions': {'.engine/tools/build_coordinator_core.py': 'module_coherence reads the literal '
+ 'exclusions': {'.engine/tools/reviewer_contracts.py': 'module_coherence reads BLOCK_INVARIANT only; reviewer contract validation and historical adoption are outside that hard-check path.', '.engine/tools/build_coordinator_core.py': 'module_coherence reads the literal '
                                                            'BLOCK_INVARIANT only; assignment storage, '
                                                            'runtime hooks and receipt validation are '
                                                            'outside that hard-check path.',
@@ -1377,9 +1377,9 @@ ENFORCEMENT_SOURCE_INVENTORY = {'.engine/tools/agent_bindings.py': {'dependencie
                                       'exclusions': {}},
  '.engine/tools/wiring.py': {'dependencies': ('.engine/tools/validate.py',), 'exclusions': {}},
  '.engine/tools/build_coordinator_core.py': {'dependencies': ('.engine/tools/result_contracts.py',), 'exclusions': {}},
- '.engine/tools/build_coordinator_review.py': {'dependencies': ('.engine/tools/build_coordinator_core.py',
+ '.engine/tools/build_coordinator_review.py': {'dependencies': ('.engine/tools/reviewer_contracts.py', '.engine/tools/build_coordinator_core.py',
                                                                 '.engine/tools/result_contracts.py'),
-                                               'exclusions': {'.engine/tools/close_linkage_preflight.py': 'agent_coherence '
+                                               'exclusions': {'.engine/tools/scoped_agents.py': 'Agent coherence invokes pure ingest_review_report only; historical receipt-key lookup is outside that hard-check path.', '.engine/tools/close_linkage_preflight.py': 'agent_coherence '
                                                                                                           'invokes '
                                                                                                           'pure '
                                                                                                           'ingest_review_report '
@@ -1492,7 +1492,7 @@ ENFORCEMENT_SOURCE_INVENTORY = {'.engine/tools/agent_bindings.py': {'dependencie
                                                                                     'operations are '
                                                                                     'outside that '
                                                                                     'hard-check path.'}},
- '.engine/tools/plan_store.py': {'dependencies': ('.engine/tools/build_coordinator_core.py',),
+ '.engine/tools/plan_store.py': {'dependencies': ('.engine/tools/reviewer_contracts.py', '.engine/tools/build_coordinator_core.py',),
                                  'exclusions': {'.engine/tools/checkout_health.py': 'The hard-check '
                                                                                     'ingress uses '
                                                                                     'PlanStoreError, an '
@@ -1519,6 +1519,13 @@ ENFORCEMENT_SOURCE_INVENTORY = {'.engine/tools/agent_bindings.py': {'dependencie
                                                                                   'and lifecycle '
                                                                                   'operations are not '
                                                                                   'invoked.'}},
+ '.engine/tools/reviewer_contracts.py': {
+     'dependencies': ('.engine/tools/agent_bindings.py', '.engine/tools/build_coordinator_core.py',
+                      '.engine/tools/result_contracts.py'),
+     'exclusions': {
+         '.engine/tools/scoped_agents.py': 'Agent coherence validates declarations only; scoped evidence and historical adoption are separate lifecycle operations.',
+         '.engine/tools/build_coordinator_review.py': 'Agent coherence validates declarations only; historical packet reconstruction is not invoked.',
+         '.engine/tools/plan_contract.py': 'Agent coherence validates declarations only; historical plan validation is not invoked.'}},
  '.engine/tools/result_contracts.py': {'dependencies': (), 'exclusions': {}}}
 
 

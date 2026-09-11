@@ -99,6 +99,44 @@ class ResultContracts(unittest.TestCase):
             rc.ingest("[]", bad)
         self.assertEqual(caught.exception.envelope["rule"], "changed_binding")
 
+    def test_retained_binding_uses_frozen_schema_after_live_schema_changes(self):
+        retained = copy.deepcopy(self.review)
+        with tempfile.TemporaryDirectory() as tmp:
+            schema_path = Path(tmp) / ".engine/schemas/plan-review-finding.v1.json"
+            schema_path.parent.mkdir(parents=True)
+            schema_path.write_text(json.dumps({"type": "string"}))
+            with self.assertRaises(rc.Rejection):
+                rc.ingest("[]", retained, root=tmp)
+            self.assertEqual(rc.ingest("[]", retained, root=tmp, retained=True), [])
+
+    def test_retained_binding_rejects_tampering_and_untrusted_policy(self):
+        cases = []
+        bad = copy.deepcopy(self.review); bad["schema_digest"] = rc.digest({"type": "string"})
+        cases.append((bad, "retained_schema_digest"))
+        for key, value in [("schema", {"$ref": "https://example.org/schema"}),
+                           ("schema", {"$ref": "leaf.json"}),
+                           ("enforcement", "validation-only")]:
+            bad = copy.deepcopy(self.review); bad[key] = value
+            if key == "schema":
+                bad["schema_digest"] = rc.digest(value)
+            cases.append((bad, None))
+        bad = copy.deepcopy(self.review); bad["limits"]["bytes"] = rc.LIMITS["bytes"] + 1
+        cases.append((bad, "retained_limits"))
+        for binding, rule in cases:
+            with self.assertRaises(rc.Rejection) as caught:
+                rc.ingest("[]", binding, retained=True)
+            if rule:
+                self.assertEqual(caught.exception.envelope["rule"], rule)
+
+    def test_retained_limits_apply_to_raw_input_and_default_ingress_stays_strict(self):
+        retained = copy.deepcopy(self.review)
+        retained["limits"]["bytes"] = 32
+        with self.assertRaises(rc.Rejection) as caught:
+            rc.ingest("[]" + " " * 31, retained, retained=True)
+        self.assertEqual(caught.exception.envelope["rule"], "maxBytes")
+        with self.assertRaises(rc.Rejection):
+            rc.ingest("[]", retained)
+
     def test_bounded_bytes_depth_values_arrays_and_strings(self):
         self.refusal(" " * (rc.LIMITS["bytes"] + 1), "maxBytes")
         self.refusal("[" * 65 + "]" * 65, "maxDepth")

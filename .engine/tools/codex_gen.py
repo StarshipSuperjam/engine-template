@@ -159,6 +159,9 @@ def _routing_lines(fm: dict) -> str:
     lines = [guidance,
              "Permissions floor: read-only. You review and report; you never edit files, commit, "
              "push, open pull requests, or resolve your own findings."]
+    if fm.get("reviewer-contract"):
+        lines.append(f"Reviewer mandate: {fm['reviewer-contract']} version {fm.get('reviewer-contract-version')}. "
+                     "Effort remains harness-controlled; no reviewer effort floor is promised.")
     if "Bash" in disallowed:
         lines.append("Do not run shell commands; work from reading alone.")
     if fm.get("role") == "plan-review":

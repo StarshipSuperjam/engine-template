@@ -365,6 +365,24 @@ def result_contract_findings(agents, tier="hard"):
     return findings
 
 
+def reviewer_identity_findings(agents, tier="hard"):
+    """Declared semantic identity is shared across both review roles, never a file hash."""
+    import reviewer_contracts
+    seen, lenses, findings = set(), set(), []
+    for fields in agents:
+        if fields.get("role") not in reviewer_contracts.ROLES:
+            continue
+        try:
+            mandate = reviewer_contracts.declaration(fields)
+            key = (fields["role"], fields["lens"])
+            if mandate["id"] in seen or key in lenses:
+                raise reviewer_contracts.ContractError("duplicate reviewer identity or lens")
+            seen.add(mandate["id"]); lenses.add(key)
+        except reviewer_contracts.ContractError as exc:
+            findings.append(validate.finding(tier, f"Persona '{fields.get('name')}' reviewer contract: {exc}."))
+    return findings
+
+
 def _main(argv: list) -> int:
     if argv and argv[0] == "demo":
         return _demo()
@@ -375,6 +393,7 @@ def _main(argv: list) -> int:
     fixture_dir = validate.env_override_path("ENGINE_AGENT_FIXTURE_DIR")
     agents = engine_agents(agents_dir=fixture_dir)
     findings = validate.agent_coherence_findings(agents, tier, _MESSAGE)
+    findings += reviewer_identity_findings(agents, tier)
     findings += result_contract_findings(agents, tier)
     findings += git_safety_findings(tier, agents_dir=fixture_dir)
     return emit(findings)

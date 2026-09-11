@@ -127,7 +127,7 @@ Restating its order here would only give you a second answer, free to drift from
 - **The Build is downstream and owns itself.** Binding the sealed plan belongs to [Build kickoff](build-kickoff.md);
   everything after it, to the phase runbooks [Build orchestration](build-orchestration.md) names.
 
-See [Executable persona result contracts](../docs/result-contracts.md): dispatch binding, observed-report validation, substitution refusal, recovery and demo.
+Approval freezes both reviewer panels. Editorial drift preserves credit; semantic changes use explicit per-lens retain/adopt renewal, with supplemental findings joining disposition and presentation. Historical adoption is a separate decision and never manufactures fresh execution. See [Executable persona result contracts](../docs/result-contracts.md) for renewal, historical recovery, ingress and demonstrations.
 ## Done when
 
 The operator has discussed the shape, seen the drafted plan and had the chance to revise it, chosen its

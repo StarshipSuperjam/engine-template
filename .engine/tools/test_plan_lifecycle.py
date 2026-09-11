@@ -46,7 +46,7 @@ class _Ceremony(unittest.TestCase):
         # Historical fixtures must earn review coverage through the observed execution path.
         if tool is project_manager and len(argv) > 2 and argv[:2] in (("review", "record"), ("review", "amend")):
             import scoped_agents
-            from test_build_coordinator import observe_review_execution
+            from test_project_manager import observe_review_execution
             parsed = project_manager.build_parser().parse_args(["--library", str(self.root), *argv])
             slug = self.lib.resolve(parsed.plan)
             record = self.lib.read_record(slug)
@@ -66,8 +66,11 @@ class _Ceremony(unittest.TestCase):
                               for f in supplied if f["lens"] == lens]
                 else:
                     output = supplied
-                observe_review_execution(self.lib, slug, scoped_agents.plan_owner(record), lens,
-                                         parsed.packet_digest, output)
+                try:
+                    observe_review_execution(self.lib, slug, scoped_agents.plan_owner(record), lens,
+                                             parsed.packet_digest, output)
+                except scoped_agents.EvidenceError:
+                    pass  # Negative packet fixtures must reach the command's own refusal too.
             argv = (*argv, "--session", "fixture-root")
         with contextlib.redirect_stdout(out), contextlib.redirect_stderr(err):
             code = tool.main(["--library", str(self.root), *argv])
@@ -79,8 +82,7 @@ class _Ceremony(unittest.TestCase):
     def packet_digest(self, slug):
         """The digest `review record` will verify against — re-rendered exactly as the verb does."""
         import plan_projection
-        return project_manager.core.digest(
-            plan_projection.render_plan(self.lib.head(slug), self.lib.read_record(slug)).encode("utf-8"))
+        return project_manager.review_packet(self.lib, slug)[1]
 
     def recorded_packet_digest(self, slug):
         """The digest the RECORDED review names. An amendment must match this, not a fresh render:
@@ -653,7 +655,12 @@ class ConsentGates(_Ceremony):
                          "--disposition", "rejected", "--rationale", "No.",
                          "--does-not-block-this-pr")
         self.run_command("present-findings", slug, "--operator-decided")
-        self.lib.update_record(slug, lambda current: current.pop("findings_presented", None))
+        # This fixture predates both subject blocks and approval envelopes.
+        def historical(current):
+            current.pop("findings_presented", None)
+            current.pop("review_contract_format", None)
+            current["approval"].pop("review_contract", None)
+        self.lib.update_record(slug, historical)
         self.assertEqual(project_manager.seal_refusals(self.lib, slug), [])
         self.assertEqual(self.run_command("seal", slug, "--operator-decided")[0], 0)
 
@@ -815,8 +822,7 @@ class D11TheReviewRecordCarriesLensesAndNothingAboutEffort(_Ceremony):
         self.assertFalse(any("ran at" in r or "effort" in r for r in refusals), refusals)
 
 
-if __name__ == "__main__":
-    unittest.main()
+
 
 
 class D12OneBrokenProgramRecordFrozeEveryPlansSeal(_Ceremony):
@@ -1096,3 +1102,24 @@ class D16TheDisclosuresDoNotStateThingsTheCodeKnowsAreFalse(_Ceremony):
         disclosures = project_manager.seal_disclosures(self.lib, standalone)
         self.assertFalse(any("cannot be parsed" in line for line in disclosures),
                          "a schema-invalid record parses; only its schema fails")
+
+
+class SupplementalPresentation(unittest.TestCase):
+    def test_new_results_and_changed_dispositions_invalidate_presentation(self):
+        record = {'approval': {'review_contract': {'digest': 'frozen'}},
+                  'plan_review': {'findings': [{'id': 'A', 'disposition': 'accepted-fixed'}]}}
+        record['findings_presented'] = {'lineage_digest': plan_lifecycle.review_lineage_digest(record)}
+        self.assertTrue(plan_lifecycle.presentation_current(record))
+        record['supplemental_reviews'] = [{'renewal_digest': 'renewal', 'review': {
+            'findings': [{'id': 'R-A', 'severity': 'serious', 'summary': 'New obligation'}]}}]
+        self.assertFalse(plan_lifecycle.presentation_current(record))
+        self.assertEqual(['A', 'R-A'], [f['id'] for f in plan_lifecycle.findings(record)])
+        record['supplemental_reviews'][0]['review']['findings'][0]['disposition'] = 'accepted-fixed'
+        record['findings_presented']['lineage_digest'] = plan_lifecycle.review_lineage_digest(record)
+        self.assertTrue(plan_lifecycle.presentation_current(record))
+        record['supplemental_reviews'][0]['review']['findings'][0]['disposition'] = 'rejected'
+        self.assertFalse(plan_lifecycle.presentation_current(record))
+
+
+if __name__ == "__main__":
+    unittest.main()

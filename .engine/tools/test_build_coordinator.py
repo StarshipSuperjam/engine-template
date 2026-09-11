@@ -122,19 +122,19 @@ def plan_v2(objective="Ship a dependency-ordered Build", items=None, mode="seria
     }
 
 
-def observe_review_execution(library, slug, owner, lens, digest, output, root="fixture-root", purpose="review"):
+def observe_review_execution(library, slug, owner, lens, digest, output, root="fixture-root", purpose="review", review_contract=None, packet_content=None):
     """Synthetic native event fixture through the real store, not acceptance bypasses."""
     import uuid
     import scoped_agents
     import providers
     packet = library.plan_dir(slug) / (uuid.uuid4().hex + ".packet.txt")
-    packet.write_text("Synthetic frozen reviewer obligations: " + digest)
+    packet.write_text(packet_content or "Synthetic frozen reviewer obligations: " + digest)
     store = scoped_agents.Store(library, slug)
     role = "engine-qa-review-" + lens if owner["kind"] == "build" else "engine-design-review-" + lens
     if purpose == "worker":
         role = "engine-worker-builder"
     a = store.register(owner=owner, root=root, purpose=purpose, lens=lens, role=role,
-                       packet=packet, packet_digest=digest)
+                       packet=packet, packet_digest=digest, review_contract=review_contract)
     child = "child-" + a["id"]
     transcript = packet.with_suffix(".jsonl")
     transcript.write_text(json.dumps({"type": "session_meta", "payload": {"id": child,
@@ -7617,6 +7617,242 @@ class TheRetiredReviewEffortFieldsLeaveOnRead(CoordinatorCase):
         stage = loaded["reviews"]["deliverable"]
         self.assertFalse({k for k in stage if "effort" in k})
         self.assertFalse({k for k in stage["receipts"][0] if "effort" in k})
+
+
+
+
+
+class TestFrozenBuildContracts(CoordinatorCase):
+    DELIVERABLE_LENSES = TestReviewAndFindings.DELIVERABLE_LENSES
+    packet = TestReviewAndFindings.packet
+    receipt_args = TestReviewAndFindings.receipt_args
+
+    def setUp(self):
+        super().setUp()
+        import reviewer_contracts
+        self.seed(); self.approve('thorough'); self.integrate_all()
+        record = self.review_library.read_record(self.review_slug)
+        self.frozen = reviewer_contracts.capture(bc.ROOT,
+            {'plan_id':PLAN_ID,'revision':1,'plan_digest':record['current']['plan_digest']},
+            'thorough', ['architecture','feasibility','product-intent','risk-governance'],
+            self.DELIVERABLE_LENSES, instructions='Read the complete approved plan and change.')
+        self.store.mutate(lambda s:s.update(review_contract=self.frozen,review_contract_format=1,
+            validation={'commit':HEAD_A,'results':[{'id':'self-test','commit':HEAD_A,'passed':True,'summary':'green'}]}))
+
+    def record_frozen(self, packet, lens, report=None):
+        import scoped_agents
+        state = self.store.read()
+        args = self.receipt_args(packet,lens,[])
+        args.session = 'fixture-root'
+        if report is not None:
+            source = Path(self.temp.name)/'review-report.json';source.write_text(json.dumps(report))
+            args.report = str(source)
+        observe_review_execution(self.review_library,self.review_slug,scoped_agents.build_owner(state),
+            lens,args.lens_packet_digest,report or [],review_contract=bc.reviewer_contracts.effective_build(state),packet_content=json.dumps(packet))
+        with contextlib.redirect_stdout(io.StringIO()):
+            bc.cmd_review_record(args,self.store)
+
+    def test_frozen_contract_can_compose_its_first_pr_body(self):
+        import build_coordinator_contract as bcc
+        from test_build_coordinator_contract import _good_claim
+        state = self.state()
+        claim = _good_claim()
+        claim["review"]["finding_summaries"] = []
+        record = self.review_library.read_record(self.review_slug)
+        with mock.patch.object(bc, "_sealed_plan_record", return_value=(record, None)), \
+                mock.patch.object(bc, "_run", return_value=types.SimpleNamespace(
+                    returncode=129, stdout="", stderr="fatal: not a git repository")):
+            evidence = bc._assemble_evidence(state, bc._plan(str(self.plan_path)), claim, HEAD_A,
+                                             {"body": "", "isDraft": True})
+        body = bcc.compose(claim, evidence)
+        self.assertIn(bc._review_lineage_marker(state), body)
+
+    def test_bound_packet_keeps_approved_roster_when_installation_list_changes(self):
+        packet = self.packet(roster=[])
+        self.assertEqual(set(self.DELIVERABLE_LENSES),set(packet['required_lenses']))
+        self.assertEqual(self.frozen,packet['review_contract'])
+        self.assertEqual(1,packet['approval_authority']['owner']['generation'])
+
+    def test_clean_same_mandate_replacement_keeps_undispositioned_findings(self):
+        packet = self.packet()
+        self.record_frozen(packet, 'technical-integrity', [
+            {'severity': 'blocking', 'message': 'Original unresolved defect', 'location': None}])
+        old = self.state()['reviews']['deliverable']['receipts'][0]
+        self.assertEqual(old['finding_ids'], bc.review.missing_findings(self.state()))
+        self.store.mutate(lambda s: s['validation'].update(commit=HEAD_B,
+            results=[{'id':'self-test','commit':HEAD_B,'passed':True,'summary':'green'}]))
+        newer = self.packet(head=HEAD_B)
+        with mock.patch.object(bc, '_head', return_value=HEAD_B):
+            self.record_frozen(newer, 'technical-integrity')
+        state = self.state()
+        self.assertEqual(old['finding_ids'], bc.review.missing_findings(state))
+        self.assertEqual(old, state['review_evidence_history'][0]['receipt'])
+        self.assertTrue(state['review_evidence_history'][0]['effective'])
+
+    def test_mixed_build_renewal_owes_only_the_selected_changed_lens(self):
+        packet = self.packet()
+        for lens in self.DELIVERABLE_LENSES:
+            self.record_frozen(packet, lens)
+        original = self.state()['reviews']['deliverable']['receipts']
+        root = Path(bc.scoped_agents.__file__).resolve().parents[2]
+        for lens in ('technical-integrity', 'usability'):
+            path = root / f'.claude/agents/engine-qa-review-{lens}.md'
+            path.write_text(path.read_text().replace('reviewer-contract-version: 1', 'reviewer-contract-version: 2'))
+        output = Path(self.temp.name) / 'mixed-build.json'
+        args = bc.parser().parse_args(['review','contract-preview','--plan',str(self.plan_path),
+            '--action','adopt','--adopt-lens','pre-submission-review:technical-integrity','--output',str(output)])
+        with mock.patch.object(bc, 'ROOT', root), contextlib.redirect_stdout(io.StringIO()):
+            bc.cmd_build_contract_preview(args, self.store)
+            apply = argparse.Namespace(plan=str(self.plan_path), input=str(output),
+                reason='Adopt integrity and retain usability', operator_decided=True)
+            bc.cmd_build_contract_apply(apply, self.store)
+            state = self.state()
+            self.assertEqual([], bc._build_review_drift(state))
+            self.assertEqual(['technical-integrity'], [d['lens'] for d in state['review_contract_renewals'][0]['delta']])
+            self.assertEqual(original, state['reviews']['deliverable']['receipts'])
+            self.assertIn('pre-submission-review/usability — retain', bc._drift_line(state, HEAD_A))
+            self.assertIn('pre-submission-review/technical-integrity — adopt', bc._drift_line(state, HEAD_A))
+            self.packet()
+            state = self.state()
+            with mock.patch.object(bc.ranges, 'receipt_covers', return_value=True):
+                self.assertEqual(['technical-integrity'], bc._missing_receipts(state['reviews']['deliverable'], state=state))
+            bc.cmd_build_contract_apply(apply, self.store)
+            self.assertEqual(state, self.state())
+
+    def test_clean_replacement_cannot_supersede_a_still_blocking_disposition(self):
+        packet = self.packet()
+        self.record_frozen(packet, 'technical-integrity', [
+            {'severity':'blocking','message':'Original unresolved defect','location':None}])
+        finding_id = self.state()['reviews']['deliverable']['receipts'][0]['finding_ids'][0]
+        args = bc.parser().parse_args(['finding','record','--id',finding_id,'--stage','deliverable',
+            '--lens','technical-integrity','--severity','blocking','--summary','Original unresolved defect',
+            '--disposition','partially-accepted','--rationale','The unresolved portion still needs repair',
+            '--blocks-this-pr'])
+        with contextlib.redirect_stdout(io.StringIO()):
+            bc.cmd_finding_record(args, self.store)
+        original = self.state()['findings'][0]
+        self.store.mutate(lambda s: s['validation'].update(commit=HEAD_B,
+            results=[{'id':'self-test','commit':HEAD_B,'passed':True,'summary':'green'}]))
+        newer = self.packet(head=HEAD_B)
+        with mock.patch.object(bc, '_head', return_value=HEAD_B):
+            self.record_frozen(newer, 'technical-integrity')
+        state = self.state()
+        self.assertEqual(original, state['findings'][0])
+        self.assertTrue(bc.review.blocks_submission(bc.review.live_findings(state)[0]))
+        self.assertTrue(state['review_evidence_history'][0]['effective'])
+
+    def test_editorial_provenance_reaches_status_and_composed_pr_without_private_text(self):
+        root = Path(bc.scoped_agents.__file__).resolve().parents[2]
+        path = root / '.claude/agents/engine-qa-review-technical-integrity.md'
+        original = self.state()['review_contract']
+        old_hash = next(p['source']['digest'] for p in original['panels']['pre-submission-review']
+                        if p['lens'] == 'technical-integrity')
+        path.write_text(path.read_text() + '\nPRIVATE-EDITORIAL-WITNESS\n')
+        new_hash = bc._digest(path.read_bytes())
+        with mock.patch.object(bc, 'ROOT', root), mock.patch.object(bc, '_head', return_value=HEAD_A):
+            state = self.state()
+            status = bc._status(state, bc._plan(str(self.plan_path)))
+            disclosure = bc._drift_line(state, HEAD_A)
+            self.assertEqual([], bc._build_review_drift(state))
+        for text in ('\n'.join(status['warnings']), disclosure):
+            self.assertIn(old_hash, text)
+            self.assertIn(new_hash, text)
+            self.assertNotIn(str(root), text)
+            self.assertNotIn('PRIVATE-EDITORIAL-WITNESS', text)
+        self.assertEqual(original, self.state()['review_contract'])
+
+    def test_editorial_regeneration_preserves_receipt_and_findings(self):
+        packet = self.packet()
+        self.record_frozen(packet,'technical-integrity')
+        original = self.store.read()['reviews']['deliverable']['receipts']
+        self.assertEqual(1,len(original))
+        # Incidental installed file metadata is no longer an approved requirement.
+        changed = self.packet(roster=[{'lens':lens,'path':'moved/'+lens+'.md','digest':'sha256:'+'0'*64}
+                                     for lens in self.DELIVERABLE_LENSES])
+        state = self.store.read()
+        self.assertEqual(packet['packet_digest'],changed['packet_digest'])
+        self.assertEqual(original,state['reviews']['deliverable']['receipts'])
+        self.assertNotIn('technical-integrity',bc._missing_receipts(state['reviews']['deliverable']))
+
+    def test_model_renewal_applies_without_changing_the_sealed_plan_panel(self):
+        import scoped_agents
+        root = Path(scoped_agents.__file__).resolve().parents[2]
+        path = root / '.engine/policies/model-bindings.json'
+        policy = json.loads(path.read_text())
+        policy['providers']['codex']['tiers']['judgment']['model'] = 'new-judgment-model'
+        path.write_text(json.dumps(policy))
+        with mock.patch.object(bc, 'ROOT', root):
+            preview = bc._build_contract_preview(self.store.read(), 'adopt')
+            self.assertEqual({'divergence-hunter', 'security-governance'}, {d['lens'] for d in preview['delta']})
+            self.assertTrue(all(d['role'] == 'pre-submission-review' for d in preview['delta']))
+            source = Path(self.temp.name) / 'model-renewal.json'
+            source.write_text(json.dumps(preview))
+            args = argparse.Namespace(plan=str(self.plan_path), input=str(source), reason='Adopt the changed QA model', operator_decided=True)
+            with contextlib.redirect_stdout(io.StringIO()):
+                bc.cmd_build_contract_apply(args, self.store)
+            current = bc.reviewer_contracts.effective_build(self.store.read())
+            self.assertEqual([p['semantic'] for p in self.frozen['panels']['plan-review']],
+                             [p['semantic'] for p in current['panels']['plan-review']])
+            self.assertEqual(self.frozen, self.store.read()['review_contract'])
+            self.assertEqual([], bc._build_review_drift(self.store.read()))
+
+    def test_renewal_requires_current_owner_and_preserves_original_contract(self):
+        with mock.patch.object(bc,'_installed',return_value=bc.review.installed(bc.ROOT)):
+            preview = bc._build_contract_preview(self.store.read(),'retain')
+            output = Path(self.temp.name)/'renewal.json';output.write_text(json.dumps(preview))
+            args = argparse.Namespace(plan=str(self.plan_path),input=str(output),reason='Retain reviewed mandate',operator_decided=False)
+            with self.assertRaises(bc.CoordinatorError):
+                bc.cmd_build_contract_apply(args,self.store)
+            args.operator_decided = True
+            with contextlib.redirect_stdout(io.StringIO()):
+                bc.cmd_build_contract_apply(args,self.store)
+            state = self.store.read()
+            self.assertEqual(self.frozen,state['review_contract'])
+            self.assertEqual(1,len(state['review_contract_renewals']))
+            with contextlib.redirect_stdout(io.StringIO()):
+                bc.cmd_build_contract_apply(args,self.store)
+            self.assertEqual(state,self.store.read())
+            preview['build_owner']['generation'] += 1;output.write_text(json.dumps(preview))
+            with self.assertRaises(bc.CoordinatorError):
+                bc.cmd_build_contract_apply(args,self.store)
+
+    def test_adopted_mandate_requires_only_changed_lens_and_refreshes_disclosure(self):
+        import copy
+        packet = self.packet()
+        for lens in self.DELIVERABLE_LENSES:
+            self.record_frozen(packet,lens)
+        original = copy.deepcopy(self.store.read()['reviews']['deliverable']['receipts'])
+        available = bc.reviewer_contracts.discover(bc.ROOT)
+        changed = next(p for p in available if p['lens']=='technical-integrity')
+        changed['semantic']['mandate']['version'] += 1
+        changed['semantic_digest'] = bc._digest(changed['semantic'])
+        changed['source']['instructions'] = changed['source']['instructions'].replace('reviewer-contract-version: 1','reviewer-contract-version: 2')
+        changed['source']['digest'] = bc._digest(changed['source']['instructions'].encode())
+        def discover(root, role=None):
+            return [p for p in available if role is None or p['semantic']['role']==role]
+        with mock.patch.object(bc.reviewer_contracts,'discover',side_effect=discover):
+            preview = bc._build_contract_preview(self.store.read(),'adopt')
+            self.assertEqual(['technical-integrity'],[d['lens'] for d in preview['delta']])
+            source = Path(self.temp.name)/'adopt.json';source.write_text(json.dumps(preview))
+            with contextlib.redirect_stdout(io.StringIO()):
+                bc.cmd_build_contract_apply(argparse.Namespace(plan=str(self.plan_path),input=str(source),reason='Adopt changed integrity mandate',operator_decided=True),self.store)
+            current = self.packet()
+            state = self.store.read()
+            self.assertEqual(original,state['reviews']['deliverable']['receipts'])
+            with mock.patch.object(bc.ranges,'receipt_covers',return_value=True):
+                self.assertEqual(['technical-integrity'],bc._missing_receipts(state['reviews']['deliverable']))
+            self.record_frozen(current,'technical-integrity',[{'severity':'serious','message':'New mandate found a gap','location':None}])
+            state = self.store.read()
+            self.assertEqual(1,len(state['review_evidence_history']))
+            self.assertEqual(next(r for r in original if r['lens']=='technical-integrity'),state['review_evidence_history'][0]['receipt'])
+            self.assertTrue(state['review_evidence_history'][0]['effective'])
+            self.assertEqual(1,len(bc.review.missing_findings(state)))
+            marker = bc._review_lineage_marker(state)
+            state['pr_contract']={'commit':HEAD_A,'body_digest':'sha256:'+'1'*64,'complete':True,'review_lineage_digest':bc._review_lineage_digest(state)}
+            self.assertTrue(bc._review_contract_current(state))
+            state['findings'].append({'id':'changed-disposition'})
+            self.assertFalse(bc._review_contract_current(state))
+            self.assertNotEqual(marker,bc._review_lineage_marker(state))
 
 
 if __name__ == "__main__":

@@ -6,6 +6,8 @@ lens: feasibility
 model-tier: judgment
 model: opus
 permissions: read-only
+reviewer-contract: engine:engine-design-review-feasibility
+reviewer-contract-version: 1
 output-contract: plan-review-finding.v1
 disallowedTools: [Edit, Write, NotebookEdit, Bash]
 ---

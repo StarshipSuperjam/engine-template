@@ -92,6 +92,14 @@ retune path. **In a deployed repository** `model-bindings.json` is engine-owned 
 it, so a hand-edit there does not survive the update. (Retuning a deployed repo's model bindings so they
 survive an update is not yet supported — that is a known, separate gap.)
 
+### Review identity at approval
+
+The shared reviewer envelope freezes resolved provider **models** at approval. Models participate in
+semantic identity; effort does not. Reviewer effort remains harness-controlled with no floor, including
+after renewal or historical adoption. Changing a model requires an explicit per-lens retain/adopt decision
+for an active frozen plan or Build, rather than invalidating every accepted panel on the next file read.
+
+
 ## Rationale
 
 The engine cannot meter its own token spend or choose its own model mid-session — it does not own the

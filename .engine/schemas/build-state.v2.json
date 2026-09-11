@@ -5,7 +5,15 @@
   "type": "object",
   "additionalProperties": false,
   "required": ["schema_version", "revision", "build", "plan", "approval", "reviews", "findings", "checkpoint", "progress", "work", "validation", "repair", "preflights", "pr_contract", "submission"],
+  "allOf": [{"if": {"required": ["review_contract_format"]}, "then": {"required": ["review_contract"]}}],
   "properties": {
+    "review_contract_adoptions": {"type": "array", "minItems": 1, "maxItems": 1, "items": {"type": "object"}},
+    "review_contract_format": {"const": 1},
+    "review_contract": {"type": "object", "required": ["schema_version", "digest"], "properties": {"schema_version": {"const": "reviewer-contract.v1"}}, "description": "Complete shared reviewer-contract.v1.json envelope; reviewer_contracts.effective_build validates the canonical schema and lineage at every coordinator store read/write."},
+    "review_contract_renewals": {"type": "array", "items": {"type": "object"}},
+    "review_receipt_origins": {"type": "object", "additionalProperties": {"enum": ["deliverable", "repair"]}},
+    "review_evidence_history": {"type": "array", "items": {"type": "object", "additionalProperties": false, "required": ["stage", "receipt"], "properties": {"stage": {"enum": ["deliverable", "repair"]}, "receipt": {"$ref": "#/$defs/review_receipt"}, "effective": {"type": "boolean"}}}},
+    "review_contract_build_decisions": {"type": "object", "additionalProperties": {"type": "object"}},
     "admission": {"$ref": "#/$defs/admission"},
     "rewrite_preparation": {"$ref": "#/$defs/rewrite_preparation"},
     "rewrite_recoveries": {"type": "array", "items": {"type": "object", "additionalProperties": false, "required": ["preparation", "to_commit", "divergent_paths", "invalidated_nodes", "prior_work", "prior_progress"], "properties": {
@@ -107,7 +115,7 @@
     },
     "preflights": {"type": "array", "items": {"$ref": "#/$defs/result"}},
     "pr_contract": {
-      "oneOf": [{"type": "null"}, {"type": "object", "additionalProperties": false, "required": ["commit", "body_digest", "complete"], "properties": {"commit": {"$ref": "#/$defs/commit"}, "body_digest": {"$ref": "#/$defs/digest"}, "complete": {"type": "boolean"}}}]
+      "oneOf": [{"type": "null"}, {"type": "object", "additionalProperties": false, "required": ["commit", "body_digest", "complete"], "properties": {"commit": {"$ref": "#/$defs/commit"}, "body_digest": {"$ref": "#/$defs/digest"}, "complete": {"type": "boolean"}, "review_lineage_digest": {"$ref": "#/$defs/digest"}}}]
     },
     "submission": {"enum": ["draft", "ready", "unknown"]},
     "checkout_snapshot": {
@@ -303,6 +311,8 @@
       "type": "object", "additionalProperties": false,
       "required": ["lens", "packet_digest", "commit", "finding_ids"],
       "properties": {
+        "contract_digest": {"$ref": "#/$defs/digest"},
+        "obligation_digest": {"$ref": "#/$defs/digest"},
         "lens": {"type": "string", "minLength": 1}, "packet_digest": {"$ref": "#/$defs/digest"},
         "referent_digest": {"$ref": "#/$defs/digest"}, "lens_packet_digest": {"$ref": "#/$defs/digest"},
         "commit": {"oneOf": [{"$ref": "#/$defs/commit"}, {"type": "null"}]},
@@ -331,7 +341,9 @@
       "type": "object", "additionalProperties": false,
       "required": ["lens", "path", "digest", "lens_packet_digest"],
       "properties": {
-        "result_contract": {"$ref": "#/$defs/result_binding"},
+        "semantic_digest": {"$ref": "#/$defs/digest"},
+        "obligation_digest": {"$ref": "#/$defs/digest"},
+        "result_contract": {"oneOf": [{"$ref": "#/$defs/result_binding"}, {"type": "object", "additionalProperties": false, "required": ["id", "mode", "enforcement", "limits", "schema", "schema_digest"], "properties": {"id": {"type": "string"}, "mode": {"const": "historical-receipt"}, "enforcement": {"const": "historical-unverified"}, "limits": {"const": {}}, "schema": {"type": "object"}, "schema_digest": {"type": "string", "pattern": "^sha256:[0-9a-f]{64}$"}}}]},
         "lens": {"type": "string", "minLength": 1}, "path": {"type": "string", "minLength": 1},
         "digest": {"$ref": "#/$defs/digest"}, "lens_packet_digest": {"$ref": "#/$defs/digest"}
       }
