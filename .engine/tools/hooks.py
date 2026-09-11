@@ -834,10 +834,13 @@ def _demo_promoter(event: str, kind: str, message: str):
     Issue number, so the demo renders the promoted case."""
     import telemetry
     fake = telemetry._FakeGitHub()
-    gh = telemetry.GitHubIssues("you/your-project", "demo-token", transport=fake.transport)
+    gh = telemetry.GitHubIssues("you/your-project", "demo-token", transport=fake.transport,
+                               recovery_store=fake.recovery_store)
     record = {"source_id": _fail_open_source_id(event, kind), "severity": telemetry.TRUST_CRITICAL,
               "message": message, "first_seen": moment.utc_now(), "last_seen": moment.utc_now()}
-    return telemetry.emit_finding(record, gh=gh)
+    from unittest.mock import patch
+    with patch.dict(os.environ, {"GITHUB_REPOSITORY": "you/your-project"}):
+        return telemetry.emit_finding(record, gh=gh)
 
 
 def _run_capture(event: str, handler, payload: dict, promote=None):

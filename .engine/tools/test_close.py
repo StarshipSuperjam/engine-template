@@ -40,7 +40,8 @@ def fake_gh():
     """A real telemetry.GitHubIssues over the in-memory FakeGitHub transport (only the network is faked;
     the promotion logic is real)."""
     fake = telemetry._FakeGitHub()
-    return telemetry.GitHubIssues("you/proj", "tok", transport=fake.transport), fake
+    return telemetry.GitHubIssues("you/proj", "tok", transport=fake.transport,
+                                  recovery_store=fake.recovery_store), fake
 
 
 def open_issue_count(fake):
@@ -58,6 +59,9 @@ def _stop(handler_payload, stdin_text=None):
 
 class CloseBase(unittest.TestCase):
     def setUp(self):
+        identity = unittest.mock.patch.dict(os.environ, {"GITHUB_REPOSITORY": "you/proj"})
+        identity.start()
+        self.addCleanup(identity.stop)
         self.sid = f"engine-test-close-{self.id()}"
         close.clear(self.sid)
         # Hermeticity: close.handler triggers ambient capture on EVERY Stop, so every _stop() below

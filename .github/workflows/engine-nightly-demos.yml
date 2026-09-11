@@ -28,7 +28,7 @@
 #
 # LEAST PRIVILEGE, IN TWO FENCED JOBS. `demonstrations` runs the corpus with read-only permissions and no
 # token: it executes code whose whole job is to be adversarial about the engine, and it must not be able to
-# write anything. `report` holds issues:write and nothing else, and its ONLY input is the previous job's
+# write anything. `report` holds Issues write plus repository-wide Contents write for the fixed recovery journal, and its ONLY input is the previous job's
 # structured JSON result — never raw demonstration output. A job with a write token whose behaviour is
 # decided by unstructured text it was handed is a job that can be steered by its own input.
 name: engine-nightly-demos
@@ -58,6 +58,8 @@ jobs:
     steps:
       - name: Check out the repository
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
       - name: Am I the engine's own repository?
         id: home
         # The gate, and the reason it is not just the retirement census: an upgrade re-installs engine files,
@@ -149,11 +151,13 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 10
     permissions:
-      contents: read        # the checkout, to materialize the tool-runtime
-      issues: write         # to file, update or close the ONE report — nothing else
+      contents: write       # fixed recovery journal; GitHub grants this repository-wide
+      issues: write         # to file, update or close the ONE report
     steps:
       - name: Check out the repository
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
       - name: Set up uv (pinned)
         uses: astral-sh/setup-uv@20cfd1bf945f4377ade1205e4dbc17946fc9a30d # v10.0.1
         with:

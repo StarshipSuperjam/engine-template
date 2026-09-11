@@ -53,21 +53,27 @@ def _gh_fail(args):
     return 1, "", "could not resolve host github.com"
 
 
-def _fake_github(opened):
-    """A real telemetry.GitHubIssues wired to a fake transport (only the network is faked) that records the
-    opened issue, so a test can assert telemetry-on-fire actually promoted."""
-    label = telemetry.ENGINE_DOMAIN_LABEL
+def setUpModule():
+    from unittest.mock import patch
+    global _report_identity
+    _report_identity = patch.dict(os.environ, {"GITHUB_REPOSITORY": "owner/repo"})
+    _report_identity.start()
 
+
+def tearDownModule():
+    _report_identity.stop()
+
+
+def _fake_github(opened):
+    """Real reporting over an activated fake journal and complete fake Issue readbacks."""
+    fake = telemetry._FakeGitHub()
+    fake._next = 99
     def transport(method, path, body):
-        if method == "GET" and f"/labels/{label}" in path:
-            return 200, {}
-        if method == "GET" and "/issues?" in path:
-            return 200, []
         if method == "POST" and path.endswith("/issues"):
             opened.append(body)
-            return 201, {"number": 99}
-        return 200, {}
-    return telemetry.GitHubIssues("owner/repo", "tok", transport=transport)
+        return fake.transport(method, path, body)
+    return telemetry.GitHubIssues("owner/repo", "tok", transport=transport,
+                                  recovery_store=fake.recovery_store)
 
 
 class TestOutgoingDiff(unittest.TestCase):

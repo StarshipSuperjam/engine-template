@@ -155,7 +155,7 @@ NAMED_INFRA = {p for p in FOUNDATION_INFRA if p.startswith(".engine/")}
 # surfaces. It stays operator-owned config all the same (in no `provides`, preserved across upgrade), and is
 # retired at first-run (instantiator._FIRST_RUN_ASSET_FILES) so a generated deployment still starts absent — the
 # StarshipSuperjam/engine-template#639 ships-ABSENT steady state holds for every downstream repo; only the engine's own home carries it.
-OPERATOR_CONFIG = {".engine/operator-issue-triage.json", ".engine/operator-overrides.json", ".engine/operator-guarded-paths.json",
+OPERATOR_CONFIG = {".engine/operator-issue-recovery.json", ".engine/operator-issue-triage.json", ".engine/operator-overrides.json", ".engine/operator-guarded-paths.json",
                    ".engine/operator-local-references.json",
                    # Session-start automatic checkout preference. It is deliberately outside every module's
                    # provides and survives overlays: an explicit opt-out is the operator's durable choice, and

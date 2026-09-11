@@ -939,6 +939,9 @@
   ".engine/operations/first-run.md": [
    "core"
   ],
+  ".engine/operations/issue-recovery.md": [
+   "core"
+  ],
   ".engine/operations/issue-triage.md": [
    "core"
   ],
@@ -1146,6 +1149,12 @@
   ".engine/schemas/interface.v1.json": [
    "core"
   ],
+  ".engine/schemas/issue-recovery.v1.json": [
+   "core"
+  ],
+  ".engine/schemas/issue-submission-input.v1.json": [
+   "core"
+  ],
   ".engine/schemas/issue-triage.v1.json": [
    "core"
   ],
@@ -1162,6 +1171,9 @@
    "core"
   ],
   ".engine/schemas/operation.v1.json": [
+   "core"
+  ],
+  ".engine/schemas/operator-issue-recovery.v1.json": [
    "core"
   ],
   ".engine/schemas/operator-issue-triage.v1.json": [
@@ -1747,6 +1759,12 @@
    "core"
   ],
   ".engine/tools/issue_label_client.py": [
+   "core"
+  ],
+  ".engine/tools/issue_recovery.py": [
+   "core"
+  ],
+  ".engine/tools/issue_recovery_store.py": [
    "core"
   ],
   ".engine/tools/issue_triage.py": [
@@ -2496,6 +2514,9 @@
   ".engine/tools/test_issue_kind_label.py": [
    "core"
   ],
+  ".engine/tools/test_issue_recovery.py": [
+   "core"
+  ],
   ".engine/tools/test_issue_triage.py": [
    "core"
   ],
@@ -2557,6 +2578,9 @@
    "core"
   ],
   ".engine/tools/test_moment.py": [
+   "core"
+  ],
+  ".engine/tools/test_nightly_demo_report.py": [
    "core"
   ],
   ".engine/tools/test_nightly_demos.py": [

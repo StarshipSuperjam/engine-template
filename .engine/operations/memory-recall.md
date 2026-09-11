@@ -104,10 +104,10 @@ and not with a shell redirect (`>`, `>>`, `tee`); its own CLI is the only safe d
 write targeting a memory-shaped path gets its own honest denial (nothing was saved; ask again and it is saved
 properly), never the generic one.
 
-**The engine-Issue carve-out.** An Issue about the engine's own health takes `--label engine` at creation (the
-literal string, never `engine-domain`), its body authored through the issue helper (`.engine/tools/issue_author.py`); a
-non-conforming `engine`-labelled `gh issue create` is rerouted to that helper. Any other Issue needs no label; the
-engine derives `Kind:`.
+**The engine-Issue carve-out.** File through the issue helper's complete create operation. Recognized
+trusted-repository creates route there regardless of label and select explicit Engine/product scope.
+Engine scope applies its label and requires durable recovery activation; product scope preserves ordinary
+fields without Engine markers. See [Issue recovery](issue-recovery.md) for supported surfaces and limits.
 
 **Tool names here are Claude's;** another runtime reaches the same capabilities by its own names, the procedure
 unchanged. Meaning-based recall is a required part of memory, so `recall-by-meaning` is always among the tools;

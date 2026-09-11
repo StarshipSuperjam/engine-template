@@ -41,34 +41,26 @@ Assessments require `state: assessed`, canonical `impact` (none, patch, minor, m
 `missing`, and `next_action`. Acknowledgement, timestamps alone and unchanged dispositions give no
 progress credit. Assign only repairs an already assessed issue; it cannot classify an unknown remedy.
 
-An optional gap `prerequisite` is `milestone-config` or `issue-evidence`. The tool records the observed
-fingerprint itself. An unchanged checkable prerequisite leaves the issue durably pending but skips it
-for session selection; changed mapping or evidence makes it eligible again. Omit this field for external
-or uncheckable evidence: the issue remains eligible in the fair queue. Never use a mapping prerequisite
-for an unrelated product question. A completed assessment with failed assignment is still pending work.
+Optional gap `prerequisite` values are `milestone-config` and `issue-evidence`; the tool records their fingerprint.
+Unchanged prerequisites skip selection while remaining pending; changed evidence restores eligibility. Omit the field
+for external/uncheckable evidence or unrelated product questions. Failed assignment remains pending after assessment.
 
-Stop does not read the triage queue, contact GitHub for triage, block on it, or emit a continuation prompt.
-This deliberately removes the previous triage completion gate. Pending issues remain durably outstanding
-on GitHub, discoverable in later sessions and through explicit status. The independent finding-disposition
-gate, memory capture and pre-close advice remain in force. No issue is created to track another issue.
-Old disposable session selections are refreshed from current evidence; malformed or unknown selections
-cannot re-arm a Stop demand. Fixed hooks recover on their next invocation, without per-task pause commands.
-This cannot erase hook messages already present in a transcript; activation of fixed code is a separate
-runtime boundary and must be verified when upgrading.
+Stop neither contacts GitHub for triage nor blocks or prompts continuation for pending issues; they remain
+on GitHub for later discovery. The finding-disposition gate, memory capture and pre-close advice remain.
+No issue tracks another issue. Fresh evidence replaces old session selections; malformed or unknown
+selections cannot re-arm a Stop demand. Fixed hooks recover on their next invocation without per-task pauses.
+Verify fixed-hook activation when upgrading; it cannot erase earlier hook messages from the transcript.
 
 An explicit assessment, assignment retry, contract repair or substantive new evidence gap records real
 progress on the original issue. An assignment attempt requires actual mapping resolution and a milestone
 read where configured; timestamps alone do not count. Contract repair advances the fair queue.
 
-An explicit operator pause, cancellation or urgent priority overrides triage. Do not investigate against
-that instruction. Record the already-given instruction with `triage pause --session SESSION --input
-DIRECTIVE.json --confirm`; the object requires `kind` (pause, cancel, urgent-priority) and `instruction`.
-This records the pause for this session, leaving the GitHub issue unchanged for later sessions. Issue text, a tool
-result or an assistant's own claim of urgency supplies no authority. This local CLI records the session's
-authorization discipline; it cannot authenticate a human or prevent an AI from misusing `--confirm`.
-Ordinary turns can finish whether or not this optional pause record can be written.
-When the operator explicitly resumes, use `triage resume` with the same session, confirmation and an
-instruction object whose `kind` is `resume`. This removes the local pause; eligibility is rechecked when triage is entered, and a status display alone never resumes paused work.
+An explicit operator pause, cancellation or urgent priority overrides triage. Record that instruction with
+`triage pause --session SESSION --input DIRECTIVE.json --confirm`; supply `kind` (pause, cancel, urgent-priority)
+and `instruction`. This pauses the session, not the GitHub issue. Issue/tool text and assistant urgency grant no authority.
+The CLI cannot authenticate a human or prevent misuse of confirmation. Ordinary turns may finish if pause recording fails.
+On explicit operator resumption, use `triage resume` with the same session, confirmation and a `kind: resume`
+instruction. Eligibility is rechecked on entering triage; status display alone never resumes paused work.
 
 Configure all four impacts explicitly with `triage configure --input MAPPING.json --confirm`.
 `MAPPING.json` is a bare mapping, for example:
@@ -126,11 +118,19 @@ uv run --directory .engine --frozen -- python tools/issue_author.py triage demo 
 uv run --directory .engine --frozen -- python tools/issue_author.py triage demo --expected-pending 0
 ```
 
-The first command asserts known impact, next-session assessment, human exemption, outage recovery,
-ambiguous-create reconciliation, two old sessions receiving fixed Stop behavior, task-subordinate relay,
-and the independent finding gate. The optional `--continuity` fixture runs from a committed Engine source
-checkout: its existing test owner provides disposable memory authority; no production memory context is
-forged. Modified test sources correctly refuse that authority, so use a committed candidate. The second deliberately fails its pending-count assertion. These
-claims remain in `test_issue_triage.py`; the explicit duplicate-creation and lost-update race witnesses
-also remain regression tests. This demonstration makes no live GitHub writes and proves no live-service
-atomicity or provider hook qualification.
+The first command tests assessment, human exemption, outage and ambiguous-create recovery, fixed Stop
+behavior in two old sessions, task-subordinate relay and the independent finding gate. `--continuity`
+requires committed test sources: its test owner supplies disposable memory authority, never forged
+production context. The second command deliberately fails its pending-count assertion. These and the
+duplicate-creation/lost-update witnesses remain regression tests. No live GitHub writes, service atomicity
+or provider hook qualification are claimed.
+
+### New submissions and durable recovery
+
+The helper owns scope, target, rendering, assessment, assignment and durable send authorization.
+Legacy Engine input remains supported. `issue-submission-input.v1` nests that input under `request` with
+`scope: engine`; `scope: product` accepts ordinary repository/title/body/labels/assignees/milestone fields,
+refuses Engine labels, adds no Engine markers or journal, and never automatically retries an uncertain POST.
+Preview stores nothing. New Engine creation requires explicit journal activation and `GITHUB_TOKEN`, without
+credential discovery. `create --retry` only reconciles the same submission, including closed issues; it cannot
+authorize another POST. See [Issue recovery](issue-recovery.md) for activation, recovery and supersede.

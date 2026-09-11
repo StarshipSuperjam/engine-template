@@ -1923,6 +1923,7 @@
           "operation:external-contribution-issue",
           "operation:external-contribution-submit",
           "operation:first-run",
+          "operation:issue-recovery",
           "operation:issue-triage",
           "operation:knowledge-impact-check",
           "operation:memory-migration-trial",
@@ -1995,6 +1996,7 @@
           "operation:external-contribution-issue",
           "operation:external-contribution-submit",
           "operation:first-run",
+          "operation:issue-recovery",
           "operation:issue-triage",
           "operation:knowledge-impact-check",
           "operation:memory-migration-trial",
@@ -3725,7 +3727,7 @@
       },
       "slug": "engine-file-engine-issue",
       "source": {
-        "fingerprint": "sha256:11f05780ec5ecc5ff7c328e38f9c8f531e1f18d0da67d71ace82ba536af9122f",
+        "fingerprint": "sha256:4b2d08a79867f3639ac46d7753a2820ff9f4bfe294219723495715c19e4deac8",
         "path": ".agents/skills/engine-file-engine-issue/SKILL.md"
       },
       "status": "active",
@@ -5245,7 +5247,7 @@
       },
       "slug": "ci-assurance",
       "source": {
-        "fingerprint": "sha256:7041c36c841b37a53085dcb0a9164370064b6cd2bd9284202945c8cb5993fcdf",
+        "fingerprint": "sha256:395e090783effb4aa151ee9588cd3132d144cff2fd802c1070f034754a517412",
         "path": ".engine/docs/ci-assurance.md"
       },
       "status": "active",
@@ -5507,7 +5509,7 @@
       },
       "slug": "core",
       "source": {
-        "fingerprint": "sha256:a86fc0c428dc8da91ad499b2c0a2a98f3379162f8f0673e0c5f9004c1ef7f7c0",
+        "fingerprint": "sha256:f0c23e1bec4e07bbfd7802792bf53bcb4ec54e8d7921b3c25e75678e8fabcff2",
         "path": ".engine/modules/core/manifest.json"
       },
       "status": "required",
@@ -6265,6 +6267,26 @@
       "type": "operation"
     },
     {
+      "id": "operation:issue-recovery",
+      "name": ".engine/operations/issue-recovery.md",
+      "owner": "core",
+      "predicates": {
+        "governed_by": [
+          "schema:operation.v1"
+        ],
+        "provided_by": [
+          "module:core"
+        ]
+      },
+      "slug": "issue-recovery",
+      "source": {
+        "fingerprint": "sha256:f4479fa8c678fcfcd0cf2a698741965f0c5c32df40cfdf48aed5b5b0f31cf3a0",
+        "path": ".engine/operations/issue-recovery.md"
+      },
+      "status": "active",
+      "type": "operation"
+    },
+    {
       "id": "operation:issue-triage",
       "name": ".engine/operations/issue-triage.md",
       "owner": "core",
@@ -6278,7 +6300,7 @@
       },
       "slug": "issue-triage",
       "source": {
-        "fingerprint": "sha256:816f1b760f15897f976f5fa3e4cb124cfb42b341e7e08b1ad1804c45abaf1a13",
+        "fingerprint": "sha256:cae5eac82017deda2dfc4eb9d468820dca642cd22ecbffb7125be9478e502d97",
         "path": ".engine/operations/issue-triage.md"
       },
       "status": "active",
@@ -6338,7 +6360,7 @@
       },
       "slug": "memory-recall",
       "source": {
-        "fingerprint": "sha256:9ff2977f44f5a26ca5387012b3ce4c84271762bc013bc2cbe8c3ac399d0ca770",
+        "fingerprint": "sha256:3ec450fff21dd43f56ac6e7b8c873137e9acfe517437a542c37ee8d26e1c0e18",
         "path": ".engine/operations/memory-recall.md"
       },
       "status": "active",
@@ -6418,7 +6440,7 @@
       },
       "slug": "operating-modes",
       "source": {
-        "fingerprint": "sha256:ad8ee3bafba97bfe56cb7b0610c084b1767f73718ea438f0e6fbd09facb8cfa4",
+        "fingerprint": "sha256:4769e544b5b1b0c833683f2353a3b560282f4afe9e90deb04152c1e9354025fb",
         "path": ".engine/operations/operating-modes.md"
       },
       "status": "active",
@@ -7481,6 +7503,40 @@
       "type": "schema"
     },
     {
+      "id": "schema:issue-recovery.v1",
+      "name": ".engine/schemas/issue-recovery.v1.json",
+      "owner": "core",
+      "predicates": {
+        "provided_by": [
+          "module:core"
+        ]
+      },
+      "slug": "issue-recovery.v1",
+      "source": {
+        "fingerprint": "sha256:b072c652c2ef1a34146ab64de8aacf07823004fe66f8e66ddbe1e01a87e6646c",
+        "path": ".engine/schemas/issue-recovery.v1.json"
+      },
+      "status": "active",
+      "type": "schema"
+    },
+    {
+      "id": "schema:issue-submission-input.v1",
+      "name": ".engine/schemas/issue-submission-input.v1.json",
+      "owner": "core",
+      "predicates": {
+        "provided_by": [
+          "module:core"
+        ]
+      },
+      "slug": "issue-submission-input.v1",
+      "source": {
+        "fingerprint": "sha256:f5369faf0915cf5c2079da1f2a58f37a5f4eb6a2a960c3b644d9551b904135d9",
+        "path": ".engine/schemas/issue-submission-input.v1.json"
+      },
+      "status": "active",
+      "type": "schema"
+    },
+    {
       "id": "schema:issue-triage.v1",
       "name": ".engine/schemas/issue-triage.v1.json",
       "owner": "core",
@@ -7578,6 +7634,23 @@
       "source": {
         "fingerprint": "sha256:7a2a7130a5e7ad3ffc9796f2ddca6cba7eb2bc501db2f81d4f712b2703671278",
         "path": ".engine/schemas/operation.v1.json"
+      },
+      "status": "active",
+      "type": "schema"
+    },
+    {
+      "id": "schema:operator-issue-recovery.v1",
+      "name": ".engine/schemas/operator-issue-recovery.v1.json",
+      "owner": "core",
+      "predicates": {
+        "provided_by": [
+          "module:core"
+        ]
+      },
+      "slug": "operator-issue-recovery.v1",
+      "source": {
+        "fingerprint": "sha256:665435cc3667c118c84eb04b51245d59fd980d2ee07f63a4abe20969593f5621",
+        "path": ".engine/schemas/operator-issue-recovery.v1.json"
       },
       "status": "active",
       "type": "schema"
@@ -8290,7 +8363,7 @@
       },
       "slug": "engine-file-engine-issue",
       "source": {
-        "fingerprint": "sha256:bcdefec18249aa5b9e73e776782ace726f095d43e3bb88c8a010ab3f03855bed",
+        "fingerprint": "sha256:1220691acbab3ca7554399c719fa22717560c5c2149897fda9e15278addbe993",
         "path": ".claude/skills/engine-file-engine-issue/SKILL.md"
       },
       "status": "active",
@@ -10387,7 +10460,7 @@
       },
       "slug": "close",
       "source": {
-        "fingerprint": "sha256:d09b30fd3f439a5ff549253780308688dd0290e1cb94a57d154e1567839aa182",
+        "fingerprint": "sha256:f7e87d12ce1dc4d77623881b39506fcbdad8ee206bac94a9c5f939ba6bc3c873",
         "path": ".engine/tools/close.py"
       },
       "status": "active",
@@ -10632,7 +10705,7 @@
       },
       "slug": "conformance_sweep",
       "source": {
-        "fingerprint": "sha256:fc20cf890100b22fce1ed7e9016b4ce9fc44dca8b52ac25b35cc28e030301709",
+        "fingerprint": "sha256:d87588f48a8991bb1902f0ac8f69fc2948fb354176f38098527b3bf61321af22",
         "path": ".engine/tools/conformance_sweep.py"
       },
       "status": "active",
@@ -12884,7 +12957,7 @@
       },
       "slug": "hooks",
       "source": {
-        "fingerprint": "sha256:6651cdb8d0ad85dddcd9bb8d8f63568c1db98ed7095411864ce6d4877b75fc94",
+        "fingerprint": "sha256:19708d72b0d8f7861e15bd5f0cafefba374da9a70a62a3bc7572cd42577dee71",
         "path": ".engine/tools/hooks.py"
       },
       "status": "active",
@@ -13088,7 +13161,9 @@
         "imports": [
           "tool:checkout_health",
           "tool:issue_kind",
+          "tool:issue_recovery",
           "tool:issue_triage",
+          "tool:moment",
           "tool:repo_identity",
           "tool:telemetry"
         ],
@@ -13098,7 +13173,7 @@
       },
       "slug": "issue_author",
       "source": {
-        "fingerprint": "sha256:33dcb0f7a67797d5ee055573f8986bfce6524a886f763b445ca684ded5ac0596",
+        "fingerprint": "sha256:f382e5fe6b64237e35babbaf0077581037b9a1c20395657fb1aecda3c7d46d56",
         "path": ".engine/tools/issue_author.py"
       },
       "status": "active",
@@ -13159,13 +13234,22 @@
       "name": ".engine/tools/issue_gate.py",
       "owner": "core",
       "predicates": {
+        "imports": [
+          "tool:issue_author",
+          "tool:issue_recovery",
+          "tool:issue_recovery_store",
+          "tool:modes",
+          "tool:providers",
+          "tool:repo_identity",
+          "tool:test_issue_recovery"
+        ],
         "provided_by": [
           "module:core"
         ]
       },
       "slug": "issue_gate",
       "source": {
-        "fingerprint": "sha256:f49b3837873b750cf001f1348407d662c1ce32cafdc4f88716625c059edfea61",
+        "fingerprint": "sha256:5c00562587925abf39adf1e72cce55fdd14a1ef1c0370e6b49a24f604dd0d0ce",
         "path": ".engine/tools/issue_gate.py"
       },
       "status": "active",
@@ -13269,6 +13353,53 @@
     },
     {
       "entrypoint": "library",
+      "guarded": false,
+      "id": "tool:issue_recovery",
+      "name": ".engine/tools/issue_recovery.py",
+      "owner": "core",
+      "predicates": {
+        "imports": [
+          "tool:build_coordinator_core",
+          "tool:issue_author",
+          "tool:issue_recovery_store",
+          "tool:issue_triage",
+          "tool:telemetry"
+        ],
+        "provided_by": [
+          "module:core"
+        ]
+      },
+      "slug": "issue_recovery",
+      "source": {
+        "fingerprint": "sha256:7d6c7d15a8cf7d4db451489153d22c53078ef69dedfceaf2707ae948069ef17a",
+        "path": ".engine/tools/issue_recovery.py"
+      },
+      "status": "active",
+      "summary": "Durable Engine submission lifecycle; Git state can record, but never replay, a send permit.",
+      "type": "tool"
+    },
+    {
+      "entrypoint": "library",
+      "guarded": false,
+      "id": "tool:issue_recovery_store",
+      "name": ".engine/tools/issue_recovery_store.py",
+      "owner": "core",
+      "predicates": {
+        "provided_by": [
+          "module:core"
+        ]
+      },
+      "slug": "issue_recovery_store",
+      "source": {
+        "fingerprint": "sha256:978a050c2c0e6bfaee27c5a93e0d8d95f998d1a8125086b9f1258dc521f059f8",
+        "path": ".engine/tools/issue_recovery_store.py"
+      },
+      "status": "active",
+      "summary": "Git-data backing store for durable Engine issue-recovery journals.",
+      "type": "tool"
+    },
+    {
+      "entrypoint": "library",
       "guarded": true,
       "id": "tool:issue_triage",
       "name": ".engine/tools/issue_triage.py",
@@ -13290,7 +13421,7 @@
       },
       "slug": "issue_triage",
       "source": {
-        "fingerprint": "sha256:d03a9ae152e35bf2febae8cb1088c8df66a42a0f4fa092f915b04d08b2daf399",
+        "fingerprint": "sha256:5beae9fccb04ad61bfc503a30bb54fd3383de90b7e147f996d8acc69072c3fde",
         "path": ".engine/tools/issue_triage.py"
       },
       "status": "active",
@@ -13897,7 +14028,7 @@
       },
       "slug": "modes",
       "source": {
-        "fingerprint": "sha256:d73f9460121e1449affbfb07dbf4bbf023c83ad09d542cd5e928fc43db447e46",
+        "fingerprint": "sha256:ef0ec3d6d87b86b867e0ffc6fb4199123abc60d3b6a6027a91197be5bce2d865",
         "path": ".engine/tools/modes.py"
       },
       "status": "active",
@@ -13975,7 +14106,7 @@
       },
       "slug": "module_coherence",
       "source": {
-        "fingerprint": "sha256:504a574a54d2d5b1074e15568d82e6c834c85784b97ac8a5a1aefad6299a4d0f",
+        "fingerprint": "sha256:5558659a66f3ca72bb6a160e1e032672a95d298fcc26225fe04a013c3637ebef",
         "path": ".engine/tools/module_coherence.py"
       },
       "status": "active",
@@ -14184,7 +14315,7 @@
       },
       "slug": "nightly_demo_report",
       "source": {
-        "fingerprint": "sha256:8d09d1e40d206de1fed0c1ff7a3a467d2ed2cf1fcf387d41910bc70e24e5c368",
+        "fingerprint": "sha256:660c24eaf14c543d148a13a7646fe19f90fe3adb602b9cdb0acb21b8c946d4dc",
         "path": ".engine/tools/nightly_demo_report.py"
       },
       "status": "active",
@@ -14809,7 +14940,7 @@
       },
       "slug": "providers",
       "source": {
-        "fingerprint": "sha256:62e0539d3ddc74d328e7af3515dbc2559c424eec138286f8df4c5ecb3e0f347f",
+        "fingerprint": "sha256:3ad725a1d994001ae0bce843b3a3c367841d7f5f8c8f91c3798f61b1e555ac88",
         "path": ".engine/tools/providers.py"
       },
       "status": "active",
@@ -16133,6 +16264,8 @@
           "tool:capture",
           "tool:github_client",
           "tool:issue_author",
+          "tool:issue_recovery",
+          "tool:issue_recovery_store",
           "tool:issue_triage",
           "tool:moment",
           "tool:mutation_authority",
@@ -16146,7 +16279,7 @@
       },
       "slug": "telemetry",
       "source": {
-        "fingerprint": "sha256:1e487ac0a205616688070f15118db9133956d25d3868f1d6a469f471a8e0b088",
+        "fingerprint": "sha256:7ad9d35023de2b55c281d9a9ebbbfcafe7583eea41bee1b7ca8dc659c77ac6ee",
         "path": ".engine/tools/telemetry.py"
       },
       "status": "active",
@@ -17238,7 +17371,7 @@
       },
       "slug": "test_close",
       "source": {
-        "fingerprint": "sha256:7c6e990cd93e7a79011a86478bbce135141bf285592c2bce52ec28b2bcf8b58e",
+        "fingerprint": "sha256:9bd50b5276d9f40c7cc91ce979066735d43e5fa7df45bbd537254abaab58350c",
         "path": ".engine/tools/test_close.py"
       },
       "status": "active",
@@ -17468,6 +17601,7 @@
         ],
         "tests": [
           "tool:conformance_sweep",
+          "tool:issue_recovery",
           "tool:obligation_matrix",
           "tool:quiet_call",
           "tool:result_contracts",
@@ -17477,7 +17611,7 @@
       },
       "slug": "test_conformance_sweep",
       "source": {
-        "fingerprint": "sha256:ebcca52e1b909ffe3041ac2096166275ac9f72010ac9085ed8e60192a324f860",
+        "fingerprint": "sha256:393cd31f5155d05566d03e9e9c2db50e474e37168387a3ac0f9ad61265159fa1",
         "path": ".engine/tools/test_conformance_sweep.py"
       },
       "status": "active",
@@ -17527,7 +17661,7 @@
       },
       "slug": "test_contribute_issue",
       "source": {
-        "fingerprint": "sha256:6a520e166a29911e809165e90163086c18b77e5da9e16718e8bb0987ff280c96",
+        "fingerprint": "sha256:cfe9e55f1c098944bc87d7f43c10714e87e98bcbeedec6b0135269ef3d534835",
         "path": ".engine/tools/external_contribution/test_contribute_issue.py"
       },
       "status": "active",
@@ -18464,12 +18598,13 @@
           "tool:issue_author",
           "tool:issue_kind",
           "tool:issue_triage",
-          "tool:telemetry"
+          "tool:telemetry",
+          "tool:test_issue_recovery"
         ]
       },
       "slug": "test_issue_author",
       "source": {
-        "fingerprint": "sha256:d5c81bbb2420f69beb03686e6e9ae179b82306c30013c24bf8cc15222535f703",
+        "fingerprint": "sha256:6a9750693ca2616847e36199bfe5be56144ead840c2a1eafd27934841a309b68",
         "path": ".engine/tools/test_issue_author.py"
       },
       "status": "active",
@@ -18542,12 +18677,14 @@
         "tests": [
           "tool:issue_author",
           "tool:issue_gate",
+          "tool:modes",
+          "tool:providers",
           "tool:quiet_call"
         ]
       },
       "slug": "test_issue_gate",
       "source": {
-        "fingerprint": "sha256:9481acffbed43f5bf0a0dd1097b7c63aad4888fe6d2f2f678653d35767a862ab",
+        "fingerprint": "sha256:2a18ba97e42dff7ebd628379e45632cd12672e450f712ef9e048abc6a8a769d6",
         "path": ".engine/tools/test_issue_gate.py"
       },
       "status": "active",
@@ -18637,6 +18774,35 @@
     {
       "entrypoint": "test",
       "guarded": false,
+      "id": "tool:test_issue_recovery",
+      "name": ".engine/tools/test_issue_recovery.py",
+      "owner": "core",
+      "predicates": {
+        "provided_by": [
+          "module:core"
+        ],
+        "tests": [
+          "tool:issue_author",
+          "tool:issue_recovery",
+          "tool:issue_recovery_store",
+          "tool:issue_triage",
+          "tool:module_coherence",
+          "tool:module_manager",
+          "tool:telemetry"
+        ]
+      },
+      "slug": "test_issue_recovery",
+      "source": {
+        "fingerprint": "sha256:f340caf429ea711cfcfd6763b0f77b03676f7d8838d400514112e262917947c4",
+        "path": ".engine/tools/test_issue_recovery.py"
+      },
+      "status": "active",
+      "summary": "Offline persistent Git/Issues service: count POSTs across fresh helper processes/clients.",
+      "type": "tool"
+    },
+    {
+      "entrypoint": "test",
+      "guarded": false,
       "id": "tool:test_issue_triage",
       "name": ".engine/tools/test_issue_triage.py",
       "owner": "core",
@@ -18655,7 +18821,7 @@
       },
       "slug": "test_issue_triage",
       "source": {
-        "fingerprint": "sha256:d2cb356db46d4df2cf4039fedacfbff9bcbc46b5e12118e6958f95a30bacaf5e",
+        "fingerprint": "sha256:b498078cfd8a559e03f4abc3fd391d9d8ca41e8f7b70e10cda7c9ca08a5a03d3",
         "path": ".engine/tools/test_issue_triage.py"
       },
       "status": "active",
@@ -19142,7 +19308,7 @@
       },
       "slug": "test_modes",
       "source": {
-        "fingerprint": "sha256:b6befdb94c12f0f02f3a800da7d0055cb46a5709e3a1b7e4dd92b6ecfbb26ac4",
+        "fingerprint": "sha256:3e15d90fc64c1ebffb74db2c7058953b6bdc7b69598a16c57d1be02edac34549",
         "path": ".engine/tools/test_modes.py"
       },
       "status": "active",
@@ -19236,7 +19402,7 @@
       },
       "slug": "test_module_manager",
       "source": {
-        "fingerprint": "sha256:fee3db24f4bfaa3703352560d17ea13d2fbd8e7ee710de036e9822ee6010e6e0",
+        "fingerprint": "sha256:0cc6e431be00c3c242c9959a40517633a97529de2ee8702a83c1fa73db4fb82f",
         "path": ".engine/tools/test_module_manager.py"
       },
       "status": "active",
@@ -19393,6 +19559,34 @@
     {
       "entrypoint": "test",
       "guarded": false,
+      "id": "tool:test_nightly_demo_report",
+      "name": ".engine/tools/test_nightly_demo_report.py",
+      "owner": "core",
+      "predicates": {
+        "provided_by": [
+          "module:core"
+        ],
+        "tests": [
+          "tool:issue_author",
+          "tool:issue_recovery",
+          "tool:issue_recovery_store",
+          "tool:issue_triage",
+          "tool:telemetry",
+          "tool:test_issue_recovery"
+        ]
+      },
+      "slug": "test_nightly_demo_report",
+      "source": {
+        "fingerprint": "sha256:630ac8b7469298bfa535a7e3aad132e56a61bd5016d2cd917e8116a34696c227",
+        "path": ".engine/tools/test_nightly_demo_report.py"
+      },
+      "status": "active",
+      "summary": "Integration coverage for durable automated Issue submissions.",
+      "type": "tool"
+    },
+    {
+      "entrypoint": "test",
+      "guarded": false,
       "id": "tool:test_nightly_demos",
       "name": ".engine/tools/test_nightly_demos.py",
       "owner": "core",
@@ -19402,16 +19596,20 @@
         ],
         "tests": [
           "tool:instantiator",
+          "tool:issue_recovery",
+          "tool:issue_recovery_store",
           "tool:issue_triage",
           "tool:nightly_demo_report",
           "tool:telemetry",
+          "tool:test_issue_recovery",
           "tool:test_issue_triage",
+          "tool:test_nightly_demo_report",
           "tool:test_telemetry"
         ]
       },
       "slug": "test_nightly_demos",
       "source": {
-        "fingerprint": "sha256:af58f61cf8eb19982d97c9cc1dfecc72db5e3523919431478a7d73b5241eb3ed",
+        "fingerprint": "sha256:9effcdf9bba1638f84ce23323d5a18e28479f0d4150fc5917449fd3d324df71b",
         "path": ".engine/tools/test_nightly_demos.py"
       },
       "status": "active",
@@ -20097,7 +20295,7 @@
       },
       "slug": "test_providers",
       "source": {
-        "fingerprint": "sha256:17e1d40b43bf28777b4ae16d789f59402969a0d763fe68e10f7e19651d760a4c",
+        "fingerprint": "sha256:384f9e4b2dac88e4deaf591fc274c6178c5dd19df58a45ed8295eeb7bcff2041",
         "path": ".engine/tools/test_providers.py"
       },
       "status": "active",
@@ -21586,7 +21784,7 @@
       },
       "slug": "test_submit",
       "source": {
-        "fingerprint": "sha256:1fa93851dee0782fdcb9434a20a6d3c16259d2b940d9836b92852558d3137c8c",
+        "fingerprint": "sha256:80c89903214105864bb8aeb163ef8e52b16fe015007c4205303ccabeb8c859a3",
         "path": ".engine/tools/external_contribution/test_submit.py"
       },
       "status": "active",
@@ -21632,6 +21830,8 @@
           "tool:capture",
           "tool:checkout_health",
           "tool:github_client",
+          "tool:issue_author",
+          "tool:issue_recovery",
           "tool:issue_triage",
           "tool:standing_situation",
           "tool:telemetry",
@@ -21640,7 +21840,7 @@
       },
       "slug": "test_telemetry",
       "source": {
-        "fingerprint": "sha256:0ef7d92b594577ac0496c8de1bff9630881b0b36f5208d6d1593460246d41dc9",
+        "fingerprint": "sha256:c75dc4781b952a65f6691aa1f3f412336c02fdf6873e0abc0c0f7d6ec51528b3",
         "path": ".engine/tools/test_telemetry.py"
       },
       "status": "active",

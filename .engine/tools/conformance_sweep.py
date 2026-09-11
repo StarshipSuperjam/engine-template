@@ -545,6 +545,7 @@ def conformance_records(items: list, root: str) -> list:
             "location": {"file": doc},
             "title": title,
             "body_core": body_core,
+            "body_parts": issue_author.contract_parts(body_core),
         })
     return records
 
@@ -559,6 +560,7 @@ def degraded_record(root: str) -> dict:
         "location": None,
         "title": title,
         "body_core": body_core,
+            "body_parts": issue_author.contract_parts(body_core),
     }
 
 

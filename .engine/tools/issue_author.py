@@ -29,16 +29,10 @@ the [PR template](../../.github/pull_request_template.md)'s summary->bullets sha
 stay plain prose (audits' pinned exemplar). The helper renders whatever markdown a part contains
 verbatim, so bulleted detail renders as bullets; `_demo` below models the readable shape.
 
-PASSIVE FORMATTER, NOT A REGISTRY. This is shared code each producer *calls*; it
-makes no network calls, applies no label, and holds no roster of producers. The engine-domain label is
-applied by each producer's own GitHub boundary (an explicit `labels` value at creation, or a label
-call right after — never a web-only issue-template default, which the programmatic path bypasses). Its
-literal string is `engine` (`telemetry.ENGINE_DOMAIN_LABEL`), never `engine-domain` or a look-alike a
-descriptive phrase might suggest — a look-alike label is read by no machinery, so the Issue silently drops out
-of the debt register and the boot counts. The producer-side rule: whoever files an Issue about the engine's
-OWN health applies `--label engine` AT creation, regardless of who asked for it. The
-product-design spec Issue is the named exception: its body is a plain-prose specification, a
-different realization of the same channel, not authored through this helper.
+THE COMPLETE SUBMISSION OPERATION. Formatter functions remain passive. The preview/create
+entry point validates explicit scope, binds the trusted repository, and files through the existing
+GitHub client. Engine creation requires an activated durable recovery journal; product creation
+preserves ordinary fields without Engine markers. Unknown outcomes never authorize a replay.
 
 CLI (operator-runnable):
   uv run --directory .engine -- python tools/issue_author.py demo
@@ -58,8 +52,9 @@ Use `create --retry` only to reconcile an uncertain operation; an absent or ambi
 another POST. Configure mappings and recover pending work through `triage`; see
 `.engine/operations/issue-triage.md`. Unlabelled human issues remain exempt, while adding `engine` opts in.
 The formatter functions above remain passive; these CLI and producer boundaries perform network writes.
-Direct-session routing enforcement (StarshipSuperjam/engine-template#1093) and App/credential integration
-(StarshipSuperjam/engine-template#914) remain separate work.
+Direct-session routing is best effort; App/credential integration (StarshipSuperjam/engine-template#914) remains separate.
+Use `recovery preview` for journal publication/permission disclosure and `recovery init --confirm`
+for explicit activation. No journal is automatically initialized or reset.
 Run `triage demo` for the offline, asserted end-to-end behavior, or pass `--expected-pending 0` to
 demonstrate that an intentionally wrong expectation fails.
 
@@ -268,6 +263,33 @@ def validate_input(data: dict) -> dict:
     return data
 
 
+def validate_submission(data: dict) -> dict:
+    """Closed, explicitly classified envelope; the original Engine input remains supported."""
+    from jsonschema import Draft202012Validator
+    path = os.path.join(os.path.dirname(_INPUT_SCHEMA_REL), 'issue-submission-input.v1.json')
+    with open(path, encoding='utf-8') as stream:
+        schema = json.load(stream)
+    errors = list(Draft202012Validator(schema).iter_errors(data))
+    if errors:
+        raise IssueInputError('Invalid issue-submission-input.v1: ' + errors[0].message)
+    request = data['request']
+    if data['scope'] == 'engine':
+        validate_input(request)
+    elif any(label.strip().casefold() == 'engine' for label in request.get('labels', [])):
+        raise IssueInputError('The engine label requires Engine scope and an assessment.')
+    if data['scope'] == 'product' and not request['title'].strip():
+        raise IssueInputError('A product issue needs a nonblank title.')
+    return data
+
+
+def submission_input(data: dict) -> dict:
+    """Compatibility is explicit: only a valid original Engine request omits the envelope."""
+    if 'scope' in data or 'schema_version' in data or 'request' in data:
+        return validate_submission(data)
+    return {'schema_version': 'issue-submission-input.v1', 'scope': 'engine',
+            'request': validate_input(data)}
+
+
 def resolve_issue_repositories(*, env=None, root: "str | None" = None) -> list:
     """The repositories this engine may file its OWN engine Issues into, resolved from TRUSTED config only —
     never from the input. Always the engine's own checkout: `GITHUB_REPOSITORY` (the CI-provided identity) when
@@ -355,6 +377,7 @@ def preview_text(data: dict, repository_slugs: list) -> str:
                  "(an input cannot steer the filing off the engine's own channel).")
     return (
         "ENGINE ISSUE — PREVIEW (nothing has been filed)\n\n"
+        "Create publishes intended content and recovery metadata to the repository recovery branch; Git history retains it.\n"
         f"Repository (requested in the input): {requested}\n"
         f"Trusted targets (where create MAY file): {', '.join(repository_slugs) or '(none resolved)'}\n"
         f"{agree}\n"
@@ -369,13 +392,14 @@ def preview_text(data: dict, repository_slugs: list) -> str:
 
 
 def create_issue_result(data: dict, *, env=None, root: "str | None" = None, issues_factory=None,
-                        retry=False) -> dict:
+                        retry=False, recovery_store=None) -> dict:
     """File the engine Issue and return its link. Resolves the trusted target SET and REFUSES (IssueInputError)
     if the input's repository matches none of it, or if no target/token can be resolved. The Issue is filed into
     the trusted target the input MATCHED (never a repository named only by the input). The `engine` label is
     applied by construction (telemetry.GitHubIssues' default). `issues_factory(repo, token)` is injectable so
     offline tests exercise the whole path without a network; production uses telemetry.GitHubIssues."""
-    validate_input(data)
+    envelope = submission_input(data)
+    data = envelope['request']
     environ = os.environ if env is None else env
     repository_slugs = resolve_issue_repositories(env=environ, root=root)
     if not repository_slugs:
@@ -396,6 +420,10 @@ def create_issue_result(data: dict, *, env=None, root: "str | None" = None, issu
         import telemetry  # lazy
         issues_factory = telemetry.GitHubIssues
     issues = issues_factory(matched, token.strip())
+    if _matched_target(getattr(issues, 'repo', ''), [matched]) is None:
+        raise IssueInputError('The injected client does not match the trusted repository.')
+    if envelope['scope'] == 'product':
+        return _create_product(issues, data, retry=retry)
     import issue_triage
     configuration_error = None
     try:
@@ -403,10 +431,376 @@ def create_issue_result(data: dict, *, env=None, root: "str | None" = None, issu
     except issue_triage.TriageError as exc:
         config = None  # Preserve filing availability while retaining the actionable diagnostic.
         configuration_error = str(exc)
-    result = issues.file_assessed_issue(title_from_input(data), body_from_input(data), config=config, retry=retry)
+    import issue_recovery
+    def prepare(submission_id):
+        frozen = {**data, 'submission_id': submission_id}
+        return issue_triage.prepare_request(issues, title_from_input(frozen), body_from_input(frozen), config=config)
+    try:
+        result = issue_recovery.submit(issues, data, prepare, root=root, store=recovery_store, retry=retry)
+    except issue_recovery.RecoveryError as exc:
+        raise IssueInputError(str(exc)) from exc
     if configuration_error:
         result["configuration_error"] = configuration_error
     return result
+
+
+def _create_product(client, data: dict, *, retry=False) -> dict:
+    """Ordinary issue fields, one POST, and no manufactured Engine identity."""
+    result = {'repository': client.repo, 'scope': 'product', 'filing': 'creation-uncertain',
+              'number': None, 'url': None, 'reason': 'Inspect GitHub; ambiguous product submissions cannot be replayed.'}
+    if retry:
+        return result
+    request = {key: value for key, value in data.items() if key != 'repository'}
+    try:
+        status, issue = client._transport('POST', f'/repos/{client.repo}/issues', request)
+    except Exception:
+        return result
+    if status == 201 and isinstance(issue, dict) and type(issue.get('number')) is int and issue['number'] > 0:
+        result.update(filing='created', number=issue['number'], url=issue.get('html_url'), reason='Issue created.')
+    elif 400 <= status < 500:
+        result.update(filing='failed', reason=f'Create rejected ({status}); no automatic retry.')
+    return result
+
+
+def preview_submission(data: dict, repository_slugs: list) -> str:
+    envelope = submission_input(data)
+    if envelope['scope'] == 'engine':
+        return preview_text(envelope['request'], repository_slugs)
+    request = envelope['request']
+    matched = _matched_target(request['repository'], repository_slugs)
+    return ('PRODUCT ISSUE — PREVIEW (nothing has been filed)\n'
+            + ('Trusted repository matches.\n' if matched else 'Target cannot be verified; create will refuse.\n')
+            + json.dumps(request, indent=2))
+
+
+def nightly_fenced(output: str) -> str:
+    """Demonstration output, made safe to place inside a code fence in a body OTHER engine code parses.
+
+    The workflow's security story is that the write-token half RENDERS demonstration output and never
+    parses it. That story was false one layer down: a fence does not contain what it wraps. Output
+    carrying a triple backtick closes the fence early, and anything after it is body — including the
+    engine's own invisible trailers. A demonstration could therefore set the severity class the triage
+    meter counts and the dedup key the Issue register uses, because those parsers take the LAST trailer
+    of their kind and the forged one was later.
+
+    So two things are neutralized: the fence terminator, and the comment opener that every engine
+    control marker begins with. Both are replaced visibly rather than deleted — a reader sees that
+    something was defanged instead of silently reading altered output."""
+    text = (output or "").replace("`" * 3, "'" * 3 + " [backticks neutralized]")
+    return text.replace("<!--", "&lt;!-- [marker neutralized]")
+
+
+NIGHTLY_MARKER = "<!-- engine-nightly-demos:v1 -->"
+NIGHTLY_TITLE = "a shipped demonstration is failing"
+NIGHTLY_KIND = "Fix"
+# How many failing demonstrations are named in the body. A corpus-wide breakage should read as "everything
+# is failing, start at the top", not as a wall no one finishes.
+_NIGHTLY_NAMED = 12
+
+
+def render_nightly_report(result: dict, repository: str, run_url: str | None = None) -> str:
+    """The Issue body for a red run, through the engine's own helper so it meets the body contract."""
+    failures = result.get("failures") or []
+    shown = failures[:_NIGHTLY_NAMED]
+    lines = [f"- `{f['demo']}` — exit {f['exit_code']}" for f in shown]
+    if len(failures) > len(shown):
+        lines.append(f"- …and {len(failures) - len(shown)} more")
+    what = (
+        f"The nightly run of this engine's behavioral demonstrations went red: {len(failures)} of "
+        f"{len(result.get('ran') or [])} failed.\n\n"
+        "A demonstration is a fail-then-pass reproducer of a real past incident — it exists so that a change "
+        "which quietly reintroduces that incident goes red AT the incident rather than at some downstream "
+        "symptom months later. One failing means either the guarded behaviour has regressed, or the "
+        "demonstration itself has gone stale against a deliberate change. Both need a person; neither is "
+        "urgent tonight.\n\n"
+        + "\n".join(lines))
+    tail = "\n".join(f"### {f['demo']}\n\n```\n{nightly_fenced(f['output'])}\n```" for f in shown)
+    whats_next = (
+        "Run the corpus locally and read the failure the demonstration itself prints — each one states, in "
+        "plain words, what it expected and what it saw:\n\n"
+        "```\nuv run --directory .engine --frozen -- python tools/demonstration_corpus.py\n```\n\n"
+        "Then either fix the regression the demonstration caught, or — if the behaviour changed on purpose "
+        "— update the demonstration in the same change that changed it, so the reproducer still describes "
+        "something true.\n\n"
+        "This Issue is the ONLY one this workflow keeps open. While it stays red, each night updates this "
+        "body with the current failure set rather than filing another; the night it goes green, this closes "
+        "itself.\n\n"
+        "**Please COMMENT rather than editing this body.** The workflow recognises its own report by an "
+        "invisible marker on the last line — the rule that stops anyone who merely quotes this report from "
+        "having their Issue closed by a green run. An edit that appends text below that marker makes the "
+        "workflow stop recognising this Issue. The durable journal then holds creation for repair. Comments are "
+        "untouched by the nightly update.\n\n"
+        f"The failing output, as the demonstrations printed it:\n\n{tail}")
+    references = [("the nightly run that reported this", run_url)] if run_url else None
+    return (render_engine_issue_body(
+        what_this_is=what, whats_next=whats_next, references=references, kind=NIGHTLY_KIND)
+        + "\n" + NIGHTLY_MARKER + "\n")
+
+
+def nightly_failure_evidence(result: dict) -> dict:
+    """Keep failure identity and exit status; remove known display-only output variation.
+
+    Output remains inert data. Normalization cannot interpret arbitrary diagnostic prose;
+    only timestamp, temporary-path and whitespace variation is ignored.
+    """
+    failures = []
+    for failure in result.get('failures', []):
+        output = str(failure.get('output') or '')
+        output = re.sub(r'\x1b\[[0-9;]*m', '', output)
+        output = re.sub(r'\b\d{4}-\d{2}-\d{2}[T ]\d{2}:\d{2}:\d{2}(?:\.\d+)?(?:Z|[+-]\d{2}:\d{2})?', '<timestamp>', output)
+        output = re.sub(r'(?:/private)?/(?:tmp|var/folders)/[^\s\'"`]+', '<temporary-path>', output)
+        output = ' '.join(output.split())
+        failures.append({'demo':failure.get('demo'), 'exit_code':failure.get('exit_code'), 'output':output})
+    return {'failures':sorted(failures, key=lambda value: str(value['demo']))}
+
+
+def contract_parts(body):
+    """Adapt an older helper-rendered core by recovering and revalidating its structured parts."""
+    prefix = _FRAMING + '\n\n**What this is.** '
+    if not isinstance(body, str) or not body.startswith(prefix):
+        raise IssueInputError('A producer must supply structured body parts, not an arbitrary rendered body.')
+    what, separator, next_part = body[len(prefix):].partition('\n\n**What happens next.** ')
+    if not separator:
+        raise IssueInputError('Producer body is missing its required next action.')
+    next_text, references_marker, references_text = next_part.partition('\n\n**More detail.**\n')
+    references = []
+    if references_marker:
+        for line in references_text.strip().splitlines():
+            match = re.fullmatch(r'- \[(.+)\]\((.+)\)', line)
+            if not match:
+                raise IssueInputError('Producer references must retain explicit labels and links.')
+            references.append((match[1], match[2]))
+    parts = {'what_this_is': what, 'whats_next': next_text.strip(), 'references': references or None}
+    if render_engine_issue_body(**parts) != body:
+        raise IssueInputError('Producer core does not round-trip through the shared body contract.')
+    return parts
+
+
+def create_producer_result(producer, data, client, *, root=None, env=None, recovery_store=None):
+    """The complete structured automatic submission operation, shared with manual create."""
+    import copy
+    import shlex
+    import issue_recovery
+    import issue_triage
+    import telemetry
+    targets = resolve_issue_repositories(env=env, root=root)
+    if _matched_target(getattr(client, 'repo', ''), targets) is None:
+        raise IssueInputError('Automatic report target does not match the trusted repository configuration.')
+    if not getattr(client, 'token', None):
+        raise IssueInputError('Automatic reporting requires the existing bound GitHub credential.')
+    if not isinstance(data, dict) or not isinstance(data.get('now'), str) or not data['now']:
+        raise IssueInputError('An automatic report requires an explicit observation identity.')
+    if producer == 'telemetry':
+        source = data.get('record')
+        if not isinstance(source, dict) or not isinstance(source.get('message'), str) or not isinstance(data.get('first_seen'), str):
+            raise IssueInputError('A telemetry report requires structured evidence and its first observation.')
+        if not telemetry.source_id_is_marker_safe(source.get('source_id')):
+            raise IssueInputError('The producer source key is not marker-safe.')
+        if source.get('severity') not in (telemetry.TRUST_CRITICAL, telemetry.PERSISTENT_BENIGN):
+            raise IssueInputError('Unknown report severity.')
+        record = {key: copy.deepcopy(source[key]) for key in
+                  ('source_id', 'severity', 'message', 'location', 'title', 'references') if key in source}
+        if source.get('body_parts') is not None:
+            parts = source['body_parts']
+            record['body_core'] = render_engine_issue_body(**parts)
+        elif source.get('body_core') is not None:
+            parts = contract_parts(source['body_core'])
+            record['body_core'] = render_engine_issue_body(**parts)
+        intent = {'record': record, 'first_seen': data['first_seen'], 'now': data['now']}
+        source_key = telemetry.derive_source_key(record)
+        title = telemetry.issue_title(record)
+        raw = lambda: telemetry.issue_body(record, intent['first_seen'], intent['now'])
+        evidence = telemetry._semantic_finding(record)
+        final_marker = None
+        matches_source = lambda issue: telemetry.parse_source_id(issue.get('body') or '') == source_key
+    elif producer == 'nightly':
+        result = data.get('result')
+        if not isinstance(result, dict) or result.get('ok') is not False or not isinstance(result.get('failures'), list):
+            raise IssueInputError('A nightly report requires an explicit failed corpus result.')
+        if any(not isinstance(f, dict) or not isinstance(f.get('demo'), str)
+               or (f.get('exit_code') is not None and type(f['exit_code']) is not int) for f in result['failures']):
+            raise IssueInputError('Each nightly failure requires a demo and an integer or unavailable exit code.')
+        failures = [{'demo': f['demo'], 'exit_code': f.get('exit_code'), 'output': str(f.get('output') or '')}
+                    for f in result.get('failures', [])]
+        intent = {'result': {'ok': False, 'ran': list(result.get('ran') or []), 'failures': failures},
+                  'run_url': data.get('run_url'), 'now': data['now']}
+        source_key = 'engine-nightly-demos:v1'
+        title = f'{NIGHTLY_KIND}: {NIGHTLY_TITLE}'
+        raw = lambda: render_nightly_report(intent['result'], client.repo, intent['run_url'])
+        evidence = nightly_failure_evidence(intent['result'])
+        final_marker = NIGHTLY_MARKER
+        matches_source = lambda issue: (issue.get('body') or '').rstrip().split('\n')[-1].strip() == NIGHTLY_MARKER
+    else:
+        raise IssueInputError('Unknown automatic producer.')
+    configuration_error = None
+    try:
+        config = issue_triage.load_config(root)
+    except issue_triage.TriageError as exc:
+        config = None
+        configuration_error = str(exc)
+    def with_diagnostic(result):
+        if configuration_error:
+            result['configuration_error'] = configuration_error
+        return result
+    def prepare(sid):
+        body = telemetry.producer_body(raw(), evidence, intent['now'], final_marker=final_marker, submission_id=sid)
+        return issue_triage.prepare_request(client, title, body, config=config)
+    try:
+        store = recovery_store or getattr(client, 'recovery_store', None) or issue_recovery.GitStore(
+            client, issue_recovery.load_activation(client.repo, root))
+        tip, snapshot = issue_recovery._load(store)
+        group = issue_recovery.operation_key(producer, source_key)
+        if not any(key.startswith(group + ':') for key in snapshot['records']):
+            legacy = [issue for issue in issue_triage.pages(client, f'/repos/{client.repo}/issues?state=all&labels=engine')
+                      if issue_triage.scoped(issue) and matches_source(issue)]
+            if len(legacy) > 1:
+                raise IssueInputError('Multiple historical reports match this source; select one with recovery adopt --producer ' + producer + ' --source-key ' + shlex.quote(source_key) + ' --issue NUMBER --expect-revision ' + str(snapshot['revision']) + ' --reason REASON --confirm before creating another.')
+            if legacy:
+                return with_diagnostic(adopt_legacy_producer_issue(producer, client,
+                    number=legacy[0]['number'], source_key=source_key, expected_revision=snapshot['revision'],
+                    reason='Unique verified historical source match.', observation=intent['now'],
+                    root=root, env=env, recovery_store=store))
+        return with_diagnostic(issue_recovery.submit(client, intent, prepare, producer=producer, source_key=source_key,
+                                     observation=intent['now'], root=root, store=store))
+    except issue_recovery.RecoveryError as exc:
+        raise IssueInputError(str(exc)) from exc
+
+
+def recover_producer_records(producer, client, *, source_key=None, observation, root=None,
+                             env=None, recovery_store=None, closed_issue_numbers=None, open_issue_numbers=None):
+    """Reconcile retained automatic submissions without minting a request or send permit.
+
+    This is deliberately a recovery-only pass for callers that may have no fresh failure to
+    file.  An unconfigured installation has no activated journal and keeps its historical
+    update/close behaviour.  Once activation is present, every malformed or unreadable journal
+    outcome is visible as held; it is never mistaken for an empty journal.
+    """
+    import issue_recovery
+    if producer not in ('telemetry', 'nightly'):
+        return {'state': 'held', 'results': [],
+                'reason': 'Recovery is held: unknown automatic producer.'}
+    targets = resolve_issue_repositories(env=env, root=root)
+    if _matched_target(getattr(client, 'repo', ''), targets) is None:
+        return {'state': 'held', 'results': [],
+                'reason': 'Recovery is held: trusted automatic-report target does not match.'}
+    if not getattr(client, 'token', None):
+        return {'state': 'held', 'results': [],
+                'reason': 'Recovery is held: the bound GitHub credential is unavailable.'}
+    if not isinstance(observation, str) or not observation:
+        return {'state': 'held', 'results': [],
+                'reason': 'Recovery is held: an explicit observation identity is required.'}
+    try:
+        store = recovery_store or getattr(client, 'recovery_store', None)
+        if store is None:
+            try:
+                activation = issue_recovery.load_activation(client.repo, root)
+            except issue_recovery.SetupRequired:
+                return {'state': 'unactivated', 'results': []}
+            except issue_recovery.RecoveryError as exc:
+                return {'state': 'held', 'results': [], 'reason': str(exc)}
+            store = issue_recovery.GitStore(client, activation)
+        _tip, snapshot = issue_recovery._load(store)
+    except Exception:  # a corrupt/deleted activated store must remain visible and retryable
+        return {'state': 'held', 'results': [],
+                'reason': 'Recovery is held: the activated recovery journal could not be read.'}
+    numbers = closed_issue_numbers if closed_issue_numbers is not None else open_issue_numbers
+    if ((closed_issue_numbers is not None and open_issue_numbers is not None) or
+            (numbers is not None and (not isinstance(numbers, (list, tuple))
+             or any(type(n) is not int or n <= 0 for n in numbers)))):
+        return {'state': 'held', 'results': [], 'reason': 'Recovery is held: invalid issue observation.'}
+    def eligible(record):
+        if record['producer'] != producer or (source_key is not None and record['source_key'] != source_key):
+            return False
+        if numbers is not None:
+            if record['state'] != 'confirmed' or record['closed_observation'] is not None:
+                return False
+            number = record['issue']['number']
+            return number in closed_issue_numbers if closed_issue_numbers is not None else number not in open_issue_numbers
+        return record['state'] in ('prepared', 'send-claimed', 'recovery-needed', 'rejected')
+    keys = [key for key, record in snapshot['records'].items() if eligible(record)]
+    results = []
+    # Reload each time: reconciliation can advance the durable tip, and later records must not
+    # compare-and-swap against a stale snapshot.
+    for key in sorted(keys):
+        try:
+            tip, current = issue_recovery._load(store)
+            record = current['records'].get(key)
+            if record is None or not eligible(record):
+                continue
+            result = issue_recovery.reconcile(client, store, tip, current, key, observation=observation)
+        except Exception:
+            return {'state': 'held', 'results': results,
+                    'reason': 'Recovery is held: the activated journal could not be reconciled.'}
+        results.append(result)
+    held = [result for result in results if result.get('filing') != 'created']
+    return {'state': 'held' if held else 'recovered' if results else 'none', 'results': results,
+            **({'reason': 'Recovery is held: a retained submission could not be verified.'} if held else {})}
+
+
+def adopt_legacy_producer_issue(producer, client, *, number, source_key, expected_revision,
+                                reason, root=None, env=None, recovery_store=None, observation=None):
+    """Explicitly select the initial historical report; never authorize an Issue POST."""
+    import issue_recovery
+    import issue_triage
+    import telemetry
+    import moment
+    if producer not in ('telemetry', 'nightly') or type(number) is not int or number <= 0:
+        raise IssueInputError('Legacy adoption requires an automatic producer and a positive issue number.')
+    if not isinstance(reason, str) or not reason.strip():
+        raise IssueInputError('Explain the historical selection with --reason.')
+    targets = resolve_issue_repositories(env=env, root=root)
+    if _matched_target(getattr(client, 'repo', ''), targets) is None or not getattr(client, 'token', None):
+        raise IssueInputError('Legacy adoption requires the trusted target and its bound credential.')
+    if (not isinstance(source_key, str) or not source_key or len(source_key) > 1024
+            or (producer == 'telemetry' and not telemetry.source_id_is_marker_safe(source_key))
+            or (producer == 'nightly' and source_key != 'engine-nightly-demos:v1')):
+        raise IssueInputError('Choose the exact producer --source-key named by the held report.')
+    try:
+        store = recovery_store or getattr(client, 'recovery_store', None) or issue_recovery.GitStore(
+            client, issue_recovery.load_activation(client.repo, root))
+        tip, snapshot = issue_recovery._load(store)
+        if type(expected_revision) is not int or expected_revision != snapshot['revision']:
+            raise IssueInputError('Inspect recovery list and provide its current --expect-revision.')
+        group = issue_recovery.operation_key(producer, source_key)
+        if any(r['producer'] == producer and r['source_key'] == source_key for r in snapshot['records'].values()):
+            raise IssueInputError('This source already has a journal record; use record-based recovery instead.')
+        prior = issue_triage.read_api(client, f'/repos/{client.repo}/issues/{number}')
+        triage = issue_triage.observed_record(prior)
+        if triage is None:
+            raise IssueInputError('The selected historical issue needs explicit triage repair before adoption.')
+        # Verify the selected number and target again, retaining its numeric identity across the reads.
+        prior, triage = issue_recovery._verified_issue(client,
+            {'submission_id': triage['submission_id'], 'issue': {'id': prior.get('id'), 'number': number}}, number)
+        body = prior.get('body') or ''
+        matches = (telemetry.parse_source_id(body) == source_key if producer == 'telemetry' else
+                   body.rstrip().split('\n')[-1].strip() == NIGHTLY_MARKER)
+        if not matches:
+            raise IssueInputError('The selected issue does not carry the requested producer source marker.')
+        request = {'title': prior['title'], 'body': body, 'labels': ['engine']}
+        milestone = issue_triage.milestone_number(prior)
+        if milestone is not None:
+            request['milestone'] = milestone
+        now = observation or moment.utc_now()
+        record = {'producer': producer, 'source_key': source_key, 'generation': 1, 'previous': None,
+                  'submission_id': triage['submission_id'],
+                  'intent': {'legacy_adoption': {'issue': number, 'reason': reason.strip()}},
+                  'request': request, 'request_digest': issue_recovery.digest(request), 'state': 'confirmed',
+                  'send_nonce': None, 'issue': {'id': prior['id'], 'number': number, 'url': prior['html_url']},
+                  'decision': None, 'observation': now,
+                  'closed_observation': now if prior['state'] == 'closed' else None}
+        key = group + ':1'
+        # Persist confirmed directly: an interrupted adoption must never leave a sendable prepared record.
+        issue_recovery._save(store, tip, snapshot, key, record)
+        result = issue_triage.filing_result(client.repo, triage['submission_id'], 'created', triage,
+            issue=prior, reason='Selected historical report adopted; no Issue POST.')
+        result.update(newly_created=False, recovery={'state': 'confirmed', 'record': key})
+        return result
+    except IssueInputError:
+        raise
+    except (issue_recovery.RecoveryError, issue_triage.TriageError) as exc:
+        raise IssueInputError(str(exc)) from exc
+    except Exception:
+        raise IssueInputError('Historical issue or journal verification was unavailable; no Issue POST.') from None
 
 
 def create_issue(data: dict, **kwargs) -> str:
@@ -419,11 +813,11 @@ def create_issue(data: dict, **kwargs) -> str:
 
 def _cli_preview(source: str) -> int:
     try:
-        data = validate_input(load_input(source))
+        data = submission_input(load_input(source))
     except IssueInputError as exc:
         print(f"Refused — {exc}", file=sys.stderr)
         return 2
-    print(preview_text(data, resolve_issue_repositories()))
+    print(preview_submission(data, resolve_issue_repositories()))
     return 0
 
 
@@ -433,7 +827,7 @@ def _cli_create(source: str, confirm: bool, *, retry=False) -> int:
               "`--confirm` (use `preview` first to see exactly what will be filed).", file=sys.stderr)
         return 2
     try:
-        data = validate_input(load_input(source))
+        data = submission_input(load_input(source))
         result = create_issue_result(data, retry=retry)
     except IssueInputError as exc:
         print(f"Refused — {exc}", file=sys.stderr)
@@ -534,6 +928,9 @@ def _demo() -> int:
 
 def main(argv: list) -> int:
     verb = argv[0] if argv else None
+    if verb == 'recovery':
+        import issue_recovery
+        return issue_recovery.main(argv[1:])
     if verb == 'triage':
         import issue_triage
         return issue_triage.main(argv[1:])
