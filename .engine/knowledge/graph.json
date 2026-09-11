@@ -3727,7 +3727,7 @@
       },
       "slug": "engine-file-engine-issue",
       "source": {
-        "fingerprint": "sha256:22f41a20b431803c72922bdcc1d6d2532e3bbb6b696ac218819fa3fb8949a69d",
+        "fingerprint": "sha256:4b2d08a79867f3639ac46d7753a2820ff9f4bfe294219723495715c19e4deac8",
         "path": ".agents/skills/engine-file-engine-issue/SKILL.md"
       },
       "status": "active",
@@ -6280,7 +6280,7 @@
       },
       "slug": "issue-recovery",
       "source": {
-        "fingerprint": "sha256:40944c00d4da45aaef9eeadc9ea0b81f37fe9439425ae39d924495230b01db19",
+        "fingerprint": "sha256:f4479fa8c678fcfcd0cf2a698741965f0c5c32df40cfdf48aed5b5b0f31cf3a0",
         "path": ".engine/operations/issue-recovery.md"
       },
       "status": "active",
@@ -8363,7 +8363,7 @@
       },
       "slug": "engine-file-engine-issue",
       "source": {
-        "fingerprint": "sha256:a64df0a981fb8b416693452553402b9b3775f21cfa7bf4175eac541ff9f43d14",
+        "fingerprint": "sha256:1220691acbab3ca7554399c719fa22717560c5c2149897fda9e15278addbe993",
         "path": ".claude/skills/engine-file-engine-issue/SKILL.md"
       },
       "status": "active",
@@ -13164,6 +13164,7 @@
           "tool:issue_kind",
           "tool:issue_recovery",
           "tool:issue_triage",
+          "tool:moment",
           "tool:repo_identity",
           "tool:telemetry"
         ],
@@ -13173,7 +13174,7 @@
       },
       "slug": "issue_author",
       "source": {
-        "fingerprint": "sha256:4f5459f3d57f88b257eccba3d24589b90104c3e7739c17ec27a74ccc97d5b1e0",
+        "fingerprint": "sha256:413a3cf0f1fd7acbed9bd56dbf54cec14649e4f09f897e2dec2518b24ce06e15",
         "path": ".engine/tools/issue_author.py"
       },
       "status": "active",
@@ -13249,7 +13250,7 @@
       },
       "slug": "issue_gate",
       "source": {
-        "fingerprint": "sha256:d66222dbc5c97cf50ed7643f8658792dce78fb37a96c688cad964280b630b391",
+        "fingerprint": "sha256:94aefb718b773767cf7ae29c387413169a874a33f801331888df7c83320945ee",
         "path": ".engine/tools/issue_gate.py"
       },
       "status": "active",
@@ -13371,7 +13372,7 @@
       },
       "slug": "issue_recovery",
       "source": {
-        "fingerprint": "sha256:9a1f7adfd5182d0e543c43673939eece9046f8619cda9c1576c9828cd7f9bfc4",
+        "fingerprint": "sha256:7d6c7d15a8cf7d4db451489153d22c53078ef69dedfceaf2707ae948069ef17a",
         "path": ".engine/tools/issue_recovery.py"
       },
       "status": "active",
@@ -14312,7 +14313,7 @@
       },
       "slug": "nightly_demo_report",
       "source": {
-        "fingerprint": "sha256:fa66a6774533e850cdf17ec8fce423f213d8e204b1144a578f46ed17fc8dd0aa",
+        "fingerprint": "sha256:660c24eaf14c543d148a13a7646fe19f90fe3adb602b9cdb0acb21b8c946d4dc",
         "path": ".engine/tools/nightly_demo_report.py"
       },
       "status": "active",
@@ -16272,7 +16273,7 @@
       },
       "slug": "telemetry",
       "source": {
-        "fingerprint": "sha256:36f7c59773b6ac832fa0464ad7a885a1d6dc6707847615bdeb5036993adbcbf9",
+        "fingerprint": "sha256:0ea798d66e2f700b9123831f676b6b4b84ecf1cc6463812872201fdfd7822b9f",
         "path": ".engine/tools/telemetry.py"
       },
       "status": "active",
@@ -18662,12 +18663,14 @@
         "tests": [
           "tool:issue_author",
           "tool:issue_gate",
+          "tool:modes",
+          "tool:providers",
           "tool:quiet_call"
         ]
       },
       "slug": "test_issue_gate",
       "source": {
-        "fingerprint": "sha256:707befb7c769590879c758122d4fd20657ea8a04a3be6fc3fe4232ea452af0eb",
+        "fingerprint": "sha256:1cf9c774c82f818b669d9607cc216263f564bdc89999388e66563674f7573036",
         "path": ".engine/tools/test_issue_gate.py"
       },
       "status": "active",
@@ -19556,7 +19559,7 @@
       },
       "slug": "test_nightly_demo_report",
       "source": {
-        "fingerprint": "sha256:d1cda820bd28da6fc8398ec941d8725234ae8b644abcc5a17ea343b0c50dba0f",
+        "fingerprint": "sha256:d74bfd39117551c33db63a556d04d7b65880707f0197d65744ebc0e995cae36f",
         "path": ".engine/tools/test_nightly_demo_report.py"
       },
       "status": "active",
@@ -19588,7 +19591,7 @@
       },
       "slug": "test_nightly_demos",
       "source": {
-        "fingerprint": "sha256:71f29ec568f8310bd8071c859b1662899db2059de6cd21eb026ccab29bcc9989",
+        "fingerprint": "sha256:9effcdf9bba1638f84ce23323d5a18e28479f0d4150fc5917449fd3d324df71b",
         "path": ".engine/tools/test_nightly_demos.py"
       },
       "status": "active",
