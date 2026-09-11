@@ -78,8 +78,7 @@ ENGINE_MANIFEST_REL = ".engine/engine.json"
 # artifacts (the two required-check workflows and the head-bound acknowledgment-status workflow; the
 # advisory secret-scan workflow + dependabot.yml that
 # form the git-native security floor; the advisory actionlint
-# workflow that grammar-checks every workflow file; the scheduled audit-prep workflow that runs the
-# engine's self-review; the PR template, the issue templates, and CODEOWNERS
+# workflow that grammar-checks every workflow file; the PR template, the issue templates, and CODEOWNERS
 # itself). This is the foundation infrastructure-artifact set — the high-trust files a bare `provides`-union
 # would leave unowned. It is the SINGLE SOURCE for four derived consumers, so they cannot drift apart:
 #   - NAMED_INFRA (below) — the .engine/-only subset, the ownership-walk carve-out.
@@ -106,7 +105,6 @@ FOUNDATION_INFRA = (
     ".github/workflows/engine-ack-status.yml",
     ".github/workflows/secret-scan.yml",
     ".github/workflows/actionlint.yml",
-    ".github/workflows/audit-prep.yml",
     ".github/workflows/engine-issue-conformance.yml",
     ".github/workflows/engine-issue-kind-label.yml",
     ".github/workflows/engine-overlay-disclosure.yml",
