@@ -25,6 +25,8 @@ import os
 import subprocess
 import sys
 import tempfile
+import threading
+import time
 import unittest
 from contextlib import redirect_stdout
 from unittest import mock
@@ -386,11 +388,12 @@ class _FakeProc:
     (or raises TimeoutExpired to model a stuck/cancelled child), and the salvaged stdout on the post-kill reap
     call. `kill` records that the parent reaped before reading."""
 
-    def __init__(self, *, stdout="", returncode=0, timeout_first=False, reap_stdout=""):
+    def __init__(self, *, stdout="", returncode=0, timeout_first=False, reap_stdout="", timeout_reap=False):
         self._stdout = stdout
         self._reap_stdout = reap_stdout
         self.returncode = returncode
         self._timeout_first = timeout_first
+        self._timeout_reap = timeout_reap
         self.killed = False
         self.calls = 0
         self.input_seen = None
@@ -402,6 +405,8 @@ class _FakeProc:
             if self._timeout_first:
                 raise subprocess.TimeoutExpired(cmd="child", timeout=timeout)
             return (self._stdout, "")
+        if self._timeout_reap:                                         # the kill did not land in time
+            raise subprocess.TimeoutExpired(cmd="child", timeout=timeout)
         return (self._reap_stdout, "")                                 # the reap after kill()
 
     def kill(self):
@@ -495,6 +500,24 @@ class SpawnReapTests(_Base):
         self.assertEqual(recorded[0][0][0], stranding_log.DispatchOutcome.FAULTED)
         self.assertEqual(recorded[0][0][1], -15)
 
+    def test_a_child_that_survives_the_reap_window_is_unconfirmed_never_faulted_and_not_recorded(self):
+        # DH2-1: kill() was sent but the reap timed out too, so the child is NOT confirmed dead and may still
+        # be holding the ledger lock or committing. LOSE NOTHING: that is `unconfirmed`, never `faulted`;
+        # nothing is written to the stranding log, and the never-launched exit sentinel is not reused for a
+        # child that did run.
+        proc = _FakeProc(timeout_first=True, timeout_reap=True, returncode=None)
+        captured = {}
+        recorded, recpatch = self._capture_recording()
+        with self._patch_popen(proc, captured), recpatch:
+            outcome = write_dispatch._spawn_accepted_child({"verb": "pin", "text": "x"})
+        self.assertTrue(proc.killed)
+        self.assertEqual(proc.calls, 2)                                 # the reap WAS attempted
+        self.assertEqual(outcome["outcome"], "unconfirmed")
+        self.assertEqual(outcome["response"]["unconfirmed"], write_dispatch._STILL_UNCONFIRMED_NOTE)
+        self.assertNotIn("returncode", outcome)                        # no exit status exists yet
+        self.assertNotIn(str(stranding_log.EXIT_NOT_LAUNCHED), json.dumps(outcome))
+        self.assertEqual(recorded, [])                                  # never stranded: it may still land
+
     def test_a_child_that_never_launches_is_not_attempted_and_recorded(self):
         # not_attempted: Popen itself fails, so no process ever ran — a class distinct from a child that ran
         # and faulted, recorded with the never-launched exit sentinel.
@@ -563,8 +586,10 @@ class StrandingForensicContractTests(unittest.TestCase):
 
 
 class ConcurrencyAndCollisionTests(_Base):
-    """DH-4: writes serialize on the single-writer lock, and the dedup key includes the session, so two
-    conversations pinning the same words are two records, not a collision."""
+    """DH-4: two writers never interleave — a concurrent write finds the single-writer lock held and refuses
+    cleanly (it is not queued), and the dedup key includes the session, so two conversations pinning the same
+    words are two records, not a collision. DH2-5: the decisive duplicate check runs under that lock, so two
+    overlapping identical pins land exactly one record."""
 
     def test_a_second_writer_refuses_while_the_single_writer_lock_is_held(self):
         # Hold the capture transaction lock exactly as a concurrent writer would, then attempt a dispatched
@@ -587,6 +612,90 @@ class ConcurrencyAndCollisionTests(_Base):
         b = write_dispatch.run_child({"verb": "pin", "text": "same words", "session_id": "s2"})
         self.assertNotEqual(a["id"], b["id"])
         self.assertEqual(len(self._pins()), 2)
+
+    def test_two_overlapping_identical_pins_land_one_record_and_the_decisive_check_fires_under_the_lock(self):
+        """Two children race for the same pin. A parent-side-only check would let BOTH through: before either
+        child runs, the parent's view of the ledger holds no duplicate for either request. The decisive check
+        is the one the child runs while it HOLDS the write lock: the first child is held open at that check
+        while the second arrives, contends for the lock, and — once the first has committed — finds the
+        duplicate and commits nothing. Exactly one record, exactly one 'already pinned' answer."""
+        target = ledger.ledger_path()
+        requests = [{"verb": "pin", "text": "race me", "session_id": "s1"} for _ in range(2)]
+        # The parent-side-only check: nothing is pinned yet, so it clears BOTH requests. It cannot serialize.
+        for request in requests:
+            self.assertIsNone(pins._find_duplicate_pin(request["text"], request["session_id"], path=target))
+
+        real_check = pins._find_duplicate_pin
+        entered = threading.Event()
+        release = threading.Event()
+        check_threads = []
+
+        def gated_check(cleaned, session_identity, *, path):
+            check_threads.append(threading.get_ident())
+            if len(check_threads) == 1:
+                entered.set()                                          # first child: inside the lock, at the check
+                self.assertTrue(release.wait(10))                     # ...held there until the second is queued
+            return real_check(cleaned, session_identity, path=path)
+
+        results = []
+
+        def run(request):
+            results.append(write_dispatch.run_child(request))
+
+        with mock.patch.object(pins, "_find_duplicate_pin", gated_check):
+            first = threading.Thread(target=run, args=(requests[0],))
+            first.start()
+            self.assertTrue(entered.wait(10))                          # first child holds the lock
+            second = threading.Thread(target=run, args=(requests[1],))
+            second.start()
+            time.sleep(0.25)                                           # second child is now contending
+            self.assertEqual(len(check_threads), 1)                    # ...and has NOT reached the check
+            self.assertEqual(self._pins(), [])                         # nothing committed while both are open
+            release.set()
+            first.join(30)
+            second.join(30)
+
+        self.assertEqual(len(results), 2)
+        stored = self._pins()
+        self.assertEqual(len(stored), 1)                               # exactly one record
+        self.assertEqual({r["id"] for r in results}, {stored[0][records.RECORD_ID_KEY]})
+        self.assertEqual([bool(r.get("already_pinned")) for r in sorted(results, key=lambda r: bool(r.get("already_pinned")))],
+                         [False, True])                                # one fresh commit, one already-pinned
+        self.assertEqual(len(check_threads), 2)                        # both decisive checks ran under the lock
+        self.assertNotEqual(check_threads[0], check_threads[1])        # ...each in its own child, in turn
+
+    def test_two_identical_pins_that_omit_session_id_collide(self):
+        # An omitted session_id normalizes to ONE explicit no-session identity, so two no-session pins of the
+        # same text are the same pin — not two records that merely share no session.
+        a = write_dispatch.run_child({"verb": "pin", "text": "no session here"})
+        b = write_dispatch.run_child({"verb": "pin", "text": "no session here"})
+        c = write_dispatch.run_child({"verb": "pin", "text": "no session here", "session_id": None})
+        self.assertEqual(a["id"], b["id"])
+        self.assertEqual(a["id"], c["id"])
+        self.assertTrue(b["already_pinned"] and c["already_pinned"])
+        self.assertEqual(len(self._pins()), 1)
+        self.assertEqual(pins._session_identity(None), pins._session_identity(""))
+
+    def test_the_normalization_rule_has_exactly_three_equivalence_classes(self):
+        # Unicode NFC, trailing/leading whitespace stripped, internal whitespace runs collapsed to one space —
+        # each on its own and all together — land on the SAME pin; a change to the words does not.
+        composed = "caf\u00e9 au lait"                                 # é precomposed
+        decomposed = "cafe\u0301 au lait"                              # e + combining acute (NFD)
+        self.assertNotEqual(composed, decomposed)
+        first = write_dispatch.run_child({"verb": "pin", "text": composed, "session_id": "s1"})
+        for variant in (decomposed,                                    # NFC folding
+                        "  " + composed + "\t\n",                     # outer whitespace stripped
+                        "caf\u00e9   au\t\tlait",                     # internal runs collapsed
+                        " \n cafe\u0301\t au  \n lait "):             # all three at once
+            with self.subTest(variant=variant):
+                out = write_dispatch.run_child({"verb": "pin", "text": variant, "session_id": "s1"})
+                self.assertEqual(out["id"], first["id"])
+                self.assertTrue(out["already_pinned"])
+        self.assertEqual(len(self._pins()), 1)
+        other = write_dispatch.run_child({"verb": "pin", "text": "caf\u00e9 au laid", "session_id": "s1"})
+        self.assertNotEqual(other["id"], first["id"])                  # different words are a different pin
+        self.assertEqual(len(self._pins()), 2)
+        self.assertEqual(pins._normalized_pin_text(" \n cafe\u0301\t au  \n lait "), composed)
 
 
 class MainRoundTripTests(_Base):

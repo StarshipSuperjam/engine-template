@@ -76,6 +76,43 @@ class TestMutationRegistryShape(unittest.TestCase):
             else:
                 self.assertIn(function, path.read_text(encoding="utf-8"), entry["id"])
 
+    def test_every_declared_caller_edge_resolves_in_source(self):
+        """The registry's callers census is a claim about source, and this is its AST-based proof (not a grep):
+        every `module.function` a registry entry names as a caller is a real function defined in that module
+        under .engine/tools, so a removed or renamed caller — the three in-process server edges this seam
+        retired, or the write-dispatch launcher edges that replaced them — fails here instead of quietly
+        leaving the census stale. A caller that is not code (a launcher the provider configures, named in
+        prose) must read as prose: words with spaces, never a dotted path that merely fails to resolve."""
+        for entry in contract.REGISTRY:
+            for caller in entry["callers"]:
+                with self.subTest(entry=entry["id"], caller=caller):
+                    if " " in caller:
+                        self.assertNotRegex(caller, r"^[\w.]+$")             # prose, not a dotted code path
+                        continue
+                    if caller.startswith(".engine/"):
+                        self.assertTrue((ROOT / caller).is_file(), caller)   # a script caller, by repo path
+                        continue
+                    module, function = caller.rsplit(".", 1)
+                    path = ROOT / ".engine" / "tools" / (module.replace(".", "/") + ".py")
+                    self.assertTrue(path.is_file(), f"{caller}: {path} is not a module")
+                    tree = ast.parse(path.read_text(encoding="utf-8"), filename=str(path))
+                    defined = {node.name for node in ast.walk(tree)
+                               if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef))}
+                    self.assertIn(function, defined, f"{caller}: no function named {function!r} in {path}")
+
+    def test_the_caller_census_detects_a_retired_or_misspelled_edge(self):
+        # The proof has teeth: the exact edges this seam retired (the server's in-process pin/withhold/restore
+        # calls into the pin library) and a misspelled launcher both fail to resolve.
+        for entry in contract.REGISTRY:
+            if entry["id"] != "attended-write-dispatch":
+                self.assertNotIn("memory.mcp_server.pin", entry["callers"], entry["id"])
+        tools = ROOT / ".engine" / "tools"
+        tree = ast.parse((tools / "memory" / "write_dispatch.py").read_text(encoding="utf-8"))
+        defined = {node.name for node in ast.walk(tree) if isinstance(node, ast.FunctionDef)}
+        self.assertIn("run_child", defined)
+        self.assertNotIn("run_chlid", defined)
+        self.assertFalse((tools / "memory" / "no_such_launcher.py").exists())
+
     def test_closed_vocabularies_match_the_schema(self):
         self.assertEqual(contract.EFFECT_CLASSES, {
             "semantic-read", "durable-append", "reversible-mutation", "destructive-irreversible"})

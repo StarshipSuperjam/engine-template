@@ -2019,6 +2019,29 @@ class TestAmbientActivationLifecycle(unittest.TestCase):
         self.assertTrue(any("not able to write to memory" in notice for notice in result["notices"]),
                         "a hang must be disclosed, not silently degraded")
 
+    def test_a_hung_reachability_compare_cannot_borrow_the_session_start_repo_read_budget(self):
+        """DH2-6: reachability is measured in its OWN budget after the boot budget has closed. A compare
+        read that hangs must leave activation converged (the repository read kept its full budget) and
+        degrade only reachability to 'unconfirmed', which never holds a write."""
+        fake = self.repo.fake_bin / "gh"
+        source = fake.read_text(encoding="utf-8")
+        hung = source.replace('elif "/compare/" in endpoint:\n',
+                              'elif "/compare/" in endpoint:\n    import time; time.sleep(6)\n')
+        self.assertNotEqual(hung, source)
+        fake.write_text(hung, encoding="utf-8")
+        import accepted_hook_dispatch as d
+        started = time.monotonic()
+        result = self._ambient()
+        elapsed = time.monotonic() - started
+        self.assertIsNotNone(result["activation"], result["notices"])   # the repo read converged
+        self.assertLess(elapsed, 30)
+        self.assertGreaterEqual(elapsed, d.REACHABILITY_BUDGET_SECONDS)  # the compare was really waited on
+        self.assertTrue(any("could not confirm" in n for n in result["notices"]), result["notices"])
+        self.assertFalse(any("not able to write to memory" in n for n in result["notices"]))
+        root = str(self.repo.home)
+        self.assertEqual(d.reachability_state(root, d.load_activation(root)), "unconfirmed")
+        self.assertFalse(d._reachability_lost(root, d.load_activation(root)))
+
     def test_an_authentication_prompt_cannot_block_the_session(self):
         """`gh` reading from stdin must see EOF, not a session that waits forever for an answer nobody can
         type. Without the DEVNULL stdin this script blocks until the timeout."""
@@ -2568,6 +2591,15 @@ class TestReachability(unittest.TestCase):
         self.assertIn("epoch 7", text)
         self.assertNotIn("converges by itself", text)          # never claims self-heal
         self.assertNotIn(self.act["commit"], text)             # no commit hash in an operator refusal
+        # SG2-2: the hold is enforced for helper-dispatched saves only, and the sentence claims no more.
+        self.assertNotIn("saving to memory is held", text)
+        self.assertIn("through the memory helper", text)
+        self.assertIn("automatic turn capture continues", text)
+        self.assertIn("command-line tools are unaffected", text)
+        # US2-1: the recovery is a pull then a restart, never "get back on the default branch".
+        self.assertIn("Pull the project's default branch", text)
+        self.assertNotIn("back on the project's default branch", text)
+        self.assertLess(text.index("Pull the project's default branch"), text.index(refusals.RESTART_ACTION))
         # The only path is the sanctioned /engine-status in the escalation; no filesystem path leaks.
         self.assertNotIn("/", text.replace(refusals.ESCALATION, ""))
 
@@ -2658,6 +2690,100 @@ class TestWriteDispatchReachabilityHold(unittest.TestCase):
                     response = event["response"]
         self.assertEqual(response, {"refused": accepted_hook_dispatch._reachability_posture(
             activation["epoch"])})
+
+class TestMaterializationIsAttributeBlind(unittest.TestCase):
+    """SG2-1: the materialized tree is derived from git's object store, never ``git archive``, so a project's
+    own ``.gitattributes`` (export-ignore, eol) cannot make the on-disk tree diverge from the ``ls-tree``
+    manifest the exact binding compares against — which would otherwise hold every memory write forever."""
+
+    def setUp(self):
+        import accepted_hook_dispatch
+        self.d = accepted_hook_dispatch
+        self.repo = _AcceptedDispatchRepo()
+        self.addCleanup(self.repo.cleanup)
+        # A second accepted commit carrying every attribute that makes `git archive` diverge from the tree,
+        # plus an executable and a symlink so every materializable git mode is exercised.
+        self.repo._put(".gitattributes", "docs/ export-ignore\nwin.txt eol=crlf\n")
+        self.repo._put("docs/kept.txt", "archive would drop me\n")
+        self.repo._put("win.txt", "one\ntwo\n")
+        self.repo._put("bin/run.sh", "#!/bin/sh\necho ok\n")
+        os.chmod(self.repo.root / "bin/run.sh", 0o755)
+        os.symlink("win.txt", self.repo.root / "link.txt")
+        _accepted_call("git", "-C", str(self.repo.root), "add", "-A")
+        _accepted_call("git", "-C", str(self.repo.root), "commit", "-q", "-m", "attributes")
+        self.commit = self.repo.git("rev-parse", "HEAD")
+        self.assertEqual(self.repo.activate(commit=self.commit).returncode, 0)
+        self.root = str(self.repo.worktree)
+        self.activation = self.d.load_activation(self.root)
+        self.assertEqual(self.activation["commit"], self.commit)
+        self.d._COMMIT_MANIFEST_MEMO.clear()
+
+    def test_git_archive_would_have_diverged_from_the_manifest(self):
+        # The trap is real in this fixture: archive drops the export-ignored file and rewrites the eol file.
+        import tarfile
+        raw = subprocess.run(["git", "-C", self.root, "archive", "--format=tar", self.commit],
+                             capture_output=True, check=True, timeout=30).stdout
+        with tarfile.open(fileobj=io.BytesIO(raw)) as tf:
+            names = tf.getnames()
+            win = tf.extractfile("win.txt").read()
+        self.assertNotIn("docs/kept.txt", names)
+        self.assertIn(b"\r\n", win)
+
+    def test_the_materialized_tree_matches_the_manifest_despite_gitattributes(self):
+        tree = self.d._materialize(self.root, self.activation)
+        self.assertEqual(self.d._valid_materialization(self.root, self.activation), tree)
+        with open(os.path.join(tree, "docs", "kept.txt"), "rb") as fh:
+            self.assertEqual(fh.read(), b"archive would drop me\n")          # export-ignore did not apply
+        with open(os.path.join(tree, "win.txt"), "rb") as fh:
+            self.assertEqual(fh.read(), b"one\ntwo\n")                       # eol did not rewrite bytes
+        self.assertTrue(os.access(os.path.join(tree, "bin", "run.sh"), os.X_OK))  # 100755 kept
+        self.assertEqual(os.readlink(os.path.join(tree, "link.txt")), "win.txt")   # 120000 kept
+        _inventory, ondisk = self.d._scan_materialized_tree(tree, self.d._object_format(self.root))
+        self.assertEqual(ondisk, self.d._git_manifest(self.root, self.commit))
+
+    def test_an_unsafe_manifest_path_fails_closed(self):
+        forged = frozenset({("../escape.txt", "100644", "0" * 40)})
+        with mock.patch.object(self.d, "_git_manifest", return_value=forged):
+            with self.assertRaises(self.d.QualificationError):
+                self.d._write_tree_from_objects(self.root, self.commit, tempfile.mkdtemp(dir=self.repo.temp.name))
+
+
+class TestActivationValidationIgnoresTheReachabilityMark(unittest.TestCase):
+    """DH2-6: the reachability mark is a sibling file that only the write hold consults. Loading and validating
+    the activation record must never open it, so a corrupt or hostile mark can neither break activation nor
+    influence which commit is trusted."""
+
+    def test_load_activation_opens_only_the_activation_record(self):
+        import builtins
+        import accepted_hook_dispatch as d
+        repo = _AcceptedDispatchRepo()
+        self.addCleanup(repo.cleanup)
+        self.assertEqual(repo.activate().returncode, 0)
+        root = str(repo.worktree)
+        activation = d.load_activation(root)
+        d._record_reachability(root, activation, "lost")
+        mark = d._reachability_path(root)
+        self.assertTrue(os.path.isfile(mark))
+        opened, statted = [], []
+        real_open, real_lstat = builtins.open, os.lstat
+
+        def spy_open(file, *args, **kwargs):
+            opened.append(os.fspath(file) if not isinstance(file, int) else file)
+            return real_open(file, *args, **kwargs)
+
+        def spy_lstat(path, *args, **kwargs):
+            statted.append(os.fspath(path))
+            return real_lstat(path, *args, **kwargs)
+
+        with mock.patch.object(builtins, "open", spy_open), mock.patch.object(os, "lstat", spy_lstat):
+            again = d.load_activation(root)
+            d._validate_activation(dict(again))
+        self.assertEqual(again, activation)
+        touched = [p for p in opened + statted if isinstance(p, str)]
+        self.assertTrue(touched, "the activation record itself must have been read")
+        self.assertFalse([p for p in touched if p.endswith(d.REACHABILITY_REL)], touched)
+        self.assertTrue(d._reachability_lost(root, activation))   # the mark is intact and still consulted
+
 
 class TestExactTreeBindingRejectsForgedCache(unittest.TestCase):
     """Obligation 4 - the byte-level tree-binding vulnerability. The marker's inventory self-hash catches

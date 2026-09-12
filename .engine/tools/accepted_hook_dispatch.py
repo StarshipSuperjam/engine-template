@@ -387,8 +387,10 @@ def _blob_oid(path: str, object_format: str, *, is_symlink: bool) -> str:
 
 def _git_manifest(root: str, commit: str) -> frozenset:
     """The authoritative ``(path, git-mode, blob-oid)`` set git records for this commit's tree. Immutable per
-    commit, so memoized. Gitlinks (submodules, mode 160000) are excluded: ``git archive`` does not
-    materialize their content, so there is nothing on disk to compare them against."""
+    commit, so memoized. It is both the source ``_write_tree_from_objects`` materializes from and the
+    expectation ``_valid_materialization`` compares against, so the two can only agree or fail closed.
+    Gitlinks (submodules, mode 160000) are excluded: a submodule's content is not part of this repository's
+    object store, so nothing is materialized for it and there is nothing on disk to compare it against."""
     memoized = _COMMIT_MANIFEST_MEMO.get(commit)
     if memoized is not None:
         return memoized
@@ -410,7 +412,7 @@ def _git_manifest(root: str, commit: str) -> frozenset:
         if len(parts) != 3:
             raise QualificationError("the accepted commit's tree manifest is malformed")
         mode, _kind, oid = parts
-        if mode == "160000":  # gitlink: not materialized by archive, so out of the on-disk comparison
+        if mode == "160000":  # gitlink: never materialized, so out of the on-disk comparison
             continue
         entries.append((path, mode, oid))
     manifest = frozenset(entries)
@@ -538,8 +540,65 @@ def _valid_materialization(root: str, activation: dict) -> str | None:
     return tree_path if os.path.isfile(dispatch) else None
 
 
+_MATERIALIZABLE_MODES = ("100644", "100755", "120000")
+
+
+def _write_tree_from_objects(root: str, commit: str, dest: str) -> None:
+    """Materialize ``commit``'s exact tree into ``dest`` straight from git's object store: the same
+    ``git ls-tree`` manifest the binding later compares against, each blob's bytes read through
+    ``git cat-file --batch`` and written by its git mode (plain file, executable file, symlink).
+
+    Never ``git archive`` (SG2-1): archive honours the tree's own ``.gitattributes`` — ``export-ignore`` drops
+    paths and ``eol``/``export-subst`` rewrite bytes — so its output can differ from the manifest, and the
+    exact binding would then fail on every attempt in any project carrying such attributes, holding every
+    memory write. Reading objects directly is attribute-blind by construction: the materialized set equals
+    the manifest whenever the object store is intact. Paths come from git, but are still refused if they
+    could escape ``dest``; any object kind a working tree cannot hold fails closed.
+    """
+    manifest = sorted(_git_manifest(root, commit))
+    base = os.path.realpath(dest)
+    for path, mode, _oid in manifest:
+        parts = path.split("/")
+        if not path or path.startswith("/") or any(part in ("", ".", "..") for part in parts):
+            raise QualificationError("the accepted commit's tree manifest names an unsafe path")
+        if mode not in _MATERIALIZABLE_MODES:
+            raise QualificationError("the accepted commit's tree holds an object that cannot be materialized")
+    try:
+        proc = subprocess.run(["git", "-C", root, "cat-file", "--batch"],
+                              input="".join(oid + "\n" for _path, _mode, oid in manifest).encode("ascii"),
+                              capture_output=True, timeout=120)
+    except (OSError, subprocess.SubprocessError) as exc:
+        raise QualificationError("the accepted commit's objects could not be read") from exc
+    if proc.returncode != 0:
+        raise QualificationError("the accepted commit's objects could not be read")
+    stream = proc.stdout
+    cursor = 0
+    for path, mode, oid in manifest:
+        newline = stream.find(b"\n", cursor)
+        if newline < 0:
+            raise QualificationError("the accepted commit's object stream ended early")
+        header = stream[cursor:newline].decode("ascii", "replace").split(" ")
+        if len(header) != 3 or header[0] != oid or header[1] != "blob" or not header[2].isdigit():
+            raise QualificationError("the accepted commit's object stream does not match its manifest")
+        size = int(header[2])
+        start = newline + 1
+        content = stream[start:start + size]
+        if len(content) != size:
+            raise QualificationError("the accepted commit's object stream ended early")
+        cursor = start + size + 1  # each object is followed by one newline
+        target = os.path.join(base, *path.split("/"))
+        os.makedirs(os.path.dirname(target), exist_ok=True)
+        if mode == "120000":
+            os.symlink(content.decode("utf-8", "surrogateescape"), target)
+            continue
+        with open(target, "wb") as handle:
+            handle.write(content)
+        os.chmod(target, 0o755 if mode == "100755" else 0o644)
+
+
 def _materialize(root: str, activation: dict) -> str:
-    """Materialize through release_source's existing exact local-archive seam, then atomically publish."""
+    """Materialize the exact accepted tree from git's object store into a staging directory, then atomically
+    publish it with its marker. Attribute-blind by construction — see ``_write_tree_from_objects``."""
     existing = _valid_materialization(root, activation)
     if existing:
         return existing
@@ -552,18 +611,7 @@ def _materialize(root: str, activation: dict) -> str:
         stage = tempfile.mkdtemp(prefix=".accepted-tree-", dir=cache_root)
         tree_path, marker_path = _materialized_paths(root, activation)
         try:
-            tools_dir = os.path.join(root, ".engine", "tools")
-            sys.path.insert(0, tools_dir)
-            try:
-                import release_source
-                release_source._archive_tree(activation["commit"], stage, root=root)
-            finally:
-                try:
-                    sys.path.remove(tools_dir)
-                except ValueError:
-                    pass
-                sys.modules.pop("release_source", None)
-                sys.modules.pop("validate", None)
+            _write_tree_from_objects(root, activation["commit"], stage)
             dispatch = os.path.join(stage, ".engine", "tools", "accepted_hook_dispatch.py")
             if not os.path.isfile(dispatch):
                 raise QualificationError("the activated tree does not contain the accepted-hook dispatcher")
@@ -1175,10 +1223,19 @@ def _reachability_posture(epoch: int) -> str:
     The same sentence is shown as a session-start notice and relayed as the write refusal, so an operator
     reads one consistent explanation wherever it surfaces; it names no commit, path, or writer identity —
     only the activation epoch.
+
+    It claims exactly what the hold covers (SG2-2): the hold is enforced for ``attended-write-dispatch``
+    only — the saves an assistant makes from the conversation through the memory helper (a pin, setting a
+    note aside, restoring one). Automatic turn capture and the memory command-line tools dispatch under their
+    own operations and are not held, so the sentence says so instead of announcing that all saving is held.
+    The recovery step is stated as what the operator actually does (US2-1): pull the default branch, then
+    restart — not "get back on the default branch", which reads as a branch switch and is not the fix.
     """
     return ("The commit this project's memory activated on is no longer on the project's default branch, so "
-            "saving to memory is held. Nothing was changed, and recall keeps working. First make sure your "
-            "checkout is back on the project's default branch. "
+            "saves made from this conversation through the memory helper (pins, setting a note aside, "
+            "restoring one) are held. Nothing was changed, recall keeps working, automatic turn capture "
+            "continues, and the memory command-line tools are unaffected. Pull the project's default branch "
+            "so your copy has its latest merged commit. "
             "To fully reconnect, quit Claude Desktop completely and reopen it so the memory server restarts "
             "(in a Codex session, end the session and start a new one). A fresh start re-activates on the "
             "current commit and clears this hold. "

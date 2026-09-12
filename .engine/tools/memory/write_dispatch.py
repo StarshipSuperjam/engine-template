@@ -232,9 +232,11 @@ def _spawn_accepted_child(request: dict) -> dict:
     tree before running a byte of it.
 
     A stuck or client-cancelled child is terminated and reaped BEFORE its outcome is read, so no lingering
-    child can keep committing behind a reported result. A child that never launches is `not_attempted`
-    (distinct from a child that ran and faulted) and is recorded to the stranding log; a launched child that
-    leaves no evidence of a commit is `faulted` and likewise recorded.
+    child can keep committing behind a reported result. If the kill does not land inside the reap window the
+    child is NOT confirmed dead: it is classified as still alive, so the outcome is `unconfirmed` (or
+    `committed` by read-back), never `faulted`, and nothing is written to the stranding log. A child that
+    never launches is `not_attempted` (distinct from a child that ran and faulted) and is recorded to the
+    stranding log; a REAPED child that leaves no evidence of a commit is `faulted` and likewise recorded.
 
     This cannot succeed from a tree whose accepted materialization does not yet contain this file — a
     pre-merge worktree — where it surfaces the launcher's own refusal. That is expected: write authority
@@ -254,6 +256,7 @@ def _spawn_accepted_child(request: dict) -> dict:
         stranding_log.record_dispatch_outcome(
             stranding_log.DispatchOutcome.NOT_ATTEMPTED, stranding_log.EXIT_NOT_LAUNCHED)
         return {"outcome": "not_attempted"}
+    reaped = True
     try:
         stdout, _ = proc.communicate(input=payload, timeout=_TIMEOUT_SECONDS)
     except subprocess.TimeoutExpired:
@@ -263,12 +266,17 @@ def _spawn_accepted_child(request: dict) -> dict:
         try:
             stdout, _ = proc.communicate(timeout=_REAP_SECONDS)
         except subprocess.TimeoutExpired:
+            # The kill did not land inside the reap window: the child is NOT confirmed dead and may still be
+            # holding the ledger lock or committing. Nothing it printed is readable yet, and its exit status
+            # does not exist — the never-launched sentinel is never reused for a child that did run.
             stdout = ""
-    returncode = proc.returncode if proc.returncode is not None else stranding_log.EXIT_NOT_LAUNCHED
-    # The child is dead and reaped by now, so a read-back is authoritative: child_alive is False.
+            reaped = False
+    # Only a reaped child is confirmed dead; only then is an empty read-back authoritative evidence of a
+    # fault. An unreaped child is classified alive, which can yield committed or unconfirmed, never faulted.
+    returncode = proc.returncode if reaped else None
     outcome = _classify_outcome(
         stdout, returncode=returncode, verb=verb, request=request,
-        read_back=_ledger_read_back, child_alive=False)
+        read_back=_ledger_read_back, child_alive=not reaped)
     if outcome.get("outcome") == "faulted":
         stranding_log.record_dispatch_outcome(stranding_log.DispatchOutcome.FAULTED, returncode)
     return outcome
@@ -302,8 +310,10 @@ def _classify_outcome(stdout, *, returncode, verb, request, read_back, child_ali
       refused     — a response line carrying the child's plain refusal sentence.
       unconfirmed — a begin line, no commit evidence, read-back absent, but the child is still alive: it may
                     yet commit, so this is NEVER reported as nothing-saved.
-      faulted     — a begin line with the child confirmed dead, no commit evidence and read-back absent; or
-                    no begin line at all (the child never reached the write body).
+      faulted     — the child confirmed dead with no commit evidence: a begin line and an absent read-back,
+                    or no begin line at all (it never reached the write body). A child that is not confirmed
+                    dead is never faulted: with no begin line it is `unconfirmed` too, since an unreaped
+                    child may not have flushed its begin line yet.
 
     (`not_attempted` is the launcher's call — only it knows the child never started — and never reaches here.)
     """
@@ -347,7 +357,10 @@ def _classify_outcome(stdout, *, returncode, verb, request, read_back, child_ali
         # Confirmed dead, nothing on disk, no receipt: a genuine fault.
         return {"outcome": "faulted", "returncode": returncode}
 
-    # 4. No begin line at all: the child never reached the write body.
+    # 4. No begin line at all. Confirmed dead: the child never reached the write body. Still alive: nothing
+    #    is proven either way (its begin line may not have flushed), so hold it open rather than fault it.
+    if child_alive:
+        return {"outcome": "unconfirmed", "response": _still_unconfirmed_response(verb, request, None)}
     return {"outcome": "faulted", "returncode": returncode}
 
 

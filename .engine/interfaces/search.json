@@ -33,8 +33,7 @@
             "required": [
               "armed",
               "qualification",
-              "code_version",
-              "write_authority_version"
+              "code_version"
             ],
             "properties": {
               "armed": {
