@@ -120,7 +120,8 @@
       "properties": {
         "case_count": {
           "type": "integer",
-          "minimum": 0
+          "minimum": 0,
+          "description": "Observed unittest startTest count, including individually skipped cases, excluding cases blocked or skipped by class/module fixtures. Never the selected inventory size."
         },
         "skipped_count": {
           "type": "integer",
