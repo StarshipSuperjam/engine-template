@@ -1,0 +1,371 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "selftest-performance.v1.json",
+  "title": "selftest-performance.v1 \u2014 serial test observations",
+  "description": "Bounded observations, never merge receipts. Semantic validation also reconciles inventory, observed completion and verdict. Unavailable timing is not a complete measurement.",
+  "type": "object",
+  "additionalProperties": false,
+  "properties": {
+    "schema_version": {
+      "const": "selftest-performance.v1"
+    },
+    "source": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "tree": {
+          "anyOf": [
+            {
+              "type": "string",
+              "pattern": "^[0-9a-f]{40}$"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "worktree_dirty": {
+          "anyOf": [
+            {
+              "type": "boolean"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        }
+      },
+      "required": [
+        "tree",
+        "worktree_dirty"
+      ]
+    },
+    "scope": {
+      "enum": [
+        "full",
+        "focused",
+        "project-only"
+      ]
+    },
+    "invocation": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "start_dir": {
+          "type": "string",
+          "maxLength": 4096
+        },
+        "pattern": {
+          "type": "string",
+          "maxLength": 4096
+        },
+        "selection_digest": {
+          "anyOf": [
+            {
+              "type": "string",
+              "maxLength": 4096
+            },
+            {
+              "type": "null"
+            }
+          ]
+        }
+      },
+      "required": [
+        "start_dir",
+        "pattern",
+        "selection_digest"
+      ]
+    },
+    "ci": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "run_id": {
+          "anyOf": [
+            {
+              "type": "string",
+              "maxLength": 4096
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "run_attempt": {
+          "anyOf": [
+            {
+              "type": "string",
+              "maxLength": 4096
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "head": {
+          "anyOf": [
+            {
+              "type": "string",
+              "maxLength": 4096
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "route": {
+          "anyOf": [
+            {
+              "type": "string",
+              "maxLength": 4096
+            },
+            {
+              "type": "null"
+            }
+          ]
+        }
+      },
+      "required": [
+        "run_id",
+        "run_attempt",
+        "head",
+        "route"
+      ]
+    },
+    "environment": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "os": {
+          "type": "string",
+          "maxLength": 4096
+        },
+        "release": {
+          "type": "string",
+          "maxLength": 4096
+        },
+        "architecture": {
+          "type": "string",
+          "maxLength": 4096
+        },
+        "python": {
+          "type": "string",
+          "maxLength": 4096
+        },
+        "cpu_count": {
+          "anyOf": [
+            {
+              "type": "integer",
+              "minimum": 1
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "runner_os": {
+          "anyOf": [
+            {
+              "type": "string",
+              "maxLength": 4096
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "runner_arch": {
+          "anyOf": [
+            {
+              "type": "string",
+              "maxLength": 4096
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "uv": {
+          "anyOf": [
+            {
+              "type": "string",
+              "maxLength": 4096
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "memory_bytes": {
+          "anyOf": [
+            {
+              "type": "integer",
+              "minimum": 1
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "worktree_count": {
+          "anyOf": [
+            {
+              "type": "integer",
+              "minimum": 0
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "cache": {
+          "type": "string",
+          "maxLength": 4096
+        }
+      },
+      "required": [
+        "os",
+        "release",
+        "architecture",
+        "python",
+        "cpu_count",
+        "runner_os",
+        "runner_arch",
+        "uv",
+        "memory_bytes",
+        "worktree_count",
+        "cache"
+      ]
+    },
+    "collection_seconds": {
+      "type": "number",
+      "minimum": 0
+    },
+    "child_seconds": {
+      "type": "number",
+      "minimum": 0
+    },
+    "parent_seconds": {
+      "anyOf": [
+        {
+          "type": "number",
+          "minimum": 0
+        },
+        {
+          "type": "null"
+        }
+      ]
+    },
+    "case_seconds": {
+      "type": "number",
+      "minimum": 0
+    },
+    "cases": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "id": {
+            "type": "string",
+            "maxLength": 4096
+          },
+          "occurrence": {
+            "type": "integer",
+            "minimum": 1
+          },
+          "seconds": {
+            "anyOf": [
+              {
+                "type": "number",
+                "minimum": 0
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        },
+        "required": [
+          "id",
+          "occurrence",
+          "seconds"
+        ]
+      },
+      "maxItems": 200000
+    },
+    "spans": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "phase": {
+            "type": "string",
+            "maxLength": 4096
+          },
+          "level": {
+            "enum": [
+              "fixture",
+              "case"
+            ]
+          },
+          "owner": {
+            "type": "string",
+            "maxLength": 4096
+          },
+          "start": {
+            "type": "number",
+            "minimum": 0
+          },
+          "seconds": {
+            "type": "number",
+            "minimum": 0
+          }
+        },
+        "required": [
+          "phase",
+          "level",
+          "owner",
+          "start",
+          "seconds"
+        ]
+      },
+      "maxItems": 1600000
+    },
+    "timing_semantics": {
+      "type": "string",
+      "maxLength": 4096
+    },
+    "unallocated_seconds": {
+      "type": "number",
+      "minimum": 0
+    },
+    "unknown": {
+      "type": "array",
+      "items": {
+        "type": "string",
+        "maxLength": 4096
+      },
+      "maxItems": 100
+    }
+  },
+  "required": [
+    "schema_version",
+    "source",
+    "scope",
+    "invocation",
+    "ci",
+    "environment",
+    "collection_seconds",
+    "child_seconds",
+    "parent_seconds",
+    "case_seconds",
+    "cases",
+    "spans",
+    "timing_semantics",
+    "unallocated_seconds",
+    "unknown"
+  ]
+}

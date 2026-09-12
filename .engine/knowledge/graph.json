@@ -1941,6 +1941,7 @@
           "operation:routine-entry",
           "operation:scoped-agent-orchestration",
           "operation:serialized-integration",
+          "operation:test-performance",
           "operation:tune-policy"
         ]
       },
@@ -2014,6 +2015,7 @@
           "operation:routine-entry",
           "operation:scoped-agent-orchestration",
           "operation:serialized-integration",
+          "operation:test-performance",
           "operation:tune-policy"
         ]
       },
@@ -5247,7 +5249,7 @@
       },
       "slug": "ci-assurance",
       "source": {
-        "fingerprint": "sha256:ac3ceb3456e96a8849b3af62459204f2ed98922661eca295629dce2bc0ecb659",
+        "fingerprint": "sha256:9301c6346fa0faaa13529f7f80eb42e9796ce3626ecc6f42923d77747110839d",
         "path": ".engine/docs/ci-assurance.md"
       },
       "status": "active",
@@ -5509,7 +5511,7 @@
       },
       "slug": "core",
       "source": {
-        "fingerprint": "sha256:f0c23e1bec4e07bbfd7802792bf53bcb4ec54e8d7921b3c25e75678e8fabcff2",
+        "fingerprint": "sha256:da41328b2442e5027f4785e7f6c9344dba5acb20d3adb1a110f90700d3c3c721",
         "path": ".engine/modules/core/manifest.json"
       },
       "status": "required",
@@ -6627,6 +6629,26 @@
       "type": "operation"
     },
     {
+      "id": "operation:test-performance",
+      "name": ".engine/operations/test-performance.md",
+      "owner": "core",
+      "predicates": {
+        "governed_by": [
+          "schema:operation.v1"
+        ],
+        "provided_by": [
+          "module:core"
+        ]
+      },
+      "slug": "test-performance",
+      "source": {
+        "fingerprint": "sha256:0a7f1a03dddded8e12935917cf6ecdaa02e4dbca34e05cfad299f64465bf21fe",
+        "path": ".engine/operations/test-performance.md"
+      },
+      "status": "active",
+      "type": "operation"
+    },
+    {
       "id": "operation:tune-policy",
       "name": ".engine/operations/tune-policy.md",
       "owner": "core",
@@ -7209,6 +7231,23 @@
       "source": {
         "fingerprint": "sha256:b24b913cd5a7b74fac64e5213476f34556d042ff0f16e8068851c408a5e087e6",
         "path": ".engine/schemas/check.v1.json"
+      },
+      "status": "active",
+      "type": "schema"
+    },
+    {
+      "id": "schema:ci-test-performance.v1",
+      "name": ".engine/schemas/ci-test-performance.v1.json",
+      "owner": "core",
+      "predicates": {
+        "provided_by": [
+          "module:core"
+        ]
+      },
+      "slug": "ci-test-performance.v1",
+      "source": {
+        "fingerprint": "sha256:fcd20c1efc29661dec66ec6d63a633955156c6aef31d46e158bd7c1496841f50",
+        "path": ".engine/schemas/ci-test-performance.v1.json"
       },
       "status": "active",
       "type": "schema"
@@ -7928,6 +7967,40 @@
       "type": "schema"
     },
     {
+      "id": "schema:selftest-performance.v1",
+      "name": ".engine/schemas/selftest-performance.v1.json",
+      "owner": "core",
+      "predicates": {
+        "provided_by": [
+          "module:core"
+        ]
+      },
+      "slug": "selftest-performance.v1",
+      "source": {
+        "fingerprint": "sha256:53187f5e70fb9eb70deb502099b6bb41dba4a8e32bde4f3441759b85735d72ab",
+        "path": ".engine/schemas/selftest-performance.v1.json"
+      },
+      "status": "active",
+      "type": "schema"
+    },
+    {
+      "id": "schema:selftest-results.v1",
+      "name": ".engine/schemas/selftest-results.v1.json",
+      "owner": "core",
+      "predicates": {
+        "provided_by": [
+          "module:core"
+        ]
+      },
+      "slug": "selftest-results.v1",
+      "source": {
+        "fingerprint": "sha256:a921f8e9fd029a698656754aa7c7d9a3e65b77efdb349081cac98d4bf5abaf39",
+        "path": ".engine/schemas/selftest-results.v1.json"
+      },
+      "status": "active",
+      "type": "schema"
+    },
+    {
       "id": "schema:selftest-run-record.v1",
       "name": ".engine/schemas/selftest-run-record.v1.json",
       "owner": "core",
@@ -7938,7 +8011,7 @@
       },
       "slug": "selftest-run-record.v1",
       "source": {
-        "fingerprint": "sha256:4f2cec56ab4f0a8c1a41e49e901a69188db1aceaf1d726d9f3a382fd93eb6f65",
+        "fingerprint": "sha256:43edfbe422da1c048004af824459c9cb85da0355153ea9006c3b7fcf2609b2ba",
         "path": ".engine/schemas/selftest-run-record.v1.json"
       },
       "status": "active",
@@ -10366,7 +10439,7 @@
       },
       "slug": "ci_assurance",
       "source": {
-        "fingerprint": "sha256:4bbb3c9a71b8f89dcb2bc687e79987b51a294c0cf9d1791dceee592845e4fce4",
+        "fingerprint": "sha256:791856d66cffdf8d10049e62e16463e02b3612e6c3521cc3fb210f59ca78f25c",
         "path": ".engine/tools/ci_assurance.py"
       },
       "status": "active",
@@ -15854,6 +15927,8 @@
       "owner": "core",
       "predicates": {
         "imports": [
+          "tool:providers",
+          "tool:selftest_results",
           "tool:selftest_select"
         ],
         "provided_by": [
@@ -15862,11 +15937,55 @@
       },
       "slug": "selftest",
       "source": {
-        "fingerprint": "sha256:1c345883692b5773096a496a6b9eb1dacad973872c96077edc89a54bda312434",
+        "fingerprint": "sha256:d6ecd1e542e3a0d75184e674e10667de87d70454f5448e80b0b266f139c45f6b",
         "path": ".engine/tools/selftest.py"
       },
       "status": "active",
       "summary": "Run the full self-test suite once, legibly — the canonical local full-suite launcher.",
+      "type": "tool"
+    },
+    {
+      "entrypoint": "cli",
+      "guarded": false,
+      "id": "tool:selftest_performance",
+      "name": ".engine/tools/selftest_performance.py",
+      "owner": "core",
+      "predicates": {
+        "imports": [
+          "tool:moment",
+          "tool:selftest_results"
+        ],
+        "provided_by": [
+          "module:core"
+        ]
+      },
+      "slug": "selftest_performance",
+      "source": {
+        "fingerprint": "sha256:9bf5757a50a57dbe0072f558f639005181b2808f40f2ecfde08f23f81b57e983",
+        "path": ".engine/tools/selftest_performance.py"
+      },
+      "status": "active",
+      "summary": "Read-only test-performance reports and bounded CI summaries; never merge receipts.",
+      "type": "tool"
+    },
+    {
+      "entrypoint": "library",
+      "guarded": false,
+      "id": "tool:selftest_results",
+      "name": ".engine/tools/selftest_results.py",
+      "owner": "core",
+      "predicates": {
+        "provided_by": [
+          "module:core"
+        ]
+      },
+      "slug": "selftest_results",
+      "source": {
+        "fingerprint": "sha256:67c9aa969ec1e89ddeb01ac2b993740b32175ec7c3e90021eec83064337d4bd0",
+        "path": ".engine/tools/selftest_results.py"
+      },
+      "status": "active",
+      "summary": "Bounded serial unittest observations. Outcome accounting is mandatory; timing is advisory.",
       "type": "tool"
     },
     {
@@ -17366,7 +17485,7 @@
       },
       "slug": "test_ci_assurance",
       "source": {
-        "fingerprint": "sha256:fc535b3ce91ba1d8996450e5f371c69f41ba814e0a0a3a8f2070879388088781",
+        "fingerprint": "sha256:5d22b0eb385fe0031911962db15aeb255a2df40569764ace65ecabb20fc12a7d",
         "path": ".engine/tools/test_ci_assurance.py"
       },
       "status": "active",
@@ -17390,7 +17509,7 @@
       },
       "slug": "test_ci_gatekeeper",
       "source": {
-        "fingerprint": "sha256:a1aba690e82cf26ae4d9a6d535a77eabe42d05e8ed114967846e4049811d7108",
+        "fingerprint": "sha256:226ca38a896ccaac14cba4ac1aac71e3c87c8e941827207da34efc4bce30eaf6",
         "path": ".engine/tools/test_ci_gatekeeper.py"
       },
       "status": "active",
@@ -21493,6 +21612,54 @@
     {
       "entrypoint": "test",
       "guarded": false,
+      "id": "tool:test_selftest_performance",
+      "name": ".engine/tools/test_selftest_performance.py",
+      "owner": "core",
+      "predicates": {
+        "provided_by": [
+          "module:core"
+        ],
+        "tests": [
+          "tool:selftest_performance",
+          "tool:selftest_results"
+        ]
+      },
+      "slug": "test_selftest_performance",
+      "source": {
+        "fingerprint": "sha256:7077c49346897d9b8b572505f96404ec69da2ec26ee26181609e2d5fdbac60e9",
+        "path": ".engine/tools/test_selftest_performance.py"
+      },
+      "status": "active",
+      "summary": "Bounded performance publication cannot control CI verdicts or interpret authored markup.",
+      "type": "tool"
+    },
+    {
+      "entrypoint": "test",
+      "guarded": false,
+      "id": "tool:test_selftest_results",
+      "name": ".engine/tools/test_selftest_results.py",
+      "owner": "core",
+      "predicates": {
+        "provided_by": [
+          "module:core"
+        ],
+        "tests": [
+          "tool:selftest",
+          "tool:selftest_results"
+        ]
+      },
+      "slug": "test_selftest_results",
+      "source": {
+        "fingerprint": "sha256:dc0cdea2678643d7beca9f7de17220f0c740268b140bb456ce0c6ce0bf40afb3",
+        "path": ".engine/tools/test_selftest_results.py"
+      },
+      "status": "active",
+      "summary": "Small real unittest journeys proving complete accounting, without repository fixtures.",
+      "type": "tool"
+    },
+    {
+      "entrypoint": "test",
+      "guarded": false,
       "id": "tool:test_selftest_select",
       "name": ".engine/tools/test_selftest_select.py",
       "owner": "core",
@@ -22320,7 +22487,7 @@
       },
       "slug": "test_wiring",
       "source": {
-        "fingerprint": "sha256:3caa419fa308bd5dce685bdac03395b1c7aa3692ea2186eb3d72f0e3b5aaeb73",
+        "fingerprint": "sha256:692e0add16956b1ae68baf9913d11f7678058ed1e15c32b8e8e74d8e26d60e18",
         "path": ".engine/tools/test_wiring.py"
       },
       "status": "active",
