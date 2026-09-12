@@ -26,6 +26,8 @@ reviewer's suggested remedy fits. Reviewer severity is advice, not an automatic 
 - **Escalated** — a genuine design, law, authority, capability-boundary, guardrail-acknowledgement, or
   operator-only decision remains; record which boundary is implicated.
 
+Land and verify accepted in-scope fixes before judging whether to request another independent pass. A review budget limits review spending; it does not authorize deferring accepted in-scope repairs. The accepted-fixed disposition requires a landed fix. The coordinator refuses submission when HEAD is still the finding’s own original review commit or that ownership is unverified. A later commit clears this equality check only; it is not a semantic proof of repair.
+
 Record separately whether the finding still blocks this PR. A `blocking` or `serious` reviewer label never
 sets that field by itself, and accepting a concern never means accepting its proposed remedy.
 
