@@ -1162,10 +1162,18 @@ class TestEngineCiReuseGateStructure(unittest.TestCase):
     def test_no_job_level_condition(self):
         self.assertNotIn("if", self._wf()["jobs"]["engine-ci"])
 
-    def test_no_step_carries_a_continue_on_error_escape(self):
+    def test_only_advisory_observation_steps_allow_continue_on_error(self):
+        advisory = {'Publish observed self-test summary', 'Upload test outcomes', 'Upload test timing'}
+        observed = set()
         for step in self._steps():
+            if step.get('name') in advisory:
+                observed.add(step['name'])
+                self.assertIs(step.get('continue-on-error'), True)
+                self.assertEqual(step.get('if'), "always() && steps.gate.outputs.mode == 'full'")
+                continue
             self.assertNotIn("continue-on-error", step,
                              f"step {step.get('name')!r} carries a continue-on-error escape")
+        self.assertEqual(observed, advisory)
 
     def test_the_two_arms_are_mutual_negations_of_the_gate_step_output(self):
         full = [s for s in self._steps() if s.get("if", "").startswith("steps.gate.outputs.mode != 'reuse'")]
@@ -1245,7 +1253,7 @@ class TestEngineCiReuseGateStructure(unittest.TestCase):
         self.assertEqual(env.get(ci_gatekeeper.FULL_RAN_ENV), "${{ steps.selftests.outcome }}")
         self.assertEqual(env.get(ci_gatekeeper.REUSE_RAN_ENV), "${{ steps.metadata.outcome }}")
         self.assertEqual(env.get(ci_gatekeeper.PROJECT_ONLY_RAN_ENV), "${{ steps.project.outcome }}")
-        self.assertEqual(self._sole_step("unittest discover").get("id"), "selftests")
+        self.assertEqual(self._sole_step("tools/selftest.py").get("id"), "selftests")
         self.assertEqual(self._sole_step("--suite CI-metadata").get("id"), "metadata")
         project = [s for s in self._steps() if s.get("id") == "project"]
         self.assertEqual(len(project), 1)
@@ -1257,7 +1265,7 @@ class TestEngineCiReuseGateStructure(unittest.TestCase):
         # control file, so a test that writes one cannot reach the live job's control plane. The runner reads
         # back the file at the path IT generated, so handing this step's children a different path is what
         # makes the redirect effective. One edit at the trust boundary, covering every test module.
-        env = self._sole_step("unittest discover").get("env", {})
+        env = self._sole_step("tools/selftest.py").get("env", {})
         for var in ("GITHUB_ENV", "GITHUB_OUTPUT", "GITHUB_PATH", "GITHUB_STATE", "GITHUB_STEP_SUMMARY"):
             self.assertIn("runner.temp", str(env.get(var, "")),
                           f"the self-test step must redirect {var} to a throwaway path")
@@ -1272,8 +1280,11 @@ class TestEngineCiReuseGateStructure(unittest.TestCase):
 
     def test_only_a_full_run_uploads_the_receipt_and_it_overwrites(self):
         uploads = [s for s in self._steps() if "upload-artifact" in str(s.get("uses", ""))]
-        self.assertEqual(len(uploads), 1, "there must be exactly one artifact upload step")
-        up = uploads[0]
+        receipts = [s for s in uploads if s.get('with', {}).get('name') == 'engine-ci-receipt']
+        self.assertEqual(len(receipts), 1, "there must be exactly one receipt upload")
+        self.assertEqual(len(uploads), 3, "the other two uploads are advisory observations")
+        up = receipts[0]
+        self.assertNotIn('continue-on-error', up)
         self.assertEqual(up.get("if"),
                          "steps.gate.outputs.mode != 'reuse' && github.event_name == 'pull_request'",
                          "the upload must carry the full-arm condition, so artifact presence marks a full run")
@@ -1315,6 +1326,7 @@ class TestEngineCiReuseGateStructure(unittest.TestCase):
             "test_seed.py": "asserts about workflow TEXT (a summary append surviving an unset variable)",
             "test_audit_prep.py": "asserts about workflow TEXT (one step handing a value to a later step)",
             "test_audit_digest.py": "isolates run-identity variables; names no control file it writes",
+            "test_selftest_performance.py": "publisher and real launcher probes redirect all five controls to temporary files",
         }
         control = ("GITHUB_ENV", "GITHUB_OUTPUT", "GITHUB_PATH", "GITHUB_STATE", "GITHUB_STEP_SUMMARY")
         tools = os.path.dirname(os.path.abspath(__file__))

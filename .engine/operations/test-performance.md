@@ -115,12 +115,12 @@ The demonstration exits nonzero on unexpected behavior. Both modes share the per
 
 ### Foundation qualification evidence
 
-On Python 3.12.13 / macOS arm64, three alternating pairs over the identical 162-case
-`test_selftest*.py` payload measured stock wall times of 27.634, 27.362 and 27.548 seconds and
-instrumented times of 27.946, 28.059 and 28.069 seconds. All six runs passed; source fingerprints
-matched before and after. Median overhead was 1.85%, within the child's 2% investigation target.
-This focused measurement is descriptive and does not establish full-suite overhead or the program's
-15-minute target. An earlier experiment was discarded because tested source changed during measurement.
+On Python 3.12.13 / macOS arm64, three alternating pairs over the identical 163-case
+`test_selftest*.py` payload measured stock wall times of 32.386, 35.508 and 35.501 seconds and
+instrumented times of 33.511, 35.534 and 36.494 seconds. All passed with unchanged source fingerprints.
+The ratio of medians is +0.09%; individual pairs range +0.07–3.47%, so a 2% ceiling remains unproved.
+Investigation measured warm mandatory validation at 9 ms; raw samples and phase timings remain retained.
+This is not full-suite or 15-minute qualification. A source-changing preliminary experiment was discarded.
 
 ## Done when
 

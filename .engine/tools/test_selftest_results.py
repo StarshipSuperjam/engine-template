@@ -246,6 +246,33 @@ class ResultAccounting(unittest.TestCase):
             self.assertIsNotNone(timing['parent_seconds'])
             records.validate_shape(timing,'selftest-performance.v1')
 
+    def test_actual_launcher_releases_completed_cases_and_isolates_session_identity(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            (root/'test_lifetime.py').write_text('''import gc, os, unittest, weakref
+reference = None
+class A(unittest.TestCase):
+    def test_a(self):
+        global reference
+        reference = weakref.ref(self)
+class B(unittest.TestCase):
+    def test_b(self):
+        gc.collect()
+        self.assertIsNone(reference())
+        self.assertNotIn('ENGINE_SESSION_ID', os.environ)
+        self.assertNotIn('CLAUDE_CODE_SESSION_ID', os.environ)
+''')
+            for timing in (False, True):
+                command = [sys.executable, str(Path(selftest.__file__).resolve()),
+                           '--start-dir', tmp, '--cwd', tmp, '--results-path', str(root/'result.json')]
+                if timing:
+                    command += ['--performance-path', str(root/'timing.json')]
+                run = subprocess.run(command, capture_output=True, text=True, timeout=15,
+                                     env={**os.environ, 'ENGINE_SESSION_ID':'ambient-engine',
+                                          'CLAUDE_CODE_SESSION_ID':'ambient-claude'})
+                self.assertEqual(run.returncode, 0, run.stdout+run.stderr)
+                self.assertEqual(records.validate(records.read(root/'result.json')), (True,True))
+
 
 if __name__ == '__main__':
     if '--demonstrate' in sys.argv:

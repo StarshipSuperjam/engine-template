@@ -635,6 +635,8 @@ def _run_child(args: argparse.Namespace) -> int:
     runner = unittest.TextTestRunner(stream=sys.stderr, verbosity=1, buffer=True, resultclass=_factory)
     try:
         with observation.phases(selected_cases, result_ref):
+            # unittest releases completed cases. Keep identities, not fixtures and their resources.
+            del inventory_cases, selected_cases
             result = runner.run(suite)
     finally:
         if progress_write is not None:
@@ -1039,6 +1041,9 @@ def _run_parent(args: argparse.Namespace) -> int:
     # the developer's own machine as a side effect of running the tests. A test that wants the seam ON turns
     # it on for itself; see boot.AMBIENT_QUALIFICATION_OFF_ENV.
     env = {**os.environ, _NESTED_ENV: "1", "ENGINE_AMBIENT_QUALIFICATION_OFF": "1"}
+    from providers import SESSION_ENV_CHAIN
+    for key in SESSION_ENV_CHAIN:
+        env.pop(key, None)
 
     progress = _Progress()
     captured: list = []   # the run's own output, held in memory for a concurrency-safe result printout

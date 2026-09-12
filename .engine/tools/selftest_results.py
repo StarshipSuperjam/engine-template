@@ -102,6 +102,7 @@ class Observation:
         self.issues = []
         self.timing = timing
         self.spans = []
+        self._phase_start = self._phase_stop = None
         self.origin = time.monotonic()
         self.metadata = {"source": source, "scope": scope, "invocation": invocation}
         self.metadata["ci"] = {"run_id": os.environ.get("GITHUB_RUN_ID"),
@@ -136,8 +137,12 @@ class Observation:
         self.cursor = max(self.cursor, index + 1)
         self.active[id(case)] = (index, time.monotonic())
         self.cases[index]["started"] = True
+        if self._phase_start:
+            self._phase_start(case)
 
     def stop(self, case):
+        if self._phase_stop:
+            self._phase_stop(case)
         active = self.active.pop(id(case), None)
         if active is None:
             self.issue("unexpected test stop")
@@ -255,8 +260,10 @@ class Observation:
     @contextmanager
     def phases(self, selected, result_ref):
         """Observe existing hooks without replacing suite order or fixture ownership."""
+        del selected
         restores = []
-        def wrap(obj, name, level, owner, guard=lambda args: True):
+        active_restores = {}
+        def wrap(obj, name, level, owner, target, guard=lambda args: True):
             if not hasattr(obj, name):
                 return
             original = getattr(obj, name)
@@ -277,22 +284,31 @@ class Observation:
                 setattr(obj, name, observed)
             except (AttributeError, TypeError):
                 return  # Unsupported timing hook stays unknown; it cannot fail the test run.
-            restores.append((obj, name, had, prior))
-        try:
-            if self.timing:
-                for case in {id(c): c for c in selected}.values():
-                    for name in ("_callSetUp", "_callTestMethod", "_callTearDown", "_callCleanup"):
-                        wrap(case, name, "case", text(case.id()))
-                for name in ("_handleModuleFixture", "_handleClassSetUp", "_tearDownPreviousClass", "_handleModuleTearDown"):
-                    wrap(unittest.TestSuite, name, "fixture", "unittest.TestSuite",
-                         lambda args: bool(args) and args[-1] is result_ref[0])
-            yield
-        finally:
-            for obj, name, had, prior in reversed(restores):
+            target.append((obj, name, had, prior))
+        def restore(entries):
+            for obj, name, had, prior in reversed(entries):
                 if had:
                     setattr(obj, name, prior)
                 else:
                     delattr(obj, name)
+        def start(case):
+            entries = active_restores.setdefault(id(case), [])
+            for name in ("_callSetUp", "_callTestMethod", "_callTearDown", "_callCleanup"):
+                wrap(case, name, "case", text(case.id()), entries)
+        def stop(case):
+            restore(active_restores.pop(id(case), []))
+        try:
+            if self.timing:
+                self._phase_start, self._phase_stop = start, stop
+                for name in ("_handleModuleFixture", "_handleClassSetUp", "_tearDownPreviousClass", "_handleModuleTearDown"):
+                    wrap(unittest.TestSuite, name, "fixture", "unittest.TestSuite", restores,
+                         lambda args: bool(args) and args[-1] is result_ref[0])
+            yield
+        finally:
+            self._phase_start = self._phase_stop = None
+            for entries in active_restores.values():
+                restore(entries)
+            restore(restores)
 
 
 def environment():
