@@ -196,6 +196,13 @@ def _health_topology(root, deadline=None):
     return common, roots
 
 
+def _health_repository(root, deadline=None):
+    slug = repo_identity.parse_github_slug(_health_git(root, "remote", "get-url", "origin", deadline=deadline))
+    if not slug:
+        raise ReaderHealthUnavailable("reader repository identity is unknown")
+    return slug.lower()
+
+
 class ReaderHealthStore:
     """One local observation scope, shared by worktrees and never by independent clones.
 
@@ -375,6 +382,7 @@ def accepted_health_execution_identity(root: str, producer_path: str) -> dict:
 def reader_health_identity(root, producer, *, deadline=None, execution=None):
     """Fingerprint actual inputs; a format pass is never review execution credit."""
     root = str(Path(root).resolve())
+    repository = _health_repository(root, deadline)
     execution = execution or {"interpreter": sys.executable,
         "sites": sorted({str(Path(p).resolve()) for p in sys.path if isinstance(p, str) and
                           ("site-packages" in p or "dist-packages" in p) and Path(p).is_dir()}),
@@ -403,7 +411,9 @@ def reader_health_identity(root, producer, *, deadline=None, execution=None):
     runtime = {"execution": execution, "runtime_digest": _health_digest(runtime)}
     if producer == "boot-assembly":
         activation = accepted_health_execution_identity(root, execution["producer"])
-        return {"activation": activation, **runtime}
+        if not repo_identity.slug_eq(activation["repository"], repository):
+            raise ReaderHealthUnavailable("accepted activation belongs to another repository")
+        return {"repository": repository, "activation": activation, **runtime}
     import plan_store
     library = plan_store.PlanLibrary(plan_store.library_root(cwd=root))
     records = {}
@@ -422,7 +432,7 @@ def reader_health_identity(root, producer, *, deadline=None, execution=None):
     files = ["tools/scoped_agents.py", "tools/plan_store.py", "tools/build_coordinator_core.py"]
     files += [str(p.relative_to(Path(root) / ".engine")) for p in sorted((Path(root) / ".engine/schemas").glob("*.json"))]
     code = {rel: hashlib.sha256((Path(root) / ".engine" / rel).read_bytes()).hexdigest() for rel in files}
-    return {"head": _health_git(root, "rev-parse", "HEAD", deadline=deadline), "code": _health_digest(code),
+    return {"repository": repository, "head": _health_git(root, "rev-parse", "HEAD", deadline=deadline), "code": _health_digest(code),
             "records": records, **runtime}
 
 
@@ -495,6 +505,10 @@ def _reader_recovery_state(store, snapshot, producer, deadline):
             statuses.append("unknown")
             continue
         try:
+            actual_common, _ = _health_topology(record["root"], deadline)
+            if actual_common != store.common or not repo_identity.slug_eq(
+                    _health_repository(record["root"], deadline), _health_repository(store.root, deadline)):
+                raise ReaderHealthUnavailable("reader no longer belongs to this clone and repository")
             current = reader_health_identity(record["root"], producer, deadline=deadline,
                                              execution=record["identity"]["execution"])
             statuses.append("healthy" if current == record["identity"] else "unknown")
@@ -538,6 +552,8 @@ def reconcile_reader_health(github, root, *, deadline=None):
         return response
     client = GitHubIssues(github.repo, github.token, github.label, transport, github.recovery_store)
     try:
+        if not repo_identity.slug_eq(_health_repository(root, deadline), github.repo):
+            raise ReaderHealthUnavailable("reader checkout does not match the GitHub repository")
         store = ReaderHealthStore(root, deadline=deadline)
         snapshot = store.snapshot(deadline)
         for producer in sorted(READER_HEALTH_PRODUCERS):
@@ -603,8 +619,8 @@ def reconcile_reader_health(github, root, *, deadline=None):
 
 
 def _reader_health_process(root, deadline):
-    from boot import repo_slug, gh_token
-    repo, token = repo_slug(), gh_token()
+    from boot import gh_token
+    repo, token = _health_repository(root, deadline), gh_token()
     if not repo or not token:
         return {"opened_or_updated": 0, "closed": 0, "unverified": True}
     return reconcile_reader_health(GitHubIssues(repo, token), root, deadline=deadline)
@@ -3013,7 +3029,7 @@ FAIL_OPEN_COMMANDS = frozenset({"reconcile-readers", "run", "run-ambient", "drai
 VERDICT_COMMANDS = frozenset({"demo", "engine-issues", "never-fired", "retire-reader"})
 
 _USAGE = ("usage: telemetry.py {run|run-ambient|drain-inbox|demo|refresh|engine-issues|"
-          "never-fired}   (`run` is the live CI-health triage the scheduled audit-prep workflow drives; "
+          "never-fired|reconcile-readers|retire-reader}   (`run` is the live CI-health triage the scheduled audit-prep workflow drives; "
           "`run-ambient` and `drain-inbox` are the local SessionStart triages — over local "
           "check-fires, over the memory tidy-up backlog, and over the findings inbox (promoting a broken "
           "tool-runtime alert and any out-of-band findings); `engine-issues` and `never-fired` (the engine's "

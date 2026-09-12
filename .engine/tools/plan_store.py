@@ -50,6 +50,10 @@ import plan_contract
 
 PlanStoreError = core.CoordinatorError
 
+
+class IncompatibleReaderError(PlanStoreError):
+    """A known newer schema validates the record, but this reader still refuses it."""
+
 ROOT = Path(__file__).resolve().parents[2]
 RECORD_SCHEMA = ROOT / ".engine" / "schemas" / "plan-record.v1.json"
 
@@ -92,7 +96,7 @@ def shared_reader_diagnosis(value, schema_path):
         head = git("rev-parse", "HEAD").decode().strip()
         supported = git("rev-parse", "refs/remotes/origin/main").decode().strip()
         if head == supported:
-            return "damaged"
+            return "unknown"  # an unseen newer writer is not proof of corruption
         git("merge-base", "--is-ancestor", head, supported)
         if git("show", head + ":" + relative) != schema_path.read_bytes():
             return "unknown"  # modified local schemas are not historical readers
@@ -135,7 +139,7 @@ def validate_shared_record(value, schema_path, *, local_refs=False):
         core.validate(value, schema_path, local_refs=local_refs)
     except core.CoordinatorError:
         if shared_reader_diagnosis(value, schema_path) == "incompatible":
-            raise PlanStoreError(
+            raise IncompatibleReaderError(
                 "This local Engine reader is older than the shared record. The record remains "
                 "unverified and unchanged. Update this worktree through the existing checkout "
                 "recovery path, preserving local work, then restart its session and retry.") from None

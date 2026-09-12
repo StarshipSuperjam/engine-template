@@ -68,6 +68,10 @@ class SharedReaderDiagnosis(unittest.TestCase):
         self.assertEqual(json.dumps(self.value), before)
         self.assertEqual(self.git("rev-parse", "HEAD"), self.old_head)
 
+    def test_unknown_properties_without_a_newer_witness_remain_unknown(self):
+        self.git("update-ref", "refs/remotes/origin/main", "HEAD")
+        self.assertEqual(plan_store.shared_reader_diagnosis(self.value, self.path), "unknown")
+
     def test_bad_known_value_and_unknown_properties_are_not_compatibility_proof(self):
         self.assertEqual(plan_store.shared_reader_diagnosis({**self.value, "title": 9}, self.path), "damaged")
         self.assertEqual(plan_store.shared_reader_diagnosis({**self.value, "invented": True}, self.path), "unknown")

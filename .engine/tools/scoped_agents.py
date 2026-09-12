@@ -96,6 +96,8 @@ class Store:
         schema = Path(__file__).resolve().parents[1] / "schemas" / (VERSION + ".json")
         try:
             plan_store.validate_shared_record(value, schema, local_refs=True)
+        except plan_store.IncompatibleReaderError:
+            raise
         except core.CoordinatorError as exc:
             raise EvidenceError("damaged scoped-assignment companion; review is unverified: " + str(exc)) from exc
         return value
@@ -772,6 +774,9 @@ def handler(event, payload, library=None):
         notice = (
             "Engine agent checks could not read one or more plan evidence files; those plans' "
             "execution and review freshness are unverified. Other plans were still checked.")
+        if any(isinstance(exc, plan_store.IncompatibleReaderError) for exc in failures):
+            notice += (" This local reader is older than the shared record. Update this worktree "
+                       "through the existing recovery path, preserve local work, then restart the session.")
         if recorded:
             sys.stderr.write(notice + " Recovery evidence was saved locally for the next health pass.\n")
         else:

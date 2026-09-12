@@ -375,6 +375,20 @@ class ScopedAssignments(unittest.TestCase):
                 self.assertEqual(self.store.path.read_text(), "null")
                 self.assertEqual(broken.read_text(), "[]")
 
+    def test_incompatible_reader_reaches_hook_user_without_disclosing_record_contents(self):
+        import io
+        import telemetry
+        err = io.StringIO()
+        with mock.patch.object(self.library, "slugs", return_value=["test-plan"]), \
+             mock.patch.object(plan_store, "validate_shared_record", side_effect=plan_store.IncompatibleReaderError("private record contents")), \
+             mock.patch.object(telemetry, "observe_reader_health", return_value=True), \
+             mock.patch.object(scoped.hooks, "_record_crash_debug"), mock.patch("sys.stderr", err):
+            result = scoped.handler("PreToolUse", {"session_id": "root-id"}, self.library)
+        self.assertEqual(result["action"], "proceed")
+        self.assertIn("older than the shared record", err.getvalue())
+        self.assertIn("restart the session", err.getvalue())
+        self.assertNotIn("private record contents", err.getvalue())
+
     def test_failure_recorder_errors_do_not_erase_a_healthy_refusal(self):
         import io
         self.launch()

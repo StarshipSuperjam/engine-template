@@ -72,6 +72,7 @@ class ReaderHealthEvidence(unittest.TestCase):
         self.git = lambda *args: subprocess.run(["git", "-C", str(self.root), *args],
             check=True, capture_output=True, text=True).stdout.strip()
         self.git("init")
+        self.git("remote", "add", "origin", "https://github.com/you/proj.git")
         self.git("-c", "user.name=Fixture", "-c", "user.email=fixture@example.com", "commit", "--allow-empty", "-m", "fixture")
         self.sibling = Path(self.tmp.name) / "nonstandard-codex-tree"
         self.git("worktree", "add", "--detach", str(self.sibling))
@@ -244,6 +245,8 @@ class ReaderHealthRecovery(ReaderHealthEvidence):
         subprocess.run(["git", "clone", str(self.root), str(clone)], check=True, capture_output=True)
         independent = telemetry.ReaderHealthStore(clone)
         independent.observe("scoped-reader", "failing", {})
+        subprocess.run(["git", "-C", str(clone), "remote", "set-url", "origin",
+                        "https://github.com/you/proj.git"], check=True, capture_output=True)
         self.assertEqual(self.reconcile(root=clone)["opened_or_updated"], 1)
         self.assertEqual(self.fake.open_count(), 2)
         self.healthy(self.sibling)
@@ -297,6 +300,37 @@ class ReaderHealthRecovery(ReaderHealthEvidence):
             "scoped-reader", time.monotonic() + 10), "unknown")
         dependency.unlink()
         self.assertNotEqual(initial, telemetry.reader_health_identity(self.root, "scoped-reader", execution=execution))
+
+    def test_wrong_repository_or_missing_origin_makes_no_remote_calls(self):
+        self.other.observe("scoped-reader", "failing", telemetry.reader_health_identity(self.sibling, "scoped-reader"))
+        self.git("remote", "set-url", "origin", "https://github.com/other/project.git")
+        self.assertTrue(self.reconcile()["unverified"])
+        self.assertEqual(self.fake.calls, [])
+        self.git("remote", "remove", "origin")
+        self.assertTrue(self.reconcile()["unverified"])
+        self.assertEqual(self.fake.calls, [])
+
+    def test_boot_activation_cannot_supply_health_for_another_repository(self):
+        with mock.patch.object(telemetry, "accepted_health_execution_identity",
+                               return_value={"repository": "other/project"}):
+            with self.assertRaises(telemetry.ReaderHealthUnavailable):
+                telemetry.reader_health_identity(self.root, "boot-assembly")
+
+    def test_replacing_registered_directory_with_independent_clone_invalidates_success(self):
+        import subprocess
+        from pathlib import Path
+        self.other.observe("scoped-reader", "failing", telemetry.reader_health_identity(self.sibling, "scoped-reader"))
+        self.reconcile()
+        self.healthy(self.sibling)
+        saved = Path(self.tmp.name) / "saved-engine"
+        shutil.copytree(self.sibling / ".engine", saved)
+        shutil.rmtree(self.sibling)  # disposable worktree; leave Git's stale registration intact
+        subprocess.run(["git", "clone", str(self.root), str(self.sibling)], check=True, capture_output=True)
+        subprocess.run(["git", "-C", str(self.sibling), "remote", "set-url", "origin",
+                        "https://github.com/you/proj.git"], check=True, capture_output=True)
+        shutil.copytree(saved, self.sibling / ".engine")
+        self.assertEqual(self.reconcile()["closed"], 0)
+        self.assertEqual(self.fake.open_count(), 1)
 
 
 class FakeGH:
