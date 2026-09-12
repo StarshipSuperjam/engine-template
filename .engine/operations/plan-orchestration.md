@@ -71,12 +71,14 @@ rather than from memory.
 
 - **Discuss the shape first.** Before anything is authored into the library, the operator hears what you
   understand the problem to be and what shape a fix would take, and gets to redirect it.
-- **Show the drafted plan with no ask attached.** In one presentation hand over its `PLAN.md` link (after a
+- **Show the drafted plan.** In one presentation hand over its `PLAN.md` link (after a
   revision, the link to the updated head) and the decision context around it: what the change impacts, the
   surfaces it touches, the risk assessment's one-line care recommendation, and every open question with the
-  answer you propose — then invite revisions. No depth menu rides along; a plan and an approval in one breath is no stop.
+  answer you propose — then invite revisions. Give the operator a real opportunity to redirect the work;
+  do not demand a separate acknowledgment or fixed number of turns. If their response already approves the
+  presented plan at a stated depth, record that decision and continue.
 - **Then, once they are satisfied, the approval.** You reach this stop only once the operator has closed
-  every open question — it is a distinct, led step, never a menu posted beside the plan. Offer only the review
+  every open question. Offer only the review
   depths worth offering for this repository's installed reviewers — no reviewer installed is a disclosed
   no-extra-review result, never a false green — and fill `.engine/templates/risk-assessment.md` in plain
   language. Follow that template rather than paraphrasing it: it carries the rules this stop turns on — a care
@@ -87,9 +89,14 @@ rather than from memory.
   accepting a concern is not accepting its remedy, and severity is advice that never selects a remedy for
   you. Synthesize the panel into one recommended call rather than relaying raw reviewer output, and return
   to the operator where it changes design, authority, or the agreed capability boundary. Then show them the
-  outcome — what was found, and what you did about each one — before the plan locks.
-- **Seal, then hand back.** The seal is terminal: it freezes the plan, its review, and its dispositions
-  together, because the pull request publishes them as they stood. Hand back before the Build starts (below).
+  outcome — what was found, and what you did about each one — before the plan locks. Record that notification
+  with `present-findings`; it needs no acknowledgment or new consent. The existing plan/depth approval covers
+  review and in-scope fixes. A material change needs the operator before dependent work, but never ask twice
+  for the same decision. The terminal seal decision can also settle clearly presented changes.
+- **Seal on the operator's decision, then hand back.** The seal is terminal: it freezes the plan, its review, and its dispositions
+  together, because the pull request publishes them as they stood. Review approval alone does not authorize
+  sealing. Building still needs its own explicit start. When the operator has already requested both seal
+  and Build start after seeing the result, carry out both without inserting another handoff or asking again.
 
 ### 7. Come in through the right door, and ask the tool for the rest
 

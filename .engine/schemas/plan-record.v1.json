@@ -692,7 +692,7 @@
           "$ref": "#/$defs/digest"
         }
       },
-      "description": "What the operator was shown at the findings-presented gate: the reviewed revision and the packet the panel read. The gate's decision is the matching `consent` entry; this is its subject, the way `approval` carries the depth."
+      "description": "Notification receipt for the findings and dispositions shown to the operator, bound to the review and its lineage. New presentations require no consent event. Historical findings-presented consent remains readable; seal consent is still a separate operator decision."
     },
     "plan_review": {
       "type": "object",
