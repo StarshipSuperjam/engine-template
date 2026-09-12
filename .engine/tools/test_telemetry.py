@@ -226,7 +226,7 @@ class ReaderHealthRecovery(ReaderHealthEvidence):
         import build_coordinator_core as core
         from pathlib import Path
         from selftest_support import review_fixture
-        from test_reader_health_history import historical, current_assignment
+        from reader_health_history_fixture import historical, current_assignment
         review_fixture(self)
         packet = self.root / "fixture-packet.md"
         packet.write_text("Immutable fixture obligations")

@@ -99,7 +99,7 @@ class SharedReaderDiagnosis(unittest.TestCase):
 
     def test_real_historical_program_schema_refuses_actual_current_writer(self):
         import build_coordinator_core as core
-        from test_reader_health_history import historical
+        from reader_health_history_fixture import historical
         programs = plan_program.ProgramLibrary(plan_store.PlanLibrary(self.root / "program-fixture"))
         slug = programs.create("Historical reader", "Verify current intended order")
         programs.add_intent(slug, "first", "First step", "Deliver the first step", [])
