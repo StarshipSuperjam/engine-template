@@ -4,9 +4,8 @@ title: Test performance — complete observations and comparable CI evidence
 
 ## Purpose
 
-Measure the work required to validate a revision without confusing timing, outcomes, and merge proof.
-The serial launcher writes complete selected-case outcomes; the completed-run reporter measures the named
-required workflow attempts. Neither artifact is an `engine-ci-receipt`, and neither grants merge authority.
+Measure complete selected-case outcomes and named required workflow attempts. Neither artifact is an
+`engine-ci-receipt`, and neither grants merge authority.
 
 ## Steps
 
@@ -18,9 +17,8 @@ The supported full CI command is:
 uv run --directory .engine --frozen -- python tools/selftest.py --start-dir tools --pattern 'test_*.py' --results-path /tmp/selftest-results.json --performance-path /tmp/selftest-performance.json
 ```
 
-Choose distinct output paths outside the source tree. CI uses its runner's temporary directory.
-`--results-path` retains `selftest-results.v1`; when omitted, the launcher still checks a private temporary
-result. `--performance-path` additionally observes advisory `selftest-performance.v1` timing. The existing
+Choose distinct output paths outside the source tree, as CI does. `--results-path` retains `selftest-results.v1`;
+when omitted, the launcher checks a private temporary result. `--performance-path` observes advisory timing. The existing
 `--run-record-path` output keeps its v1 shape. Its executed count is now observed starts, including individual
 skips and excluding cases prevented from starting by module/class fixtures.
 
@@ -40,16 +38,14 @@ remains unknown unless independently established by a later qualification proced
 
 ### Read the complete required CI interval
 
-Choose the actual run and attempt for **each** required context. The primary run is `engine-ci`; additional
-associations name their expected workflow file. No command selects the newest or fastest successful run.
+Choose the actual run and attempt for **each** required context, naming each additional workflow file.
 
 ```sh
 uv run --directory .engine --frozen -- python tools/selftest_performance.py report-ci --repository OWNER/REPO --head FULL_HEAD_SHA --run CI_RUN_ID --attempt 1 --context engine-guard=GUARD_RUN_ID:1:.github/workflows/engine-guard.yml --output /tmp/ci-report.json
 ```
 
-The command uses GET-only GitHub calls, with `GITHUB_TOKEN`, `GH_TOKEN`, or the existing `gh` login. It does not
-purchase capacity, start runs, alter requirements or publish comments. `--base BRANCH` supplies a base when
-the selected run does not identify it uniquely. Required contexts come from both active branch rules and
+The command uses GET-only GitHub calls with `GITHUB_TOKEN`, `GH_TOKEN`, or the existing `gh` login.
+`--base BRANCH` supplies a missing base. Required contexts come from both active branch rules and
 classic protection. Their snapshot is the policy observed at report time, **not** a claim to reconstruct
 historical branch requirements. Permission errors, exhausted pagination and unsupported required-workflow
 policy remain incomplete. Check identity includes the requested head, context, app binding, workflow file,
@@ -65,8 +61,7 @@ run and attempt. A PR-target workflow's base checkout is distinct from its verif
   cumulative runner cost. Separate workflow runs require their own reports; this is not a PR-wide search
   across earlier commits or unmentioned metadata events.
 
-Manual approval time is unknown where the API cannot distinguish it. A dependency critical path is not
-invented from timestamps. Main-push reference runs, full PR runs, metadata reuse and project-only runs are
+Manual approval time and dependency critical paths remain unknown. Main-push, full PR, metadata reuse and project-only runs are
 distinct classes. A main-push report covers its explicitly supplied reference workflows and earns no PR-path
 qualification. Timing can be complete while missing test artifacts make the overall report incomplete;
 the measured interval remains visible with the reason, even on failed runs.
@@ -101,8 +96,7 @@ comparable baseline/candidate pairs per representative change class, a candidate
 and investigation of each sample at or above 1,200 seconds. Retain failed and retried samples and report local,
 full-reference, nightly and cumulative costs separately. Do not run a full benchmark matrix on every PR.
 
-The samples command prints every value and its sample count. A p90 estimate is withheld below 20 observed
-samples; above that it is descriptive, not a confidence claim. Three samples cannot establish tail reliability.
+The samples command prints every value and count; p90 is withheld below 20 samples and remains descriptive above it.
 The next program child owns enforced efficient-test authoring and shared-path cost contracts; this child
 introduces no selection changes, worker/reviewer rules, production hotspot optimization or cost gate.
 
@@ -115,12 +109,9 @@ uv run --directory .engine --frozen -- python tools/test_selftest_results.py --d
 uv run --directory .engine --frozen -- python tools/test_selftest_results.py --demonstrate --stop-early
 ```
 
-The first reports two starts, two passed outcomes, completeness true and launcher exit 0. Adding
-`--stop-early` lets the first case pass and stops before the second. It reports one start, one unexecuted
-case, completeness false and launcher exit 1, even though stock unittest's success check accepts that
-early stop. The demonstration itself exits nonzero if those observed results disagree with the expected
-behavior. Remove the flag to restore the complete run. This same journey is covered by the permanent
-outcome regression; no additional nightly demonstration or full-suite run is introduced.
+The first reports two starts, two passes, completeness true and exit 0. `--stop-early` reports one start,
+one unexecuted case, completeness false and launcher exit 1, although stock unittest accepts that early stop.
+The demonstration exits nonzero on unexpected behavior. Both modes share the permanent outcome regression.
 
 ### Foundation qualification evidence
 
@@ -138,7 +129,7 @@ An explicit report names its source, run, attempt, current policy and missing fa
 its qualification limits. Required test outcomes cannot pass with unexecuted selected cases, and timing cannot
 substitute for the existing merge proof.
 
-## Source contracts
+## Notes
 
 The adapter follows GitHub's [workflow-attempt API](https://docs.github.com/en/rest/actions/workflow-runs#get-a-workflow-run-attempt),
 [attempt job API](https://docs.github.com/en/rest/actions/workflow-jobs#list-jobs-for-a-workflow-run-attempt),
