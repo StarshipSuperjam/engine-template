@@ -672,11 +672,12 @@ class SpawnReapTests(_Base):
         # the interruption leaves `_spawn_accepted_child`, and no outcome is classified or recorded.
         import _thread
         launched = {}
+        real_popen_cls = subprocess.Popen
 
         def real_popen(argv, **kwargs):
             # The same pipes and text mode the launcher asked for, on a disposable child that would block
             # for a minute if nothing killed it.
-            proc = subprocess.Popen([sys.executable, "-c", "import time; time.sleep(60)"], **kwargs)
+            proc = real_popen_cls([sys.executable, "-c", "import time; time.sleep(60)"], **kwargs)
             launched["proc"] = proc
             return proc
 

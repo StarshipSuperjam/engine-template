@@ -200,7 +200,8 @@ class TestCensus(unittest.TestCase):
         result = legacy_coverage.census(path=self.path)
         self.assertFalse(result.indeterminate)
         self.assertEqual(result.rows, [])
-        self.assertEqual(result.scanned, {"episodics": 0, "gists": 0, "gist_cross_session_clusters": 0})
+        self.assertEqual(result.scanned, {"episodics": 0, "gists": 0, "gist_cross_session_clusters": 0,
+                                          "gists_sessions_unresolved": 0})
 
 
 if __name__ == "__main__":
