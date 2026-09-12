@@ -533,6 +533,23 @@ class D10TheOrphanedApprovalWedgeHasAnInCliRepair(_Ceremony):
 class ConsentGates(_Ceremony):
     """The silent thirty-two-minute ceremony of 2026-08-25, reproduced and refused."""
 
+    def test_historical_presentation_decision_survives_continuation(self):
+        # Before context-efficiency C1, the same flow required three operator
+        # decisions: approve, acknowledge findings, seal. Presentation itself
+        # conveys no new authority. Keep this historical event intact on upgrade.
+        slug = self.reviewed()
+        self.run_command("present-findings", slug, "--operator-decided")
+        historical = {"gate": "findings-presented", "at": "2026-09-11T12:00:00Z"}
+        def retain_legacy(current):
+            current["consent"] = [c for c in current["consent"]
+                                  if c["gate"] != "findings-presented"] + [historical]
+        self.lib.update_record(slug, retain_legacy)
+        self.assertEqual(self.run_command("seal", slug, "--operator-decided")[0], 0)
+        record = self.lib.read_record(slug)
+        self.assertIn(historical, record["consent"])
+        self.assertIsNone(plan_lifecycle.missing_prior_consent(record, "bind"))
+        self.assertIsNone(plan_lifecycle.missing_prior_consent(record, "adopt"))
+
     def test_approve_refuses_without_the_operator_s_recorded_decision(self):
         # The refusal is the GATE's, not argparse's: it says what the operator is being asked, and
         # a parser that exited first would leave that sentence unreachable.
