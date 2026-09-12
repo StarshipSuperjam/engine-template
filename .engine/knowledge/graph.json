@@ -5249,7 +5249,7 @@
       },
       "slug": "ci-assurance",
       "source": {
-        "fingerprint": "sha256:ac3ceb3456e96a8849b3af62459204f2ed98922661eca295629dce2bc0ecb659",
+        "fingerprint": "sha256:497e7f91e71e15eddd9105973d815930a310f30c061a36a1072238c4aae592dd",
         "path": ".engine/docs/ci-assurance.md"
       },
       "status": "active",
@@ -5309,7 +5309,7 @@
       },
       "slug": "reader-health-recovery",
       "source": {
-        "fingerprint": "sha256:c1d17c68bf9fe36be451ee9c898c59b2e8b279128f9373f0a9f581dbc110240d",
+        "fingerprint": "sha256:1e27a10eed8eee77e3363fdf52b9bd55f057f2474f6ae85327454fdb120f9019",
         "path": ".engine/docs/reader-health-recovery.md"
       },
       "status": "active",
@@ -9710,7 +9710,7 @@
       },
       "slug": "boot",
       "source": {
-        "fingerprint": "sha256:89e5555eea0beed85b98e9a4e6d203d3d3c9dce5659e4302d3d92d0f46ec19ca",
+        "fingerprint": "sha256:303bfbaa98150156609e07d4e9391187b258214fe5e75585a4616a42b494f181",
         "path": ".engine/tools/boot.py"
       },
       "status": "active",
@@ -16382,6 +16382,7 @@
           "tool:build_coordinator_core",
           "tool:capture",
           "tool:github_client",
+          "tool:hooks",
           "tool:issue_author",
           "tool:issue_recovery",
           "tool:issue_recovery_store",
@@ -16389,6 +16390,7 @@
           "tool:moment",
           "tool:mutation_authority",
           "tool:plan_store",
+          "tool:providers",
           "tool:repo_identity",
           "tool:scoped_agents",
           "tool:standing_situation",
@@ -16400,7 +16402,7 @@
       },
       "slug": "telemetry",
       "source": {
-        "fingerprint": "sha256:ea6faa9b1bd92b1b05325b5e1f4d49d4c8a61f03937a08408dbbe4ea401e8f98",
+        "fingerprint": "sha256:bd1fe11f4d421abf66d8fdb570e82e9cfb207187c9d629e1aeb38588474814bd",
         "path": ".engine/tools/telemetry.py"
       },
       "status": "active",
@@ -16786,7 +16788,7 @@
       },
       "slug": "test_boot",
       "source": {
-        "fingerprint": "sha256:46127aa8d39c87f6e86ef46b398cf18f6c2fa9fbffd1d374a2c67df924f6deaa",
+        "fingerprint": "sha256:af987f0d62044006cdaa56d4fed634223c6ee33fc8cd87ea9fb61d238615483e",
         "path": ".engine/tools/test_boot.py"
       },
       "status": "active",
@@ -18499,7 +18501,7 @@
       },
       "slug": "test_hooks",
       "source": {
-        "fingerprint": "sha256:b06585543f7492a7c16f34f35c40a678b4b6a4958a4125ed7d6ea735a22febe1",
+        "fingerprint": "sha256:e7fa398606d512ecef02def38b01fa0c0b914a57a517f3c73d7f679251503ec2",
         "path": ".engine/tools/test_hooks.py"
       },
       "status": "active",
@@ -20090,17 +20092,19 @@
         ],
         "tests": [
           "tool:build_coordinator",
+          "tool:build_coordinator_core",
           "tool:plan_program",
           "tool:plan_store",
           "tool:program_manager",
           "tool:project_manager",
           "tool:selftest_support",
-          "tool:test_plan_store"
+          "tool:test_plan_store",
+          "tool:test_reader_health_history"
         ]
       },
       "slug": "test_plan_program",
       "source": {
-        "fingerprint": "sha256:3c7de16bce89cd8be42bd8957fd7a2551778b77bcb781792da3b61e43643de42",
+        "fingerprint": "sha256:fa923b9783b85d3bcf99950d8c8369d6ba291f3e6f00636b40760545826025ac",
         "path": ".engine/tools/test_plan_program.py"
       },
       "status": "active",
@@ -20472,6 +20476,31 @@
       },
       "status": "active",
       "summary": "Tests for quiet_call, plus the durability guard that keeps the demo-output flood from returning.",
+      "type": "tool"
+    },
+    {
+      "entrypoint": "test",
+      "guarded": false,
+      "id": "tool:test_reader_health_history",
+      "name": ".engine/tools/test_reader_health_history.py",
+      "owner": "core",
+      "predicates": {
+        "provided_by": [
+          "module:core"
+        ],
+        "tests": [
+          "tool:build_coordinator_core",
+          "tool:reviewer_contracts",
+          "tool:scoped_agents"
+        ]
+      },
+      "slug": "test_reader_health_history",
+      "source": {
+        "fingerprint": "sha256:ab00efbf3f02ed260a7a0164d71459824a24fde7f6acf97ed15713b2907acf5c",
+        "path": ".engine/tools/test_reader_health_history.py"
+      },
+      "status": "active",
+      "summary": "Frozen historical schemas for reader recovery regressions; never runtime policy.",
       "type": "tool"
     },
     {
@@ -21257,12 +21286,13 @@
           "tool:scoped_agents",
           "tool:selftest_support",
           "tool:telemetry",
-          "tool:test_plan_store"
+          "tool:test_plan_store",
+          "tool:test_reader_health_history"
         ]
       },
       "slug": "test_scoped_agents",
       "source": {
-        "fingerprint": "sha256:6e7a90a62f427ac61050fcf989164d265e47591eb4bf8a37a2fd7297c2deaa94",
+        "fingerprint": "sha256:a99f3fad0ee3a19a2995bce8751c7794916139353238292eb291ae4ea39dcc38",
         "path": ".engine/tools/test_scoped_agents.py"
       },
       "status": "active",
@@ -21992,22 +22022,26 @@
         ],
         "tests": [
           "tool:boot",
+          "tool:build_coordinator_core",
           "tool:capture",
           "tool:checkout_health",
           "tool:github_client",
+          "tool:hooks",
           "tool:issue_author",
           "tool:issue_recovery",
           "tool:issue_triage",
           "tool:plan_store",
           "tool:scoped_agents",
+          "tool:selftest_support",
           "tool:standing_situation",
           "tool:telemetry",
+          "tool:test_reader_health_history",
           "tool:validate"
         ]
       },
       "slug": "test_telemetry",
       "source": {
-        "fingerprint": "sha256:98d1e78d9693995e111149a59b60bcd75383cea977fbd02bf04094f3119a9718",
+        "fingerprint": "sha256:8a2a553590f0a5c0e998c2e1c6f4e2ce39d996ef046c600aa44354007a4ee2fb",
         "path": ".engine/tools/test_telemetry.py"
       },
       "status": "active",

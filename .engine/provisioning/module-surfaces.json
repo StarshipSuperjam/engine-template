@@ -2673,6 +2673,9 @@
   ".engine/tools/test_quiet_call.py": [
    "core"
   ],
+  ".engine/tools/test_reader_health_history.py": [
+   "core"
+  ],
   ".engine/tools/test_release_cut.py": [
    "core"
   ],
