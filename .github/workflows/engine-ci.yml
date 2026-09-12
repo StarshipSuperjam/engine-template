@@ -140,25 +140,26 @@ jobs:
           GITHUB_STEP_SUMMARY: ${{ runner.temp }}/decoy-github-step-summary
         run: uv run --directory .engine --frozen -- python tools/selftest.py --start-dir tools --pattern 'test_*.py' --results-path "$RUNNER_TEMP/selftest-results.json" --performance-path "$RUNNER_TEMP/selftest-performance.json"
       - name: Publish observed self-test summary
+        id: observations
         if: always() && steps.gate.outputs.mode == 'full'
         continue-on-error: true
-        run: uv run --directory .engine --frozen -- python tools/selftest_performance.py publish --results "$RUNNER_TEMP/selftest-results.json" --performance "$RUNNER_TEMP/selftest-performance.json"
+        run: uv run --directory .engine --frozen -- python tools/selftest_performance.py publish --results "$RUNNER_TEMP/selftest-results.json" --performance "$RUNNER_TEMP/selftest-performance.json" --artifact-dir "$RUNNER_TEMP/published-selftest"
       - name: Upload test outcomes
-        if: always() && steps.gate.outputs.mode == 'full'
+        if: always() && steps.gate.outputs.mode == 'full' && steps.observations.outcome == 'success'
         continue-on-error: true
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: engine-selftest-results-${{ github.run_id }}-${{ github.run_attempt }}
-          path: ${{ runner.temp }}/selftest-results.json
+          path: ${{ runner.temp }}/published-selftest/selftest-results.json
           retention-days: 30
           if-no-files-found: warn
       - name: Upload test timing
-        if: always() && steps.gate.outputs.mode == 'full'
+        if: always() && steps.gate.outputs.mode == 'full' && steps.observations.outcome == 'success'
         continue-on-error: true
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: engine-selftest-performance-${{ github.run_id }}-${{ github.run_attempt }}
-          path: ${{ runner.temp }}/selftest-performance.json
+          path: ${{ runner.temp }}/published-selftest/selftest-performance.json
           retention-days: 30
           if-no-files-found: warn
       - name: Run the seed validator alone (project-only change set)

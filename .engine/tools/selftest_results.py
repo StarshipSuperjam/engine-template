@@ -148,6 +148,11 @@ class Observation:
             self.issue("unexpected test stop")
             return
         index, began = active
+        row = self.cases[index]
+        if row['outcome'] == 'unexecuted' and row['subtests'] and all(
+                sub['outcome'] in {'passed', 'skipped'} for sub in row['subtests']):
+            # unittest omits addSuccess when a subtest skipped, even when the parent finished normally.
+            row['outcome'] = 'passed'
         self.cases[index]["stopped"] = True
         if self.timing:
             self.cases[index]["seconds"] = time.monotonic() - began
@@ -235,7 +240,7 @@ class Observation:
                     row["reason"] = text(reason) if reason is not None else None
 
     def document(self, finalized=False):
-        complete = (finalized and not self.issues and not self.active and all(
+        complete = (finalized and bool(self.cases) and not self.issues and not self.active and all(
             r["outcome"] != "unexecuted" and (not r["started"] or r["stopped"]) for r in self.cases))
         passed = complete and not any(r["outcome"] in FAILURES for r in self.cases) and not any(
             f["outcome"] == "error" for f in self.fixtures)
@@ -245,6 +250,10 @@ class Observation:
                 "process_exit": None, "executed_count": sum(r["started"] for r in self.cases)}
 
     def performance(self, collection_seconds, elapsed):
+        unallocated = elapsed - collection_seconds - sum(r['seconds'] or 0 for r in self.cases) - interval_union(
+            [(s['start'], s['start']+s['seconds']) for s in self.spans if s['level'] == 'fixture'])
+        if unallocated < -1e-6 * max(1, elapsed):
+            raise ValueError('timing intervals exceed child elapsed time')
         return {"schema_version": "selftest-performance.v1", **self.metadata,
                 "environment": environment(), "collection_seconds": collection_seconds,
                 "child_seconds": elapsed, "parent_seconds": None,
@@ -252,9 +261,7 @@ class Observation:
                 "cases": [{"id": r["id"], "occurrence": r["occurrence"], "seconds": r["seconds"]}
                           for r in self.cases],
                 "spans": self.spans, "timing_semantics": "inclusive; nested spans must not be summed",
-                "unallocated_seconds": max(0, elapsed - collection_seconds - sum(r["seconds"] or 0 for r in self.cases)
-                                           - interval_union([(s["start"], s["start"]+s["seconds"])
-                                                             for s in self.spans if s["level"] == "fixture"])),
+                "unallocated_seconds": max(0, unallocated),
                 "unknown": ["custom run implementations may bypass phase hooks", "cache state is not inferred"]}
 
     @contextmanager
@@ -399,7 +406,7 @@ def validate(document):
         seconds = row["seconds"]
         if seconds is not None and (type(seconds) not in (int, float) or not math.isfinite(seconds) or seconds < 0):
             raise ValueError("invalid duration")
-    complete = bool(document["child_finalized"] and not document["issues"] and all(
+    complete = bool(document["child_finalized"] and cases and not document["issues"] and all(
         r["outcome"] != "unexecuted" and (not r["started"] or r["stopped"]) for r in cases))
     if document["executed_count"] != sum(r["started"] for r in cases):
         raise ValueError("executed count disagrees with observed starts")
@@ -407,6 +414,49 @@ def validate(document):
     if document["complete"] != complete or document["passed"] != passed:
         raise ValueError("claimed completeness or verdict disagrees with observations")
     return complete, passed
+
+
+def validate_performance(document):
+    """Reconcile inclusive observations without summing nested spans twice."""
+    validate_shape(document, 'selftest-performance.v1')
+    def seconds(value):
+        if type(value) not in (int, float) or not math.isfinite(value) or value < 0:
+            raise ValueError('timing interval unavailable or invalid')
+        return value
+    child = seconds(document['child_seconds'])
+    parent = seconds(document['parent_seconds'])
+    collection = seconds(document['collection_seconds'])
+    total = seconds(document['case_seconds'])
+    unallocated = seconds(document['unallocated_seconds'])
+    tolerance = 1e-6 * max(1, child, parent)
+    if child > parent + tolerance or collection > child + tolerance:
+        raise ValueError('child or collection exceeds its enclosing interval')
+    identities_seen, by_owner = set(), defaultdict(float)
+    for case in document['cases']:
+        identity = (case['id'], case['occurrence'])
+        if identity in identities_seen:
+            raise ValueError('duplicate timing identity')
+        identities_seen.add(identity)
+        by_owner[case['id']] += 0 if case['seconds'] is None else seconds(case['seconds'])
+    if abs(sum(by_owner.values()) - total) > tolerance:
+        raise ValueError('case timing total disagrees with its observations')
+    fixtures, case_spans = [], defaultdict(list)
+    for span in document['spans']:
+        start, duration = seconds(span['start']), seconds(span['seconds'])
+        if start + duration > child + tolerance:
+            raise ValueError('phase exceeds child interval')
+        if span['level'] == 'fixture':
+            fixtures.append((start, start + duration))
+        else:
+            if span['owner'] not in by_owner:
+                raise ValueError('phase owner absent from case inventory')
+            case_spans[span['owner']].append((start, start + duration))
+    for owner, spans in case_spans.items():
+        if interval_union(spans) > by_owner[owner] + tolerance:
+            raise ValueError('case phases exceed their enclosing case durations')
+    measured = collection + total + interval_union(fixtures) + unallocated
+    if abs(measured - child) > tolerance:
+        raise ValueError('timing components do not reconcile with child elapsed time')
 
 
 def finalize(path, exit_status):

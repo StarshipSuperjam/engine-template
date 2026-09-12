@@ -25,7 +25,7 @@ skips and excluding cases prevented from starting by module/class fixtures.
 Discovery and selected identities are child-owned. Duplicate IDs have occurrence indices. Outcomes include
 expected failures, unexpected successes, skip reasons, fixture errors/skips and parent-linked subtests.
 An unexecuted selected case is incomplete even when `unittest.wasSuccessful()` says success. A clean early
-stop therefore fails. Observed fixture skips can account for their affected cases without claiming execution.
+stop and an empty full run therefore fail. Legitimate fixture and subtest skips preserve unittest success.
 Missing, corrupt, oversized or unfinished required observations also prevent a successful launcher result.
 Existing child failures remain failures. Optional timing failure is unknown and cannot make a failing run pass.
 
@@ -70,8 +70,8 @@ Full CI publishes an observed launcher-interval summary after success or failure
 than the completed required-CI report. The two artifact names include run ID and attempt and retain data for
 30 days without overwriting an earlier attempt. Reuse and project-only runs upload no test observations.
 The existing receipt name, overwrite rule, provenance filter and platform-derived verdicts remain separate.
-Publication and upload failures are advisory; absent observations make reporting incomplete. They do not
-override the substantive test step's verdict. All five runner control-file decoys remain on that test step.
+Publication validates and sanitizes fresh upload copies; rejected input becomes safe incomplete outcomes
+or absent timing. Uploads require successful staging. Failures remain advisory; all five test-step decoys remain.
 Published observations omit tracebacks, full output and environment dumps, redact absolute paths, bound
 strings and escape rendered test names. Downloaded archives must contain exactly their named JSON file;
 no archive member is extracted into the filesystem.
@@ -87,7 +87,7 @@ The comparison keeps raw samples and differences. Missing or mismatched route, r
 Python, uv, resources, topology, cache or pattern evidence makes it unqualified. Unknown equals unknown is
 not proof of comparable environments. Common, added and removed case identities are separate; an unchanged
 test method can become expensive when shared production code changes. Missing per-case baseline data is
-unavailable, never zero. Nested tests count toward their parent's inclusive work.
+unavailable, never zero; changed inventories or outcomes are unqualified. Nested tests remain parent cost.
 
 `TARGET_SECONDS` and `CONCERN_SECONDS` in `selftest_performance.py` own the 900-second target and 1,200-second
 concern threshold. A concern calls for investigation; it is not a test timeout. This foundation does not
@@ -115,11 +115,11 @@ The demonstration exits nonzero on unexpected behavior. Both modes share the per
 
 ### Foundation qualification evidence
 
-On Python 3.12.13 / macOS arm64, three alternating pairs over the identical 163-case
-`test_selftest*.py` payload measured stock wall times of 32.386, 35.508 and 35.501 seconds and
-instrumented times of 33.511, 35.534 and 36.494 seconds. All passed with unchanged source fingerprints.
-The ratio of medians is +0.09%; individual pairs range +0.07–3.47%, so a 2% ceiling remains unproved.
-Investigation measured warm mandatory validation at 9 ms; raw samples and phase timings remain retained.
+On Python 3.12.13 / macOS arm64, three alternating pairs over the identical 167-case
+`test_selftest*.py` payload measured stock wall times of 31.943, 33.901 and 34.652 seconds and
+instrumented times of 33.319, 31.591 and 36.451 seconds. All passed with unchanged source fingerprints.
+The ratio of medians is -1.72%; individual pairs range -6.81–5.19%, so a 2% ceiling remains unproved.
+Earlier investigation measured warm mandatory validation at 9 ms; all raw samples remain retained.
 This is not full-suite or 15-minute qualification. A source-changing preliminary experiment was discarded.
 
 ## Done when

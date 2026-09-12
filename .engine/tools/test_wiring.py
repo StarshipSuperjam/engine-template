@@ -1169,7 +1169,11 @@ class TestEngineCiReuseGateStructure(unittest.TestCase):
             if step.get('name') in advisory:
                 observed.add(step['name'])
                 self.assertIs(step.get('continue-on-error'), True)
-                self.assertEqual(step.get('if'), "always() && steps.gate.outputs.mode == 'full'")
+                condition = "always() && steps.gate.outputs.mode == 'full'"
+                if step['name'].startswith('Upload'):
+                    condition += " && steps.observations.outcome == 'success'"
+                    self.assertIn('/published-selftest/', step['with']['path'])
+                self.assertEqual(step.get('if'), condition)
                 continue
             self.assertNotIn("continue-on-error", step,
                              f"step {step.get('name')!r} carries a continue-on-error escape")
@@ -1209,7 +1213,7 @@ class TestEngineCiReuseGateStructure(unittest.TestCase):
         declared = {s["id"] for s in steps if "id" in s}
         # `project` is the third arm's substantive step (StarshipSuperjam/engine-template#758): the terminal
         # assertion reads its outcome, so it must be addressable, and nothing else may be.
-        self.assertEqual(declared, {"gate", "selftests", "metadata", "project"},
+        self.assertEqual(declared, {"gate", "selftests", "metadata", "project", "observations"},
                          "the set of addressable steps is itself pinned: a step that grows an id becomes "
                          "referenceable, and the self-test step in particular must never be")
         writes_output = {}

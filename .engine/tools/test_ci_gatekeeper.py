@@ -813,7 +813,8 @@ class WorkflowShape(unittest.TestCase):
         for key,prefix in [("Upload test outcomes","engine-selftest-results"),
                            ("Upload test timing","engine-selftest-performance")]:
             step=self.steps[key]
-            self.assertEqual(step['if'],"always() && steps.gate.outputs.mode == 'full'")
+            self.assertEqual(step['if'],"always() && steps.gate.outputs.mode == 'full' && steps.observations.outcome == 'success'")
+            self.assertIn('/published-selftest/', step['with']['path'])
             self.assertEqual(step['with']['name'],prefix+'-${{ github.run_id }}-${{ github.run_attempt }}')
             self.assertEqual(step['with']['retention-days'],30)
             self.assertNotIn('overwrite',step['with'])
@@ -824,9 +825,10 @@ class WorkflowShape(unittest.TestCase):
         for key in ['Write the receipt','Upload the receipt']:
             self.assertNotIn('always()',self._condition(key))
             self.assertNotIn('failure()',self._condition(key))
-        summary=self.steps['Publish observed self-test summary']
+        summary=self.steps['observations']
         self.assertEqual(summary['if'],"always() && steps.gate.outputs.mode == 'full'")
-        self.assertNotIn('id',summary)
+        self.assertEqual(summary['id'],'observations')
+        self.assertIn('--artifact-dir "$RUNNER_TEMP/published-selftest"',summary['run'])
         self.assertNotIn('ENGINE_CI_MODE',summary.get('env',{}))
 
     def test_every_arms_substantive_steps_precede_the_receipt(self):

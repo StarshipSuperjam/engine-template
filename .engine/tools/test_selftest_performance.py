@@ -174,6 +174,49 @@ class CompletedReporting(unittest.TestCase):
         self.assertIn('cache unavailable',performance.compare_reports(a,b)['reasons'])
         self.assertIsNone(performance.sample_summary([a,b,a])['p90_seconds'])
 
+    def test_comparison_marks_inventory_outcome_and_missing_case_changes_unqualified(self):
+        baseline=report(ReportAPI())
+        for change, reason in [(lambda d:d['cases'].append({**d['cases'][0],'id':'another'}),'case inventory differs'),
+                               (lambda d:d['cases'].clear(),'case inventory differs'),
+                               (lambda d:d['cases'][0].update(outcome='failed'),'case outcomes differ'),
+                               (lambda d:d.update(cases=None),'case observations unavailable')]:
+            candidate=copy.deepcopy(baseline);change(candidate)
+            result=performance.compare_reports(baseline,candidate)
+            self.assertFalse(result['qualified'])
+            self.assertIn(reason,result['reasons'])
+
+    def test_inconsistent_timings_are_rejected_by_reporting_and_publication(self):
+        for change in [lambda d:d.update(case_seconds=20),
+                       lambda d:d['cases'][0].update(seconds=20),
+                       lambda d:d.update(parent_seconds=0),
+                       lambda d:d.update(unallocated_seconds=20),
+                       lambda d:d['spans'].append({'phase':'_callTestMethod','level':'case',
+                                                  'owner':d['cases'][0]['id'],'start':0,'seconds':2})]:
+            api=ReportAPI();metrics=api.documents[2][0];change(metrics)
+            with self.assertRaises(ValueError):records.validate_performance(metrics)
+            self.assertFalse(report(api)['complete'])
+            with tempfile.TemporaryDirectory() as tmp:
+                root=Path(tmp);records.write(root/'outcomes',api.documents[1][0]);records.write(root/'timing',metrics)
+                result,timing=performance.stage_observations(root/'outcomes',root/'timing',root/'safe')
+                self.assertTrue(result.exists());self.assertFalse(timing.exists())
+                self.assertIn('Timing: unknown',performance.observed_summary(result,timing))
+
+    def test_staging_keeps_rejected_bytes_and_preplanted_files_out_of_uploads(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root=Path(tmp)
+            for index,content in enumerate(['{','{"secret":"not an observation"}','private'*1000]):
+                raw=root/'raw';raw.write_text(content)
+                with mock.patch.object(records,'MAX_BYTES',2048):
+                    outcomes,timing=performance.stage_observations(raw,raw,root/str(index))
+                self.assertEqual(records.validate(records.read(outcomes)),(False,False))
+                self.assertNotIn('secret',outcomes.read_text());self.assertNotIn('private',outcomes.read_text())
+                self.assertFalse(timing.exists())
+            planted=root/'planted';planted.mkdir();sentinel=planted/'selftest-results.json';sentinel.write_text('do not upload')
+            with mock.patch('sys.stdout',io.StringIO()):
+                code=performance.main(['publish','--results',str(raw),'--performance',str(raw),'--artifact-dir',str(planted)])
+            self.assertEqual(code,1)
+            self.assertEqual(sentinel.read_text(),'do not upload')
+
     def test_pagination_visits_every_page_and_refuses_a_truncated_budget(self):
         api=performance.GitHub.__new__(performance.GitHub)
         seen=[]

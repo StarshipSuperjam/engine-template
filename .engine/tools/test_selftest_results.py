@@ -273,6 +273,31 @@ class B(unittest.TestCase):
                 self.assertEqual(run.returncode, 0, run.stdout+run.stderr)
                 self.assertEqual(records.validate(records.read(root/'result.json')), (True,True))
 
+    def test_real_empty_run_fails_and_skipped_only_subtests_match_unittest(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root=Path(tmp); output=root/'results.json'
+            command=[sys.executable,str(Path(selftest.__file__).resolve()),'--start-dir',tmp,'--cwd',tmp,
+                     '--results-path',str(output)]
+            empty=subprocess.run(command,capture_output=True,text=True,timeout=15)
+            self.assertEqual(empty.returncode,1,empty.stdout+empty.stderr)
+            self.assertEqual(records.validate(records.read(output)),(False,False))
+            forged=records.read(output);forged.update(child_finalized=True,issues=[],complete=True,passed=True)
+            with self.assertRaises(ValueError):records.validate(forged)
+            (root/'test_skips.py').write_text('''import unittest
+class Cases(unittest.TestCase):
+    def test_behavior(self):
+        with self.subTest(case='passed'): pass
+        with self.subTest(case='skipped'): self.skipTest('legitimate skip')
+''')
+            stock=subprocess.run([sys.executable,'-m','unittest','discover','-s',tmp],capture_output=True,text=True,timeout=15)
+            observed=subprocess.run(command,capture_output=True,text=True,timeout=15)
+            self.assertEqual(stock.returncode,0,stock.stderr)
+            self.assertEqual(observed.returncode,0,observed.stdout+observed.stderr)
+            result=records.read(output)
+            self.assertEqual(records.validate(result),(True,True))
+            self.assertEqual(result['cases'][0]['outcome'],'passed')
+            self.assertEqual([s['outcome'] for s in result['cases'][0]['subtests']],['passed','skipped'])
+
 
 if __name__ == '__main__':
     if '--demonstrate' in sys.argv:

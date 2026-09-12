@@ -321,6 +321,7 @@ def completed_report(api, head, primary_run, primary_attempt, contexts=None, bas
                 report["observations"].append({"name": name, "artifact_id": found[0]["id"], "sha256": digest})
             outcomes, metrics = documents["selftest-results.v1"], documents["selftest-performance.v1"]
             records.validate(outcomes)
+            records.validate_performance(metrics)
             if outcomes["source"] != metrics["source"] or outcomes["ci"] != metrics["ci"]:
                 raise ValueError("outcome and timing source identities differ")
             if outcomes['scope'] != 'full' or metrics['scope'] != 'full' or outcomes['invocation'] != metrics['invocation'] or metrics['invocation']['pattern'] != 'test_*.py':
@@ -379,6 +380,10 @@ def compare_reports(baseline, candidate):
             if len(values)!=len(rows):raise ValueError('duplicate case identities in comparison')
             return values
         a,b=keyed(baseline['cases']),keyed(candidate['cases'])
+        if a.keys() != b.keys():
+            reasons.append('case inventory differs')
+        if any(a[key]['outcome'] != b[key]['outcome'] for key in a.keys() & b.keys()):
+            reasons.append('case outcomes differ')
         common=[]
         for key in sorted(a.keys() & b.keys()):
             x,y=a[key],b[key]
@@ -389,6 +394,8 @@ def compare_reports(baseline, candidate):
         cases={'common':common,'added':[b[k] for k in sorted(b.keys()-a.keys())],
                'removed':[a[k] for k in sorted(a.keys()-b.keys())],
                'note':'Common identities do not imply unchanged cost: shared code and fixtures can change their work.'}
+    else:
+        reasons.append('case observations unavailable')
     return {'schema_version':'ci-test-performance-comparison.v1','qualified':not reasons,'reasons':reasons,
             'raw_samples':raw,'deltas':deltas,'cases':cases,
             'candidate_concern':bool(candidate['metrics'] and candidate['metrics']['elapsed_seconds']>=CONCERN_SECONDS),
@@ -407,6 +414,43 @@ def sample_summary(reports):
             'note':'Descriptive only; mixed routes, environments or incomplete reports do not establish qualification.'}
 
 
+def stage_observations(results_path, performance_path, directory):
+    """Upload validated copies in a new directory, never the test-writable inputs."""
+    target = Path(directory)
+    target.mkdir(mode=0o700)  # Refuse an existing destination instead of trusting planted files.
+    def sanitized(value):
+        if isinstance(value, str):
+            return records.text(value)
+        if isinstance(value, list):
+            return [sanitized(item) for item in value]
+        if isinstance(value, dict):
+            return {key: sanitized(item) for key, item in value.items()}
+        return value
+    try:
+        outcomes = sanitized(records.read(results_path))
+        records.validate(outcomes)
+    except (OSError, ValueError, KeyError, TypeError, RecursionError):
+        observation = records.Observation([], [], source={'tree':None, 'worktree_dirty':None}, scope='full',
+            invocation={'start_dir':'unknown', 'pattern':'unknown', 'selection_digest':None})
+        observation.issue('required observation unavailable or rejected before publication')
+        outcomes = observation.document()
+    results, timing = target/'selftest-results.json', target/'selftest-performance.json'
+    records.validate(outcomes)
+    records.write(results, outcomes)
+    try:
+        metrics = sanitized(records.read(performance_path))
+        records.validate_performance(metrics)
+        if any(outcomes[key] != metrics[key] for key in ('source','ci','scope','invocation')):
+            raise ValueError('observation identities differ')
+        if [(r['id'],r['occurrence']) for r in outcomes['cases']] != [(r['id'],r['occurrence']) for r in metrics['cases']]:
+            raise ValueError('timing inventory differs')
+    except (OSError, ValueError, KeyError, TypeError, RecursionError):
+        pass  # Absent timing stays unavailable; never upload rejected bytes.
+    else:
+        records.write(timing, metrics)
+    return results, timing
+
+
 def observed_summary(results_path, performance_path):
     lines = ["## Observed self-test interval", "",
              "This interval covers the serial self-test launcher, not the complete required PR CI path.", ""]
@@ -421,7 +465,7 @@ def observed_summary(results_path, performance_path):
         lines.append("Outcomes: unknown (missing or invalid observation). The self-test step owns the verdict.")
     try:
         metrics = records.read(performance_path)
-        records.validate_shape(metrics, "selftest-performance.v1")
+        records.validate_performance(metrics)
         seconds = metrics["parent_seconds"]
         if seconds is None:
             raise ValueError("parent interval missing")
@@ -443,6 +487,7 @@ def main(argv=None):
     publish = subs.add_parser("publish", help="append bounded self-test observations to the job summary")
     publish.add_argument("--results", required=True)
     publish.add_argument("--performance", required=True)
+    publish.add_argument("--artifact-dir", help="create a fresh directory containing only validated upload copies")
     report = subs.add_parser('report-ci',help='read completed required CI for explicit head/run/attempt associations')
     report.add_argument('--repository',required=True)
     report.add_argument('--head',required=True)
@@ -476,6 +521,12 @@ def main(argv=None):
             return code
         except (OSError,ValueError,KeyError,TypeError,subprocess.SubprocessError) as exc:
             print('Performance report unavailable: '+records.text(str(exc)))
+            return 1
+    if args.artifact_dir:
+        try:
+            args.results, args.performance = stage_observations(args.results, args.performance, args.artifact_dir)
+        except (OSError, ValueError, KeyError, TypeError, RecursionError):
+            print('Observation staging failed; no upload is authorized by this step.')
             return 1
     summary = observed_summary(args.results, args.performance)
     destination = os.environ.get("GITHUB_STEP_SUMMARY")

@@ -622,6 +622,8 @@ def _run_child(args: argparse.Namespace) -> int:
                     "selection_digest": _selection_digest(selection)}, timing=bool(timing_path))
     if loader.errors:
         observation.issue("test discovery contained import or load errors")
+    if not selected_cases:
+        observation.issue("discovery selected no cases")
     # Persist discovery before running: a killed child leaves an explicitly incomplete inventory.
     if result_path:
         selftest_results.write(result_path, observation.document())
