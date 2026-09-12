@@ -16,6 +16,37 @@ import selftest
 import selftest_results as records
 
 
+def run_example(root, stop_early):
+    """The operator demonstration and permanent regression share one tiny real launcher journey."""
+    (root/'test_small.py').write_text('''import unittest
+class A(unittest.TestCase):
+    def test_a(self): pass
+    def run(self, result=None):
+        super().run(result)
+        if STOP_EARLY: result.stop()
+class B(unittest.TestCase):
+    def test_b(self): pass
+'''.replace('STOP_EARLY',repr(stop_early)))
+    output=root/'results.json';legacy=root/'record.json';timing=root/'timing.json'
+    command=[sys.executable,str(Path(selftest.__file__).resolve()),'--start-dir',str(root),'--cwd',str(root),
+             '--results-path',str(output),'--run-record-path',str(legacy),'--performance-path',str(timing)]
+    run=subprocess.run(command,capture_output=True,text=True,timeout=15)
+    return run,records.read(output),records.read(legacy),records.read(timing)
+
+
+def demonstrate(stop_early=False):
+    with tempfile.TemporaryDirectory(prefix='engine-outcome-demo-') as tmp:
+        run,result,legacy,timing=run_example(Path(tmp),stop_early)
+    print('Early stopping: '+('on' if stop_early else 'off'))
+    print(f"Selected {len(result['selected'])} cases; started {result['executed_count']}; launcher exit {run.returncode}.")
+    print('Outcomes: '+', '.join(row['outcome'] for row in result['cases']))
+    print('Complete: '+str(result['complete'])+'; legacy observed count: '+str(legacy['executed']['case_count']))
+    expected=(run.returncode==(1 if stop_early else 0) and result['complete']==(not stop_early)
+              and result['executed_count']==(1 if stop_early else 2))
+    print('Demonstration '+('passed.' if expected else 'FAILED: the launcher did not enforce the expected outcome boundary.'))
+    return 0 if expected else 1
+
+
 class ResultAccounting(unittest.TestCase):
     def observe(self, cases, *, timing=False, inventory=None):
         obs = records.Observation(inventory or cases, cases, source={"tree": None, "worktree_dirty": None},
@@ -114,6 +145,19 @@ class ResultAccounting(unittest.TestCase):
         self.assertEqual(doc['fixtures'][0]['affected'],[0])
         self.assertEqual(records.validate(doc),(True,True))
 
+    def test_failed_setup_and_failed_class_cleanup_are_separate_mapped_errors(self):
+        class Cases(unittest.TestCase):
+            @classmethod
+            def setUpClass(cls):
+                cls.addClassCleanup(lambda: (_ for _ in ()).throw(ValueError('cleanup')))
+                raise RuntimeError('setup')
+            def runTest(self): pass
+        _,result,doc=self.observe([Cases()])
+        self.assertEqual(len(result.errors),2)
+        self.assertEqual([f['affected'] for f in doc['fixtures']],[[0],[0]])
+        self.assertEqual([f['cleanup'] for f in doc['fixtures']],[False,True])
+        self.assertEqual(records.validate(doc),(True,False))
+
     def test_duplicate_ids_are_distinct_occurrences(self):
         class Cases(unittest.TestCase):
             def runTest(self): pass
@@ -192,30 +236,22 @@ class ResultAccounting(unittest.TestCase):
             self.assertEqual(doc['executed_count'],0)
             self.assertEqual([r['outcome'] for r in doc['cases']],['fixture-blocked']*2+['skipped']*2)
 
-    def test_actual_launcher_clean_stop_and_fixture_skip(self):
+    def test_actual_launcher_rejects_clean_early_stop(self):
         with tempfile.TemporaryDirectory() as tmp:
-            root=Path(tmp)
-            body='''import unittest
-class A(unittest.TestCase):
-    def test_a(self): pass
-    def run(self, result=None):
-        super().run(result)
-        result.stop()
-class B(unittest.TestCase):
-    def test_b(self): pass
-'''
-            (root/'test_small.py').write_text(body)
-            output=root/'results.json'; legacy=root/'record.json'; timing=root/'timing.json'
-            cmd=[sys.executable,str(Path(selftest.__file__).resolve()),'--start-dir',tmp,'--cwd',tmp,
-                 '--results-path',str(output),'--run-record-path',str(legacy),'--performance-path',str(timing)]
-            run=subprocess.run(cmd,capture_output=True,text=True,timeout=15)
+            run,result,legacy,timing=run_example(Path(tmp),True)
             self.assertEqual(run.returncode,1,run.stdout+run.stderr)
-            result=json.loads(output.read_text())
             self.assertFalse(result['complete'])
             self.assertEqual(result['process_exit'],1)
-            self.assertEqual(json.loads(legacy.read_text())['executed']['case_count'],1)
-            self.assertIsNotNone(json.loads(timing.read_text())['parent_seconds'])
-            records.validate_shape(records.read(timing),'selftest-performance.v1')
+            self.assertEqual(legacy['executed']['case_count'],1)
+            self.assertIsNotNone(timing['parent_seconds'])
+            records.validate_shape(timing,'selftest-performance.v1')
 
 
-if __name__ == '__main__': unittest.main()
+if __name__ == '__main__':
+    if '--demonstrate' in sys.argv:
+        import argparse
+        parser=argparse.ArgumentParser(description='Watch complete runs and clean early stops through the real launcher.')
+        parser.add_argument('--demonstrate',action='store_true')
+        parser.add_argument('--stop-early',action='store_true')
+        raise SystemExit(demonstrate(parser.parse_args().stop_early))
+    unittest.main()

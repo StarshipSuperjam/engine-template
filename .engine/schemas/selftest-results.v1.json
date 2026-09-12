@@ -327,6 +327,10 @@
               "minimum": 0
             },
             "maxItems": 200000
+          },
+          "cleanup": {
+            "type": "boolean",
+            "description": "True when unittest reports an error from doClassCleanups or doModuleCleanups; phase retains the original fixture holder."
           }
         },
         "required": [
@@ -334,7 +338,8 @@
           "owner",
           "outcome",
           "reason",
-          "affected"
+          "affected",
+          "cleanup"
         ]
       },
       "maxItems": 200000

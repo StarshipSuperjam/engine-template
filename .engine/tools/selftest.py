@@ -39,8 +39,8 @@ to reach end-of-file — which a background grandchild process the child spawned
 open forever. That single-reader model is why teardown can never hang.
 
 Layering: `quiet_call.py` silences one demo's stdout in-process at a single call site; this supervises
-the whole run at the process level. Different layers — neither replaces the other. CI stays on the raw
-`unittest discover ... -b` command (the merge gate is unchanged); this is the local build path.
+the whole run at the process level. CI uses this launcher with explicit full-discovery arguments,
+retaining unittest semantics while recording complete outcomes and optional timing.
 
 Usage:
     uv run --directory .engine --frozen -- python tools/selftest.py
@@ -246,7 +246,12 @@ class _StructuredResult(unittest.TextTestResult):
 
     def addError(self, test, err):
         super().addError(test, err)
-        self._observe("outcome", test, "error", err[0].__name__)
+        tb = err[2]
+        cleanup = False
+        while tb is not None:
+            cleanup = cleanup or tb.tb_frame.f_code.co_name in {"doClassCleanups", "doModuleCleanups"}
+            tb = tb.tb_next
+        self._observe("outcome", test, "error", err[0].__name__, cleanup)
         self._note_problem(test, "error")
 
     def addFailure(self, test, err):
@@ -640,6 +645,10 @@ def _run_child(args: argparse.Namespace) -> int:
     if _tree_binding(args.start_dir) != source:
         observation.issue("source tree or dirty status changed during execution")
     document = observation.document(finalized=True)
+    if not document["complete"]:
+        remaining = sum(row["outcome"] == "unexecuted" for row in document["cases"])
+        print(f"selftest: required outcomes incomplete ({remaining} selected cases unexecuted; "
+              f"{len(document['issues'])} observation issues). A unittest OK is insufficient.", file=sys.stderr)
     rc = 0 if result.wasSuccessful() and document["complete"] and document["passed"] else 1
     if result_path:
         try:

@@ -106,6 +106,32 @@ samples; above that it is descriptive, not a confidence claim. Three samples can
 The next program child owns enforced efficient-test authoring and shared-path cost contracts; this child
 introduces no selection changes, worker/reviewer rules, production hotspot optimization or cost gate.
 
+### Watch the completeness boundary yourself
+
+These commands run two tiny synthetic cases through the real launcher, with no repository or network fixture:
+
+```sh
+uv run --directory .engine --frozen -- python tools/test_selftest_results.py --demonstrate
+uv run --directory .engine --frozen -- python tools/test_selftest_results.py --demonstrate --stop-early
+```
+
+The first reports two starts, two passed outcomes, completeness true and launcher exit 0. Adding
+`--stop-early` lets the first case pass and stops before the second. It reports one start, one unexecuted
+case, completeness false and launcher exit 1, even though stock unittest's success check accepts that
+early stop. The demonstration itself exits nonzero if those observed results disagree with the expected
+behavior. Remove the flag to restore the complete run. This same journey is covered by the permanent
+outcome regression; no additional nightly demonstration or full-suite run is introduced.
+
+### Foundation qualification evidence
+
+On Python 3.12.13 / macOS arm64, three alternating pairs over the identical 162-case
+`test_selftest*.py` payload measured stock wall times of 27.634, 27.362 and 27.548 seconds and
+instrumented times of 27.946, 28.059 and 28.069 seconds. All six runs passed; source fingerprints
+matched before and after. Median overhead was 1.85%, within the child's 2% investigation target.
+This focused measurement is descriptive and does not establish full-suite overhead or the program's
+15-minute target. An earlier experiment was discarded because tested source changed during measurement.
+Raw commands, source hashes, output hashes and logs are retained with the Build qualification evidence.
+
 ## Done when
 
 An explicit report names its source, run, attempt, current policy and missing facts; any comparison discloses

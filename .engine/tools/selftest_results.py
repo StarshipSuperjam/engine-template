@@ -147,7 +147,7 @@ class Observation:
         if self.timing:
             self.cases[index]["seconds"] = time.monotonic() - began
 
-    def outcome(self, case, kind, reason=None):
+    def outcome(self, case, kind, reason=None, cleanup=False):
         active = self.active.get(id(case))
         if active is None:
             parent = getattr(case, "test_case", None)
@@ -158,7 +158,7 @@ class Observation:
                 else:
                     row["subtests"].append({"id": text(case.id()), "outcome": "skipped", "reason": text(reason)})
                 return
-            self.fixture(case, kind, reason)
+            self.fixture(case, kind, reason, cleanup)
             return
         row = self.cases[active[0]]
         if row["outcome"] != "unexecuted":
@@ -184,7 +184,7 @@ class Observation:
         if err is not None:
             row["outcome"] = "error" if kind == "error" or row["outcome"] == "error" else "failed"
 
-    def fixture(self, holder, kind, reason):
+    def fixture(self, holder, kind, reason, cleanup=False):
         description = getattr(holder, "description", "")
         match = re.fullmatch(r"(setUpModule|tearDownModule|setUpClass|tearDownClass) \((.+)\)", description)
         if not match or kind not in {"error", "skipped"}:
@@ -209,19 +209,23 @@ class Observation:
                     break
                 affected.append(i)
             affected.reverse()
+        if not affected and self.fixtures and self.fixtures[-1]["phase"] == phase and self.fixtures[-1]["owner"] == owner:
+            affected = self.fixtures[-1]["affected"][:]
         if not affected:
             self.issue("fixture outcome has no selected cases")
         if len(self.fixtures) >= MAX_CASES:
             self.issue("fixture outcome limit exceeded")
             return
         self.fixtures.append({"phase": phase, "owner": text(owner), "outcome": kind,
+                              "cleanup": cleanup,
                               "reason": text(reason) if reason is not None else None,
                               "affected": affected})
         if phase.startswith("setUp"):
             for i in affected:
                 row = self.cases[i]
-                if not row["started"] and row["outcome"] == "unexecuted":
-                    self.waiting[self.objects[i]].remove(i)
+                if not row["started"] and (row["outcome"] == "unexecuted" or kind == "error"):
+                    if i in self.waiting[self.objects[i]]:
+                        self.waiting[self.objects[i]].remove(i)
                     row["outcome"] = "skipped" if kind == "skipped" else "fixture-blocked"
                     row["reason"] = text(reason) if reason is not None else None
 
@@ -361,7 +365,8 @@ def validate(document):
                 key_name = "module" if fixture["phase"].endswith("Module") else "class"
                 if cases[i][key_name] != fixture["owner"]:
                     raise ValueError("fixture owner does not match affected case")
-                mapped[i] = fixture
+                if i not in mapped or fixture["outcome"] == "error":
+                    mapped[i] = fixture
     for i, row in enumerate(cases):
         if row["outcome"] not in OUTCOMES or type(row["started"]) is not bool or type(row["stopped"]) is not bool:
             raise ValueError("invalid case outcome")
