@@ -95,7 +95,7 @@ class Store:
             raise EvidenceError("unsupported or damaged scoped-assignment companion; review is unverified")
         schema = Path(__file__).resolve().parents[1] / "schemas" / (VERSION + ".json")
         try:
-            core.validate(value, schema, local_refs=True)
+            plan_store.validate_shared_record(value, schema, local_refs=True)
         except core.CoordinatorError as exc:
             raise EvidenceError("damaged scoped-assignment companion; review is unverified: " + str(exc)) from exc
         return value

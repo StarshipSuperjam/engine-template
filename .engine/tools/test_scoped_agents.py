@@ -5,6 +5,7 @@ import json
 import os
 from pathlib import Path
 import sys
+import subprocess
 import tempfile
 import unittest
 from unittest import mock
@@ -40,6 +41,37 @@ class ScopedAssignments(unittest.TestCase):
         return self.store.register(owner=self.owner, root="root-id", purpose="review", lens=lens,
                                    role="engine-design-review-" + lens, packet=self.packet,
                                    packet_digest=core.digest(self.packet.read_bytes()))
+
+    def test_closed_historical_assignment_shape_refuses_current_writer_with_guidance(self):
+        """Use a production assignment and its real schema, not a toy evidence record."""
+        schema = core._local_validation_schema(Path(scoped.__file__).resolve().parents[1] /
+                                               "schemas/scoped-agent-evidence.v1.json")
+        historical = copy.deepcopy(schema)
+        del historical["$defs"]["assignment"]["properties"]["result_contract"]
+        repo = self.root / "reader-history"
+        schema_path = repo / ".engine/schemas/scoped-agent-evidence.v1.json"
+        schema_path.parent.mkdir(parents=True)
+        def git(*args):
+            return subprocess.run(["git", "-C", str(repo), *args], capture_output=True,
+                                  text=True, check=True).stdout.strip()
+        git("init", "-q")
+        git("config", "user.email", "fixture@example.invalid")
+        git("config", "user.name", "Fixture")
+        schema_path.write_text(json.dumps(historical))
+        git("add", ".")
+        git("-c", "core.hooksPath=/dev/null", "commit", "-qm", "historical closed shape")
+        old_head = git("rev-parse", "HEAD")
+        schema_path.write_text(json.dumps(schema))
+        git("add", ".")
+        git("-c", "core.hooksPath=/dev/null", "commit", "-qm", "writer result binding")
+        git("update-ref", "refs/remotes/origin/main", "HEAD")
+        git("checkout", "-q", "--detach", old_head)
+        value = self.store.read()
+        original = self.store.path.read_bytes()
+        self.assertEqual(plan_store.shared_reader_diagnosis(value, schema_path), "incompatible")
+        with self.assertRaisesRegex(core.CoordinatorError, "older than the shared record"):
+            plan_store.validate_shared_record(value, schema_path, local_refs=True)
+        self.assertEqual(self.store.path.read_bytes(), original)
 
     def observe(self, event, tool=None, inp=None, child=None, response=None, **kw):
         payload = {"session_id": "root-id", "tool_use_id": "call-1", **kw}

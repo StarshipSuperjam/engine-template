@@ -17,6 +17,7 @@ from pathlib import Path
 import re
 import sys
 import tempfile
+import subprocess
 import unittest
 from unittest import mock
 
@@ -25,6 +26,72 @@ from plan_program import DEAD_BRANCH_STATES
 import plan_store
 
 from test_plan_store import _document
+
+
+class SharedReaderDiagnosis(unittest.TestCase):
+    def setUp(self):
+        self.tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(self.tmp.cleanup)
+        self.root = Path(self.tmp.name)
+        self.schemas = self.root / ".engine/schemas"
+        self.schemas.mkdir(parents=True)
+        self.path = self.schemas / "engine-program.v1.json"
+        self.old = {"type": "object", "additionalProperties": False,
+                    "required": ["schema_version", "title"],
+                    "properties": {"schema_version": {"const": "engine-program.v1"},
+                                   "title": {"type": "string"}}}
+        self.path.write_text(json.dumps(self.old))
+        self.git("init", "-q")
+        self.git("config", "user.email", "fixture@example.invalid")
+        self.git("config", "user.name", "Fixture")
+        self.git("add", ".")
+        self.git("-c", "core.hooksPath=/dev/null", "commit", "-qm", "old reader")
+        self.old_head = self.git("rev-parse", "HEAD")
+        newer = json.loads(json.dumps(self.old))
+        newer["properties"]["intended"] = {"type": "string"}
+        self.path.write_text(json.dumps(newer))
+        self.git("add", ".")
+        self.git("-c", "core.hooksPath=/dev/null", "commit", "-qm", "new writer schema")
+        self.git("update-ref", "refs/remotes/origin/main", "HEAD")
+        self.git("checkout", "-q", "--detach", self.old_head)
+        self.value = {"schema_version": "engine-program.v1", "title": "Plan", "intended": "Next"}
+
+    def git(self, *args):
+        return subprocess.run(["git", "-C", str(self.root), *args], check=True,
+                              capture_output=True, text=True).stdout.strip()
+
+    def test_known_newer_shape_is_diagnosed_but_never_accepted(self):
+        before = json.dumps(self.value)
+        self.assertEqual(plan_store.shared_reader_diagnosis(self.value, self.path), "incompatible")
+        with self.assertRaisesRegex(plan_store.PlanStoreError, "older than the shared record"):
+            plan_store.validate_shared_record(self.value, self.path)
+        self.assertEqual(json.dumps(self.value), before)
+        self.assertEqual(self.git("rev-parse", "HEAD"), self.old_head)
+
+    def test_bad_known_value_and_unknown_properties_are_not_compatibility_proof(self):
+        self.assertEqual(plan_store.shared_reader_diagnosis({**self.value, "title": 9}, self.path), "damaged")
+        self.assertEqual(plan_store.shared_reader_diagnosis({**self.value, "invented": True}, self.path), "unknown")
+        with self.assertRaises(plan_store.PlanStoreError):
+            plan_store.validate_shared_record({**self.value, "invented": True}, self.path)
+
+    def test_updated_reader_accepts_without_diagnostic_git_calls(self):
+        self.git("checkout", "-q", "--detach", "refs/remotes/origin/main")
+        with mock.patch.object(plan_store.subprocess, "run", side_effect=AssertionError("unnecessary git")):
+            plan_store.validate_shared_record(self.value, self.path)
+            self.assertEqual(plan_store.shared_reader_diagnosis(self.value, self.path), "compatible")
+
+    def test_dirty_schema_or_missing_reference_is_unknown(self):
+        self.path.write_text(json.dumps(self.old) + "\n")
+        self.assertEqual(plan_store.shared_reader_diagnosis(self.value, self.path), "unknown")
+        self.path.write_text(json.dumps(self.old))
+        self.git("update-ref", "-d", "refs/remotes/origin/main")
+        self.assertEqual(plan_store.shared_reader_diagnosis(self.value, self.path), "unknown")
+
+    def test_timeout_cannot_clear_invalid_evidence(self):
+        with mock.patch.object(plan_store.subprocess, "run", side_effect=subprocess.TimeoutExpired("git", 1)):
+            self.assertEqual(plan_store.shared_reader_diagnosis(self.value, self.path), "unknown")
+            with self.assertRaises(plan_store.PlanStoreError):
+                plan_store.validate_shared_record(self.value, self.path)
 
 
 def _obligation(identifier, statement, state="carried", reason=None):
@@ -716,7 +783,7 @@ class TheSeamHoldsAtModuleLevel(_Program):
     # one the seam is about. Enumerated rather than exempted by a shape rule, so adding a call here is
     # a visible edit to this list.
     PERMITTED_MODULE = {"PlanStoreError", "PlanLibrary", "derived_status", "FILE_MODE", "slug_for",
-                        "ensure_dir"}
+                        "ensure_dir", "validate_shared_record"}  # strict read validation; no library writes
 
     def _forbidden(self, source: str) -> set:
         """Every plan-library access this source makes that the allowlist does not permit.

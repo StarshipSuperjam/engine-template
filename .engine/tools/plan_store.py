@@ -40,6 +40,8 @@ from pathlib import Path
 import re
 import secrets
 import subprocess
+import tempfile
+import time
 
 import build_coordinator_core as core
 import checkout_health
@@ -50,6 +52,94 @@ PlanStoreError = core.CoordinatorError
 
 ROOT = Path(__file__).resolve().parents[2]
 RECORD_SCHEMA = ROOT / ".engine" / "schemas" / "plan-record.v1.json"
+
+
+def shared_reader_diagnosis(value, schema_path):
+    """Classify a failed shared-record read without ever accepting newer evidence.
+
+    A local, descendant origin/main schema is diagnostic evidence only. No network,
+    checkout execution, schema relaxation, or record rewrite is permitted here.
+    Readers must be updated before consuming a newer closed shape (#1256).
+    """
+    from jsonschema import Draft202012Validator
+    schema_path = Path(schema_path).resolve()
+    try:
+        schema = core._local_validation_schema(schema_path)
+        errors = list(Draft202012Validator(schema).iter_errors(value))
+        if not errors:
+            return "compatible"
+        if not isinstance(value, dict) or value.get("schema_version") != schema_path.stem:
+            return "unknown"
+        # Nested union errors must also be exclusively unknown-property failures.
+        def leaves(error):
+            return [leaf for child in error.context for leaf in leaves(child)] if error.context else [error]
+        if any(e.validator != "additionalProperties" for error in errors for e in leaves(error)):
+            return "damaged"
+        root = schema_path.parents[2]
+        relative = schema_path.relative_to(root).as_posix()
+        deadline = time.monotonic() + 1.0
+
+        def git(*args):
+            remaining = deadline - time.monotonic()
+            if remaining <= 0:
+                raise TimeoutError("reader diagnosis budget exhausted")
+            result = subprocess.run(["git", "-C", str(root), *args], capture_output=True,
+                                    timeout=remaining, check=True)
+            if len(result.stdout) > 1048576:
+                raise ValueError("schema exceeds diagnostic limit")
+            return result.stdout
+
+        head = git("rev-parse", "HEAD").decode().strip()
+        supported = git("rev-parse", "refs/remotes/origin/main").decode().strip()
+        if head == supported:
+            return "damaged"
+        git("merge-base", "--is-ancestor", head, supported)
+        if git("show", head + ":" + relative) != schema_path.read_bytes():
+            return "unknown"  # modified local schemas are not historical readers
+        with tempfile.TemporaryDirectory(prefix="engine-reader-schema-") as directory:
+            pending, seen, total = [schema_path.name], set(), 0
+            while pending:
+                name = pending.pop()
+                if name in seen:
+                    continue
+                if len(seen) >= 32 or not re.fullmatch(r"[A-Za-z0-9_.-]+\.json", name):
+                    return "unknown"
+                seen.add(name)
+                raw = git("show", supported + ":.engine/schemas/" + name)
+                total += len(raw)
+                if total > 4194304:
+                    return "unknown"
+                document = json.loads(raw)
+                Draft202012Validator.check_schema(document)
+                def references(node):
+                    if isinstance(node, dict):
+                        ref = node.get("$ref")
+                        if isinstance(ref, str) and not ref.startswith("#"):
+                            pending.append(ref.split("#", 1)[0])
+                        for child in node.values():
+                            references(child)
+                    elif isinstance(node, list):
+                        for child in node:
+                            references(child)
+                references(document)
+                (Path(directory) / name).write_bytes(raw)
+            core.validate(value, Path(directory) / schema_path.name, local_refs=True)
+        return "incompatible"
+    except (OSError, ValueError, core.CoordinatorError, subprocess.SubprocessError, TimeoutError):
+        return "unknown"
+
+
+def validate_shared_record(value, schema_path, *, local_refs=False):
+    """Validate strictly, replacing only a proven old-reader failure with guidance."""
+    try:
+        core.validate(value, schema_path, local_refs=local_refs)
+    except core.CoordinatorError:
+        if shared_reader_diagnosis(value, schema_path) == "incompatible":
+            raise PlanStoreError(
+                "This local Engine reader is older than the shared record. The record remains "
+                "unverified and unchanged. Update this worktree through the existing checkout "
+                "recovery path, preserving local work, then restart its session and retry.") from None
+        raise
 
 def validate_record(record):
     core.validate(record, RECORD_SCHEMA, local_refs=True)
