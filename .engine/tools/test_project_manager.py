@@ -1561,7 +1561,7 @@ class ErrorLegibility(_Governed):
         listed = out.split("operator decisions recorded (gate and moment):")[1]
         lines = [line.strip() for line in listed.splitlines() if " at 20" in line]
         self.assertEqual([line.split(" at ")[0] for line in lines],
-                         ["approve", "findings-presented", "seal"])
+                         ["approve", "seal"])
         self.assertNotIn("“", out)
 
     def test_no_printed_next_step_carries_the_switch(self):
@@ -2485,7 +2485,7 @@ class TestSealHandback(unittest.TestCase):
         self.assertIn("Settle", text)
         self.assertIn("suggest a model and effort", text)
         self.assertIn("/engine-start or $engine-start", text)
-        self.assertIn("this runtime", text)     # relay the one spelling the operator can actually type
+        self.assertIn("If already supplied for this plan, continue", text)
         self.assertIn("wait", text.lower())
 
     def test_it_carries_the_plan_id_and_keeps_the_switch_off_the_bind_it_suggests(self):
@@ -2678,8 +2678,10 @@ class TestPlanRunbookHandsBack(unittest.TestCase):
 
     def test_the_show_stop_hands_over_the_projection(self):
         text = self.RUNBOOK.read_text(encoding="utf-8")
-        show = self._bullet(text, "**Show the drafted plan with no ask attached.**", "**Then, once they are satisfied")
+        show = self._bullet(text, "**Show the drafted plan.**", "**Then, once they are satisfied")
         self.assertIn("PLAN.md", show)
+        self.assertIn("do not demand a separate acknowledgment", show)
+        self.assertIn("record that decision and continue", show)
 
     def test_the_hand_back_prescribes_no_context_control_and_names_the_typed_start(self):
         text = self.RUNBOOK.read_text(encoding="utf-8")

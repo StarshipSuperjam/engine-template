@@ -123,8 +123,8 @@ class TheOperatorFacingSurfacesDescribeDepthByLenses(unittest.TestCase):
 
     def test_the_first_presentation_carries_its_decision_context(self):
         # Node first-presentation-doctrine: a drafted plan's FIRST presentation carries its decision context
-        # whole, while the depth/approval stays a distinct, session-led stop reached only once the operator
-        # has closed every open question. Asserted against section 6's prose (what a test can inspect), with whitespace
+        # whole, while approval follows resolution of real questions without a fixed turn count.
+        # Asserted against section 6's prose (what a test can inspect), with whitespace
         # normalized so a phrase that wraps across source lines still matches.
         runbook = os.path.join(ROOT, ".engine", "operations", "plan-orchestration.md")
         text = open(runbook, encoding="utf-8").read()
@@ -132,23 +132,23 @@ class TheOperatorFacingSurfacesDescribeDepthByLenses(unittest.TestCase):
             i = text.index(start)
             return " ".join(text[i:text.index(end, i)].split())
         # (a) the first showing carries the risk information, the open-questions-with-answers, the revise invite
-        show = slab("**Show the drafted plan with no ask attached.**", "**Then, once they are satisfied")
+        show = slab("**Show the drafted plan.**", "**Then, once they are satisfied")
         self.assertIn("PLAN.md", show)
         self.assertIn("one-line care recommendation", show)
         self.assertIn("every open question with the answer you propose", show)
         self.assertIn("invite revisions", show)
-        self.assertIn("No depth menu rides along", show)  # the depth ask does NOT ride with the first showing
-        # (b) the depth ask is a distinct, led stop reached only once the operator has closed every open question
+        self.assertIn("do not demand a separate acknowledgment", show)
+        self.assertIn("record that decision and continue", show)
+        # (b) real questions are settled before recording the chosen review depth
         approval = slab("**Then, once they are satisfied, the approval.**", "**One cold review")
         self.assertIn("only once the operator has closed every open question", approval)
-        self.assertIn("distinct, led step", approval)
         self.assertIn("--operator-decided", approval)
         self.assertIn("That one choice covers the plan's cold review and the Build's later one", approval)  # one-choice rule
         # (c) the guard (the Notes failure-mode) forbids a context-free or questions-unanswered depth offer
         notes = " ".join(text[text.index("## Notes"):].split())
-        self.assertIn("depth-approval menu with no plan context", notes)
-        self.assertIn("open questions still unanswered", notes)
-        self.assertIn("no invitation to revise", notes)
+        self.assertIn("offering approval without a presented plan", notes)
+        self.assertIn("resolve real questions", notes)
+        self.assertIn("preserve the operator's opportunity to redirect", notes)
         # (d) section 8 and the engine-start skill still name the typed start as the sole Build entry
         s8 = slab("### 8. Know the seams", "## Done when")
         self.assertIn("the Build begins only when they type the engine-start command", s8)
