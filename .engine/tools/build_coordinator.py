@@ -739,16 +739,14 @@ def _direct_verification_lines(state):
 def _direct_read_scopes(state, before=None):
     """Original full panel plus each explicitly assigned historical repair range."""
     delivery = state['reviews']['deliverable']
-    originals = [r for _, r in review.retained_receipts(state)
-                 if r.get('packet_digest') == delivery.get('packet_digest')
-                 and r.get('referent_digest') == delivery.get('referent_digest')]
-    tips = {r['commit'] for r in originals}
-    bases = {(r.get('reviewed_range') or {}).get('base') for r in originals}
-    if len(tips) != 1 or len(bases) != 1 or None in bases:
+    # Refresh/reconcile changes the packet identity, never the original receipt identity.
+    originals = [r for stage, r in review.retained_receipts(state) if stage == 'deliverable']
+    original_ranges = {((r.get('reviewed_range') or {}).get('base'), r['commit']) for r in originals}
+    if not original_ranges or any(base is None for base, _ in original_ranges):
         raise CoordinatorError('original full-review range is unverified; restore its receipts')
     panel = reviewer_contracts.build_panel(state)
     lenses = sorted(c['lens'] for c in (panel if panel is not None else delivery['reviewer_contracts']))
-    scopes = [{'base': next(iter(bases)), 'tip': next(iter(tips)), 'lenses': lenses}]
+    scopes = [{'base': base, 'tip': tip, 'lenses': lenses} for base, tip in sorted(original_ranges)]
     rounds = state.get('repair_rounds', [])
     for index, entry in enumerate(rounds):
         if before is not None and entry.get('direct_verification') == before:
@@ -819,6 +817,8 @@ def _make_direct_verification(state, base, head, rationale, refs):
     holds = _accepted_fixed_holds(state, head)
     if holds:
         raise CoordinatorError('; '.join(holds))
+    if _missing_receipts(state['reviews']['deliverable'], state=state):
+        raise CoordinatorError('direct verification requires completion of the current full-review scope')
     facts = {}
     for prior in _terminal_decisions(state):
         errors = _direct_verification_errors(state, prior, _facts=facts)

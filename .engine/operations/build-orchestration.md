@@ -2,13 +2,10 @@
 title: Build orchestration — from approved intent to a ready pull request
 ---
 ## Purpose
-Build turns an operator-approved plan into one coherent pull request. The orchestrating AI acts as the senior
-engineer: it frames the problem, challenges assumptions, chooses the implementation, adjudicates review
-findings, and decides whether repairs deserve more review. The Build coordinator is its instrument panel. It
-preserves the exact plan and current evidence, prepares cold-review packets, records what commit was checked,
-runs validation and preflights, and reports what remains. It never decides whether the work is good, and it
-never merges: the protected-branch merge remains the only binding gate, the coordinator may change an open draft
-pull request to ready only after the evidence described here is complete, and the operator alone merges it.
+Build turns an operator-approved plan into a coherent pull request. The orchestrator judges quality;
+the coordinator preserves evidence, runs checks and reports missing requirements. It marks a draft ready
+only when the required evidence is complete. The protected-branch merge remains the binding gate:
+the operator alone merges it.
 
 ## Steps
 ### Responsibility boundary

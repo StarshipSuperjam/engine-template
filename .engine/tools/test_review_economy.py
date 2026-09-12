@@ -951,10 +951,11 @@ class RepairCompletionDemo(unittest.TestCase):
 
     def test_fault_controls_fail_behavioral_assertions(self):
         import demo_repair_completion
+        import quiet_call
         for flag in ('--bypass-own-commit-hold', '--lose-originals', '--omit-decision-freshness'):
             with self.subTest(fault=flag):
                 output = io.StringIO()
-                self.assertEqual(1, demo_repair_completion.main([flag], stream=output), output.getvalue())
+                self.assertEqual(1, quiet_call.run(demo_repair_completion.main, [flag], stream=output), output.getvalue())
                 self.assertNotIn('ERROR:', output.getvalue(), 'A harness exception is not falsification')
                 self.assertIn('FAIL:', output.getvalue())
                 self.assertIn('AssertionError', output.getvalue())
