@@ -521,8 +521,13 @@ def _review_lineage_marker(state):
     return "<!-- engine-review-lineage:" + _review_lineage_digest(state) + " -->"
 
 
+def _review_lineage_required(state):
+    return bool(reviewer_contracts.effective_build(state) or _terminal_decisions(state)
+                or (state.get("pr_contract") or {}).get("review_lineage_digest"))
+
+
 def _review_contract_current(state):
-    return (not reviewer_contracts.effective_build(state) and not _terminal_decisions(state)) or (state.get("pr_contract") or {}).get("review_lineage_digest") == _review_lineage_digest(state)
+    return not _review_lineage_required(state) or (state.get("pr_contract") or {}).get("review_lineage_digest") == _review_lineage_digest(state)
 
 
 def _build_review_drift(state):
@@ -768,6 +773,25 @@ def _direct_divergence(base, tip):
     # Exact diff content, not a classification label or remembered positive result.
     return core.digest(_must_run(['git', 'diff', '--binary', '--no-ext-diff', '--no-textconv',
                                   f'{base}..{tip}']).encode())
+
+
+def _repair_chain_reaches(state, base, tip, *, _facts=None):
+    """Advance through intact reviewed or directly verified repair ranges."""
+    facts = {} if _facts is None else _facts
+    cursor = base
+    for entry in state.get('repair_rounds', []):
+        if entry['reviewed_commit'] != cursor:
+            continue
+        decision = entry.get('direct_verification')
+        if decision:
+            if _direct_verification_errors(state, decision, _facts=facts):
+                return False
+        elif entry['judgment'] == 'none' or not entry['lenses'] or not all(
+                r['covered'] for r in _coverage_results(entry, 'repair', state,
+                    entry['lenses'], _facts=facts).values()):
+            return False
+        cursor = entry['final_commit']
+    return cursor == tip
 
 
 def _direct_verification_errors(state, decision, *, _facts=None):
@@ -1258,7 +1282,8 @@ def _status(state: dict, plan: dict | None = None) -> dict:
     valid = _candidate_ok(state, head)
     delivery_ready = fast_path or (delivery["packet_digest"] is not None and not missing_delivery and delivery_coverage_current)
     repair_ready = not delivery["reviewed_commit"] or delivery["reviewed_commit"] == head or (
-        state["repair"] is not None and state["repair"]["reviewed_commit"] == delivery["reviewed_commit"]
+        state["repair"] is not None and (state["repair"]["reviewed_commit"] == delivery["reviewed_commit"]
+        or (current_direct and _repair_chain_reaches(state, delivery["reviewed_commit"], head, _facts=review_facts)))
         and state["repair"]["final_commit"] == head and (state["repair"]["judgment"] == "none" or
         all(result["covered"] for result in repair_results.values())))
     preflight_ready = not [x for x in required_preflights if x["id"] not in passed]
@@ -3677,7 +3702,7 @@ def _effective_reviewed(state: dict) -> str | None:
     reviewed = state["reviews"]["deliverable"]["reviewed_commit"]
     prior = state["repair"]
     if (_repair_round_complete(prior, state) or (prior and prior.get("direct_verification")
-            and not _direct_verification_errors(state, prior["direct_verification"]))):
+            and _repair_chain_reaches(state, reviewed, prior["final_commit"]))):
         final = prior["final_commit"]
         # SUPERSESSION retires a repair anchor, not orphanhood. A rebase orphans the round's final commit,
         # but the commit stays readable and is still exactly what was last reviewed, so it remains the
@@ -4524,7 +4549,7 @@ def cmd_repair_assess(args, store: Snapshot) -> None:
                 "discipline prompt backed by their merge, not a wall.\n\nHow the rounds have gone:\n"
                 + _trajectory(rounds))
     repair = {"reviewed_commit": reviewed, "final_commit": head, "summary": summary, "judgment": args.judgment,
-              "rationale": args.rationale, "lenses": lenses, "packet_digest": None,
+              "rationale": direct['rationale'] if direct else args.rationale, "lenses": lenses, "packet_digest": None,
               "referent_digest": None, "reviewer_contracts": [], "receipts": carried,
               "anchor": anchor, "counted": counted, "classification": classification,
               "roster_provenance": roster_provenance, "base_advances": base_advances}
@@ -4594,7 +4619,7 @@ def _compute_preflight_legs(state: dict, head: str, pr_data: dict, body: str) ->
     if missing_rounds:
         contract_passed = False
         contract_summary += f"; missing {len(missing_rounds)} line(s) of the repair-rounds disclosure"
-    if (reviewer_contracts.effective_build(state) or _terminal_decisions(state)) and _review_lineage_marker(state) not in body:
+    if _review_lineage_required(state) and _review_lineage_marker(state) not in body:
         contract_passed = False
         contract_summary += "; PR body does not present the complete current review lineage"
     profile = _run([sys.executable, str(ROOT / ".engine" / "tools" / "scope_profile.py"), base])
@@ -4657,7 +4682,7 @@ def cmd_preflight(args, store: Snapshot) -> None:
         def change(s):
             s["preflights"] = results
             s["pr_contract"] = {"commit": head, "body_digest": _digest(body.encode()), "complete": contract_passed}
-            if reviewer_contracts.effective_build(s) or _terminal_decisions(s):
+            if _review_lineage_required(state):
                 s["pr_contract"]["review_lineage_digest"] = _review_lineage_digest(s)
     store.mutate(change, from_revision=revision)
     if getattr(args, "json", False):
@@ -6140,7 +6165,7 @@ def _drift_line(state: dict, head: str) -> str:
             lines.append(adopted_line)
         historical_sources = any(p["source"].get("identity_mode") == "legacy-source" for ps in frozen["panels"].values() for p in ps)
         lines.append(f"Reviewer obligations are {'adopted from retained sources' if adopted_line or historical_sources else 'frozen at approval'}; {len(state.get('review_contract_renewals', []))} explicit renewal(s). Reviewer effort remains harness-controlled, with no promised floor.")
-    if frozen or _terminal_decisions(state):
+    if _review_lineage_required(state):
         lines.append(_review_lineage_marker(state))
     lines.extend(_direct_verification_lines(state))
     return " ".join(lines)
@@ -6598,7 +6623,7 @@ def cmd_contract_apply(args, store: Snapshot) -> None:
         def change(s):
             s["preflights"] = legs["results"]
             s["pr_contract"] = {"commit": head, "body_digest": body_digest, "complete": legs["contract_passed"]}
-            if reviewer_contracts.effective_build(s) or _terminal_decisions(s):
+            if _review_lineage_required(state):
                 s["pr_contract"]["review_lineage_digest"] = _review_lineage_digest(s)
     store.mutate(change, from_revision=revision)
     result = {"commit": head, "body_digest": body_digest, "complete": legs["contract_passed"],
