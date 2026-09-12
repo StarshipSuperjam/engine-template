@@ -149,7 +149,7 @@ class Observation:
             return
         index, began = active
         row = self.cases[index]
-        if row['outcome'] == 'unexecuted' and row['subtests'] and all(
+        if row['outcome'] == 'unexecuted' and any(sub['outcome'] == 'skipped' for sub in row['subtests']) and all(
                 sub['outcome'] in {'passed', 'skipped'} for sub in row['subtests']):
             # unittest omits addSuccess when a subtest skipped, even when the parent finished normally.
             row['outcome'] = 'passed'

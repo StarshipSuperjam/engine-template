@@ -101,6 +101,16 @@ class ResultAccounting(unittest.TestCase):
         self.assertEqual(doc["executed_count"], 1)
         self.assertEqual(doc["cases"][1]["outcome"], "unexecuted")
         self.assertEqual(records.validate(doc), (False, False))
+        class MissingParentOutcome(unittest.TestCase):
+            def runTest(self): pass
+            def run(self, result=None):
+                result.startTest(self)
+                result.addSubTest(self, self, None)
+                result.stopTest(self)
+        _, result, doc = self.observe([MissingParentOutcome()])
+        self.assertTrue(result.wasSuccessful())
+        self.assertEqual(doc['cases'][0]['subtests'][0]['outcome'], 'passed')
+        self.assertEqual(records.validate(doc), (False, False))
 
     def test_fixture_skip_maps_all_cases_without_claiming_execution(self):
         class Cases(unittest.TestCase):

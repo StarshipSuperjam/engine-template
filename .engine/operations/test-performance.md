@@ -115,7 +115,7 @@ The demonstration exits nonzero on unexpected behavior. Both modes share the per
 
 ### Foundation qualification evidence
 
-On Python 3.12.13 / macOS arm64, three alternating pairs over the identical 167-case
+Before the final outcome-guard narrowing, Python 3.12.13 / macOS arm64 pairs over the identical 167-case
 `test_selftest*.py` payload measured stock wall times of 31.943, 33.901 and 34.652 seconds and
 instrumented times of 33.319, 31.591 and 36.451 seconds. All passed with unchanged source fingerprints.
 The ratio of medians is -1.72%; individual pairs range -6.81–5.19%, so a 2% ceiling remains unproved.
