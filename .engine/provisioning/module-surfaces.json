@@ -1215,6 +1215,9 @@
   ".engine/schemas/provisioning-catalog.v1.json": [
    "core"
   ],
+  ".engine/schemas/reader-health.v1.json": [
+   "core"
+  ],
   ".engine/schemas/result-rejection.v1.json": [
    "core"
   ],
