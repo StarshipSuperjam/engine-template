@@ -379,7 +379,7 @@ def receipt_attests_scope(stage: dict, receipt: dict, kind: str = "deliverable")
                         for c in stage.get("reviewer_contracts", [])))
 
 
-def accepted_fixed_holds(state: dict, head: str) -> list[str]:
+def accepted_fixed_holds(state: dict, head: str, verified=lambda receipt: True) -> list[str]:
     """Equality is the whole fix floor, never proof of fix adequacy from inequality.
 
     Resolve the finding's exact original accepted receipt even after archival. A newer
@@ -390,15 +390,15 @@ def accepted_fixed_holds(state: dict, head: str) -> list[str]:
         key = _finding_key(stage, receipt['lens'], receipt['packet_digest'],
                            receipt.get('lens_packet_digest'), receipt['commit'])
         for finding_id in receipt['finding_ids']:
-            origins.setdefault((finding_id, key), set()).add(core.digest(receipt))
+            origins.setdefault((finding_id, key), {})[core.digest(receipt)] = receipt
     holds = []
     for finding in live_findings(state):
         if finding.get('disposition') != 'accepted-fixed':
             continue
         key = _finding_key(finding['stage'], finding['lens'], finding['packet_digest'],
                            finding.get('lens_packet_digest'), finding['commit'])
-        owners = origins.get((finding['id'], key), set())
-        if len(owners) != 1:
+        owners = origins.get((finding['id'], key), {})
+        if len(owners) != 1 or not verified(next(iter(owners.values()))):
             holds.append(f"accepted-fixed finding {finding['id']}: original review ownership is unverified; restore its accepted receipt")
         elif head == finding['commit']:
             holds.append(f"accepted-fixed finding {finding['id']}: final commit is still its original review commit {head}; land the fix or correct the disposition")
@@ -407,7 +407,9 @@ def accepted_fixed_holds(state: dict, head: str) -> list[str]:
 
 def direct_verification_identity(state: dict) -> str:
     """Approved authority for a controller decision, separate from reviewer testimony."""
-    return core.digest({'build': state['build'], 'ownership': state.get('ownership'),
+    return core.digest({'repository': state['build'].get('repository'),
+                        'pr': state['build'].get('pr'),
+                        'build_id': (state.get('ownership') or {}).get('build_id'),
                         'plan': state['plan']['digest'],
                         'contract': reviewer_contracts.effective_build(state)})
 

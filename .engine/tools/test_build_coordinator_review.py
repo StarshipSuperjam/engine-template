@@ -505,11 +505,23 @@ class TestAcceptedFixedOwnCommit(unittest.TestCase):
     def test_unknown_and_ambiguous_owners_do_not_guess(self):
         s = self.state()
         r = s['reviews']['deliverable']['receipts'][0]
-        s['review_evidence_history'] = [{'stage': 'deliverable', 'receipt': dict(r, extra='conflict')}]
+        s['review_evidence_history'] = [{'stage': 'deliverable', 'receipt': dict(r, finding_ids=['F1', 'F2'])}]
         self.assertIn('unverified', review.accepted_fixed_holds(s, BASE)[0])
         s['reviews']['deliverable']['receipts'] = []
         s['review_evidence_history'] = []
         self.assertIn('unverified', review.accepted_fixed_holds(s, BASE)[0])
+
+    def test_each_finding_uses_its_own_original_and_verified_execution(self):
+        s = self.state(archived=True)
+        first = s['findings'][0]
+        receipt = dict(s['review_evidence_history'][0]['receipt'], commit=BASE, finding_ids=['F2'])
+        s['repair'] = {'receipts': [receipt]}
+        s['findings'].append(dict(first, id='F2', stage='repair', commit=BASE))
+        holds = review.accepted_fixed_holds(s, BASE)
+        self.assertEqual(len(holds), 1)
+        self.assertIn('F2', holds[0])
+        self.assertIn('unverified', review.accepted_fixed_holds(s, HEAD_A,
+            verified=lambda r: r['commit'] != HEAD_A)[0])
 
     def test_settled_alternatives_and_superseded_are_not_false_fix_holds(self):
         for disposition in ('rejected', 'accepted-tracked', 'escalated'):
