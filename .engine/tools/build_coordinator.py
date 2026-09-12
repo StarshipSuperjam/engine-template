@@ -1110,7 +1110,10 @@ def _status(state: dict, plan: dict | None = None) -> dict:
     elif not dispositions_ready:
         phase, next_one, available = FINDING_DISPOSITION, None, ["critically adjudicate outstanding findings", "revise the plan if the agreed design changed"]
     elif trivial_violations or unresolved_assumptions or (state["checkpoint"] and state["checkpoint"]["judgment"] != "aligned"):
-        phase, next_one, available = ENGINEERING_DECISION, None, ["investigate unresolved assumptions", "revise the plan if the agreed design changed", "obtain a genuine operator decision only when required"]
+        phase, next_one, available = ENGINEERING_DECISION, None, [
+            "investigate and dispose unresolved assumptions using existing evidence",
+            "correct in-scope failures and record an aligned checkpoint",
+            "ask the operator only for changed design, scope or authority; then record that decision"]
     elif not valid:
         # The delegation targets are named HERE, in the projection a session reads at the moment it is
         # about to do the work — not only in the runbook, which it may have read hours ago or not at all.
