@@ -330,7 +330,7 @@ def _envelope_assembly_message() -> str:
 
 
 def record_envelope_assembly_failure(exc: BaseException, *, crash_path: str | None = None,
-                                     spool_path: str | None = None) -> dict:
+                                     spool_path: str | None = None, emit_legacy: bool = True) -> dict:
     """Durably and content-safely record an envelope-assembly failure that would otherwise vanish, using two
     sinks already registered under boot's automatic closure — so NO new writer is introduced:
 
@@ -362,10 +362,11 @@ def record_envelope_assembly_failure(exc: BaseException, *, crash_path: str | No
     except Exception:  # noqa: BLE001 — a raising sink must not break the other, nor the fail-open
         crash_logged = False
     try:
-        telemetry.emit_finding(
-            {"source_id": ENVELOPE_ASSEMBLY_SOURCE_ID, "severity": telemetry.PERSISTENT_BENIGN,
-             "message": _envelope_assembly_message(), "location": None},
-            spool_path=spool_path or telemetry.INBOX_SPOOL_PATH)
+        if emit_legacy:
+            telemetry.emit_finding(
+                {"source_id": ENVELOPE_ASSEMBLY_SOURCE_ID, "severity": telemetry.PERSISTENT_BENIGN,
+                 "message": _envelope_assembly_message(), "location": None},
+                spool_path=spool_path or telemetry.INBOX_SPOOL_PATH)
     except Exception:  # noqa: BLE001 — emit_finding is already fail-open; this guard is belt-and-suspenders
         pass
     return {"crash_log": crash_logged}
@@ -3805,8 +3806,9 @@ def assemble_pack(session_id: str | None = None, *, use_ledger: bool = False, pa
         if use_ledger:
             telemetry.observe_reader_health("boot-assembly", "healthy")
     except Exception as exc:  # noqa: BLE001 — SessionStart is fail-open; never inject a partial/corrupt render
+        health_recorded = False
         if use_ledger:
-            telemetry.observe_reader_health("boot-assembly", "failing")
+            health_recorded = telemetry.observe_reader_health("boot-assembly", "failing")
         # The typed envelope could not be built — but a governance alarm must NEVER be silently dropped, and
         # this is the exact path where the dashboard's departure makes the envelope the sole every-session
         # carrier. So re-derive the must-relay set straight from `must_push(s)` and render its FULL lines under
@@ -3828,7 +3830,8 @@ def assemble_pack(session_id: str | None = None, *, use_ledger: bool = False, pa
         diagnostic_note = ""
         if use_ledger:
             try:
-                diagnostic_note = _envelope_assembly_grounding_note(record_envelope_assembly_failure(exc))
+                diagnostic_note = _envelope_assembly_grounding_note(record_envelope_assembly_failure(
+                    exc, emit_legacy=not health_recorded))
             except Exception:  # noqa: BLE001 — the diagnostic recorder is best-effort; never break fail-open
                 diagnostic_note = ""
         if relay_lines:

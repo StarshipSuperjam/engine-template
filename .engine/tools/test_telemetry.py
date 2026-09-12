@@ -281,6 +281,23 @@ class ReaderHealthRecovery(ReaderHealthEvidence):
         self.assertTrue(result["unverified"])
         self.assertEqual(self.fake.open_count(), 1)
 
+    def test_dependency_bytes_in_actual_search_path_invalidate_success(self):
+        from pathlib import Path
+        site = self.root / "runtime-site-packages"
+        dependency = site / "jsonschema/__init__.py"
+        dependency.parent.mkdir(parents=True)
+        dependency.write_text("VERSION = 1\n")
+        execution = {"interpreter": sys.executable, "producer": str(Path(telemetry.__file__).resolve()),
+                     "sites": [str(site)]}
+        initial = telemetry.reader_health_identity(self.root, "scoped-reader", execution=execution)
+        self.store.observe("scoped-reader", "healthy", initial)
+        dependency.write_text("VERSION = 2\n")
+        self.assertNotEqual(initial, telemetry.reader_health_identity(self.root, "scoped-reader", execution=execution))
+        self.assertEqual(telemetry._reader_recovery_state(self.store, self.store.snapshot(),
+            "scoped-reader", time.monotonic() + 10), "unknown")
+        dependency.unlink()
+        self.assertNotEqual(initial, telemetry.reader_health_identity(self.root, "scoped-reader", execution=execution))
+
 
 class FakeGH:
     """In-memory GitHub for the transport seam. Records every call; serves labels + issues; can be

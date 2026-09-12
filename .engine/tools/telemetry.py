@@ -361,26 +361,48 @@ class ReaderHealthStore:
             return preview
 
 
+def accepted_health_execution_identity(root: str, producer_path: str) -> dict:
+    """Identify a health producer in the exact, currently accepted snapshot."""
+    import accepted_hook_dispatch as dispatcher
+    activation = dispatcher.load_activation(root)
+    tree = dispatcher._valid_materialization(root, activation)
+    expected = os.path.join(tree, ".engine", "tools", "telemetry.py") if tree else None
+    if expected is None or os.path.realpath(producer_path) != os.path.realpath(expected):
+        raise dispatcher.QualificationError("reader health needs execution from the current accepted snapshot")
+    return {key: activation[key] for key in ("repository", "commit", "tree", "engine_release", "epoch")}
+
+
 def reader_health_identity(root, producer, *, deadline=None, execution=None):
     """Fingerprint actual inputs; a format pass is never review execution credit."""
     root = str(Path(root).resolve())
-    execution = execution or {"interpreter": sys.executable, "prefix": sys.prefix,
-                              "producer": str(Path(__file__).resolve())}
+    execution = execution or {"interpreter": sys.executable,
+        "sites": sorted({str(Path(p).resolve()) for p in sys.path if isinstance(p, str) and
+                          ("site-packages" in p or "dist-packages" in p) and Path(p).is_dir()}),
+        "producer": str(Path(__file__).resolve())}
     runtime_files = [Path(execution["interpreter"]), Path(execution["producer"])]
-    runtime_files += sorted(Path(execution["prefix"]).glob("lib/python*/site-packages/*.dist-info/METADATA"))
-    if len(runtime_files) > 256:
+    for site in execution["sites"]:
+        runtime_files += sorted(Path(site).glob("*.dist-info/METADATA"))
+        # Under the accepted -S interpreter sys.prefix may be the base interpreter.
+        # Use the actual injected dependency search paths and package bytes, so a
+        # removed/broken dependency invalidates success even with unchanged metadata.
+        for name in ("jsonschema", "jsonschema_specifications", "referencing", "rpds", "attrs", "attr"):
+            runtime_files += sorted(p for p in (Path(site) / name).rglob("*")
+                                    if p.is_file() and "__pycache__" not in p.parts)
+    if len(runtime_files) > 2048:
         raise ReaderHealthUnavailable("runtime inventory exceeds its bound")
     runtime = {}
+    total = 0
     for path in runtime_files:
         if deadline is not None and time.monotonic() >= deadline:
             raise ReaderHealthUnavailable("runtime inventory budget exhausted")
-        if path.stat().st_size > 16777216:
+        size = path.stat().st_size
+        total += size
+        if size > 16777216 or total > 67108864:
             raise ReaderHealthUnavailable("runtime input exceeds its bound")
         runtime[str(path)] = hashlib.sha256(path.read_bytes()).hexdigest()
     runtime = {"execution": execution, "runtime_digest": _health_digest(runtime)}
     if producer == "boot-assembly":
-        import accepted_hook_dispatch
-        activation = accepted_hook_dispatch.health_execution_identity(root, execution["producer"])
+        activation = accepted_health_execution_identity(root, execution["producer"])
         return {"activation": activation, **runtime}
     import plan_store
     library = plan_store.PlanLibrary(plan_store.library_root(cwd=root))

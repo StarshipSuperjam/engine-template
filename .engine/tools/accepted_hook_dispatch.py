@@ -319,16 +319,6 @@ def _materialized_paths(root: str, activation: dict) -> tuple[str, str]:
     return os.path.join(cache_root, key), os.path.join(cache_root, key + ".json")
 
 
-def health_execution_identity(root: str, producer_path: str) -> dict:
-    """Identify a health producer in the exact, currently accepted snapshot."""
-    activation = load_activation(root)
-    tree = _valid_materialization(root, activation)
-    expected = os.path.join(tree, ".engine", "tools", "telemetry.py") if tree else None
-    if expected is None or os.path.realpath(producer_path) != os.path.realpath(expected):
-        raise QualificationError("reader health needs execution from the current accepted snapshot")
-    return {key: activation[key] for key in ("repository", "commit", "tree", "engine_release", "epoch")}
-
-
 def _valid_materialization(root: str, activation: dict) -> str | None:
     tree_path, marker_path = _materialized_paths(root, activation)
     if not os.path.isdir(tree_path):

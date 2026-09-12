@@ -1503,6 +1503,8 @@ class TestAcceptedAutomaticHookDispatch(unittest.TestCase):
         self.assertEqual(failed.returncode, 0, failed.stderr)
         record = next(iter(json.loads(failed.stdout)["readers"].values()))
         self.assertEqual(record["state"], "failing")
+        self.assertFalse((self.repo.root / ".engine/telemetry/.cache/findings-inbox.ndjson").exists(),
+                         "a recorded producer failure must not also emit a generic boot alert")
         recovered = self.repo.run_direct(dict(os.environ))
         self.assertEqual(recovered.returncode, 0, recovered.stderr)
         record = next(iter(json.loads(recovered.stdout)["readers"].values()))
@@ -1512,6 +1514,7 @@ class TestAcceptedAutomaticHookDispatch(unittest.TestCase):
 
     def test_health_identity_follows_real_dispatch_and_refuses_checkout_or_stale_activation(self):
         import accepted_hook_dispatch as dispatcher
+        import telemetry
         self.repo._put(".engine/tools/telemetry.py", "# accepted health producer fixture\n")
         self.repo.git("add", ".engine/tools/telemetry.py")
         self.repo.git("commit", "-m", "health producer")
@@ -1522,24 +1525,24 @@ class TestAcceptedAutomaticHookDispatch(unittest.TestCase):
         observed = json.loads(first.stdout)
         tree = Path(observed["helper_origin"]).parents[2]
         producer = tree / ".engine/tools/telemetry.py"
-        identity = dispatcher.health_execution_identity(str(self.repo.root), str(producer))
+        identity = telemetry.accepted_health_execution_identity(str(self.repo.root), str(producer))
         self.assertEqual(identity, observed["context"]["activation"])
         with self.assertRaises(dispatcher.QualificationError):
-            dispatcher.health_execution_identity(str(self.repo.root), str(self.repo.root / ".engine/tools/telemetry.py"))
+            telemetry.accepted_health_execution_identity(str(self.repo.root), str(self.repo.root / ".engine/tools/telemetry.py"))
         self.repo._put(".engine/tools/telemetry.py", "# recovered accepted health producer\n")
         self.repo.git("add", ".engine/tools/telemetry.py")
         self.repo.git("commit", "-m", "recovered producer")
         successor = self.repo.git("rev-parse", "HEAD")
         self.assertNotEqual(self.repo.activate(commit=successor, expected_epoch=1, accepted_proof=False).returncode, 0)
-        self.assertEqual(dispatcher.health_execution_identity(str(self.repo.root), str(producer)), identity)
+        self.assertEqual(telemetry.accepted_health_execution_identity(str(self.repo.root), str(producer)), identity)
         self.assertEqual(self.repo.activate(commit=successor, expected_epoch=1).returncode, 0)
         with self.assertRaises(dispatcher.QualificationError):
-            dispatcher.health_execution_identity(str(self.repo.root), str(producer))
+            telemetry.accepted_health_execution_identity(str(self.repo.root), str(producer))
         resumed = self.repo.run_direct()
         self.assertEqual(resumed.returncode, 0, resumed.stderr)
         new = json.loads(resumed.stdout)
         new_path = Path(new["helper_origin"]).parents[2] / ".engine/tools/telemetry.py"
-        self.assertEqual(dispatcher.health_execution_identity(str(self.repo.root), str(new_path))["commit"], successor)
+        self.assertEqual(telemetry.accepted_health_execution_identity(str(self.repo.root), str(new_path))["commit"], successor)
 
     def test_existing_worktree_next_stop_uses_new_shared_activation_on_both_launchers(self):
         # The worktree is never recreated or switched: this is the already-open-session boundary.
