@@ -449,6 +449,161 @@ def observe_reader_health(producer, state, *, root=None, identity=None):
         return False
 
 
+def _reader_recovery_state(store, snapshot, producer, deadline):
+    _, registered = _health_topology(store.root, deadline)
+    records = [r for r in snapshot["readers"].values() if r["producer"] == producer]
+    if not records:
+        return "unknown"
+    statuses = []
+    now = moment.epoch(moment.utc_now())
+    for record in records:
+        if time.monotonic() >= deadline:
+            raise ReaderHealthUnavailable("reader recovery budget exhausted")
+        if record["retired"] and record["root"] not in registered:
+            statuses.append("healthy")
+            continue
+        if record["retired"] or record["state"] == "failing":
+            statuses.append("failing")
+            continue
+        if record["root"] not in registered or record["state"] != "healthy":
+            statuses.append("unknown")
+            continue
+        observed = moment.epoch(record["observed"])
+        if observed is None or not 0 <= now - observed <= 3600:
+            statuses.append("unknown")
+            continue
+        try:
+            current = reader_health_identity(record["root"], producer, deadline=deadline,
+                                             execution=record["identity"]["execution"])
+            statuses.append("healthy" if current == record["identity"] else "unknown")
+        except Exception:
+            statuses.append("unknown")
+    return "failing" if "failing" in statuses else "healthy" if set(statuses) == {"healthy"} else "unknown"
+
+
+def _reader_health_record(scope, producer, *, recovered=False):
+    label = "scoped evidence reader" if producer == "scoped-reader" else "boot assembly reader"
+    message = (f"The {label} failed in this local clone. Recovery is unverified until every recorded reader "
+               "has current successful execution evidence or an explicitly approved retirement. "
+               "Update the affected worktree and restart its session; boot recovery also requires a verified "
+               "accepted activation. No worktree or activation is changed automatically.")
+    if recovered:
+        message = (f"Verified recovery of the {label} within this local clone's recorded reader scope. "
+                   "Every affected reader has current successful execution evidence or an explicitly approved "
+                   "retirement. Input, code, runtime and accepted activation identities were rechecked. "
+                   "This does not prove health in independent clones. GitHub offers no atomic closure against "
+                   "local recurrence; a later failure will raise or reopen an alert on the next health pass.")
+    return {"source_id": f"reader-health/{scope}/{producer}", "severity": TRUST_CRITICAL,
+            "message": message, "location": None}
+
+
+def reconcile_reader_health(github, root, *, deadline=None):
+    """Positive, clone-scoped recovery. No observation lock spans a GitHub call.
+
+    Production runs this entire pass in a killable process, enforcing the total
+    deadline even if DNS, a response body, a journal lock or filesystem stalls.
+    Every transport entry and closure also rechecks the remaining budget.
+    """
+    deadline = deadline if deadline is not None else time.monotonic() + READER_HEALTH_BUDGET
+    result = {"opened_or_updated": 0, "closed": 0, "unverified": False}
+    def check_budget():
+        if time.monotonic() >= deadline:
+            raise ReaderHealthUnavailable("reader recovery budget exhausted")
+    def transport(method, path, body=None):
+        check_budget()
+        response = github._transport(method, path, body)
+        check_budget()
+        return response
+    client = GitHubIssues(github.repo, github.token, github.label, transport, github.recovery_store)
+    try:
+        store = ReaderHealthStore(root, deadline=deadline)
+        snapshot = store.snapshot(deadline)
+        for producer in sorted(READER_HEALTH_PRODUCERS):
+            check_budget()
+            if not any(r["producer"] == producer for r in snapshot["readers"].values()):
+                continue
+            status = _reader_recovery_state(store, snapshot, producer, deadline)
+            record = _reader_health_record(snapshot["scope"], producer)
+            sid = record["source_id"]
+            if status == "failing":
+                if promote_finding(client, record, moment.utc_now()):
+                    result["opened_or_updated"] += 1
+                else:
+                    result["unverified"] = True
+                continue
+            if status != "healthy":
+                result["unverified"] = True
+                continue
+            matches = [i for i in client.list_open_engine_issues() if i.get("source_id") == sid]
+            for issue in matches:
+                import issue_triage
+                number = issue["number"]
+                path = f"/repos/{client.repo}/issues/{number}"
+                live = issue_triage.read_api(client, path)
+                if (parse_source_id(live.get("body", "")) != sid or not issue_triage.scoped(live)
+                        or issue_triage.parse(live.get("body", "")) is None):
+                    raise ReaderHealthUnavailable("incident attribution is no longer verified")
+                recovered = _reader_health_record(snapshot["scope"], producer, recovered=True)
+                now = moment.utc_now()
+                body = issue_body(recovered, parse_first_noticed(live.get("body", "")) or now, now)
+                client.update_issue(number, producer_body(body, _semantic_finding(recovered), now,
+                                                          previous=live.get("body", "")))
+                # Refuse any local change, pending write, registration change or input drift
+                # discovered after the remote read. No lock is retained for the remote write.
+                def unchanged():
+                    check_budget()
+                    current = store.snapshot(deadline)
+                    return (current == snapshot and
+                            _reader_recovery_state(store, current, producer, deadline) == "healthy")
+                if not unchanged():
+                    raise ReaderHealthUnavailable("reader evidence changed before closure")
+                final = issue_triage.read_api(client, path)
+                if parse_source_id(final.get("body", "")) != sid or not issue_triage.scoped(final):
+                    raise ReaderHealthUnavailable("incident ownership changed before closure")
+                if not unchanged():
+                    raise ReaderHealthUnavailable("reader evidence changed before closure")
+                code, _ = client._transport("PATCH", path, {"state": "closed"})
+                if code >= 400:
+                    raise DegradedReadError("reader recovery closure was refused")
+                after = issue_triage.read_api(client, path)
+                if (after.get("state") != "closed" or parse_source_id(after.get("body", "")) != sid
+                        or not issue_triage.scoped(after)):
+                    raise ReaderHealthUnavailable("reader recovery closure is unconfirmed")
+                if not unchanged():
+                    # GitHub has no CAS. Repair an observed close/recurrence race when
+                    # time permits; otherwise retained local evidence drives the next pass.
+                    client._transport("PATCH", path, {"state": "open"})
+                    raise ReaderHealthUnavailable("reader recurrence followed closure; recovery is pending")
+                result["closed"] += 1
+    except Exception:
+        result["unverified"] = True
+    return result
+
+
+def _reader_health_process(root, deadline):
+    from boot import repo_slug, gh_token
+    repo, token = repo_slug(), gh_token()
+    if not repo or not token:
+        return {"opened_or_updated": 0, "closed": 0, "unverified": True}
+    return reconcile_reader_health(GitHubIssues(repo, token), root, deadline=deadline)
+
+
+def _reader_health_cli(argv):
+    root = argv[0] if argv else os.environ.get("ENGINE_PROJECT_ROOT") or validate.ROOT
+    deadline = time.monotonic() + READER_HEALTH_BUDGET
+    source = ("import json,sys;sys.path.insert(0,sys.argv[1]);import telemetry;"
+              "print(json.dumps(telemetry._reader_health_process(sys.argv[2],float(sys.argv[3]))))")
+    try:
+        completed = subprocess.run([sys.executable, "-I", "-c", source,
+            str(Path(__file__).resolve().parent), str(root), str(deadline)],
+            capture_output=True, text=True, timeout=max(.001, deadline - time.monotonic()), check=True)
+        result = json.loads(completed.stdout.splitlines()[-1])
+    except Exception:
+        result = {"opened_or_updated": 0, "closed": 0, "unverified": True}
+    print("Reader health: " + json.dumps(result, sort_keys=True))
+    return 0
+
+
 def _reader_retirement_cli(argv):
     import argparse
     parser = argparse.ArgumentParser(description="Preview or confirm retirement of one deregistered reader.")
@@ -2804,6 +2959,8 @@ def _run_ambient_locked(argv: list) -> int:
 
 
 def _run_drain_locked(argv: list) -> int:
+    if "unittest" not in sys.modules:
+        _reader_health_cli([])
     _lock = _serialize_session_passes()   # noqa: F841 — held until the pass returns
     return _run_drain_cli(argv)
 
@@ -2820,6 +2977,7 @@ def _run_drain_locked(argv: list) -> int:
 #     the audit-prep workflow already writes an honest in-band marker when a feed step fails.
 # The two sets partition the table (test-pinned), so a new verb cannot be added without being classified.
 COMMANDS = {
+    "reconcile-readers": "_reader_health_cli",
     "retire-reader": "_reader_retirement_cli",
     "run": "_run_cli",
     "run-ambient": "_run_ambient_locked",
@@ -2829,7 +2987,7 @@ COMMANDS = {
     "engine-issues": "_engine_issues_cli",
     "never-fired": "_never_fired_cli",
 }
-FAIL_OPEN_COMMANDS = frozenset({"run", "run-ambient", "drain-inbox", "refresh"})
+FAIL_OPEN_COMMANDS = frozenset({"reconcile-readers", "run", "run-ambient", "drain-inbox", "refresh"})
 VERDICT_COMMANDS = frozenset({"demo", "engine-issues", "never-fired", "retire-reader"})
 
 _USAGE = ("usage: telemetry.py {run|run-ambient|drain-inbox|demo|refresh|engine-issues|"
