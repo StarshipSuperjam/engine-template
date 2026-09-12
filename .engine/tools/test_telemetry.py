@@ -333,6 +333,53 @@ class ReaderHealthRecovery(ReaderHealthEvidence):
         self.assertEqual(self.fake.open_count(), 1)
 
 
+    def test_expired_success_requires_an_actual_fresh_read(self):
+        self.other.observe("scoped-reader", "failing", telemetry.reader_health_identity(self.sibling, "scoped-reader"))
+        self.reconcile()
+        with mock.patch.object(telemetry.moment, "utc_now", return_value="2000-01-01T00:00:00Z"):
+            self.healthy(self.sibling)
+        self.assertEqual(self.reconcile()["closed"], 0)
+        self.assertEqual(self.fake.open_count(), 1)
+        self.healthy(self.sibling)
+        self.assertEqual(self.reconcile()["closed"], 1)
+
+    def test_unknown_health_version_never_resets_or_closes(self):
+        self.other.observe("scoped-reader", "failing", telemetry.reader_health_identity(self.sibling, "scoped-reader"))
+        self.reconcile()
+        value = json.loads(self.store.path.read_text())
+        value["schema_version"] = "reader-health.v999"
+        original = json.dumps(value)
+        self.store.path.write_text(original)
+        self.fake.calls.clear()
+        self.assertTrue(self.reconcile()["unverified"])
+        self.assertEqual(self.fake.calls, [])
+        self.assertEqual(self.store.path.read_text(), original)
+        self.assertEqual(self.fake.open_count(), 1)
+
+    def test_slow_successful_pagination_consumes_one_total_budget(self):
+        self.other.observe("scoped-reader", "failing", telemetry.reader_health_identity(self.sibling, "scoped-reader"))
+        self.reconcile()
+        self.healthy(self.sibling)
+        original = self.client._transport
+        pages = []
+        def paginated(method, path, body):
+            if method == "GET" and "/issues?" in path:
+                pages.append(path)
+                time.sleep(.08)
+                if len(pages) == 1:
+                    return 200, [self.fake.issues[1]] + [dict(number=n, title="Other", body="") for n in range(100, 199)]
+                if len(pages) == 2:
+                    return 200, [dict(number=n, title="Other", body="") for n in range(200, 300)]
+                return 200, []
+            return original(method, path, body)
+        self.client._transport = paginated
+        result = self.reconcile(deadline=time.monotonic() + .23)
+        self.assertGreaterEqual(len(pages), 2)
+        self.assertTrue(result["unverified"])
+        self.assertEqual(result["closed"], 0)
+        self.assertEqual(self.fake.open_count(), 1)
+
+
 class FakeGH:
     """In-memory GitHub for the transport seam. Records every call; serves labels + issues; can be
     told to fail issue reads with a given status. The harness under test is the REAL GitHubIssues +
