@@ -105,8 +105,8 @@ class _Ceremony(unittest.TestCase):
     def covering(self, depth="standard"):
         return project_manager.required_lenses(depth, project_manager.installed_lenses())
 
-    def reviewed(self, *findings, depth="standard", lenses=None):
-        slug = self.approved(depth)
+    def reviewed(self, *findings, depth="standard", lenses=None, **over):
+        slug = self.approved(depth, **over)
         argv = ["review", "record", slug, "--packet-digest", self.packet_digest(slug)]
         for lens in (lenses if lenses is not None else self.covering(depth)):
             argv += ["--lens", lens]
@@ -549,6 +549,7 @@ class ConsentGates(_Ceremony):
         self.assertIn(historical, record["consent"])
         self.assertIsNone(plan_lifecycle.missing_prior_consent(record, "bind"))
         self.assertIsNone(plan_lifecycle.missing_prior_consent(record, "adopt"))
+        self.assert_admission_and_adoption(slug, historical=historical)
 
     def test_approve_refuses_without_the_operator_s_recorded_decision(self):
         # The refusal is the GATE's, not argparse's: it says what the operator is being asked, and
@@ -693,11 +694,14 @@ class ConsentGates(_Ceremony):
         self.assertNotIn("present-findings", out)
 
     def test_notification_only_plan_reserves_and_retries_with_real_seal_consent(self):
-        import build_state_store
-        from test_build_state_store import _state
         slug = self.reviewed()
         self.assertEqual(self.run_command("present-findings", slug)[0], 0)
         self.assertEqual(self.run_command("seal", slug, "--operator-decided")[0], 0)
+        self.assert_admission_and_adoption(slug)
+
+    def assert_admission_and_adoption(self, slug, historical=None):
+        import build_state_store
+        from test_build_state_store import _state, SCHEMA
         record = self.lib.read_record(slug)
         seal = record["seal"]
         state = _state(worktree=str(self.tmp / "build"))
@@ -714,8 +718,35 @@ class ConsentGates(_Ceremony):
         first = build_state_store.reserve_build(self.lib, slug, state, consent=consent)
         again = build_state_store.reserve_build(self.lib, slug, state, consent=consent)
         self.assertEqual(first, again)
-        self.assertEqual([c["gate"] for c in self.lib.read_record(slug)["consent"]],
-                         ["approve", "seal", "bind"])
+        self.assertEqual(self.lib.read_record(slug)["consent"], actual_consent + [consent])
+        identity = build_state_store.claim_identity(first)
+        build_state_store.finish_binding(self.lib, slug, identity, state, SCHEMA)
+
+        successor = self.reviewed(plan_id="pln_fedcba987654", title="Reviewed successor")
+        self.assertEqual(self.run_command("present-findings", successor)[0], 0)
+        if historical:
+            self.lib.update_record(successor, lambda r: r["consent"].append(historical))
+        self.assertEqual(self.run_command("seal", successor, "--operator-decided")[0], 0)
+        target = self.lib.read_record(successor)
+        target_consent = target["consent"]
+        self.lib.update_record(successor, lambda r: r.update(
+            intake={"provenance": "reviewed successor fixture", "predecessors": [record["plan_id"]]},
+            consent=[c for c in target_consent if c["gate"] != "seal"]))
+        def change(current):
+            current["plan"].update(plan_id=target["plan_id"],
+                sealed_digest=target["seal"]["sealed_digest"], digest=target["seal"]["build_plan_digest"])
+        adoption = {"gate": "adopt", "at": target["seal"]["at"]}
+        def adopt():
+            return build_state_store.adopt_build(self.lib, slug, successor, identity, 1,
+                                                 SCHEMA, change=change, consent=adoption)
+        with self.assertRaisesRegex(build_state_store.BuildStateError, "needs the seal gate"):
+            adopt()
+        self.assertFalse(self.lib.read_record(successor).get("build_lease"))
+        self.lib.update_record(successor, lambda r: r.update(consent=target_consent))
+        adopted = adopt()
+        self.assertEqual(adopt(), adopted)
+        self.assertEqual(adopted["ownership"], {"build_id": first["build_id"], "generation": 2})
+        self.assertEqual(self.lib.read_record(successor)["consent"], target_consent + [adoption])
 
     def test_notification_does_not_make_changed_findings_current(self):
         slug = self.reviewed(self.finding())
