@@ -254,7 +254,7 @@ Historical receipts without an execution declaration remain unchanged and are di
 a fresh current receipt supplies its own declaration without claiming what the earlier reviewer did.
 
 
-## Fix-first repair completion demonstration
+### Fix-first repair completion demonstration
 
 Run from the repository root:
 
