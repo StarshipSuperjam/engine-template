@@ -362,10 +362,13 @@ class ReaderHealthRecovery(ReaderHealthEvidence):
         self.healthy(self.sibling)
         original = self.client._transport
         pages = []
+        clock = [time.monotonic()]
         def paginated(method, path, body):
             if method == "GET" and "/issues?" in path:
                 pages.append(path)
-                time.sleep(.08)
+                # Advance the transport's clock deterministically: local CPU load
+                # must not decide how many successful pages this scenario reaches.
+                clock[0] += .08
                 if len(pages) == 1:
                     return 200, [self.fake.issues[1]] + [dict(number=n, title="Other", body="") for n in range(100, 199)]
                 if len(pages) == 2:
@@ -373,8 +376,9 @@ class ReaderHealthRecovery(ReaderHealthEvidence):
                 return 200, []
             return original(method, path, body)
         self.client._transport = paginated
-        result = self.reconcile(deadline=time.monotonic() + .23)
-        self.assertGreaterEqual(len(pages), 2)
+        with mock.patch.object(telemetry.time, "monotonic", side_effect=lambda: clock[0]):
+            result = self.reconcile(deadline=clock[0] + .23)
+        self.assertEqual(len(pages), 3)
         self.assertTrue(result["unverified"])
         self.assertEqual(result["closed"], 0)
         self.assertEqual(self.fake.open_count(), 1)
