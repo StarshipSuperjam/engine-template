@@ -750,12 +750,14 @@ def _arc_three(copy, head, env, pr_state, holder):
     merged = _git(copy, "rev-parse", "HEAD").stdout.strip()
     _publish_head(copy, pr_state, merged)
     before_validation = Path(state_path).read_bytes()
-    refused = build("repair", "assess", "--judgment", "none", "--rationale", "Only target ancestry changed")
+    refused = build("repair", "assess", "--judgment", "none", "--rationale", "Only target ancestry changed",
+        "--verification-ref", "DEMO FIXTURE: real automatic merge and unchanged original receipt bytes")
     ok &= _pass("merge preservation requires current candidate accounting", refused.returncode != 0
         and Path(state_path).read_bytes() == before_validation, "actual merged head has no candidate result yet")
     _seed_candidate_fixture(state_path, merged)
     before_merge_assess = read()
-    _require(build("repair", "assess", "--judgment", "none", "--rationale", "Automatic target merge; fixture candidate accounting is current"),
+    _require(build("repair", "assess", "--judgment", "none", "--rationale", "Automatic target merge; fixture candidate accounting is current",
+        "--verification-ref", "DEMO FIXTURE: real automatic merge and unchanged original receipt bytes"),
         "retain receipts across clean target merge")
     final = read()
     prior_receipt_bytes = json.dumps(before_merge_assess["repair"]["receipts"], sort_keys=True).encode()

@@ -28,7 +28,7 @@ The surrounding flow is [Build orchestration](build-orchestration.md).
    operator-runnable demonstration (or the real reason no observable demonstration exists).
 5. The Review record names the approved depth and checks performed in operator language. Disclose whether a
    reviewer executed code and that execution was confined to a discarded copy. Include reviewed and final
-   commits, measured divergence, the proportional re-review judgment, and any focused result. When the plan
+   commits, measured divergence, the proportional re-review judgment, and any focused result. Separate each independently reviewed range from any terminal directly verified range, its rationale and concrete verification references. When the decision changes at the same commit, refresh the contract before preflight; an old body cannot be made current by rerunning preflight. When the plan
    belongs to a multi-PR program, the record also carries what that plan owed its predecessor and what it did
    about each obligation — satisfied, still carried, or released with the reason it was let go. That guarantee
    is enforced where plans are written, which is a place the operator approving the merge never looks, so the

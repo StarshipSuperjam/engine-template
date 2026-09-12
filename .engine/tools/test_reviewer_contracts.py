@@ -570,7 +570,7 @@ class HistoricalContracts(unittest.TestCase):
         # The normal proportional repair owner records the now-empty measured divergence.
         with contextlib.redirect_stdout(io.StringIO()):
             bc.cmd_repair_assess(argparse.Namespace(judgment='none',lens=[],rationale='Measured patch-equivalent rebase; no unread authored delta.',
-                                                    guidance=None),self.store)
+                                                    verification_ref=['Executed a.value() == 2 at the rebased head; exit 0.'], guidance=None),self.store)
         state=self.store.read()
         # Only the GitHub transport is synthetic. All status and submission predicates run normally.
         rule=json.loads((ROOT/'.engine/check/pr-body-completeness.json').read_text())['params']

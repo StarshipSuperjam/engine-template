@@ -512,15 +512,22 @@ def _review_lineage_digest(state):
         "renewals": state.get("review_contract_renewals", []),
         "adoptions": state.get("review_contract_adoptions", []),
         "receipts": review.live_receipts(state), "history": state.get("review_evidence_history", []),
-        "findings": state["findings"]})
+        "findings": state["findings"],
+        "repair_decisions": [{k: r.get(k) for k in ("judgment", "anchor", "final_commit", "direct_verification")}
+            for r in [*state.get("repair_rounds", []), *([state["repair"]] if state.get("repair") else [])]]})
 
 
 def _review_lineage_marker(state):
     return "<!-- engine-review-lineage:" + _review_lineage_digest(state) + " -->"
 
 
+def _review_lineage_required(state):
+    return bool(reviewer_contracts.effective_build(state) or _terminal_decisions(state)
+                or (state.get("pr_contract") or {}).get("review_lineage_digest"))
+
+
 def _review_contract_current(state):
-    return not reviewer_contracts.effective_build(state) or (state.get("pr_contract") or {}).get("review_lineage_digest") == _review_lineage_digest(state)
+    return not _review_lineage_required(state) or (state.get("pr_contract") or {}).get("review_lineage_digest") == _review_lineage_digest(state)
 
 
 def _build_review_drift(state):
@@ -630,15 +637,26 @@ def _coverage_result(stage: dict, kind: str, state: dict, lens: str, *, _facts=N
         for decision in decisions:
             if decision.get("judgment") not in ("scoped", "none") or lens in decision.get("lenses", []):
                 continue
-            anchor = decision.get("anchor") or decision.get("reviewed_commit")
-            final = decision.get("final_commit")
-            try:
-                if (anchor and final and ancestor(anchor, tip) and ancestor(anchor, final)
-                        and (ancestor(final, tip) or ancestor(tip, final))
-                        and after_original(anchor, reconciles)):
-                    unassigned.update(query.authored(anchor, final))
-            except (CoordinatorError, ranges.RangeUnreadable, _Unmeasurable, KeyError, TypeError):
+            direct = decision.get("direct_verification")
+            if direct and (_direct_verification_errors(state, direct, _facts=facts)):
                 continue
+            scopes = [(decision.get("anchor") or decision.get("reviewed_commit"),
+                       decision.get("final_commit"))]
+            if direct:
+                # A completed scoped round can be replaced by a terminal decision.
+                # Its verified assignments still exempt the other lenses; they do
+                # not enlarge the interval directly verified by this new decision.
+                scopes = [(direct["from_commit"], direct["to_commit"])]
+                scopes.extend((scope["base"], scope["tip"]) for scope in direct["read_scopes"]
+                              if lens not in scope["lenses"])
+            for anchor, final in scopes:
+                try:
+                    if (anchor and final and ancestor(anchor, tip) and ancestor(anchor, final)
+                            and (ancestor(final, tip) or ancestor(tip, final))
+                            and after_original(anchor, reconciles)):
+                        unassigned.update(query.authored(anchor, final))
+                except (CoordinatorError, ranges.RangeUnreadable, _Unmeasurable, KeyError, TypeError):
+                    continue
         if unassigned:
             result["unread"] = [sha for sha in result["unread"] if sha not in unassigned]
             result["covered"] = not result["unread"]
@@ -685,6 +703,161 @@ def _coverage_result(stage: dict, kind: str, state: dict, lens: str, *, _facts=N
     if not receipts:
         result["unverified"].append("no eligible original review retained; restore evidence or review unread work")
     return result
+
+
+def _accepted_fixed_holds(state, head, *, _facts=None):
+    facts = {} if _facts is None else _facts
+    def verified(receipt):
+        key = ('execution', core.canonical(receipt))
+        if key not in facts:
+            try:
+                facts[key] = not scoped_agents.missing_build_evidence(_library(), state, [receipt],
+                    _observations=facts.setdefault(('companion-observations',), {}))
+            except (OSError, ValueError, core.CoordinatorError):
+                facts[key] = False
+        return facts[key]
+    return review.accepted_fixed_holds(state, head, verified=verified)
+
+
+def _terminal_decisions(state):
+    decisions = []
+    for entry in [*state.get('repair_rounds', []), *([state['repair']] if state.get('repair') else [])]:
+        decision = entry.get('direct_verification')
+        if decision and decision not in decisions:
+            decisions.append(decision)
+    return decisions
+
+
+def _direct_verification_lines(state):
+    lines = []
+    for d in _terminal_decisions(state):
+        scopes = '; '.join(f"`{scope['base'][:12]}..{scope['tip'][:12]}` "
+                           f"({_plain(', '.join(scope['lenses']))})" for scope in d['read_scopes'])
+        lines.append(f"Direct verification `{d['from_commit'][:12]}..{d['to_commit'][:12]}`: "
+                     f"no independent review requested for this repair; {_plain(d['rationale'])}. "
+                     f"Checks: {_plain('; '.join(d['verification_refs']))}. "
+                     f"Retained independently reviewed scopes: {scopes}. "
+                     f"Original review receipts and assigned ranges remain unchanged.")
+    return lines
+
+
+def _direct_read_scopes(state, before=None):
+    """Original full panel plus each explicitly assigned historical repair range."""
+    delivery = state['reviews']['deliverable']
+    # Refresh/reconcile changes the packet identity, never the original receipt identity.
+    originals = [r for stage, r in review.retained_receipts(state) if stage == 'deliverable']
+    original_ranges = {((r.get('reviewed_range') or {}).get('base'), r['commit']) for r in originals}
+    if not original_ranges or any(base is None for base, _ in original_ranges):
+        raise CoordinatorError('original full-review range is unverified; restore its receipts')
+    panel = reviewer_contracts.build_panel(state)
+    lenses = sorted(c['lens'] for c in (panel if panel is not None else delivery['reviewer_contracts']))
+    scopes = [{'base': base, 'tip': tip, 'lenses': lenses} for base, tip in sorted(original_ranges)]
+    rounds = state.get('repair_rounds', [])
+    for index, entry in enumerate(rounds):
+        if before is not None and entry.get('direct_verification') == before:
+            break
+        for retained in (entry.get('direct_verification') or {}).get('read_scopes', []):
+            if retained not in scopes:
+                scopes.append(retained)
+        prior = state.get('repair') or {}
+        unissued = index == len(rounds)-1 and not prior.get('packet_digest') and not prior.get('direct_verification')
+        if not unissued and entry.get('judgment') != 'none' and entry.get('lenses'):
+            scope = {'base': entry['reviewed_commit'], 'tip': entry['final_commit'],
+                     'lenses': sorted(entry['lenses'])}
+            if scope not in scopes:
+                scopes.append(scope)
+    return scopes
+
+
+def _direct_divergence(base, tip):
+    # Exact diff content, not a classification label or remembered positive result.
+    return core.digest(_must_run(['git', 'diff', '--binary', '--no-ext-diff', '--no-textconv',
+                                  f'{base}..{tip}']).encode())
+
+
+def _repair_chain_reaches(state, base, tip, *, _facts=None):
+    """Advance through intact reviewed or directly verified repair ranges."""
+    facts = {} if _facts is None else _facts
+    cursor = base
+    for entry in state.get('repair_rounds', []):
+        if entry['reviewed_commit'] != cursor:
+            continue
+        decision = entry.get('direct_verification')
+        if decision:
+            if _direct_verification_errors(state, decision, _facts=facts):
+                return False
+        elif entry['judgment'] == 'none' or not entry['lenses'] or not all(
+                r['covered'] for r in _coverage_results(entry, 'repair', state,
+                    entry['lenses'], _facts=facts).values()):
+            return False
+        cursor = entry['final_commit']
+    return cursor == tip
+
+
+def _direct_verification_errors(state, decision, *, _facts=None):
+    facts = {} if _facts is None else _facts
+    key = ('direct-verification', core.digest(decision))
+    if key in facts:
+        return facts[key]
+    errors = []
+    try:
+        expected = _direct_read_scopes(state, before=decision)
+        if any(scope not in decision.get('read_scopes', []) for scope in expected):
+            errors.append('direct verification prior read obligations changed or are incomplete')
+        # Check exact independently assigned ranges, with no terminal-decision exclusions.
+        for scope in decision.get('read_scopes', []):
+            question = {'reviewed_commit': scope['base'], 'final_commit': scope['tip'],
+                        'reviewer_contracts': state['reviews']['deliverable']['reviewer_contracts']}
+            for lens, result in _coverage_results(question, 'repair', state, scope['lenses'], _facts=facts).items():
+                if not result['covered']:
+                    errors.append(f'direct verification requires original assigned read: {lens} — '
+                                  + ranges.cumulative_report(lens, result))
+        divergence = _direct_divergence(decision['from_commit'], decision['to_commit'])
+        if not _is_ancestor(decision['from_commit'], decision['to_commit']):
+            errors.append('direct verification range is not forward ancestry')
+        errors = review.direct_verification_errors(state, decision,
+                    divergence_digest=divergence, read_scope_errors=errors)
+        entries = [r for r in state.get('repair_rounds', []) if r.get('direct_verification') == decision]
+        current = state.get('repair') or {}
+        if entries and any(r.get('judgment') != 'none' or r['final_commit'] != decision['to_commit'] for r in entries):
+            errors.append('direct verification disagrees with its repair ledger')
+        if current.get('direct_verification') == decision:
+            if (current.get('judgment') != 'none' or current['final_commit'] != decision['to_commit']
+                    or current.get('rationale') != decision['rationale'] or not entries):
+                errors.append('current direct verification and repair ledger disagree')
+    except (CoordinatorError, ranges.RangeUnreadable, KeyError, TypeError, ValueError) as exc:
+        errors.append('direct verification evidence is unverified: ' + str(exc))
+    facts[key] = errors
+    return errors
+
+
+def _make_direct_verification(state, base, head, rationale, refs):
+    if not rationale.strip() or not refs or any(not ref.strip() for ref in refs):
+        raise CoordinatorError('an evidence-preserving none judgment requires a rationale and --verification-ref for concrete checks')
+    if not _candidate_ok(state, head):
+        raise CoordinatorError('direct verification requires green candidate validation for the current commit')
+    if _missing_findings(state) or any(review.blocks_submission(f) for f in review.live_findings(state)):
+        raise CoordinatorError('adjudicate and fix the outstanding findings before judging no further review')
+    holds = _accepted_fixed_holds(state, head)
+    if holds:
+        raise CoordinatorError('; '.join(holds))
+    if _missing_receipts(state['reviews']['deliverable'], state=state):
+        raise CoordinatorError('direct verification requires completion of the current full-review scope')
+    facts = {}
+    for prior in _terminal_decisions(state):
+        errors = _direct_verification_errors(state, prior, _facts=facts)
+        if errors:
+            raise CoordinatorError('; '.join(errors))
+    decision = {'from_commit': base, 'to_commit': head,
+                'authority_digest': review.direct_verification_identity(state),
+                'divergence_digest': _direct_divergence(base, head),
+                'candidate_digest': core.digest(_split_validation(state)['candidate']),
+                'rationale': rationale.strip(), 'verification_refs': sorted(set(refs)),
+                'read_scopes': _direct_read_scopes(state)}
+    errors = _direct_verification_errors(state, decision, _facts=facts)
+    if errors:
+        raise CoordinatorError('; '.join(errors))
+    return decision
 
 
 def _missing_receipts(stage: dict, kind: str = "deliverable", *, state=None) -> list[str]:
@@ -977,6 +1150,7 @@ def _status(state: dict, plan: dict | None = None) -> dict:
     if not _final_ok(state, head):
         required_evidence.append("imported engine-ci proof for the final commit — `validate final import`")
     review_facts = {}
+    required_evidence.extend(_accepted_fixed_holds(state, head, _facts=review_facts))
     delivery_results = _coverage_results(delivery, "deliverable", state, _facts=review_facts)
     missing_delivery = [lens for lens, result in delivery_results.items() if not result["covered"]]
     repair_results = {}
@@ -1000,17 +1174,27 @@ def _status(state: dict, plan: dict | None = None) -> dict:
         except (OSError, ValueError, core.CoordinatorError):
             unverified = sorted({receipt["lens"] for receipt in live_receipts})
         required_evidence.extend(f"verified fresh review execution: {lens}" for lens in unverified)
+    current_direct = (state.get("repair") or {}).get("direct_verification")
+    if current_direct:
+        required_evidence.extend(_direct_verification_errors(state, current_direct, _facts=review_facts))
+        candidate = _split_validation(state)["candidate"]
+        if head == current_direct["to_commit"] and core.digest(candidate) != current_direct["candidate_digest"]:
+            required_evidence.append("direct verification must reference the current candidate evidence; reassess after validation")
     rewritten = _history_was_rewritten(state, head)
     if delivery["reviewed_commit"] and delivery["reviewed_commit"] != head:
         repair = state["repair"]
-        if not repair or repair["reviewed_commit"] != delivery["reviewed_commit"] or repair["final_commit"] != head:
+        if (repair and repair["judgment"] == "none" and reviewer_contracts.effective_build(state)
+                and not repair.get("direct_verification")):
+            required_evidence.append("fresh explicit terminal direct verification; legacy receipt loss is not evidence")
+        if not repair or (repair["reviewed_commit"] != delivery["reviewed_commit"] and not repair.get("direct_verification")) or repair["final_commit"] != head:
             judgments.append(
                 "re-anchor the review bindings with `reconcile`: this branch's history was rewritten and the "
                 "reviewed commit is no longer on it" if rewritten else
                 "the branch has moved past the reviewed commit: judge how much of that divergence needs "
                 "re-reading and record it with `repair assess`. `none` is a real judgment, not a skip — "
-                "it ends the repair loop without a re-review and clears the repair packet, so reach for "
-                "it when the divergence genuinely carries nothing a lens would find.")
+                "it records direct verification of the exact new range while retaining original review "
+                "evidence. Land and verify in-scope fixes first, then supply a rationale and concrete "
+                "--verification-ref checks when another independent pass is disproportionate.")
         elif repair["judgment"] != "none":
             repair_results = _coverage_results(repair, "repair", state, repair["lenses"], _facts=review_facts)
             outstanding = [lens for lens, result in repair_results.items() if not result["covered"]]
@@ -1098,7 +1282,8 @@ def _status(state: dict, plan: dict | None = None) -> dict:
     valid = _candidate_ok(state, head)
     delivery_ready = fast_path or (delivery["packet_digest"] is not None and not missing_delivery and delivery_coverage_current)
     repair_ready = not delivery["reviewed_commit"] or delivery["reviewed_commit"] == head or (
-        state["repair"] is not None and state["repair"]["reviewed_commit"] == delivery["reviewed_commit"]
+        state["repair"] is not None and (state["repair"]["reviewed_commit"] == delivery["reviewed_commit"]
+        or (current_direct and _repair_chain_reaches(state, delivery["reviewed_commit"], head, _facts=review_facts)))
         and state["repair"]["final_commit"] == head and (state["repair"]["judgment"] == "none" or
         all(result["covered"] for result in repair_results.values())))
     preflight_ready = not [x for x in required_preflights if x["id"] not in passed]
@@ -3519,7 +3704,8 @@ def _effective_reviewed(state: dict) -> str | None:
     twice and one fabricated round counted against the escalation threshold."""
     reviewed = state["reviews"]["deliverable"]["reviewed_commit"]
     prior = state["repair"]
-    if _repair_round_complete(prior, state):
+    if (_repair_round_complete(prior, state) or (prior and prior.get("direct_verification")
+            and _repair_chain_reaches(state, reviewed, prior["final_commit"]))):
         final = prior["final_commit"]
         # SUPERSESSION retires a repair anchor, not orphanhood. A rebase orphans the round's final commit,
         # but the commit stays readable and is still exactly what was last reviewed, so it remains the
@@ -4132,6 +4318,10 @@ def cmd_repair_assess(args, store: Snapshot) -> None:
     revision = state["revision"]
     prior = state["repair"]
     reviewed = _effective_reviewed(state)
+    # Retrying a terminal judgment measures the same exact interval, even though
+    # that judgment now advances the effective review anchor to HEAD.
+    if prior and prior.get("direct_verification") and prior["final_commit"] == head:
+        reviewed = prior["direct_verification"]["from_commit"]
     if not reviewed:
         raise CoordinatorError("deliverable review has not recorded a reviewed commit")
     if _history_was_rewritten(state, head):
@@ -4204,6 +4394,12 @@ def cmd_repair_assess(args, store: Snapshot) -> None:
     # and all -- and refund its counted slot, while both stops were skipped because the assess looked like
     # a replacement. Re-recording an older pair is a NEW round; only the latest judgment is still open.
     same = [] if fanned_out or not rounds else [r for r in rounds[-1:] if _same_episode(r)]
+    # Replacing a terminal round must retain the interval it already verified.
+    # A generated-only advance moves the effective anchor to its tip, but the
+    # replacement removes that old edge; re-verify the complete replacement range.
+    if same and same[0].get("direct_verification"):
+        reviewed = same[0]["direct_verification"]["from_commit"]
+        summary = _must_run(["git", "diff", "--shortstat", f"{reviewed}..{head}"]).strip() or "no textual diff"
     # By POSITION, never by value: two dict-identical rounds (the same commit pair assessed twice with a
     # packet cut between, so each appended rather than replaced) would both be dropped by an equality
     # filter, silently erasing a round from the ledger and refunding its counted slot.
@@ -4295,6 +4491,11 @@ def cmd_repair_assess(args, store: Snapshot) -> None:
     # divergence survives, byte-identical; the rest are named, with the delta they still owe, so the
     # session is told precisely which lenses owe a read of which commits instead of facing the
     # all-or-nothing wall that cost two true receipts in StarshipSuperjam/engine-template#1063.
+    direct = None
+    if (args.judgment == "none" and not getattr(args, "accept_receipt_loss", False)
+            and (reviewer_contracts.effective_build(state) or getattr(args, "verification_ref", None))):
+        direct = _make_direct_verification(state, reviewed, head, args.rationale,
+                                           getattr(args, "verification_ref", None))
     carried, dropped = [], []
     question = {"reviewed_commit": reviewed, "final_commit": head, "base_advances": base_advances,
                 "reviewer_contracts": state["reviews"]["deliverable"].get("reviewer_contracts", [])}
@@ -4309,6 +4510,10 @@ def cmd_repair_assess(args, store: Snapshot) -> None:
     # second round behind a flag would turn a safety valve into a rubber stamp. `none` is the destructive
     # one StarshipSuperjam/engine-template#1012 named: it discards the receipt AND ends the repair loop
     # with no re-review, mid-stream, prompted by a status line that used to read like a step to take.
+    if direct:
+        # Retention never widens a receipt: this decision alone accounts for the new range.
+        carried = list((prior or {}).get("receipts", []))
+        dropped = []
     if dropped:
         detail = "; ".join(ranges.cumulative_report(r["lens"], coverage[r["lens"]]) for r in dropped)
         also = f" {len(carried)} receipt(s) DO still cover it and are kept." if carried else ""
@@ -4326,6 +4531,8 @@ def cmd_repair_assess(args, store: Snapshot) -> None:
              "lenses": lenses, "guidance": guidance, "counted": counted, "anchor": anchor,
              "anchor_note": anchor_note, "roster_provenance": roster_provenance,
              "classification": classification}
+    if direct:
+        entry["direct_verification"] = direct
     rounds = kept + [entry]
     prior_counted = sum(1 for r in kept if _round_counted(r))
     if not fresh_guidance:
@@ -4345,16 +4552,18 @@ def cmd_repair_assess(args, store: Snapshot) -> None:
         if stop:
             raise CoordinatorError(
                 f"{stop} This is the point to stop and bring the operator in: summarise plainly what keeps "
-                "failing and what you propose (narrow the re-review, accept-track the residual findings, or "
-                "keep going), then record their answer with --guidance. That text is published in the PR "
+                "failing and what you propose (narrow the re-review or keep going after fixing in-scope "
+                "defects), then record their answer with --guidance. That text is published in the PR "
                 "body, so the operator sees at merge whether they were actually consulted. This is a "
                 "discipline prompt backed by their merge, not a wall.\n\nHow the rounds have gone:\n"
                 + _trajectory(rounds))
     repair = {"reviewed_commit": reviewed, "final_commit": head, "summary": summary, "judgment": args.judgment,
-              "rationale": args.rationale, "lenses": lenses, "packet_digest": None,
+              "rationale": direct['rationale'] if direct else args.rationale, "lenses": lenses, "packet_digest": None,
               "referent_digest": None, "reviewer_contracts": [], "receipts": carried,
               "anchor": anchor, "counted": counted, "classification": classification,
               "roster_provenance": roster_provenance, "base_advances": base_advances}
+    if direct:
+        repair["direct_verification"] = direct
     def record(s):
         if _head() != head:
             raise CoordinatorError("HEAD changed during repair assessment; retry on the validated candidate")
@@ -4414,12 +4623,12 @@ def _compute_preflight_legs(state: dict, head: str, pr_data: dict, body: str) ->
     # while dropping the "worth a look before you merge" line the headline is standing in front of. The
     # recorded operator guidance is required with them: the headline asserts that guidance was disclosed,
     # so the assertion and the thing it asserts have to be gated together.
-    missing_rounds = [line for line in _repair_round_lines(state) + _round_guidance_lines(state) + _base_advance_lines(state)
+    missing_rounds = [line for line in _repair_round_lines(state) + _round_guidance_lines(state) + _base_advance_lines(state) + _direct_verification_lines(state)
                       if line not in body]
     if missing_rounds:
         contract_passed = False
         contract_summary += f"; missing {len(missing_rounds)} line(s) of the repair-rounds disclosure"
-    if reviewer_contracts.effective_build(state) and _review_lineage_marker(state) not in body:
+    if _review_lineage_required(state) and _review_lineage_marker(state) not in body:
         contract_passed = False
         contract_summary += "; PR body does not present the complete current review lineage"
     profile = _run([sys.executable, str(ROOT / ".engine" / "tools" / "scope_profile.py"), base])
@@ -4482,7 +4691,7 @@ def cmd_preflight(args, store: Snapshot) -> None:
         def change(s):
             s["preflights"] = results
             s["pr_contract"] = {"commit": head, "body_digest": _digest(body.encode()), "complete": contract_passed}
-            if reviewer_contracts.effective_build(s):
+            if _review_lineage_required(state):
                 s["pr_contract"]["review_lineage_digest"] = _review_lineage_digest(s)
     store.mutate(change, from_revision=revision)
     if getattr(args, "json", False):
@@ -5965,7 +6174,9 @@ def _drift_line(state: dict, head: str) -> str:
             lines.append(adopted_line)
         historical_sources = any(p["source"].get("identity_mode") == "legacy-source" for ps in frozen["panels"].values() for p in ps)
         lines.append(f"Reviewer obligations are {'adopted from retained sources' if adopted_line or historical_sources else 'frozen at approval'}; {len(state.get('review_contract_renewals', []))} explicit renewal(s). Reviewer effort remains harness-controlled, with no promised floor.")
+    if _review_lineage_required(state):
         lines.append(_review_lineage_marker(state))
+    lines.extend(_direct_verification_lines(state))
     return " ".join(lines)
 
 
@@ -5992,6 +6203,11 @@ def _review_drift_line(state: dict, head: str) -> str:
                 f"`{repair['final_commit'][:12]}` ({repair['summary']})")
 
     if not reconciles:
+        if repair and repair.get("direct_verification"):
+            direct = repair['direct_verification']
+            return (f"submitted `{head[:12]}`; terminal repair range "
+                    f"`{direct['from_commit'][:12]}..{direct['to_commit'][:12]}` was directly verified, "
+                    "with independently reviewed scopes disclosed separately")
         if repair and repair.get("final_commit"):
             tail = (f"{repair['summary']}; no re-review was judged necessary"
                     if repair.get("judgment") == "none" else repair["summary"])
@@ -6416,7 +6632,7 @@ def cmd_contract_apply(args, store: Snapshot) -> None:
         def change(s):
             s["preflights"] = legs["results"]
             s["pr_contract"] = {"commit": head, "body_digest": body_digest, "complete": legs["contract_passed"]}
-            if reviewer_contracts.effective_build(s):
+            if _review_lineage_required(state):
                 s["pr_contract"]["review_lineage_digest"] = _review_lineage_digest(s)
     store.mutate(change, from_revision=revision)
     result = {"commit": head, "body_digest": body_digest, "complete": legs["contract_passed"],
@@ -6488,7 +6704,7 @@ def parser() -> argparse.ArgumentParser:
     validate = sub.add_parser("validate"); validate.add_argument("mode", nargs="?", choices=["candidate", "final"], help="bare `validate` and `validate candidate` are the same run; `validate final import` verifies and imports the live engine-ci proof for the submitted head"); validate.add_argument("action", nargs="?", choices=["import"], help="for `final`: import is the only action — the proof is never run locally"); validate.add_argument("--force", action="store_true", help="re-run even when the cached candidate identity matches"); validate.add_argument("--plan", help="the approved plan; REQUIRED for a build-plan.v2 Build, whose node roster lives only there"); validate.set_defaults(func=cmd_validate)
     sync_artifacts = sub.add_parser("sync-artifacts"); sync_artifacts.set_defaults(func=cmd_sync_artifacts)
     repair = sub.add_parser("repair").add_subparsers(dest="repair_command", required=True)
-    assess = repair.add_parser("assess"); assess.add_argument("--judgment", choices=["none", "scoped", "full"], required=True); assess.add_argument("--rationale", required=True); assess.add_argument("--guidance", help="The operator's answer when a third or later repair round is proposed; published in the PR body."); assess.add_argument("--lens", action="append"); assess.add_argument("--accept-receipt-loss", action="store_true", help="Re-bind even though recorded repair receipts do not cover the new divergence and will be dropped. Without it the re-bind refuses and names what each lens still owes."); assess.set_defaults(func=cmd_repair_assess)
+    assess = repair.add_parser("assess"); assess.add_argument("--judgment", choices=["none", "scoped", "full"], required=True); assess.add_argument("--rationale", required=True); assess.add_argument("--guidance", help="The operator's answer when a third or later repair round is proposed; published in the PR body."); assess.add_argument("--lens", action="append"); assess.add_argument("--accept-receipt-loss", action="store_true", help="Explicit legacy loss recovery; this is not evidence of a terminal direct-verification decision. The normal completed-review/fix/none path retains receipts without this flag."); assess.add_argument("--verification-ref", action="append", help="Concrete direct-verification evidence reference; required for an evidence-preserving none decision."); assess.set_defaults(func=cmd_repair_assess)
     reconcile = sub.add_parser("reconcile"); reconcile.add_argument("--plan", required=True); reconcile.set_defaults(func=cmd_reconcile)
     preparation = reconcile.add_mutually_exclusive_group()
     preparation.add_argument("--prepare", action="store_true", help="pin and retain an unreviewed Build's source before an intentional rebase")

@@ -120,6 +120,10 @@
       "prevents": "submitting a finding the orchestrator explicitly left blocking this PR"
     },
     {
+      "id": "accepted-fixed-original-commit",
+      "prevents": "submitting an accepted-fixed finding at its own original review commit, or with unverified original receipt ownership"
+    },
+    {
       "id": "preflights",
       "prevents": "skipping or ignoring a repository submission preflight"
     },
