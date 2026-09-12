@@ -30,6 +30,7 @@
       ".engine/check/doc-shape.json",
       ".engine/check/engine-manifest.json",
       ".engine/check/engine-todo-form.json",
+      ".engine/check/enforcement-files.json",
       ".engine/check/execution-state.json",
       ".engine/check/executor-record.json",
       ".engine/check/first-run-assets.json",

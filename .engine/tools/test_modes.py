@@ -23,6 +23,7 @@ from unittest import mock
 
 import hooks
 import modes
+import providers
 import quiet_call  # capture a demo/CLI walkthrough's stdout so it can't bury the suite summary
 import validate
 
@@ -37,10 +38,13 @@ def _allow(decision: dict) -> bool:
     return decision.get("action") == "proceed"
 
 
-def _explore_payload(tool_name: str, command: str = "") -> dict:
+def _explore_payload(tool_name: str, command: str = "", cwd: str | None = None) -> dict:
     # session_id=None -> current_stance is Explore (the safe floor), with no signal file needed.
-    return {"session_id": None, "tool_name": tool_name,
-            "tool_input": {"command": command} if command else {}}
+    payload = {"session_id": None, "tool_name": tool_name,
+               "tool_input": {"command": command} if command else {}}
+    if cwd is not None:
+        payload["cwd"] = cwd
+    return payload
 
 
 class TestExploreGateDenies(unittest.TestCase):
@@ -77,13 +81,15 @@ class TestExploreGateAllows(unittest.TestCase):
         self.assertTrue(_allow(modes.handler(_explore_payload("Read"))))
         self.assertTrue(_allow(modes.handler(_explore_payload("Grep"))))
         for cmd in ("pytest -q", "ls -la", "git status", "git diff", "git branch -a",
-                    "git log --oneline", "rg pattern", "gh issue create -t x -b y", "gh issue list",
+                    "git log --oneline", "rg pattern", "gh issue list",
                     # a build verb inside a quoted/echoed/embedded string is NOT a building action — it
                     # must not trip a false deny (err toward allow; don't tax Explore):
                     "echo 'git commit -m x'", 'grep "gh pr create" notes.md',
                     "echo do not git commit here"):
             self.assertTrue(_allow(modes.handler(_explore_payload("Bash", cmd))),
                             f"Bash {cmd!r} must be allowed in Explore")
+        self.assertTrue(_allow(modes.handler(_explore_payload(
+            "Bash", "gh issue create -R elsewhere/project -t x -b y", cwd=os.getcwd()))))
 
     def test_subagent_and_unknown_mcp_tools_are_allowed(self):
         self.assertTrue(_allow(modes.handler(_explore_payload("Task"))))
@@ -268,7 +274,25 @@ class TestBuildAndRoutinePermit(unittest.TestCase):
         modes.set_stance("s", modes.BUILD)
         self.assertTrue(_deny(modes.handler(self._payload(
             "s", "Bash", 'gh issue create --label engine -b "just free text"'))))
-        self.assertTrue(_allow(modes.handler(self._payload("s", "Bash", "gh issue create -b free"))))
+        payload = self._payload("s", "Bash", "gh issue create -R elsewhere/project -b free")
+        payload["cwd"] = os.getcwd()
+        self.assertTrue(_allow(modes.handler(payload)))
+
+    def test_normalized_codex_exec_command_routes_in_every_stance(self):
+        """The observed `{cmd, workdir}` envelope reaches the stance-independent reroute."""
+        for stance in (modes.EXPLORE, modes.BUILD, modes.ROUTINE):
+            modes.set_stance("s", stance)
+            payload = providers.normalize("PreToolUse", {
+                "session_id": "s", "tool_name": "exec_command",
+                "tool_input": {"cmd": "gh issue create --label engine -t x", "workdir": "/tmp"},
+            })
+            self.assertTrue(_deny(modes.handler(payload)), stance)
+
+    def test_unresolved_issue_target_is_injected_when_otherwise_allowed(self):
+        result = modes.handler(_explore_payload("Bash", "gh issue create -R $REPO -t x"))
+        self.assertEqual(result["action"], "inject")
+        self.assertIn("routing check could not classify", result["context"])
+        self.assertIn("Normal stance checks still apply", result["context"])
 
     def test_protected_merge_is_denied_in_every_stance(self):
         # The session never merges the protected branch — that is the operator's consent act — so the merge
@@ -420,7 +444,8 @@ class TestBlockInvariantAndVocabulary(unittest.TestCase):
         for named in ("helper", "reroute"):
             self.assertIn(named, scope, f"Explore-scope copy must name the reroute carve-out term {named!r}")
         # fidelity to the live gate: what the copy calls "allowed" the gate allows; "denied" it denies
-        self.assertTrue(_allow(modes.handler(_explore_payload("Bash", "gh issue create -t x -b y"))))
+        self.assertTrue(_allow(modes.handler(_explore_payload(
+            "Bash", "gh issue create -R elsewhere/project -t x -b y", cwd=os.getcwd()))))
         self.assertTrue(_allow(modes.handler(_explore_payload("Read"))))
         # the engine's own saved-memory upkeep is a Bash CLI, not a Write/Edit tool → the gate allows it
         self.assertTrue(_allow(modes.handler(_explore_payload(

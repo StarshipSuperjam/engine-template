@@ -78,8 +78,7 @@ ENGINE_MANIFEST_REL = ".engine/engine.json"
 # artifacts (the two required-check workflows and the head-bound acknowledgment-status workflow; the
 # advisory secret-scan workflow + dependabot.yml that
 # form the git-native security floor; the advisory actionlint
-# workflow that grammar-checks every workflow file; the scheduled audit-prep workflow that runs the
-# engine's self-review; the PR template, the issue templates, and CODEOWNERS
+# workflow that grammar-checks every workflow file; the PR template, the issue templates, and CODEOWNERS
 # itself). This is the foundation infrastructure-artifact set — the high-trust files a bare `provides`-union
 # would leave unowned. It is the SINGLE SOURCE for four derived consumers, so they cannot drift apart:
 #   - NAMED_INFRA (below) — the .engine/-only subset, the ownership-walk carve-out.
@@ -106,7 +105,6 @@ FOUNDATION_INFRA = (
     ".github/workflows/engine-ack-status.yml",
     ".github/workflows/secret-scan.yml",
     ".github/workflows/actionlint.yml",
-    ".github/workflows/audit-prep.yml",
     ".github/workflows/engine-issue-conformance.yml",
     ".github/workflows/engine-issue-kind-label.yml",
     ".github/workflows/engine-overlay-disclosure.yml",
@@ -155,7 +153,7 @@ NAMED_INFRA = {p for p in FOUNDATION_INFRA if p.startswith(".engine/")}
 # surfaces. It stays operator-owned config all the same (in no `provides`, preserved across upgrade), and is
 # retired at first-run (instantiator._FIRST_RUN_ASSET_FILES) so a generated deployment still starts absent — the
 # StarshipSuperjam/engine-template#639 ships-ABSENT steady state holds for every downstream repo; only the engine's own home carries it.
-OPERATOR_CONFIG = {".engine/operator-overrides.json", ".engine/operator-guarded-paths.json",
+OPERATOR_CONFIG = {".engine/operator-issue-recovery.json", ".engine/operator-issue-triage.json", ".engine/operator-overrides.json", ".engine/operator-guarded-paths.json",
                    ".engine/operator-local-references.json",
                    # Session-start automatic checkout preference. It is deliberately outside every module's
                    # provides and survives overlays: an explicit opt-out is the operator's durable choice, and
@@ -596,25 +594,16 @@ def declared_wire_identities(manifests: list) -> set:
 
 
 def block_eligible_registrations() -> list:
-    """The block declarations the block-registry leg governs, ASSEMBLED from each owning system's own
-    declaration — hooks names no invariant itself (the block-budget law), so the registry
-    is the hooks-owned set (none) PLUS each owning lifecycle system's block: modes' explore write-gate
-    (modes.BLOCK_INVARIANT), its engine-Issue-conformance reroute (modes.REROUTE_BLOCK_INVARIANT), and its
-    protected-merge nudge (modes.MERGE_BLOCK_INVARIANT) — three PreToolUse blocks modes' single handler
-    composes, each named a member by the
-    block-budget law — and close's findings-disposition gate on Stop (close.BLOCK_INVARIANT). Each entry
-    is {event, name, owner, modes}; the leg reads `event` and `modes`. These — NOT bare
-    .claude/settings.json hook registrations — are the authoritative "this blocks" source: a wired hook
-    command is opaque, so registration alone never implies a block (boot's SessionStart hook is wired yet
-    declares none). So the leg validates four REAL members on block-eligible events (PreToolUse, Stop) →
-    green; it would fire the moment any owner declared a block on a non-eligible event or without its
-    modes. (owes → the module manager: if the block-owner set grows past 2–3 it may refactor this
-    consumer-side assembly to a registry-discovery pattern.)"""
+    """Assemble block declarations from their owners. Hook registration alone does not declare a
+    block: each owning system supplies event, name, owner and modes. The coherence leg checks this
+    registry against the unchanged PreToolUse/Stop budget, including scoped-assignment control.
+    """
     import session_economy
+    import scoped_agents
     return ([dict(inv) for inv in hooks.BLOCK_ELIGIBLE_INVARIANTS]
             + [dict(modes.BLOCK_INVARIANT), dict(modes.REROUTE_BLOCK_INVARIANT),
                dict(modes.MERGE_BLOCK_INVARIANT), dict(close.BLOCK_INVARIANT),
-               dict(session_economy.BLOCK_INVARIANT)])
+               dict(session_economy.BLOCK_INVARIANT), dict(scoped_agents.BLOCK_INVARIANT)])
 
 
 def check_coherence(tier: str = "hard") -> list:

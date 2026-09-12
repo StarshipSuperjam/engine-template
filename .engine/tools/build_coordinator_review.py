@@ -5,6 +5,18 @@ from pathlib import Path
 
 import build_coordinator_core as core
 import close_linkage_preflight
+import result_contracts
+import reviewer_contracts
+
+
+def ingest_review_report(raw, binding, *, lens, retained=False):
+    """Canonical deliverable/repair report ingress, before controller adjudication."""
+    try:
+        report = result_contracts.ingest(raw, binding,
+            contract="pre-submission-review-finding.v1", role="pre-submission-review", retained=retained)
+        return result_contracts.compile_review(report, lens=lens)
+    except result_contracts.Rejection as exc:
+        raise core.CoordinatorError(str(exc)) from exc
 
 
 def installed(root: Path) -> list[dict]:
@@ -70,6 +82,8 @@ def lens_packet_digest(referent_digest: str, contract: dict) -> str:
 
 
 def lens_packets(referent_digest: str, contracts: list[dict]) -> list[dict]:
+    contracts = [{**c, "result_contract": c.get("result_contract") or result_contracts.resolve(
+        "pre-submission-review-finding.v1", role="pre-submission-review")} for c in contracts]
     return [
         {**contract, "lens_packet_digest": lens_packet_digest(referent_digest, contract)}
         for contract in contracts
@@ -80,7 +94,13 @@ def _never_covers(receipt: dict) -> bool:
     return False
 
 
-def current_receipt_lenses(stage: dict, covers=_never_covers) -> set[str]:
+def compatible(receipt, contract, adopted=None):
+    """A matching git range never substitutes for a matching approved mandate."""
+    return ((receipt.get("obligation_digest") or adopted) == contract["obligation_digest"]
+            if contract.get("obligation_digest") else True)
+
+
+def current_receipt_lenses(stage: dict, covers=_never_covers, adopted=lambda receipt: None) -> set[str]:
     """The lenses this stage has a standing receipt from.
 
     Two ways to stand. A receipt whose `lens_packet_digest` matches the current contract attests THIS
@@ -95,20 +115,21 @@ def current_receipt_lenses(stage: dict, covers=_never_covers) -> set[str]:
     The finding keys hang off the receipt's digests, so restamping would supersede every disposition
     recorded against it — the same evidence loss the carry-forward exists to prevent, arriving by a
     different door. The receipt stays a fact; only this question changed."""
-    expected = {item["lens"]: item["lens_packet_digest"] for item in stage.get("reviewer_contracts", [])}
+    expected = {item["lens"]: item for item in stage.get("reviewer_contracts", [])}
     return {
         receipt["lens"]
         for receipt in stage["receipts"]
-        if receipt.get("lens_packet_digest") == expected.get(receipt["lens"]) or covers(receipt)
+        if receipt["lens"] in expected and compatible(receipt, expected[receipt["lens"]], adopted(receipt))
+        and (receipt.get("lens_packet_digest") == expected[receipt["lens"]]["lens_packet_digest"] or covers(receipt))
     }
 
 
-def missing_receipts(stage: dict, covers=_never_covers) -> list[str]:
-    done = current_receipt_lenses(stage, covers)
+def missing_receipts(stage: dict, covers=_never_covers, adopted=lambda receipt: None) -> list[str]:
+    done = current_receipt_lenses(stage, covers, adopted)
     return [item["lens"] for item in stage.get("reviewer_contracts", []) if item["lens"] not in done]
 
 
-def live_receipts(state: dict) -> list[tuple[str, dict]]:
+def live_receipts(state: dict, *, include_inactive: bool = False) -> list[tuple[str, dict]]:
     """Every review receipt currently live anywhere in the Build, each paired with the stage that PRODUCED
     it -- the one home for that classification.
 
@@ -125,11 +146,32 @@ def live_receipts(state: dict) -> list[tuple[str, dict]]:
     found = []
     stage = state["reviews"]["deliverable"]
     for receipt in stage["receipts"]:
-        produced_by = "repair" if receipt["packet_digest"] != stage["packet_digest"] else "deliverable"
+        import scoped_agents
+        produced_by = state.get("review_receipt_origins", {}).get(scoped_agents.receipt_key(receipt)) or (
+            "repair" if receipt["packet_digest"] != stage["packet_digest"] else "deliverable")
         found.append((produced_by, receipt))
     if state["repair"]:
         for receipt in state["repair"]["receipts"]:
             found.append(("repair", receipt))
+    for entry in state.get("review_evidence_history", []):
+        if not include_inactive and not entry.get("effective"):
+            continue
+        pair = (entry["stage"], entry["receipt"])
+        if pair not in found:
+            found.append(pair)
+    return found
+
+
+def retained_receipts(state: dict) -> list[tuple[str, dict]]:
+    """Original reads, independent of whether their findings still demand disposition.
+
+    Retention is not eligibility: callers must verify execution and the approved obligation
+    before any of these receipts can contribute coverage.
+    """
+    found = []
+    for pair in live_receipts(state, include_inactive=True):
+        if pair not in found:
+            found.append(pair)
     return found
 
 
@@ -290,3 +332,48 @@ def required_disagreement_lines(state: dict) -> list[str]:
         # with the reviewer as one whose flag was flipped by hand, and the operator meets both at merge.
         if finding["severity"] == "blocking" and not blocks_submission(finding)
     ]
+
+
+def eligible_coverage_receipts(state: dict, contract: dict, verified, adopted=lambda r: None) -> tuple[list, list]:
+    """Select original same-lens reads using the existing mandate and execution authorities.
+
+    Findings effectiveness deliberately does not participate. A retained receipt is evidence to
+    examine, not permission to assume the execution or silently adopt its historical mandate.
+    """
+    eligible, rejected = [], []
+    for _, receipt in retained_receipts(state):
+        if receipt["lens"] != contract["lens"]:
+            continue
+        if contract.get("obligation_digest"):
+            matches = compatible(receipt, contract, adopted(receipt))
+        else:
+            # Pre-envelope contracts bind the complete descriptor into each lens packet.
+            # Re-derive it at the ORIGINAL referent rather than matching only a lens name.
+            descriptor = {k: v for k, v in contract.items() if k != "lens_packet_digest"}
+            matches = bool(receipt.get("referent_digest") and contract.get("path")
+                           and receipt.get("lens_packet_digest") == lens_packet_digest(
+                               receipt["referent_digest"], descriptor))
+        if not matches:
+            rejected.append("original review used a different approved obligation")
+        elif not verified(receipt):
+            rejected.append("original accepted execution evidence is unavailable")
+        else:
+            eligible.append(receipt)
+    return eligible, sorted(set(rejected))
+
+
+def receipt_attests_scope(stage: dict, receipt: dict, kind: str = "deliverable") -> bool:
+    """Exact acceptance is for the original packet's actual stage and scope, not its slot.
+
+    A repair's lens contract is copied into the deliverable list during splicing. That copied
+    identity alone cannot authorize a wider read: its original packet and range must also match.
+    """
+    base, tip = ((stage.get("reviewed_commit"), stage.get("final_commit")) if kind == "repair"
+                 else (stage.get("base_commit"), stage.get("reviewed_commit")))
+    return bool(stage.get("packet_digest") and base and tip
+                and receipt.get("packet_digest") == stage["packet_digest"]
+                and receipt.get("commit") == tip
+                and receipt.get("reviewed_range") == {"base":base,"tip":tip}
+                and any(c["lens"] == receipt["lens"]
+                        and c["lens_packet_digest"] == receipt.get("lens_packet_digest")
+                        for c in stage.get("reviewer_contracts", [])))

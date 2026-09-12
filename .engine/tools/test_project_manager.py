@@ -31,15 +31,66 @@ import plan_store
 from test_plan_store import _document
 
 
+def observe_review_execution(library, slug, owner, lens, digest, output, **kwargs):
+    """Feed the production packet into the existing synthetic native-event fixture."""
+    import scoped_agents
+    from test_build_coordinator import observe_review_execution as observe
+    register = scoped_agents.Store.register
+    def canonical(store, **args):
+        packet, expected, contract = project_manager.review_packet(library, slug)
+        if contract and digest == expected:
+            Path(args["packet"]).write_text(packet)
+        return register(store, **args)
+    with mock.patch.object(scoped_agents.Store, "register", canonical):
+        return observe(library, slug, owner, lens, digest, output, **kwargs)
+
+
 class _Surface(unittest.TestCase):
     def setUp(self):
+        from selftest_support import review_fixture
+        review_fixture(self)
         self._tmp = tempfile.TemporaryDirectory()
         self.root = Path(self._tmp.name) / "plans"
         self.lib = plan_store.PlanLibrary(self.root)
         self.addCleanup(self._tmp.cleanup)
 
-    def run_command(self, *argv) -> tuple[int, str, str]:
+    def run_command(self, *argv, observe=True) -> tuple[int, str, str]:
         out, err = io.StringIO(), io.StringIO()
+        if observe and len(argv) > 2 and argv[:2] in (("review", "record"), ("review", "amend")):
+            import scoped_agents
+            parsed = project_manager.build_parser().parse_args(["--library", str(self.root), *argv])
+            try:
+                slug = self.lib.resolve(parsed.plan)
+                record = self.lib.read_record(slug)
+                if record.get("approval"):
+                    raw = json.loads(Path(parsed.findings).read_text()) if parsed.findings else []
+                    controller = isinstance(raw, list) and any(isinstance(f, dict) and "summary" in f for f in raw)
+                    if controller:
+                        # These historical controller fixtures now supply the observed location explicitly.
+                        for finding in raw:
+                            if isinstance(finding.get("location"), str):
+                                finding["location"] = {"file": finding["location"]}
+                            else:
+                                finding.setdefault("location", None)
+                        Path(parsed.findings).write_text(json.dumps(raw))
+                        argv = (*argv, "--controller-findings")
+                    findings = project_manager.plan_lifecycle.translate_findings(
+                        raw,
+                        lenses=list(parsed.lens or (record.get("plan_review") or {}).get("lenses", [])))
+                    for lens in parsed.lens or []:
+                        existing = scoped_agents.Store(self.lib, slug).read()["assignments"].values()
+                        if any(a["lens"] == lens and a["packet_digest"] == parsed.packet_digest for a in existing):
+                            continue
+                        output = [{"severity": f["severity"], "message": f["summary"],
+                                   "location": f.get("location")}
+                                  for f in findings if f["lens"] == lens]
+                        if not controller and len(parsed.lens or []) == 1:
+                            output = raw
+                        observe_review_execution(self.lib, slug, scoped_agents.plan_owner(record), lens,
+                                                 parsed.packet_digest, output)
+                    argv = (*argv, "--session", "fixture-root")
+            except (project_manager.ProjectManagerError, project_manager.core.CoordinatorError, ValueError):
+                pass  # invalid-input cases must reach the real command's own refusal
         with contextlib.redirect_stdout(out), contextlib.redirect_stderr(err):
             code = project_manager.main(["--library", str(self.root), *argv])
         return code, out.getvalue(), err.getvalue()
@@ -52,6 +103,193 @@ class _Surface(unittest.TestCase):
         path = Path(self._tmp.name) / f"{document['plan_id']}-{document['revision']}.json"
         path.write_text(json.dumps(document), encoding="utf-8")
         return str(path)
+
+
+class LocationIngress(_Surface):
+    """Drive raw bytes through the CLI, without the legacy fixture's input reconstruction."""
+
+    def approved(self):
+        slug, _ = self._plan(plan_id=plan_store.mint_plan_id())
+        self.assertEqual(self.run_command("preview", slug)[0], 0)
+        self.assertEqual(self.run_command("approve", slug, "--depth", "standard", "--operator-decided")[0], 0)
+        return slug
+
+    def packet(self, slug):
+        return project_manager.review_packet(self.lib, slug)[1]
+
+    def observed(self, slug, lens, report, packet):
+        import scoped_agents
+        return observe_review_execution(self.lib, slug, scoped_agents.plan_owner(self.lib.read_record(slug)),
+                                        lens, packet, report)[0]
+
+    def record(self, slug, packet, *lenses, raw=None, controller=False, amend=False):
+        argv = ["review", "amend" if amend else "record", slug, "--packet-digest", packet,
+                "--session", "fixture-root"]
+        for lens in lenses:
+            argv.extend(["--lens", lens])
+        if raw is not None:
+            source = Path(self._tmp.name) / "raw-findings.json"
+            source.write_text(raw)
+            argv.extend(["--findings", str(source)])
+        if controller:
+            argv.append("--controller-findings")
+        if amend:
+            argv.extend(["--reason", "Record the remaining observed lens."])
+        return self.run_command(*argv, observe=False)
+
+    def test_all_producer_locations_persist_exactly_through_record_and_amend(self):
+        locations = [{"file": "a"}, {"file": "a", "line": 12}, None,
+                     {"file": "a", "line": None}, {"file": ""}, {"file": "a:12"},
+                     {"file": "資料/é.py", "line": 0}, {"file": "a", "line": -2}]
+        report = [{"severity": "nit", "message": f"Finding {i}", "location": loc}
+                  for i, loc in enumerate(locations)]
+        slug = self.approved(); packet = self.packet(slug)
+        self.observed(slug, "architecture", report, packet)
+        code, _, err = self.record(slug, packet, "architecture", raw=json.dumps(report))
+        self.assertEqual(code, 0, err)
+        stored = self.lib.read_record(slug)["plan_review"]["findings"]
+        self.assertEqual([f["location"] for f in stored], locations)
+        self.assertNotEqual(stored[1]["location"], stored[5]["location"])
+        self.assertNotEqual(stored[0]["location"], stored[3]["location"])
+        self.observed(slug, "feasibility", report, packet)
+        code, _, err = self.record(slug, packet, "feasibility", raw=json.dumps(report), amend=True)
+        self.assertEqual(code, 0, err)
+        findings = self.lib.read_record(slug)["plan_review"]["findings"]
+        self.assertEqual([f["location"] for f in findings], locations * 2)
+        self.assertEqual(self.run_command("validate", slug)[0], 0)
+
+    def test_invalid_raw_inputs_leave_record_and_acceptance_unchanged(self):
+        finding = {"severity": "nit", "message": "Keep this finding", "location": {"file": "a"}}
+        invalid = ["null", "[", "7", '"[]"', json.dumps([finding, {"id": "A"}]),
+                   json.dumps([{**finding, "extra": 1}]),
+                   '[{"severity":"nit","message":"x","location":null,"location":null}]']
+        invalid += [json.dumps([{**finding, "location": loc}]) for loc in
+                    ["a", {}, {"file": 7}, {"file": "a", "line": "2"},
+                     {"file": "a", "line": True}, {"file": "a", "extra": 1}]]
+        slug = self.approved(); packet = self.packet(slug)
+        store = self.observed(slug, "architecture", [finding], packet)
+        record_path = self.lib.plan_dir(slug) / "record.json"
+        for raw in invalid:
+            before = record_path.read_bytes(), store.path.read_bytes()
+            with self.subTest(raw=raw):
+                code, _, err = self.record(slug, packet, "architecture", raw=raw)
+                self.assertEqual(code, 2, err)
+                self.assertEqual((record_path.read_bytes(), store.path.read_bytes()), before)
+        # A well-shaped empty substitute cannot erase the observed finding either.
+        before = record_path.read_bytes(), store.path.read_bytes()
+        self.assertEqual(self.record(slug, packet, "architecture", raw="[]")[0], 2)
+        self.assertEqual((record_path.read_bytes(), store.path.read_bytes()), before)
+
+    def test_invalid_observed_report_is_not_an_empty_review(self):
+        for report in [None, [{"severity": "nit", "message": "x", "location": "a"}]]:
+            slug = self.approved(); packet = self.packet(slug)
+            store = self.observed(slug, "architecture", report, packet)
+            before = self.lib.read_record(slug), store.read()
+            self.assertEqual(self.record(slug, packet, "architecture")[0], 2)
+            self.assertEqual((self.lib.read_record(slug), store.read()), before)
+        slug = self.approved(); packet = self.packet(slug)
+        self.observed(slug, "architecture", [], packet)
+        self.assertEqual(self.record(slug, packet, "architecture", raw="[]")[0], 0)
+        self.assertEqual(self.lib.read_record(slug)["plan_review"]["findings"], [])
+
+    def test_controller_ids_cannot_hide_or_substitute_observed_locations(self):
+        slug = self.approved(); packet = self.packet(slug)
+        location = {"file": "a", "line": 12}
+        report = [{"severity": "nit", "message": "x", "location": location}]
+        store = self.observed(slug, "architecture", report, packet)
+        entry = {"id": "custom-7", "lens": "architecture", "severity": "nit", "summary": "x"}
+        before = self.lib.read_record(slug), store.read()
+        for supplied in [entry, {**entry, "location": "a:12"}, {**entry, "location": {"file": "a:12"}}]:
+            self.assertEqual(self.record(slug, packet, "architecture", raw=json.dumps([supplied]), controller=True)[0], 2)
+            self.assertEqual((self.lib.read_record(slug), store.read()), before)
+        self.assertEqual(self.record(slug, packet, "architecture", raw=json.dumps([
+            {**entry, "location": location}]), controller=True)[0], 0)
+        self.assertEqual(self.lib.read_record(slug)["plan_review"]["findings"][0]["id"], "custom-7")
+
+    def test_pre_upgrade_accepted_review_stays_verified_and_can_amend_and_seal(self):
+        import result_contracts as rc
+        import scoped_agents
+        slug = self.approved(); packet = self.packet(slug)
+        report = [{"severity": "nit", "message": "old finding", "location": {"file": "a", "line": 12}}]
+        original = rc.compile_review
+        # Exercise the real old string projection through today's unchanged binding and observation
+        # machinery. This is fixture construction, not a fabricated production acceptance.
+        with mock.patch.object(rc, "compile_review", side_effect=lambda report, *, lens, **kw:
+                               original(report, lens=lens)):
+            store = self.observed(slug, "architecture", report, packet)
+            code, _, err = self.record(slug, packet, "architecture")
+            self.assertEqual(code, 0, err)
+        before = self.lib.read_record(slug)
+        self.assertEqual(before["plan_review"]["findings"][0]["location"], "a:12")
+        self.assertEqual(rc.resolve("plan-review-finding.v1")["schema_digest"],
+                         "sha256:b2f3de83282162c3fb0b77e362ff901aac188f1ec786bb4c0f51c7c07f9a0562")
+        self.assertTrue(store.receipt_verified(before["plan_review"], scoped_agents.plan_owner(before)))
+        record_path = self.lib.plan_dir(slug) / "record.json"
+        old_bytes = record_path.read_bytes()
+        self.assertEqual(self.run_command("reindex")[0], 0)
+        self.assertEqual(record_path.read_bytes(), old_bytes)
+        for lens in project_manager.required_lenses("standard", project_manager.installed_lenses()):
+            if lens != "architecture":
+                self.observed(slug, lens, report, packet)
+                code, _, err = self.record(slug, packet, lens, raw=json.dumps(report), amend=True)
+                self.assertEqual(code, 0, err)
+        record = self.lib.read_record(slug)
+        self.assertEqual(record["plan_review"]["findings"][0], before["plan_review"]["findings"][0])
+        self.assertEqual(record["plan_review"]["findings"][1]["location"], report[0]["location"])
+        for finding in record["plan_review"]["findings"]:
+            self.assertEqual(self.run_command("finding", "dispose", slug, "--id", finding["id"],
+                "--disposition", "rejected", "--rationale", "Disposable fixture finding.",
+                "--does-not-block-this-pr")[0], 0)
+        self.assertEqual(self.run_command("present-findings", slug, "--operator-decided")[0], 0)
+        code, _, err = self.run_command("seal", slug, "--operator-decided")
+        self.assertEqual(code, 0, err)
+        sealed_bytes = record_path.read_bytes()
+        self.assertEqual(self.run_command("reindex")[0], 0)
+        self.assertEqual(record_path.read_bytes(), sealed_bytes)
+        bundle = Path(self._tmp.name) / "legacy-and-structured.json"
+        self.assertEqual(self.run_command("export", slug, "--output", str(bundle))[0], 0)
+        other = Path(self._tmp.name) / "imported"
+        with contextlib.redirect_stdout(io.StringIO()), contextlib.redirect_stderr(io.StringIO()):
+            code = project_manager.main(["--library", str(other), "import", "--bundle", str(bundle)])
+        self.assertEqual(code, 0)
+        imported = plan_store.PlanLibrary(other).read_record(slug)
+        self.assertEqual(imported, self.lib.read_record(slug))
+        self.assertEqual(record_path.read_bytes(), sealed_bytes)
+
+    def test_legacy_absent_location_is_readable_and_survives_bundle_transport(self):
+        slug = self.approved(); packet = self.packet(slug)
+        report = [{"severity": "nit", "message": "Historical finding", "location": None}]
+        self.observed(slug, "architecture", report, packet)
+        self.assertEqual(self.record(slug, packet, "architecture")[0], 0)
+        # Model the documented historical record format, never a new producer report.
+        self.lib.update_record(slug, lambda r: r["plan_review"]["findings"][0].pop("location"))
+        before = self.lib.read_record(slug)
+        bundle = Path(self._tmp.name) / "absent-location.json"
+        self.assertEqual(self.run_command("export", slug, "--output", str(bundle))[0], 0)
+        other = Path(self._tmp.name) / "imported-absent"
+        with contextlib.redirect_stdout(io.StringIO()), contextlib.redirect_stderr(io.StringIO()):
+            self.assertEqual(project_manager.main(["--library", str(other), "import", "--bundle", str(bundle)]), 0)
+        self.assertEqual(plan_store.PlanLibrary(other).read_record(slug), before)
+
+
+class LocationDemonstration(_Surface):
+    def test_demo_passes_and_deliberately_broken_versions_fail(self):
+        for flag, expected in [(None, 0), ("--break-preservation", 1), ("--break-ingress", 1)]:
+            args = ["demo-locations"] + ([flag] if flag else [])
+            code, out, _ = self.run_command(*args)
+            self.assertEqual(code, expected, out)
+            self.assertIn("temporary libraries", out)
+
+
+
+class ReviewerContractDemonstration(_Surface):
+    def test_each_deliberate_regression_fails_an_acceptance_assertion(self):
+        for flag in ("identity-preservation", "envelope-validation", "fresh-legacy-separation"):
+            code, out, err = self.run_command("demo-review-contracts", "--break-" + flag)
+            self.assertEqual(1, code, out + err)
+            self.assertIn("FAIL:", out)
+            self.assertNotIn("ERROR:", out)
+            self.assertIn("synthetic", out)
 
 
 class Selection(_Surface):
@@ -355,8 +593,7 @@ class _Governed(_Surface):
         The two were interchangeable while nothing verified the receipt; now that `review record`
         re-renders and compares, a receipt has to name the packet it really read."""
         import plan_projection as _pp
-        return project_manager.core.digest(
-            _pp.render_plan(self.lib.head(slug), self.lib.read_record(slug)).encode("utf-8"))
+        return project_manager.review_packet(self.lib, slug)[1]
 
     def _covering_lenses(self, depth="standard"):
         """Every lens the approved depth requires — the seal refuses anything short of it."""
@@ -431,7 +668,7 @@ class OneReviewPerPlan(_Governed):
         self.run_command("approve", slug, "--depth", "standard", "--operator-decided")
         code, out, err = self.run_command("review", "packet", slug)
         self.assertEqual(code, 0)
-        self.assertIn("Packet digest: sha256:", out)
+        self.assertIn('"packet_digest": "sha256:', out)
         self.assertIn(self.lib.read_record(slug)["current"]["plan_digest"], out)
         self.assertIn("packet digest:", err)
 
@@ -736,10 +973,10 @@ class Dispositions(_Governed):
 
 
 class PersonaLocationRendering(_Governed):
-    """Persona-shaped findings with object locations render to record string form through review record."""
+    """Persona-shaped findings preserve their exact locations through review record."""
 
-    def test_object_locations_render_to_string_form_in_the_recorded_plan(self):
-        """End-to-end: object locations with line, without line, and null are rendered as strings."""
+    def test_object_locations_remain_structured_in_the_recorded_plan(self):
+        """End-to-end: object locations with line, without line, and null survive exactly."""
         slug, _ = self._plan()
         self.run_command("preview", slug)
         self.assertEqual(self.run_command("approve", slug, "--depth", "standard", "--operator-decided")[0], 0)
@@ -759,12 +996,9 @@ class PersonaLocationRendering(_Governed):
 
         findings_list = self.lib.read_record(slug)["plan_review"]["findings"]
         self.assertEqual(len(findings_list), 3)
-        # Object with line renders as file:line
-        self.assertEqual(findings_list[0]["location"], "src/validate.py:42")
-        # Object without line renders as file path
-        self.assertEqual(findings_list[1]["location"], "src/module.py")
-        # Null location renders as the plan as a whole
-        self.assertEqual(findings_list[2]["location"], "the plan as a whole")
+        self.assertEqual(findings_list[0]["location"], {"file": "src/validate.py", "line": 42})
+        self.assertEqual(findings_list[1]["location"], {"file": "src/module.py"})
+        self.assertIsNone(findings_list[2]["location"])
 
 
 class Closing(_Surface):
@@ -1744,9 +1978,14 @@ class ThePanelMovedHere(_Governed):
             project_manager.available_depths(roster, efforts={"standard": "medium"})
 
     def test_the_shipped_roster_offers_all_three_depths(self):
-        slug, _ = self._plan()
-        self.run_command("preview", slug)
-        out = self.run_command("depths", slug)[1]
+        from selftest_support import needs_modules
+        needs_modules(self, "design-review", "qa-review")
+        # This case judges installed assets, unlike the protocol cases using disposable personas.
+        source = Path(__file__).resolve().parent / "project_manager.py"
+        with mock.patch.object(project_manager, "__file__", str(source)):
+            slug, _ = self._plan()
+            self.run_command("preview", slug)
+            out = self.run_command("depths", slug)[1]
         for depth in ("quick", "standard", "thorough"):
             self.assertIn(f"  {depth:<10}", out)
         self.assertNotIn("not offered", out)
@@ -2532,6 +2771,418 @@ class ProjectionLink(_Governed):
         text = plan_md.read_text(encoding="utf-8")
         self.assertIn("review-recorded", text)
         self.assertIn(f"revision {self.lib.read_record(slug)['current']['revision']}", text)
+
+
+
+
+
+class ObservedPlanReview(_Governed):
+    def test_exact_wire_byte_limit_survives_single_and_panel_ingress(self):
+        import result_contracts
+        for panel in (False, True):
+            report = [{"severity": "nit", "message": "a" * 65536, "location": None} for _ in range(15)]
+            report.append({"severity": "nit", "message": "", "location": None})
+            value = {"architecture": report} if panel else report
+            wire = lambda: json.dumps(value, separators=(",", ":"))
+            report[-1]["message"] = "b" * (result_contracts.LIMITS["bytes"] - len(wire()))
+            source = Path(self._tmp.name) / "exact-limit.json"
+            source.write_text(wire())
+            self.assertEqual(source.stat().st_size, result_contracts.LIMITS["bytes"])
+            reports, findings = project_manager._review_input(str(source), ["architecture"])
+            self.assertEqual(reports["architecture"], report)
+            self.assertEqual(len(findings), 16)
+
+    def test_valid_unicode_report_does_not_expand_past_byte_limit_in_panel_adapter(self):
+        report = [{"severity": "nit", "message": "é" * 32768, "location": None} for _ in range(8)]
+        source = Path(self._tmp.name) / "unicode-report.json"
+        source.write_text(json.dumps(report, ensure_ascii=False))
+        reports, findings = project_manager._review_input(str(source), ["architecture"])
+        self.assertEqual(reports["architecture"], report)
+        self.assertEqual(len(findings), 8)
+
+    def test_raw_report_substitution_refuses_without_mutating_either_store(self):
+        import scoped_agents
+        slug = self.prepared()
+        digest = self._packet_digest(slug)
+        report = [{"severity": "blocking", "message": "first", "location": {"file": "a", "line": None}},
+                  {"severity": "serious", "message": "second", "location": None}]
+        companion, assignment = observe_review_execution(self.lib, slug,
+            scoped_agents.plan_owner(self.lib.read_record(slug)), "architecture", digest, report)
+        source = Path(self._tmp.name) / "raw-report.json"
+        record_path = self.lib.plan_dir(slug) / "record.json"
+        before = record_path.read_bytes(), companion.path.read_bytes()
+        variants = [[], report[:1], report[::-1], [{**report[0], "location": {"file": "a"}}, report[1]],
+                    [{**report[0], "message": "replacement"}, report[1]], None,
+                    [{**report[0], "disposition": "rejected"}, report[1]]]
+        for value in variants:
+            source.write_text(json.dumps(value))
+            code, _, err = self.run_command("review", "record", slug, "--lens", "architecture",
+                "--packet-digest", digest, "--session", "fixture-root", "--findings", str(source), observe=False)
+            self.assertEqual(code, 2, err)
+            self.assertEqual(json.loads(err)["schema_version"], "result-rejection.v1")
+            self.assertEqual((record_path.read_bytes(), companion.path.read_bytes()), before)
+        source.write_text(json.dumps(report, indent=4, sort_keys=True))
+        code, _, err = self.run_command("review", "record", slug, "--lens", "architecture",
+            "--packet-digest", digest, "--session", "fixture-root", "--findings", str(source), observe=False)
+        self.assertEqual(code, 0, err)
+        accepted = next(iter(companion.read()["acceptances"].values()))
+        self.assertEqual(accepted["reports"][assignment["id"]], report)
+
+    def prepared(self):
+        slug, document = self._plan()
+        self.run_command("preview", slug)
+        self.assertEqual(self.run_command("approve", slug, "--depth", "standard", "--operator-decided")[0], 0)
+        return slug
+
+    def test_empty_findings_cannot_replace_missing_execution(self):
+        slug = self.prepared()
+        code, _, err = self.run_command("review", "record", slug, "--lens", "architecture",
+            "--packet-digest", self._packet_digest(slug), "--session", "fixture-root", observe=False)
+        self.assertEqual(code, 2)
+        self.assertIn("unverified", err)
+        self.assertIsNone(self.lib.read_record(slug).get("plan_review"))
+
+    def test_observed_receipt_survives_disposition_without_fabricating_freshness(self):
+        import scoped_agents
+        slug, _ = self._to_reviewed(findings=[{"id": "A1", "lens": "architecture", "severity": "nit",
+            "summary": "A concern", "location": "the plan as a whole"}], lenses=["architecture"])
+        record = self.lib.read_record(slug)
+        companion = scoped_agents.Store(self.lib, slug)
+        receipt = record["plan_review"]
+        owner = scoped_agents.plan_owner(record, receipt)
+        self.assertTrue(companion.receipt_verified(receipt, owner))
+        edited = json.loads(json.dumps(receipt))
+        edited["findings"][0].update(disposition="rejected", rationale="Evidence")
+        self.assertTrue(companion.receipt_verified(edited, owner))
+        companion.path.unlink()
+        self.assertFalse(companion.receipt_verified(receipt, owner))
+        self.assertIn("unverified", self.run_command("show", slug)[1])
+
+
+    def test_new_seal_refuses_lost_or_damaged_execution_but_keeps_history_readable(self):
+        import scoped_agents
+        for loss in ("missing", "damaged", "packet"):
+            with self.subTest(loss=loss):
+                slug, _ = self._to_reviewed()
+                companion = scoped_agents.Store(self.lib, slug)
+                before = self.lib.read_record(slug)
+                if loss == "missing":
+                    companion.path.unlink()
+                elif loss == "damaged":
+                    companion.path.write_text("{}")
+                else:
+                    assignment = next(iter(companion.read()["assignments"].values()))
+                    Path(assignment["packet_path"]).write_text("changed packet")
+                code, _, err = self.run_command("seal", slug, "--operator-decided", observe=False)
+                self.assertEqual(code, 1, err)
+                self.assertIn("no verified execution evidence", err)
+                self.assertEqual(self.lib.read_record(slug), before)
+                self.assertEqual(self.run_command("show", slug)[0], 0)
+                # Each case owns its own real library and canonical plan identity.
+                self.lib = plan_store.PlanLibrary(self.root / loss)
+                self.root = self.lib.root
+
+    def test_imported_unsealed_review_does_not_gain_seal_authority(self):
+        slug, _ = self._to_reviewed()
+        bundle = Path(self._tmp.name) / "reviewed-bundle.json"
+        self.assertEqual(self.run_command("export", slug, "--output", str(bundle))[0], 0)
+        self.root = Path(self._tmp.name) / "arrival"
+        self.lib = plan_store.PlanLibrary(self.root)
+        code, _, err = self.run_command("import", "--bundle", str(bundle))
+        self.assertEqual(code, 0, err)
+        before = self.lib.read_record(slug)
+        code, _, err = self.run_command("seal", slug, "--operator-decided", observe=False)
+        self.assertEqual(code, 1, err)
+        self.assertIn("no verified execution evidence", err)
+        self.assertEqual(self.lib.read_record(slug), before)
+
+    def test_seal_rechecks_execution_under_the_plan_transaction_lock(self):
+        import scoped_agents
+        slug, _ = self._to_reviewed()
+        companion = scoped_agents.Store(self.lib, slug)
+        before = self.lib.read_record(slug)
+        original_update = self.lib.update_record
+        def lose_evidence_before_lock(*args, **kwargs):
+            companion.path.unlink()
+            return original_update(*args, **kwargs)
+        with mock.patch.object(plan_store.PlanLibrary, "update_record", side_effect=lose_evidence_before_lock):
+            code, _, err = self.run_command("seal", slug, "--operator-decided", observe=False)
+        self.assertEqual(code, 2, err)
+        self.assertIn("became unverified", err)
+        self.assertEqual(self.lib.read_record(slug), before)
+
+    def test_clarification_completes_plan_review_without_a_second_child(self):
+        import scoped_agents
+        from test_build_coordinator import clarify_review_execution
+        slug = self.prepared()
+        digest = self._packet_digest(slug)
+        record = self.lib.read_record(slug)
+        companion, assignment = observe_review_execution(self.lib, slug, scoped_agents.plan_owner(record),
+            "architecture", digest, {"status": "needs_clarification"})
+        argv = ("review", "record", slug, "--lens", "architecture", "--packet-digest", digest,
+                "--session", "fixture-root")
+        self.assertEqual(self.run_command(*argv, observe=False)[0], 2)
+        final = clarify_review_execution(companion, assignment)
+        code, _, err = self.run_command(*argv, observe=False)
+        self.assertEqual(code, 0, err)
+        saved = self.lib.read_record(slug)["plan_review"]
+        self.assertTrue(companion.receipt_verified(saved, scoped_agents.plan_owner(record)))
+        self.assertEqual(len(final["continuations"]), 1)
+        self.assertEqual(len(companion.read()["assignments"]), 1)
+
+
+    def test_interrupted_plan_receipt_preserves_unaccepted_history_and_retries_once(self):
+        import scoped_agents
+        slug = self.prepared()
+        record = self.lib.read_record(slug)
+        digest = self._packet_digest(slug)
+        companion, assignment = observe_review_execution(self.lib, slug,
+            scoped_agents.plan_owner(record), "architecture", digest, [])
+        original_write = plan_store.PlanLibrary._write_json
+        def interrupted(library, path, value):
+            if path == self.lib._record_path(slug):
+                raise OSError("simulated interruption before plan receipt publication")
+            return original_write(library, path, value)
+        argv = ("review", "record", slug, "--lens", "architecture", "--packet-digest", digest,
+                "--session", "fixture-root")
+        with mock.patch.object(plan_store.PlanLibrary, "_write_json", new=interrupted):
+            # The interruption propagates; it must not publish a successful review.
+            with self.assertRaisesRegex(OSError, "simulated interruption"):
+                self.run_command(*argv, observe=False)
+        self.assertEqual(self.lib.read_record(slug), record)
+        self.assertIsNone(record.get("plan_review"))
+        self.assertEqual(len(companion.read()["acceptances"]), 1)
+        code, _, err = self.run_command(*argv, observe=False)
+        self.assertEqual(code, 0, err)
+        saved = self.lib.read_record(slug)["plan_review"]
+        self.assertTrue(companion.receipt_verified(saved, scoped_agents.plan_owner(record)))
+        self.assertEqual(len(companion.read()["assignments"]), 1)
+        self.assertEqual(len(companion.read()["acceptances"]), 1)
+
+    def test_concurrent_plan_receipts_cannot_overwrite_or_combine_coverage(self):
+        import concurrent.futures
+        import scoped_agents
+        slug = self.prepared()
+        digest = self._packet_digest(slug)
+        record = self.lib.read_record(slug)
+        owner = scoped_agents.plan_owner(record)
+        for lens in ("architecture", "feasibility"):
+            observe_review_execution(self.lib, slug, owner, lens, digest, [])
+        def record_lens(lens):
+            args = project_manager.build_parser().parse_args(["--library", str(self.root),
+                "review", "record", slug, "--lens", lens, "--packet-digest", digest,
+                "--session", "fixture-root"])
+            try:
+                project_manager.cmd_review_record(args)
+                return True
+            except project_manager.ProjectManagerError:
+                return False
+        with concurrent.futures.ThreadPoolExecutor(max_workers=2) as pool:
+            results = list(pool.map(record_lens, ("architecture", "feasibility")))
+        self.assertEqual(sorted(results), [False, True])
+        self.assertEqual(len(self.lib.read_record(slug)["plan_review"]["lenses"]), 1)
+        self.assertEqual(len(scoped_agents.Store(self.lib, slug).read()["acceptances"]), 1)
+
+
+
+
+
+class TestFrozenApproval(_Surface):
+    def _approved(self):
+        slug, _ = self._plan(plan_id=plan_store.mint_plan_id())
+        self.assertEqual(0, self.run_command('preview', slug)[0])
+        self.assertEqual(0, self.run_command('approve', slug, '--depth', 'standard', '--operator-decided')[0])
+        return slug
+
+    def test_exact_approval_retry_does_not_rediscover_removed_reviewers(self):
+        slug = self._approved()
+        original = self.lib.read_record(slug)
+        with mock.patch.object(project_manager, "installed_lenses", side_effect=AssertionError("live roster")):
+            code, out, err = self.run_command("approve", slug, "--depth", "standard", "--operator-decided")
+        self.assertEqual(0, code, out + err)
+        self.assertEqual(original, self.lib.read_record(slug))
+
+    def test_cli_mixed_renewal_and_editorial_status_preserve_original_approval(self):
+        slug = self._approved(); original = self.lib.read_record(slug)['approval']
+        root = Path(project_manager.__file__).resolve().parents[2]
+        for lens in ('architecture', 'feasibility'):
+            path = root / f'.claude/agents/engine-design-review-{lens}.md'
+            path.write_text(path.read_text().replace('reviewer-contract-version: 1', 'reviewer-contract-version: 2'))
+        output = Path(self._tmp.name) / 'mixed.json'
+        rc, out, err = self.run_command('review-contract', 'preview', slug, '--action', 'adopt',
+            '--adopt-lens', 'plan-review:architecture', '--output', str(output))
+        self.assertEqual(0, rc, out + err)
+        rc, out, err = self.run_command('review-contract', 'apply', slug, '--input', str(output),
+            '--reason', 'Adopt architecture while retaining feasibility', '--operator-decided')
+        self.assertEqual(0, rc, out + err)
+        record = self.lib.read_record(slug)
+        self.assertEqual(original, record['approval'])
+        self.assertEqual(['architecture'], [d['lens'] for d in record['review_contract_renewals'][0]['delta']])
+        self.assertEqual([], project_manager.unresolved_review_drift(record))
+        path = root / '.claude/agents/engine-design-review-architecture.md'
+        old_hash = project_manager.reviewer_contracts.effective(record)['panels']['plan-review'][0]['source']['digest']
+        path.write_text(path.read_text() + '\nPRIVATE-PROVENANCE-WITNESS\n')
+        rc, out, err = self.run_command('show', slug)
+        self.assertEqual(0, rc, err)
+        self.assertIn(old_hash, out)
+        self.assertIn(project_manager.core.digest(path.read_bytes()), out)
+        self.assertNotIn('PRIVATE-PROVENANCE-WITNESS', out)
+        self.assertIn('plan-review/feasibility — retain', out)
+        rendered = plan_projection.render_plan(self.lib.head(slug), record)
+        self.assertIn(old_hash, rendered)
+        self.assertIn('plan-review/architecture — adopt', rendered)
+
+    def test_approval_captures_both_panels_and_effort_policy(self):
+        slug = self._approved()
+        r = self.lib.read_record(slug)
+        c = project_manager.reviewer_contracts.effective(r)
+        self.assertEqual(r['approval']['plan_digest'], c['referent']['plan_digest'])
+        self.assertEqual(4, len(c['panels']['plan-review']))
+        self.assertEqual(3, len(c['panels']['pre-submission-review']))
+        for panel in c['panels'].values():
+            for persona in panel:
+                self.assertEqual({'mode': 'harness-controlled', 'floor': None},
+                                 persona['semantic']['effort_policy'])
+                self.assertIn('instructions', persona['source'])
+
+    def test_renewal_requires_consent_and_preserves_original_approval(self):
+        slug = self._approved();original = self.lib.read_record(slug)['approval']
+        output = str(Path(self._tmp.name) / 'renewal.json')
+        rc, _, err = self.run_command('review-contract','preview',slug,'--action','retain','--output',output)
+        self.assertEqual(0,rc,err)
+        rc, _, _ = self.run_command('review-contract','apply',slug,'--input',output,'--reason','Retain the approved mandate')
+        self.assertNotEqual(0,rc)
+        self.assertNotIn('review_contract_renewals',self.lib.read_record(slug))
+        args=('review-contract','apply',slug,'--input',output,'--reason','Retain the approved mandate','--operator-decided')
+        rc, _, err = self.run_command(*args);self.assertEqual(0,rc,err)
+        r = self.lib.read_record(slug)
+        self.assertEqual(original,r['approval']);self.assertEqual(1,len(r['review_contract_renewals']))
+        self.assertEqual(0,self.run_command(*args)[0])
+        self.assertEqual(r,self.lib.read_record(slug))
+
+    def test_stale_or_tampered_renewal_does_not_write(self):
+        slug=self._approved();output=Path(self._tmp.name)/'renewal.json'
+        self.assertEqual(0,self.run_command('review-contract','preview',slug,'--action','adopt','--output',str(output))[0])
+        preview=json.loads(output.read_text());preview['contract']['depth']='quick';output.write_text(json.dumps(preview))
+        before=self.lib.read_record(slug)
+        rc,_,_=self.run_command('review-contract','apply',slug,'--input',str(output),'--reason','Change','--operator-decided')
+        self.assertNotEqual(0,rc);self.assertEqual(before,self.lib.read_record(slug))
+        self.assertEqual(0,self.run_command('review-contract','preview',slug,'--action','retain','--output',str(output))[0])
+        self.lib.update_record(slug,lambda r:r.setdefault('consent',[]).append({'gate':'approve','at':'2026-09-11T00:00:00Z'}))
+        before=self.lib.read_record(slug)
+        self.assertNotEqual(0,self.run_command('review-contract','apply',slug,'--input',str(output),'--reason','Retain','--operator-decided')[0])
+        self.assertEqual(before,self.lib.read_record(slug))
+
+    def test_modern_approval_cannot_drop_its_contract(self):
+        slug = self._approved()
+        before = self.lib.read_record(slug)
+        with self.assertRaises(project_manager.core.CoordinatorError):
+            self.lib.update_record(slug, lambda r: r['approval'].pop('review_contract'))
+        self.assertEqual(before, self.lib.read_record(slug))
+
+    def test_unreviewed_revision_reapproval_preserves_original_contract(self):
+        slug = self._approved()
+        original = self.lib.read_record(slug)['approval']
+        document = self.lib.head(slug)
+        document['revision'] = 2
+        document['revised_at'] = '2026-09-10T23:00:00Z'
+        document['title'] = 'Revised before review'
+        self.lib.append_revision(slug, document, expected_revision=1)
+        self.assertEqual(0, self.run_command('preview', slug)[0])
+        rc, _, err = self.run_command('approve', slug, '--depth', 'standard', '--operator-decided')
+        self.assertEqual(0, rc, err)
+        record = self.lib.read_record(slug)
+        self.assertEqual(original, record['approval_history'][0]['approval'])
+        self.assertEqual(2, record['approval']['review_contract']['referent']['revision'])
+
+    def test_renewed_lens_finding_requires_disposition_and_new_presentation(self):
+        import copy
+        import scoped_agents
+        slug = self._approved()
+        record = self.lib.read_record(slug)
+        contract = record['approval']['review_contract']
+        packet = project_manager.review_packet(self.lib, slug)[1]
+        lenses = [p['lens'] for p in contract['panels']['plan-review']]
+        for lens in lenses:
+            observe_review_execution(self.lib, slug, scoped_agents.plan_owner(record), lens, packet, [])
+        argv = ['review', 'record', slug, '--packet-digest', packet, '--session', 'fixture-root']
+        for lens in lenses:
+            argv.extend(['--lens', lens])
+        rc, _, err = self.run_command(*argv, observe=False)
+        self.assertEqual(0, rc, err)
+        self.assertEqual(0, self.run_command('present-findings', slug, '--operator-decided')[0])
+        original = copy.deepcopy(self.lib.read_record(slug)['plan_review'])
+        changed = copy.deepcopy(contract)
+        item = changed['panels']['plan-review'][0]
+        item['semantic']['mandate']['version'] += 1
+        item['semantic_digest'] = project_manager.core.digest(item['semantic'])
+        item['source']['instructions'] = item['source']['instructions'].replace('reviewer-contract-version: 1', 'reviewer-contract-version: 2')
+        item['source']['digest'] = project_manager.core.digest(item['source']['instructions'].encode())
+        changed['digest'] = project_manager.core.digest({k:v for k,v in changed.items() if k != 'digest'})
+        installed = [p for panel in changed['panels'].values() for p in panel]
+        def discover(root, role=None):
+            return [p for p in installed if role is None or p['semantic']['role'] == role]
+        output = Path(self._tmp.name) / 'changed-contract.json'
+        with mock.patch.object(project_manager, '_capture_review_contract', return_value=changed), mock.patch.object(project_manager.reviewer_contracts, 'discover', side_effect=discover):
+            self.assertEqual(0, self.run_command('review-contract','preview',slug,'--action','adopt','--output',str(output))[0])
+            renewal = json.loads(output.read_text())['preview_digest']
+            self.assertEqual(0, self.run_command('review-contract','apply',slug,'--input',str(output),'--reason','Adopt changed architecture mandate','--operator-decided')[0])
+            record = self.lib.read_record(slug)
+            packet = project_manager.review_packet(self.lib, slug)[1]
+            lens = item['lens']
+            observe_review_execution(self.lib, slug, scoped_agents.plan_owner(record), lens, packet,
+                [{'severity':'serious','message':'Resolve the new obligation','location':{'file':'plan'}}])
+            rc, _, err = self.run_command('review','record',slug,'--renewal',renewal,'--lens',lens,'--packet-digest',packet,'--session','fixture-root',observe=False)
+            self.assertEqual(0,rc,err)
+            record = self.lib.read_record(slug)
+            self.assertEqual(original, record['plan_review'])
+            self.assertIn('no disposition', ' '.join(project_manager.seal_refusals(self.lib,slug)))
+            finding = record['supplemental_reviews'][0]['review']['findings'][0]
+            rc, _, err = self.run_command('finding','dispose',slug,'--id',finding['id'],'--disposition','accepted-fixed','--rationale','Implemented','--does-not-block-this-pr')
+            self.assertEqual(0,rc,err)
+            self.assertIn('lineage', ' '.join(project_manager.seal_refusals(self.lib,slug)))
+            self.assertEqual(0,self.run_command('present-findings',slug,'--operator-decided')[0])
+            self.assertEqual([],project_manager.seal_refusals(self.lib,slug))
+            self.assertEqual(original,self.lib.read_record(slug)['plan_review'])
+
+    def test_packet_header_tampering_is_rejected_before_dispatch(self):
+        import scoped_agents
+        slug = self._approved()
+        record = self.lib.read_record(slug)
+        text, digest, contract = project_manager.review_packet(self.lib, slug)
+        packet = json.loads(text)
+        source = Path(self._tmp.name) / 'packet.json'
+        store = scoped_agents.Store(self.lib, slug)
+        for key in packet:
+            with self.subTest(field=key):
+                changed = dict(packet)
+                changed[key] = None
+                source.write_text(json.dumps(changed))
+                with self.assertRaises(scoped_agents.EvidenceError):
+                    store.register(owner=scoped_agents.plan_owner(record),root='fixture-root',purpose='review',
+                        lens='architecture',role='engine-design-review-architecture',packet=source,packet_digest=digest)
+                self.assertEqual({},store.read()['assignments'])
+        source.write_text(text)
+        a = store.register(owner=scoped_agents.plan_owner(record),root='fixture-root',purpose='review',
+            lens='architecture',role='engine-design-review-architecture',packet=source,packet_digest=digest)
+        self.assertEqual(contract,a['review_contract'])
+        # Render identity does not churn when a review/disposition is recorded.
+        self.assertEqual(digest,project_manager.review_packet(self.lib,slug)[1])
+
+    def test_retained_review_survives_live_schema_resolution_change(self):
+        import scoped_agents
+        import result_contracts
+        slug = self._approved(); record = self.lib.read_record(slug)
+        packet = project_manager.review_packet(self.lib,slug)[1]
+        store, _ = observe_review_execution(self.lib,slug,scoped_agents.plan_owner(record),'architecture',packet,[])
+        rc,_,err = self.run_command('review','record',slug,'--lens','architecture','--packet-digest',packet,'--session','fixture-root',observe=False)
+        self.assertEqual(0,rc,err)
+        record = self.lib.read_record(slug)
+        with mock.patch.object(result_contracts,'resolve',side_effect=AssertionError('retained validation must not resolve live schema')):
+            self.assertTrue(store.receipt_verified(record['plan_review'],scoped_agents.plan_owner(record)))
+        assignment_id = next(iter(store.read()['assignments']))
+        store.change(lambda data: data['assignments'][assignment_id].pop('review_contract'))
+        self.assertFalse(store.receipt_verified(record['plan_review'],scoped_agents.plan_owner(record)))
 
 
 if __name__ == "__main__":

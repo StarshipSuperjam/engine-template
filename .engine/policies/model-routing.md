@@ -65,8 +65,8 @@ consent, in the same register as the review-depth choice below, and never which 
 **Operator-chosen review depth is a separate axis from posture: it selects which lenses run.** The
 operator's Quick/Standard/Thorough choice names the reviewer roster on each side of the seal, and each lens
 keeps the per-lens model its tier or override binds at every depth. On Claude a reviewer persona carries a
-model pin and no effort line; on Codex the reviewer twin carries neither, by construction (a pinned model id
-rots), so a cold reviewer there runs at the provider's configured default. This is the operator's explicit,
+model pin and no effort line; on Codex the reviewer twin carries the model resolved from the central
+provider bindings and no effort line. Depth never changes that model or stamps effort into reviewer renders. This is the operator's explicit,
 per-change consent, not the engine silently taking an environment shortcut, so it applies in **every**
 posture, including the conservative default: the "make no model-dependent shortcuts" instruction there is
 about the engine choosing a *model* on its own, which review depth never does. Depth thus modulates review
@@ -74,13 +74,31 @@ about the engine choosing a *model* on its own, which review depth never does. D
 and pass) still holds.
 
 To retune the fleet's models, edit `.engine/policies/model-bindings.json`: each capability tier (`judgment`,
-`mechanical`) and each per-persona override binds a durable model alias (opus, sonnet, haiku, …; never a
-versioned id) and an effort (`low`/`medium`/`high`). Then run `uv run --directory .engine -- python
-tools/agent_bindings.py render` to stamp the personas; a CI check fails with that exact instruction if the
+`mechanical`) and each per-persona override binds a model, with execution effort chosen from
+`low`, `medium`, `high`, `xhigh`, `max`, or `ultra`. A model-only override inherits tier effort
+for execution personas; reviewer renders omit effort regardless of the tier or override.
+The model-bindings schema owns this finite vocabulary, and the binding resolver consumes it.
+Acceptance means the Engine can represent and render the value; support still depends on the
+selected provider and model. Adding a value does not retune any existing persona or certify
+a provider/model combination. The higher values are described in the
+[Codex subagent documentation](https://learn.chatgpt.com/docs/agent-configuration/subagents);
+choose only values supported by the model and runtime you intend to use. The top-level
+tiers/overrides retain Claude's durable aliases; `providers.codex` holds native Codex model identifiers.
+Worker choices remain in `implementation_classes`. Run `uv run --directory .engine --frozen -- python
+tools/agent_bindings.py render` and `uv run --directory .engine --frozen -- python tools/codex_gen.py generate`
+to stamp the personas; coherence checks fail if the
 bindings and the stamped personas ever drift. **In the engine's home repository** that direct edit is the
 retune path. **In a deployed repository** `model-bindings.json` is engine-owned and an engine update overlays
 it, so a hand-edit there does not survive the update. (Retuning a deployed repo's model bindings so they
 survive an update is not yet supported — that is a known, separate gap.)
+
+### Review identity at approval
+
+The shared reviewer envelope freezes resolved provider **models** at approval. Models participate in
+semantic identity; effort does not. Reviewer effort remains harness-controlled with no floor, including
+after renewal or historical adoption. Changing a model requires an explicit per-lens retain/adopt decision
+for an active frozen plan or Build, rather than invalidating every accepted panel on the next file read.
+
 
 ## Rationale
 
@@ -96,9 +114,10 @@ have done inline. It changes which model realizes an unbound agent, never how ma
 reduces no volume: the measured cost driver is context re-reads, not price per token. An automated behavioural qualification suite was also rejected — self-grading is circular and
 costs real tokens per model release. What the engine *can* do is what this policy does: record which
 environments the operator has qualified, notice drift from that snapshot, and shape which model realizes each
-capability tier. Model identity is deliberately capability-shaped, never a pinned model name in a persona file
-(a versioned id rots). On Codex the running model id is not exposed at all; the deriver behaves uniformly and
-simply records no model identity there — a data-availability fact, not a capability asymmetry. The bindings are
+capability tier. Model choices have one owner in the bindings policy; generated persona pins are projections,
+not independent choices. Live Codex qualification distinguishes requested child settings from observed runtime
+metadata. A spawn hook's common `model` describes its parent and cannot fill an absent child model. The
+execution-posture deriver still does not certify the running model from that hook. The bindings are
 an evolving judgment, retuned by the operator: edit `.engine/policies/model-bindings.json` and re-run
 `agent_bindings.py render`, and a lesson about which model suits which work is promoted into the file by a
 reviewed change. `AUDIT_MODEL` (the audit workflow's model knob) is the one place a model is named at

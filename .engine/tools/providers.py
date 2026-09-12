@@ -32,6 +32,8 @@ import sys
 import tempfile
 import time
 
+SCOPED_READ_MAX_BYTES = 1024 * 1024
+
 CLAUDE = "claude"
 CODEX = "codex"
 
@@ -51,7 +53,16 @@ SESSION_ENV_CHAIN = ("ENGINE_SESSION_ID", "CLAUDE_CODE_SESSION_ID")
 # and its shell tool names. "Bash" itself needs no entry — Codex reports simple shell as Bash; these
 # are the sibling names that may appear on other shell paths, mapped defensively.
 CODEX_EDIT_TOOL = "apply_patch"
-CODEX_SHELL_TOOLS = frozenset({"shell", "local_shell", "unified_exec"})
+CODEX_SHELL_TOOLS = frozenset({"exec_command", "shell", "local_shell", "unified_exec"})
+# The first spelling is documented; the second was observed in CLI 0.153.4.
+# Keep the matcher here with the names the adapter understands, not in gate logic.
+CODEX_SPAWN_TOOLS = frozenset({"spawn_agent", "collaborationspawn_agent"})
+CODEX_SPAWN_MATCHER = "^(Agent|spawn_agent|collaborationspawn_agent)$"
+CODEX_QUEUE_TOOLS = frozenset({"send_message", "collaborationsend_message"})
+CODEX_CONTINUE_TOOLS = frozenset({"followup_task", "collaborationfollowup_task"})
+CODEX_CONTROL_TOOLS = CODEX_QUEUE_TOOLS | CODEX_CONTINUE_TOOLS
+REVIEW_READ_TOOLS = frozenset({"mcp__engine-review-reader__read_file",
+                              "mcp__engine_review_reader__read_file"})
 
 # The apply_patch envelope: one call may create/edit/delete MANY files, each named on a marker line.
 _PATCH_FILE_RE = re.compile(r"^\*\*\* (?:Update|Add|Delete) File:\s*(.+?)\s*$", re.MULTILINE)
@@ -69,7 +80,7 @@ def detect(payload: dict | None = None) -> str:
         if "turn_id" in payload:
             return CODEX
         tool = payload.get("tool_name")
-        if tool == CODEX_EDIT_TOOL or tool in CODEX_SHELL_TOOLS:
+        if isinstance(tool, str) and (tool == CODEX_EDIT_TOOL or tool in CODEX_SHELL_TOOLS or tool in CODEX_SPAWN_TOOLS or tool in CODEX_CONTROL_TOOLS):
             return CODEX
     return CLAUDE
 
@@ -88,7 +99,7 @@ def detect_signal(payload: dict | None = None) -> str:
         if "turn_id" in payload:
             return "turn_id"
         tool = payload.get("tool_name")
-        if tool == CODEX_EDIT_TOOL or tool in CODEX_SHELL_TOOLS:
+        if isinstance(tool, str) and (tool == CODEX_EDIT_TOOL or tool in CODEX_SHELL_TOOLS or tool in CODEX_SPAWN_TOOLS or tool in CODEX_CONTROL_TOOLS):
             return "tool_name"
     return "default"
 
@@ -121,7 +132,7 @@ def _shell_command(tool_input) -> str:
     """The one command string a Codex shell payload carries — joined shell-safely when the runtime
     reports an argv list instead of a string."""
     if isinstance(tool_input, dict):
-        cmd = tool_input.get("command")
+        cmd = tool_input.get("command", tool_input.get("cmd"))
         if isinstance(cmd, str):
             return cmd
         if isinstance(cmd, list):
@@ -130,6 +141,459 @@ def _shell_command(tool_input) -> str:
             except (TypeError, ValueError):
                 return ""
     return ""
+
+
+def launch_record(payload, provider: str | None = None):
+    """Provider-neutral requested launch facts, with provenance and explicit unknowns.
+
+    The common hook ``model`` describes the parent and is NEVER a child-model
+    fallback. Agent-file/default resolution and actual child settings are not in
+    the observed spawn input, so absence stays unknown. No task prose is parsed.
+    Runtime qualification supplies effective-setting evidence separately.
+    """
+    if not isinstance(payload, dict):
+        return None
+    provider = provider or detect(payload)
+    if provider not in (CLAUDE, CODEX):
+        return None
+    tool = payload.get("tool_name")
+    known = ("Agent", "Task") if provider == CLAUDE else ("Agent", *CODEX_SPAWN_TOOLS)
+    if not isinstance(tool, str) or tool not in known:
+        return None
+    raw = payload.get("tool_input")
+    if not isinstance(raw, dict):
+        raw = {}
+
+    def text_value(key):
+        value = raw.get(key)
+        return value if isinstance(value, str) and value.strip() else None
+
+    kind = text_value("subagent_type") if provider == CLAUDE else (
+        text_value("agent_type") or text_value("subagent_type"))
+    roles = {"Explore": "search", "Plan": "plan", "general-purpose": "judgment"}
+    if provider == CODEX:
+        roles = {"explorer": "search", "default": "judgment", "worker": "execution"}
+    role = roles.get(kind, "unclassified")
+    model = text_value("model")
+    effort = text_value("reasoning_effort") or text_value("model_reasoning_effort")
+    sandbox = text_value("sandbox_mode")
+    fork = raw.get("fork_turns") if provider == CODEX else raw.get("fork_context")
+    if not isinstance(fork, (str, bool, int)):
+        fork = None
+    unknown = ["effective_model", "effective_effort", "effective_sandbox", "recursion_limit"]
+    for field, value in (("requested_model", model), ("requested_effort", effort),
+                         ("sandbox_intent", sandbox), ("fork_context", fork)):
+        if value is None:
+            unknown.append(field)
+    if role == "unclassified":
+        unknown.append("semantic_role")
+    return {
+        "provider": provider, "agent_type": kind, "semantic_role": role,
+        "requested_model": model, "model_source": "tool_input.model" if model else None,
+        "effective_model": None, "requested_effort": effort,
+        "effort_source": "tool_input" if effort else None, "effective_effort": None,
+        "sandbox_intent": sandbox, "effective_sandbox": None,
+        "fork_context": fork, "recursion_limit": None,
+        "session_id": payload.get("session_id") if isinstance(payload.get("session_id"), str) else None,
+        "unknown_fields": unknown,
+    }
+
+
+def scoped_call(payload: dict) -> dict:
+    """Native assignment facts. Unknowns remain unknown; no inference from task prose.
+
+    Call after normalization or on the original envelope. Exact launch aliases live here. The
+    controller registers the task name (Codex) or unique packet path (Claude) before dispatch.
+    A tool's successful return is not child delivery or assignment completion.
+    """
+    raw_name = (payload.get("provider_raw") or {}).get("tool_name", payload.get("tool_name"))
+    provider = (payload.get("provider_launch") or {}).get("provider") or detect(payload)
+    inp = payload.get("tool_input")
+    inp = inp if isinstance(inp, dict) else {}
+    result = {"provider": provider, "kind": "other", "call_id": payload.get("tool_use_id"),
+              "root": payload.get("session_id"), "child": payload.get("agent_id"),
+              "role": payload.get("agent_type"), "input": inp}
+    launch = launch_record(payload, provider)
+    if launch:
+        fork = launch["fork_context"]
+        fresh = (fork == "none") if provider == CODEX else (
+            fork in (None, False) and not inp.get("resume") and launch["agent_type"] != "fork")
+        result.update(kind="launch", role=launch["agent_type"], fresh=fresh,
+                      name=inp.get("task_name") if provider == CODEX else None,
+                      prompt=inp.get("prompt") if provider == CLAUDE else None)
+    elif provider == CODEX and raw_name in CODEX_CONTROL_TOOLS:
+        result.update(kind="queue" if raw_name in CODEX_QUEUE_TOOLS else "continue",
+                      target=inp.get("target"), content=inp.get("message"))
+    elif provider == CLAUDE and raw_name == "SendMessage":
+        result.update(kind="continue", target=inp.get("recipient"), content=inp.get("content"))
+    return result
+
+
+def scoped_transcript(payload: dict, provider: str, *, metadata_only: bool = False) -> dict:
+    """Read observed child identity, delivered control payloads and final output.
+
+    Deliberately bounded to the two qualified native formats. Never convert malformed or missing
+    data into successful evidence. This is local operational provenance, not same-user isolation.
+    """
+    from pathlib import Path
+    path = payload.get("agent_transcript_path") or payload.get("transcript_path")
+    if not isinstance(path, str) or not path:
+        return {}
+    result = {"path": path, "messages": [], "final": None}
+    try:
+        if metadata_only:
+            if provider != CODEX:
+                return {}
+            with Path(path).open("rb") as stream:
+                header = stream.readline(64 * 1024 + 1)
+            if len(header) > 64 * 1024 or not header.endswith(b"\n"):
+                return {}
+            line = header.decode("utf-8")
+            row = json.loads(line)
+            if not isinstance(row, dict) or row.get("type") != "session_meta":
+                return {}
+            data = row.get("payload")
+            source = data.get("source") if isinstance(data, dict) else None
+            spawn = (source.get("subagent") or {}).get("thread_spawn") if isinstance(source, dict) else None
+            if (not isinstance(data, dict) or not isinstance(data.get("id"), str) or
+                    not isinstance(spawn, dict) or not isinstance(spawn.get("parent_thread_id"), str) or
+                    not isinstance(spawn.get("agent_path"), str)):
+                return {}
+            if not all(x.strip() for x in (data["id"], spawn["parent_thread_id"], spawn["agent_path"])):
+                return {}
+            return {"path": path, "child": data["id"], "root": spawn["parent_thread_id"],
+                    "name": spawn["agent_path"], "messages": [], "final": None}
+        with Path(path).open("r", encoding="utf-8") as stream:
+            for line in stream:
+                row = json.loads(line)
+                if not isinstance(row, dict):
+                    return {}
+                data = row.get("payload", {})
+                if not isinstance(data, dict):
+                    return {}
+                if provider == CODEX:
+                    if row.get("type") == "event_msg" and data.get("type") == "task_started":
+                        result["final"] = None
+                    elif row.get("type") == "session_meta":
+                        source = data.get("source") or {}
+                        spawn = (source.get("subagent") or {}).get("thread_spawn") if isinstance(source, dict) else None
+                        if "child" in result:
+                            return {}  # duplicate/contradictory session metadata is not one actor
+                        if isinstance(spawn, dict):
+                            result.update(child=data.get("id"), root=spawn.get("parent_thread_id"),
+                                          name=spawn.get("agent_path"))
+                    elif row.get("type") == "response_item" and data.get("type") == "agent_message":
+                        result["messages"].append(data)
+                    elif row.get("type") == "response_item" and data.get("type") == "message" and data.get("role") == "assistant" and data.get("phase") in ("final", "final_answer"):
+                        result["final"] = "".join(x.get("text", "") for x in data.get("content", []) if isinstance(x, dict))
+                else:
+                    if row.get("type") == "assistant":
+                        content = (row.get("message") or {}).get("content", [])
+                        texts = [x.get("text", "") for x in content if isinstance(x, dict) and x.get("type") == "text"]
+                        if texts:
+                            result["final"] = "".join(texts)
+                    elif row.get("type") == "user":
+                        result["final"] = None
+                        result["messages"].append(row)
+    except (OSError, ValueError, TypeError, AttributeError):
+        return {}
+    return result
+
+
+def scoped_launch_capacity_rejected(payload: dict) -> bool:
+    """One qualified native failure proves the spawn was rejected before creating a child.
+
+    Measured native Codex function-call error, not a generic transport exception. Unknown failure
+    prose and structured shapes are deliberately not promoted to definite nonexecution.
+    """
+    return (payload.get("is_error") is True and
+            payload.get("tool_response") == "collab spawn failed: agent thread limit reached")
+
+
+def scoped_capacity_rejection_from_transcript(payload: dict, call_id: str) -> dict:
+    """Qualify the native failed call when Codex omits PostToolUse for tool errors.
+
+    Only one exact call/result pair in this root's bounded native tail is usable. This records
+    an observed rejection, never a fabricated hook or inferred successful execution.
+    """
+    from pathlib import Path
+    path, root = payload.get("transcript_path"), payload.get("session_id")
+    if not all(isinstance(x, str) and x for x in (path, root, call_id)):
+        return {}
+    try:
+        with Path(path).open("rb") as stream:
+            header = stream.readline(65537)
+            if len(header) > 65536:
+                return {}
+            meta = json.loads(header.decode("utf-8"))
+            if meta.get("type") != "session_meta" or meta.get("payload", {}).get("id") != root:
+                return {}
+            stream.seek(0, 2)
+            offset = max(0, stream.tell() - 4 * 1024 * 1024)
+            stream.seek(offset)
+            tail = stream.read(4 * 1024 * 1024)
+        if offset:
+            tail = tail.split(b"\n", 1)[-1]
+        calls, outputs = [], []
+        for index, line in enumerate(tail.splitlines()):
+            row = json.loads(line.decode("utf-8"))
+            data = row.get("payload", {})
+            if row.get("type") != "response_item" or data.get("call_id") != call_id:
+                continue
+            if data.get("type") == "function_call":
+                calls.append((index, data))
+            elif data.get("type") == "function_call_output":
+                outputs.append((index, data))
+        if len(calls) != 1 or len(outputs) != 1 or calls[0][0] >= outputs[0][0]:
+            return {}
+        call, output = calls[0][1], outputs[0][1]
+        if (call.get("name") not in ("spawn_agent", "collaborationspawn_agent") or
+                call.get("namespace", "collaboration") != "collaboration" or
+                output.get("output") != "collab spawn failed: agent thread limit reached"):
+            return {}
+        arguments = json.loads(call["arguments"])
+        if not isinstance(arguments, dict):
+            return {}
+        return {"input": arguments, "response": output["output"], "path": path,
+                "tail_digest": "sha256:" + hashlib.sha256(tail).hexdigest()}
+    except (OSError, ValueError, TypeError, AttributeError, KeyError):
+        return {}
+
+
+def scoped_control_digest(content) -> str | None:
+    """Digest the exact observed opaque native message, never its interpreted meaning."""
+    return "sha256:" + hashlib.sha256(content.encode("utf-8")).hexdigest() if isinstance(content, str) and content else None
+
+
+def scoped_control_verified(transcript: dict, *, root: str, child: str, name: str,
+                            launch_digest: str | None, continuations: list[dict]) -> bool:
+    """Join one initial native launch envelope, then each continuation in dispatch order.
+
+    Native initial and followup headers are identical. Only the actual observed opaque payload
+    differentiates them; metadata prose or message position alone never proves the initial launch.
+    """
+    if not launch_digest or (transcript.get("root"), transcript.get("child"), transcript.get("name")) != (
+            root, child, "/root/" + name):
+        return False
+    messages = transcript.get("messages")
+    if not isinstance(messages, list) or len(messages) != 1 + len(continuations):
+        return False
+    expected = [launch_digest]
+    for c in continuations:
+        if c.get("sender") != root or c.get("recipient") != child or c.get("dispatched") is not True:
+            return False
+        expected.append(scoped_control_digest(c.get("content")))
+    if None in expected or len(set(expected)) != len(expected):
+        return False  # indistinguishable control payloads cannot establish separate deliveries
+    for message, digest in zip(messages, expected):
+        if (not isinstance(message, dict) or message.get("author") != "/root" or
+                message.get("recipient") != "/root/" + name):
+            return False
+        parts = message.get("content")
+        if (not isinstance(parts, list) or len(parts) != 2 or
+                not all(isinstance(p, dict) for p in parts) or
+                parts[0].get("type") != "input_text" or not isinstance(parts[0].get("text"), str) or
+                parts[1].get("type") != "encrypted_content"):
+            return False
+        if scoped_control_digest(parts[1].get("encrypted_content")) != digest:
+            return False
+    return True
+
+
+def scoped_launch_child(response):
+    """Claude's documented Agent output identifies the child independently of start ordering."""
+    if isinstance(response, str):
+        try:
+            response = json.loads(response)
+        except ValueError:
+            return None
+    if isinstance(response, dict):
+        child = response.get("agentId")
+        if isinstance(child, str) and child:
+            return child
+    return None
+
+
+def _codex_command_completion(payload: dict) -> dict | None:
+    """Join plain hook output to an exact native completion; stdout never supplies its own status.
+
+    Qualified on Desktop 26.901.51231 / Codex 0.153.4. The native completion was visible during
+    PostToolUse. A missing, truncated, changed or unfamiliar transcript leaves execution unverified.
+    """
+    from pathlib import Path
+    actor = payload.get("agent_id") or payload.get("session_id")
+    root, turn, call = (payload.get(k) for k in ("session_id", "turn_id", "tool_use_id"))
+    path = payload.get("agent_transcript_path") or payload.get("transcript_path")
+    if not all(isinstance(x, str) and x for x in (actor, root, turn, call, path)):
+        return None
+    try:
+        with Path(path).open("rb") as stream:
+            meta = json.loads(stream.readline())
+            stream.seek(0, 2)
+            offset = max(0, stream.tell() - 4 * 1024 * 1024)
+            stream.seek(offset)
+            tail = stream.read()
+        if offset:
+            tail = tail.split(b"\n", 1)[-1]
+        if meta.get("type") != "session_meta" or meta.get("payload", {}).get("id") != actor:
+            return None
+        if payload.get("agent_id"):
+            spawn = meta["payload"].get("source", {}).get("subagent", {}).get("thread_spawn", {})
+            if spawn.get("parent_thread_id") != root:
+                return None
+        matches = []
+        for line in tail.splitlines():
+            row = json.loads(line)
+            data = row.get("payload", {})
+            item = data.get("item", {})
+            if row.get("type") == "event_msg" and data.get("type") == "item_completed" and item.get("id") == call:
+                matches.append((data, item))
+        if len(matches) != 1:
+            return None
+        data, item = matches[0]
+        if item.get("type") == "CommandExecution" and data.get("thread_id") == actor and data.get("turn_id") == turn:
+            return item
+    except (OSError, ValueError, TypeError, AttributeError, KeyError):
+        pass
+    return None
+
+
+def _codex_shell_read_succeeded(payload: dict, content: str, response: str) -> bool:
+    item = _codex_command_completion(payload)
+    return bool(item and content and content in response and item.get("status") == "completed"
+                and type(item.get("exit_code")) is int and item["exit_code"] == 0
+                and item.get("aggregated_output") == response
+                and isinstance(item.get("stdout"), str) and content in item["stdout"])
+
+
+def scoped_reads_path(payload: dict, path: str) -> bool:
+    """Recognize the immutable path, including a simple relative native cat or Read.
+
+    Arbitrary shell directory changes and computed paths remain unsupported; do not guess their meaning.
+    Successful full-content evidence is checked separately before a read can be recorded.
+    """
+    from pathlib import Path
+    from urllib.parse import urlparse, unquote
+    inp = payload.get("tool_input") or {}
+    if payload.get("tool_name") in REVIEW_READ_TOOLS:
+        return isinstance(inp, dict) and inp.get("path") == path
+    if path in json.dumps(inp):
+        return True
+    if not isinstance(inp, dict):
+        return False
+    cwd = payload.get("cwd")
+    if payload.get("tool_name") == "Read":
+        target = inp.get("file_path")
+    elif payload.get("tool_name") == "Bash":
+        try:
+            words = shlex.split(_shell_command(inp))
+        except ValueError:
+            return False
+        if not words or Path(words[0]).name != "cat":
+            return False
+        operands = words[1:]
+        if operands[:1] == ["--"]:
+            operands = operands[1:]
+        if len(operands) != 1 or operands[0].startswith("-"):
+            return False
+        target = operands[0]
+        if detect(payload) == CODEX:
+            item = _codex_command_completion(payload)
+            if not item:
+                return False
+            cwd = item.get("cwd")
+            if isinstance(cwd, str) and cwd.startswith("file:"):
+                parsed = urlparse(cwd)
+                if parsed.netloc not in ("", "localhost"):
+                    return False
+                cwd = unquote(parsed.path)
+    else:
+        return False
+    if not isinstance(target, str) or not target:
+        return False
+    candidate = Path(target)
+    if not candidate.is_absolute():
+        if not isinstance(cwd, str) or not Path(cwd).is_absolute():
+            return False
+        candidate = Path(cwd) / candidate
+    return candidate.resolve() == Path(path).resolve()
+
+
+def scoped_read_succeeded(payload: dict, content: str) -> bool:
+    """Successful Read/Bash response containing the whole immutable packet, never just its name."""
+    if payload.get("tool_name") in REVIEW_READ_TOOLS:
+        return _review_reader_succeeded(payload, content)
+    if payload.get("is_error") or payload.get("tool_name") not in ("Read", "Bash"):
+        return False
+    response = payload.get("tool_response")
+    if isinstance(response, str):
+        if payload.get("tool_name") == "Bash" and detect(payload) == CODEX:
+            return _codex_shell_read_succeeded(payload, content, response)
+        # Structured output from other qualified provider surfaces.
+        try:
+            decoded = json.loads(response)
+        except ValueError:
+            decoded = None
+        if isinstance(decoded, dict):
+            response = decoded
+        else:
+            return payload.get("tool_name") == "Read" and content in response
+    if not isinstance(response, dict) or response.get("isError") or response.get("is_error"):
+        return False
+    if payload.get("tool_name") == "Bash" and response.get("exit_code", response.get("exitCode")) != 0:
+        return False
+    values = [response.get(k) for k in ("stdout", "output", "content")]
+    file = response.get("file")
+    if isinstance(file, dict):
+        values.append(file.get("content"))
+    return any(isinstance(value, str) and content in value for value in values)
+
+
+def _review_reader_succeeded(payload: dict, content: str) -> bool:
+    """Only a complete successful result from the named reader earns packet-read evidence."""
+    response = payload.get("tool_response")
+    if isinstance(response, str):
+        try:
+            response = json.loads(response)
+        except ValueError:
+            return False
+    if payload.get("is_error") or not isinstance(response, dict):
+        return False
+    if response.get("isError") or response.get("is_error"):
+        return False
+    blocks = response.get("content")
+    if not isinstance(blocks, list) or len(blocks) != 1:
+        return False
+    block = blocks[0]
+    if not isinstance(block, dict) or block.get("type") != "text":
+        return False
+    try:
+        result = json.loads(block["text"])
+    except (KeyError, TypeError, ValueError):
+        return False
+    return (isinstance(result, dict) and result.get("complete") is True
+            and type(result.get("offset")) is int and result["offset"] == 0
+            and result.get("file_path") == (payload.get("tool_input") or {}).get("path")
+            and result.get("content") == content
+            and result.get("sha256") == "sha256:" + hashlib.sha256(content.encode("utf-8")).hexdigest())
+
+
+def scoped_deliveries(transcript: dict, content: str, name: str) -> int:
+    """Count exact native delivered payloads with controller/recipient attribution.
+
+    Codex encrypted content is retained privately and compared as opaque transport bytes. It cannot
+    establish the meaning of clarification. Unknown Claude envelope shapes remain unverified.
+    """
+    count = 0
+    for message in transcript.get("messages", []):
+        if message.get("author") != "/root" or message.get("recipient") != "/root/" + name:
+            continue
+        for part in message.get("content", []):
+            if not isinstance(part, dict):
+                continue
+            if content in (part.get("encrypted_content"), part.get("text")):
+                count += 1
+    return count
 
 
 def normalize(event: str, payload):
@@ -141,6 +605,24 @@ def normalize(event: str, payload):
     if not isinstance(payload, dict):
         return payload
     tool = payload.get("tool_name")
+    if not isinstance(tool, str):
+        return payload
+    if tool in CODEX_SPAWN_TOOLS or (tool == "Agent" and detect(payload) == CODEX):
+        launch = launch_record(payload, CODEX)
+        out = dict(payload)
+        raw = payload.get("tool_input")
+        out["tool_name"] = "Agent"
+        out["tool_input"] = dict(raw) if isinstance(raw, dict) else {}
+        if launch["semantic_role"] == "search":
+            # Keep the native role when the compatibility field supplied it: downstream
+            # readers re-derive classification and must not mistake canonical Explore for unknown.
+            out["tool_input"]["agent_type"] = launch["agent_type"]
+            out["tool_input"]["subagent_type"] = "Explore"
+        out["provider_launch"] = launch
+        # Diagnostics are bounded and omit the potentially private task message.
+        out["provider_raw"] = {"tool_name": tool, "input_keys": sorted(
+            str(key)[:80] for key in raw)[:32] if isinstance(raw, dict) else []}
+        return out
     if tool == CODEX_EDIT_TOOL:
         raw = payload.get("tool_input")
         paths = _patch_file_paths(raw)
@@ -153,10 +635,15 @@ def normalize(event: str, payload):
         out["provider_raw"] = {"tool_name": tool, "tool_input": raw}
         return out
     if tool in CODEX_SHELL_TOOLS:
+        raw = payload.get("tool_input")
         out = dict(payload)
         out["tool_name"] = "Bash"
-        out["tool_input"] = {"command": _shell_command(payload.get("tool_input"))}
-        out["provider_raw"] = {"tool_name": tool, "tool_input": payload.get("tool_input")}
+        out["tool_input"] = {"command": _shell_command(raw)}
+        # Retain a command-selected workdir for target lookup, but never replace the session cwd:
+        # only the latter may resolve the trusted repository set.
+        if isinstance(raw, dict) and isinstance(raw.get("workdir"), str):
+            out["tool_input"]["workdir"] = raw["workdir"]
+        out["provider_raw"] = {"tool_name": tool, "tool_input": raw}
         return out
     return payload
 

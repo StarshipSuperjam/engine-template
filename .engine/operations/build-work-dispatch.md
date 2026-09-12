@@ -57,9 +57,10 @@ reference on the claim when the runtime can give one.
 ### Record and integrate the result
 
 `work result --item <id> --attempt <id> --plan <plan> --input <result.json>` binds a worker's result to its
-claim. The result must report the base it built from and, when it returns work, every evidence kind its output
-contract requires; a stale attempt, a wrong base, or missing contract evidence is refused. A returned result
-frees the worker slot but keeps the node's resources reserved.
+claim. The complete `worker-result.v1` report is validated against the frozen binding; the Engine supplies identity.
+Required evidence arrays preserve verification command, outcome and detail. Invalid reports change no claim or retry count.
+Stage accepted-candidate results before submission so the Engine observes the digest; worker-commit results require `artifact_ref`.
+A returned result frees the worker slot but reserves its resources. See [result contracts](../docs/result-contracts.md) for shapes and demo.
 
 `work integrate --item <id> --attempt <id> --commit <sha> --verification-input <summary>` is how a node reaches
 `complete`: the orchestrator inspected the returned artifact and applied it on the single PR branch, and the

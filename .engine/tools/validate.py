@@ -76,6 +76,38 @@ import re
 import subprocess
 import sys
 
+
+VALIDATE_USAGE = """Usage: validate.py [--suite NAME] [--pr-body-file PATH] [--check RULE_ID]
+       validate.py hook | accept-hook | demo | demo-kinds | --files PATH [PATH ...]
+
+Run the CI suite by default.  Use --suite to select a suite, --check to run one
+rule, or --pr-body-file to provide a pull-request body.
+hook and accept-hook read hook-event JSON from standard input for pre-commit
+and touched-file advice.  --files runs an advisory subset of pre-commit checks
+for the supplied paths.  demo exercises validation; demo-kinds checks module
+check-kind discovery.  Pass --help or -h anywhere to show this help without
+running a check or hook.
+"""
+
+
+def cli_main(argv: list, *, usage: str, run) -> int:
+    """Give an additive help boundary to a lazy command dispatcher.
+
+    ``run`` receives the original non-help argument list untouched.  Keeping
+    dispatch outside this helper preserves each caller's existing parser and
+    lets help exit before imports, environment reads, or operational work.
+    """
+    if "--help" in argv or "-h" in argv:
+        print(usage)
+        return 0
+    return run(argv)
+
+
+def emit(findings: list) -> int:
+    """Write a finding.v1 array using the established script protocol."""
+    print(json.dumps(findings))
+    return 0
+
 # yaml + jsonschema are the third-party dependencies THIS module needs; they live in the
 # uv-managed tool-runtime (.engine/.venv/). They are bound LAZILY (PEP 562 module
 # __getattr__) rather than imported at module top, so `import validate` succeeds on the
@@ -1874,6 +1906,20 @@ def kind_custom_script(rule, ctx):
         proc = subprocess.run([sys.executable, path], capture_output=True, text=True,
                               env=env, timeout=120)
     except Exception as exc:
+        # These two checks may be waiting for a just-applied acknowledgment. Keep the whole-process
+        # deadline and hard failure; a timeout is not evidence that every poll finished or consent exists.
+        ack_checks = {
+            ("engine/check/guardrail-weakening", ".engine/tools/weakening_guard.py"): "engine-guard",
+            ("engine/check/product-lock-integrity", ".engine/tools/product_design/lock_integrity.py"): "engine-ci",
+        }
+        retry_check = ack_checks.get((rule.get("id"), script))
+        if isinstance(exc, subprocess.TimeoutExpired) and retry_check:
+            return False, [finding("hard", f"Check '{rule.get('id')}' could not finish '{script}' "
+                           "within its 120-second execution limit (fails closed). Verification did not "
+                           f"finish; re-run {retry_check}. If you just applied the acknowledgment label, "
+                           "its record may still be landing. Do not remove and re-apply the label just "
+                           "to retry the check. If it keeps timing out, inspect the check log and the "
+                           "acknowledgment workflow. A new commit still needs its own acknowledgment.")]
         return False, [finding("hard", f"Check '{rule.get('id')}' could not run '{script}': "
                        f"{exc} (fails closed).")]
     if proc.returncode != 0:
@@ -2760,7 +2806,7 @@ def _demo_kinds(argv: list) -> int:
     return 0
 
 
-def main(argv: list) -> int:
+def _main(argv: list) -> int:
     if argv and argv[0] == "hook":            # the PreToolUse pre-commit nudge (settings.json wires this)
         import hooks
         return hooks.run_hook("PreToolUse", _precommit_handler)
@@ -2792,6 +2838,11 @@ def main(argv: list) -> int:
     if check_id is not None:
         return run_check(check_id, ctx)
     return run(suite, ctx)
+
+
+def main(argv: list) -> int:
+    """Run validate's established dispatcher behind the shared help boundary."""
+    return cli_main(argv, usage=VALIDATE_USAGE, run=_main)
 
 
 if __name__ == "__main__":

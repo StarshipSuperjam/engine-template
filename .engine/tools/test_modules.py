@@ -617,6 +617,7 @@ class TestModuleCoherenceConsumer(unittest.TestCase):
             ".engine/check/conduct-weakening-guard.json",
             ".engine/check/doc-frontmatter.json",
             ".engine/check/doc-shape.json",
+            ".engine/check/enforcement-files.json",
             ".engine/check/engine-manifest.json",
             ".engine/check/engine-todo-form.json",
             ".engine/check/execution-state.json",
@@ -757,8 +758,9 @@ class TestModuleCoherenceConsumer(unittest.TestCase):
             "audits": [".engine/audits/concern-list.json", ".engine/audits/self-review-setup.md",
                        ".engine/audits/audit-digest.md"],
             "codex-agent": [".codex/agents/engine-audit.toml"],
+            "workflow": [".github/workflows/audit-prep.yml"],
         }, "audit-library owns the persona (both runtime forms), the seeded concern-list, the setup page, "
-           "and the run-time digest")
+           "the run-time digest, and its scheduled workflow")
 
     def test_committed_digest_is_owned_not_an_orphan(self):
         # Regression (digest PR #194): the scheduled run commits .engine/audits/audit-digest.md, but that file
@@ -869,9 +871,10 @@ class TestModuleCoherenceConsumer(unittest.TestCase):
             self.assertEqual(len(owners), 1, f"{rel} must have exactly one owner, got {owners}")
         self.assertEqual(sorted(r for r, o in doc_owner.items() if o == ["core"]),
                          [".engine/docs/accepted-hook-qualification.md",
-                          ".engine/docs/ci-assurance.md", ".engine/docs/getting-started.md"],
+                          ".engine/docs/ci-assurance.md", ".engine/docs/getting-started.md",
+                          ".engine/docs/result-contracts.md"],
                          "core owns exactly the accepted-hook guide, generated CI assurance, and "
-                         "getting-started docs")
+                         "getting-started and executable result-contract docs")
         # product-design is OPTIONAL, so its footprint is asserted only when it is actually installed —
         # the same reason the check-ownership leg above is conditional. Requiring it to be present would red
         # a deployment's required self-tests for declining an add-on it was offered at setup.

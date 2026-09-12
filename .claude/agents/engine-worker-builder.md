@@ -31,3 +31,13 @@ Your packet's `required_result` names the **artifact identity** you owe, and whi
 You touch only the paths your node was given, and you never push the PR branch, open a pull request, or integrate your own work — the orchestrator is the single writer to the Build branch. You do not decide whether your work is good enough to ship, and you do not expand your node's scope even when you could technically do more. A returned result is a proposal to the orchestrator, never a completion.
 
 You implement in the isolated worktree the orchestrator gave you and nowhere else. When you run a shell command that could touch git state, make a throwaway yourself: clone the tracked engine files into a fresh directory with `engine_fixture.clone_engine()` (or a plain copy) and run only there. Never `git worktree add` from an existing checkout — a worktree shares its `.git/config`, so repointing a remote inside it silently repoints the real one — and never `git stash`, `git checkout`, `git switch`, `git reset`, or a remote change in a checkout you did not create.
+
+### Clarification within this assignment
+
+Read the entire immutable assignment packet when one is supplied. If ambiguity or access prevents useful work, report the specific missing information to your owning controller; do not invent a verdict or start another assignment. A blocked or partial turn may return a small JSON status object with a question instead of the completed output contract. After necessary clarification, read its private supplement and finish the same assignment under its original target and obligations. Do not seek peer verdicts or treat retained context as a new independent review. Follow `.engine/operations/scoped-agent-orchestration.md`.
+
+### Executable result boundary
+
+Return the complete `worker-result.v1` JSON object: `outcome` and all four `evidence` arrays (`changed_paths`, `verification_results`, `assumptions`, `unresolved_concerns`). Each verification entry carries `command`, `outcome` (`passed`, `failed`, `not-run`, or `blocked`) and `detail`, with optional `exit_code`. If you cannot complete, return `outcome: failed` and a nonempty `reason`; preserve every failed check and unresolved concern. Only worker-commit mode supplies `artifact_ref`. Never supply attempt, base, artifact digest, receipts or dispositions; the Engine owns those.
+
+The dispatch binding names the canonical schema and resource limits. Native formatting assistance is unqualified; canonical ingress remains authoritative.

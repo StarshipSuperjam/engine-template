@@ -431,6 +431,8 @@ def handler(payload):
     _trigger_ambient_capture(payload)
     session_id = payload.get("session_id")
     open_findings = pending(session_id)
+    # Issue discovery is session-start context, never a turn-close obligation. In particular,
+    # old disposable triage records cannot trigger network reads or a provider continuation here.
     if not open_findings:
         _reset_blocks(session_id)                         # a clean turn ends the block streak (no-op if no record)
         _run_preclose_advisory()                          # local full-suite ADVICE; never gates (see below)
@@ -501,11 +503,14 @@ def _demo(_argv):
     clear(sid)
     record_finding(sid, "A config value looks wrong but I'm out of room to confirm it.")
     fake = telemetry._FakeGitHub()
-    gh = telemetry.GitHubIssues("you/your-project", "demo-token", transport=fake.transport)
+    gh = telemetry.GitHubIssues("you/your-project", "demo-token", transport=fake.transport,
+                               recovery_store=fake.recovery_store)
     orig = globals()["_github"]
     globals()["_github"] = lambda: gh                     # inject the faked boundary for the cap step
     try:
-        verdict = _verdict(handler({"session_id": sid, "stop_hook_active": True}))
+        from unittest.mock import patch
+        with patch.dict(os.environ, {"GITHUB_REPOSITORY": "you/your-project"}):
+            verdict = _verdict(handler({"session_id": sid, "stop_hook_active": True}))
     finally:
         globals()["_github"] = orig
     open_issues = sum(1 for i in fake.issues.values() if i["state"] == "open")

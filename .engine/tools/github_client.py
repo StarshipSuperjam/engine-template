@@ -44,6 +44,30 @@ import urllib.request
 
 API_HOST = "api.github.com"
 
+
+def auth_token(*, environ=None, run=None) -> str | None:
+    """Reach a credential for this transport's host; availability is never write authority.
+
+    A caller may retain its existing bounded command seam. Failures intentionally return no raw
+    subprocess output: it can contain credentials. Another default gh host is never a fallback.
+    """
+    import os
+    import subprocess
+    environ = os.environ if environ is None else environ
+    token = (environ.get('GITHUB_TOKEN') or '').strip()
+    if token:
+        return token
+    command = ['gh', 'auth', 'token', '--hostname', 'github.com']
+    try:
+        if run is not None:
+            token = run(command)
+        else:
+            result = subprocess.run(command, env=dict(environ), capture_output=True, text=True, timeout=10)
+            token = result.stdout if result.returncode == 0 else None
+        return token.strip() if token and token.strip() else None
+    except (OSError, subprocess.SubprocessError):
+        return None
+
 # The network boundary, as a module attribute so a test can replace ONLY the network (monkeypatch
 # `github_client._urlopen`) and exercise every line of real logic above it.
 _urlopen = urllib.request.urlopen

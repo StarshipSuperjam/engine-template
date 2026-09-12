@@ -6,7 +6,7 @@ reroute gate (issue_gate.py) could not inspect. Run by the engine-issue-conforma
 `opened` or `edited`: it reads the issue event, and for an `engine`-labelled Issue whose body is NOT in the
 control-plane body contract's shape it FLAGS the Issue — applies the `needs-reauthoring` label and posts ONE
 advisory comment carrying the conforming skeleton — so the slip enters the engine's own detect→surface→remediate
-loop. When a later edit makes the body conform, it removes the label. It NEVER gates Issue creation (GitHub
+loop. When a later edit makes the body conform, it resolves its own advisory comment and removes the label. It NEVER gates Issue creation (GitHub
 cannot), so it is an honest backstop, not a second wall.
 
 KEYS ON BODY SHAPE AND THE ENGINE LABEL, NEVER PROVENANCE. The conformance test is the SAME predicate the
@@ -15,21 +15,21 @@ issue_gate (the single source), so the two layers can never drift. Only an Issue
 ever touched; an ordinary or human Issue is out of scope.
 
 IDEMPOTENT, NEVER AN OPERATOR CHORE. The comment is posted at most once per Issue (a `<!-- engine-issue-
-conformance -->` marker in the bot comment is the dedup key, recovered by listing the Issue's comments — the
-telemetry._SENTINEL_RE pattern). The label is re-affirmed without duplication and is removed automatically the
-moment the body conforms. An Issue that is never re-authored simply keeps a harmless label; it never becomes a
-task for the operator. The workflow serialises same-Issue runs (a per-Issue concurrency group) so the
-comment-dedup cannot race itself on a rapid opened+edited.
+conformance -->` marker in the bot comment, paired with GitHub's bot authorship field, is the dedup key,
+recovered by listing the Issue's comments). The label is re-affirmed without duplication; when the body
+conforms, the net re-reads the live Issue, resolves only its own advisory comment, then removes the label. A
+later malformed edit reactivates that same comment. An Issue that is never re-authored simply keeps a harmless
+label; it never becomes a task for the operator. The workflow serialises same-Issue runs (a per-Issue
+concurrency group), and the live reread narrows the remaining event-snapshot race to the final read/write
+window rather than claiming race-freedom.
 
 FAIL CONTRACT (a safety-net, never a gate). Out of scope, an unreadable/partial event, or a non-engine Issue →
 a quiet exit 0 (no-op). A genuine GitHub API failure on a label/comment write (auth, scope, outage) → a
 non-zero exit so the net's OWN breakage is visible as a red run, never a silent pass. An on:issues run never
 gates Issue creation — the Issue already exists — so a red here blocks nothing.
 
-KNOWN RESIDUAL (honest). The trigger is `[opened, edited]` (the control-plane design's shape). An `engine` label
-applied in a SEPARATE step AFTER creation fires a `labeled` event, which this trigger does not watch, so such an
-Issue is caught only on its next body edit. Cold sessions apply `--label engine` AT create (caught on `opened`)
-and the in-session gate is the first line — widening the trigger would diverge from the locked design.
+SCOPE: opened and engine-label addition opt into assessment validation. Edits validate versioned or
+otherwise enrolled issues; pre-feature legacy bodies remain compatible. Human issues without engine are exempt.
 
 SHARED LABEL TRANSPORT, LOCAL COMMENTS. The per-Issue label operations and the injectable transport (urlopen +
 (status, json) + 30s `_transport` seam, over the shared `github_client`) live in `issue_label_client`, so a
@@ -48,6 +48,7 @@ import sys
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import issue_author  # noqa: E402
 import issue_event   # noqa: E402  (the shared on:issues event-parsing boundary)
+import issue_triage
 import issue_gate    # noqa: E402
 import issue_label_client  # noqa: E402  (the shared per-Issue label client + injectable transport)
 from issue_label_client import DegradedWriteError  # noqa: E402,F401  (re-exported: callers use icc.DegradedWriteError)
@@ -75,7 +76,7 @@ COMMENT_MARKER = "<!-- engine-issue-conformance -->"
 class IssueConformanceClient(issue_label_client.IssueLabelClient):
     """The conformance net's per-Issue client: the shared label operations (ensure/add/remove, plus the
     injectable `transport` seam and `DegradedWriteError`) inherited from `issue_label_client.IssueLabelClient`,
-    PLUS the comment operations only this backstop needs (list/post, with the dedup marker). The label layer is
+    PLUS the comment operations only this backstop needs (list/post/edit, with the dedup marker). The label layer is
     shared with the kind-label applicator so a transport fix reaches both; the comment layer stays here."""
 
     def __init__(self, repo: str, token: str, *, transport=None):
@@ -101,6 +102,13 @@ class IssueConformanceClient(issue_label_client.IssueLabelClient):
         if status >= 400:
             raise DegradedWriteError(f"GitHub returned {status} commenting on issue #{number}")
 
+    def edit_comment(self, comment_id: int, body: str) -> None:
+        """Update this net's own advisory comment. Callers identify bot-authored marker comments before this
+        mutation, so a human comment that quotes the marker is never edited."""
+        status, _ = self._transport("PATCH", f"/repos/{self.repo}/issues/comments/{comment_id}", {"body": body})
+        if status >= 400:
+            raise DegradedWriteError(f"GitHub returned {status} editing conformance comment {comment_id}")
+
 
 def _is_conforming(body: str) -> bool:
     """The body-contract test — the SAME predicate the in-session gate uses, over issue_gate's single-source
@@ -119,21 +127,45 @@ def skeleton_comment() -> str:
     )
     return (
         f"{COMMENT_MARKER}\n"
-        "The engine filed this item in a format that isn't its standard shape, so it may read as raw text. "
-        f"**Nothing for you to do** — the engine will re-file it in its standard shape, and the "
+        "This engine-labelled item is missing the standard structure or a required impact assessment. "
+        f"An Engine session should repair this existing issue; the "
         f"`{NEEDS_REAUTHORING_LABEL}` label clears automatically once it does.\n\n"
         "<details><summary>For the engine — the standard shape to re-author this Issue into</summary>\n\n"
         f"{skeleton}\n"
-        f"Render it with `{issue_gate.HELPER}` (`render_engine_issue_body`), or write those three parts "
-        "directly, then re-file the body with `--body-file`.\n"
+        f"Use `{issue_gate.HELPER}` to repair the standard structure on this issue. "
+        "For missing or malformed assessment, use `issue_author.py triage show`, then `triage repair` "
+        "with the observed body digest and explicit assessment input. Preserve human text; do not "
+        "close and refile this issue just to repair its contract.\n"
         "</details>"
     )
+
+
+def resolved_comment() -> str:
+    """The static, auditable terminal state for the net's own advisory comment. It remains marker-tagged so a
+    later non-conforming edit reactivates the same bot comment instead of opening another one."""
+    return (f"{COMMENT_MARKER}\n"
+            "*(Resolved — this Issue now uses the engine's standard format. The conformance net will reactivate "
+            "this notice if a later edit no longer conforms.)*")
+
+
+def _is_bot(comment: dict) -> bool:
+    """True only for comments GitHub identifies as bot-authored. The invisible marker is a dedup key, not proof
+    of authorship, so it must be paired with this guard before any comment is edited or treated as the net's."""
+    return ((comment.get("user") or {}).get("type")) == "Bot"
+
+
+def _own_comments(client: IssueConformanceClient, number: int) -> list:
+    """The net's marker-tagged bot comments, read through the failure-loud paginated client boundary."""
+    return [c for c in client.list_comments(number)
+            if COMMENT_MARKER in (c.get("body") or "") and _is_bot(c)]
 
 
 def engine_issue_or_none(event):
     """The issue dict from an issues-event payload IFF it is an engine-labelled Issue with a numeric id;
     otherwise None (out of scope → the caller no-ops, no GitHub call). This backstop's OWN scope: the
     scope-free numeric-id extraction is shared (issue_event.issue_or_none), the `engine`-label gate is local."""
+    if isinstance(event, dict) and event.get('action') == 'labeled' and (event.get('label') or {}).get('name') != 'engine':
+        return None
     issue = issue_event.issue_or_none(event)
     if issue is None:
         return None
@@ -142,23 +174,60 @@ def engine_issue_or_none(event):
     return issue
 
 
-def reconcile(issue: dict, client: IssueConformanceClient) -> str:
+def reconcile(issue: dict, client: IssueConformanceClient, *, require_triage=False) -> str:
     """Bring one engine-labelled Issue into agreement with its body's conformance, idempotently. Returns a
     short action word for the log/demo. Assumes `issue` is already known engine-labelled with a numeric id
-    (engine_issue_or_none). Any GitHub failure propagates as DegradedWriteError (→ a red run)."""
+    (engine_issue_or_none). On a clearing event, comment pagination precedes the final live Issue reread;
+    a concurrent edit after that reread remains a bounded last-read/write residual. Any GitHub failure
+    propagates as DegradedWriteError (→ a red run)."""
+    def conforms(body):
+        if not _is_conforming(body):
+            return False
+        try:
+            record = issue_triage.parse(body)
+            return record is not None if require_triage else True
+        except issue_triage.TriageError:
+            return False
     number = issue["number"]
     labels = issue_event.labels_of(issue)
     body = issue.get("body") or ""
-    if _is_conforming(body):
-        if NEEDS_REAUTHORING_LABEL in labels:   # a conform-after-edit: tidy the flag, never leave a chore
-            client.remove_label(number, NEEDS_REAUTHORING_LABEL)
-            return "cleared"
-        return "conforming"
+    if conforms(body):
+        if NEEDS_REAUTHORING_LABEL not in labels:
+            # An opened event can be captured before this net adds its label, then an edited event can carry
+            # that same unflagged snapshot after the body has been fixed. Consult the live Issue solely to
+            # discover that just-created flag; an unflagged live Issue remains a no-write path (no backfill).
+            preliminary = client.get_issue(number)
+            preliminary_labels = issue_event.labels_of(preliminary)
+            if (issue_gate.ENGINE_LABEL not in preliminary_labels or
+                    NEEDS_REAUTHORING_LABEL not in preliminary_labels or
+                    not conforms(preliminary.get("body") or "")):
+                return "conforming"
+        # A conform-after-edit: reconcile our notice, then tidy the flag. This also handles a conforming
+        # event whose frozen labels predate the opening run's label write.
+        # Finish pagination first. The event snapshot is frozen, so re-read the Issue immediately before
+        # either write; a later non-conforming edit cannot have its advisory resolved and label removed
+        # by this stale clearing event.
+        mine = _own_comments(client, number)
+        live = client.get_issue(number)
+        live_labels = issue_event.labels_of(live)
+        if (issue_gate.ENGINE_LABEL not in live_labels or
+                NEEDS_REAUTHORING_LABEL not in live_labels or
+                not conforms(live.get("body") or "")):
+            return "stale"
+        for comment in mine:
+            if (comment.get("body") or "") != resolved_comment():
+                # Resolve first: if this PATCH fails, the label remains and the next event can retry.
+                client.edit_comment(comment["id"], resolved_comment())
+        client.remove_label(number, NEEDS_REAUTHORING_LABEL)
+        return "cleared"
     client.ensure_label(NEEDS_REAUTHORING_LABEL, _LABEL_COLOR, _LABEL_DESCRIPTION)
     if NEEDS_REAUTHORING_LABEL not in labels:
         client.add_label(number, NEEDS_REAUTHORING_LABEL)
-    if not any(COMMENT_MARKER in (c.get("body") or "") for c in client.list_comments(number)):
+    mine = _own_comments(client, number)
+    if not mine:
         client.post_comment(number, skeleton_comment())
+    elif (mine[0].get("body") or "") == resolved_comment():
+        client.edit_comment(mine[0]["id"], skeleton_comment())
     return "flagged"
 
 
@@ -178,8 +247,21 @@ def _run() -> int:
         return 1
     client = IssueConformanceClient(repo, token)
     try:
-        action = reconcile(issue, client)
-    except DegradedWriteError as exc:
+        live = client.get_issue(issue['number'])
+        if not issue_triage.scoped(live):
+            print('issue-conformance: engine label removed — no action.')
+            return 0
+        live = {**live, 'number': issue['number']}
+        direct = event.get('action') in ('opened', 'labeled')
+        settings = issue_triage.repo_config(issue_triage.load_config(), repo)
+        enrolled = issue_triage.enrollment(live, settings)
+        if enrolled == 'unknown' and settings is not None:
+            events = list(issue_triage.pages(client, f"/repos/{repo}/issues/{issue['number']}/events"))
+            enrolled = issue_triage.enrollment(live, settings, events)
+        if enrolled == 'unknown' and event.get('action') == 'edited':
+            raise issue_triage.TriageError('Cannot determine legacy exemption; triage configuration or history is unavailable.')
+        action = reconcile(live, client, require_triage=direct or enrolled == 'required')
+    except (DegradedWriteError, issue_triage.TriageError) as exc:
         print(f"issue-conformance: a GitHub API call failed — {exc}", file=sys.stderr)
         return 1
     print(f"issue-conformance: issue #{issue['number']} -> {action}")
@@ -193,17 +275,22 @@ class _FakeGitHub:
     (status, json), so the REAL reconcile logic runs with no network. `comments` seeds list_comments;
     `label_exists` decides whether ensure_label's GET reports the label already present."""
 
-    def __init__(self, *, comments=None, label_exists: bool = True):
+    def __init__(self, *, comments=None, label_exists: bool = True, live_issue=None):
         self.calls = []
         self._comments = comments or []
         self._label_exists = label_exists
+        self._live_issue = live_issue
 
     def __call__(self, method, path, body=None):
         self.calls.append((method, path, body))
+        if "/issues/comments/" in path:
+            return (200, {})
         if "/comments" in path:
             return (200, list(self._comments)) if method == "GET" else (201, {"id": 1})
         if "/issues/" in path and "/labels" in path:        # add (POST) / remove (DELETE) a label on an issue
             return 200, []
+        if "/issues/" in path:
+            return (200, self._live_issue) if self._live_issue is not None else (404, None)
         if path.endswith("/labels"):                         # POST: create a repo label
             return 201, {}
         if "/labels/" in path:                               # GET: does the repo label exist?
@@ -243,19 +330,24 @@ def _demo() -> int:
           action == "flagged" and len(gh.posted_comments()) == 1 and len(gh.issue_label_writes("POST")) == 1)
 
     # 2. re-fire over an already-commented issue -> NO second comment (dedup by marker holds)
-    gh2 = _FakeGitHub(comments=[{"body": COMMENT_MARKER + "\nprior advisory"}])
+    gh2 = _FakeGitHub(comments=[{"id": 2, "body": COMMENT_MARKER + "\nprior advisory", "user": {"type": "Bot"}}])
     reconcile({"number": 1, "labels": engine_flagged, "body": free_text}, IssueConformanceClient("o/r", "t", transport=gh2))
     check("re-fire with the prior comment present: no second comment", len(gh2.posted_comments()) == 0)
 
-    # 3. conform-after-edit (label present) -> label removed
-    gh3 = _FakeGitHub()
+    # 3. conform-after-edit (label present) -> own advisory resolves before the label is removed
+    gh3 = _FakeGitHub(comments=[{"id": 3, "body": skeleton_comment(), "user": {"type": "Bot"}}],
+                       live_issue={"labels": engine_flagged, "body": conforming})
     action3 = reconcile({"number": 1, "labels": engine_flagged, "body": conforming}, IssueConformanceClient("o/r", "t", transport=gh3))
-    check("conforming after an edit: label removed", action3 == "cleared" and len(gh3.issue_label_writes("DELETE")) == 1)
+    cleared_writes = [c for c in gh3.calls if c[0] == "PATCH" and "/issues/comments/" in c[1]]
+    check("conforming after an edit: notice resolves, then label is removed",
+          action3 == "cleared" and len(cleared_writes) == 1 and len(gh3.issue_label_writes("DELETE")) == 1 and
+          gh3.calls.index(cleared_writes[0]) < gh3.calls.index(gh3.issue_label_writes("DELETE")[0]))
 
-    # 4. conforming, never flagged -> a pure no-op (no GitHub calls at all)
-    gh4 = _FakeGitHub()
+    # 4. conforming, never flagged -> one live check confirms it is still a no-write path
+    gh4 = _FakeGitHub(live_issue={"labels": engine, "body": conforming})
     action4 = reconcile({"number": 1, "labels": engine, "body": conforming}, IssueConformanceClient("o/r", "t", transport=gh4))
-    check("conforming, unflagged: pure no-op", action4 == "conforming" and gh4.calls == [])
+    check("conforming, live-unflagged: no write", action4 == "conforming" and
+          [c[0] for c in gh4.calls] == ["GET"])
 
     # 5. out-of-scope events are filtered before any client is built
     check("non-engine issue: out of scope",

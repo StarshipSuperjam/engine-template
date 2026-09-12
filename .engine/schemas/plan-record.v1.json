@@ -1,207 +1,1177 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "title": "plan-record.v1 — one plan's head pointer, revision ledger, and gate evidence",
+  "title": "plan-record.v1 \u2014 one plan's head pointer, revision ledger, and gate evidence",
   "description": "The small mutable file beside a plan's immutable revisions. The revisions are the plan; this record says which one is current, what the chain of them has been, and what gates the plan has passed. It is the ONLY mutable file in a plan folder, which is what makes the compare-and-swap on `current.revision` sufficient to serialize every writer. Lifecycle status is deliberately absent: status is DERIVED from the evidence below (an approval, a review, a seal, a build binding) every time it is asked for, never stored, so a stored phase can never disagree with the evidence it claims to summarize.",
   "type": "object",
   "additionalProperties": false,
-  "required": ["schema_version", "plan_id", "slug", "title", "created_at", "current", "ledger"],
+  "required": [
+    "schema_version",
+    "plan_id",
+    "slug",
+    "title",
+    "created_at",
+    "current",
+    "ledger"
+  ],
   "properties": {
-    "schema_version": {"const": "plan-record.v1"},
-    "plan_id": {"type": "string", "pattern": "^pln_[0-9a-f]{12}$"},
+    "review_contract_adoptions": {
+      "type": "array",
+      "minItems": 1,
+      "maxItems": 1,
+      "items": {
+        "$ref": "reviewer-contract.v1.json#/$defs/adoption"
+      }
+    },
+    "schema_version": {
+      "const": "plan-record.v1"
+    },
+    "plan_id": {
+      "type": "string",
+      "pattern": "^pln_[0-9a-f]{12}$"
+    },
     "slug": {
       "type": "string",
       "pattern": "^[a-z0-9][a-z0-9-]*--[0-9a-f]{6}$",
-      "description": "The folder name: a readable stem plus a short id suffix. Minted once and never changed — a retitle updates `title` and leaves the folder alone, because moving a folder to track a title breaks every path an operator or a script already holds."
+      "description": "The folder name: a readable stem plus a short id suffix. Minted once and never changed \u2014 a retitle updates `title` and leaves the folder alone, because moving a folder to track a title breaks every path an operator or a script already holds."
     },
-    "title": {"type": "string", "minLength": 1},
-    "created_at": {"$ref": "#/$defs/timestamp"},
+    "title": {
+      "type": "string",
+      "minLength": 1
+    },
+    "created_at": {
+      "$ref": "#/$defs/timestamp"
+    },
     "current": {
       "type": "object",
       "additionalProperties": false,
-      "required": ["revision", "plan_digest", "build_plan_digest", "snapshot"],
+      "required": [
+        "revision",
+        "plan_digest",
+        "build_plan_digest",
+        "snapshot"
+      ],
       "properties": {
-        "revision": {"type": "integer", "minimum": 1},
-        "plan_digest": {"$ref": "#/$defs/digest"},
-        "build_plan_digest": {"$ref": "#/$defs/digest"},
-        "snapshot": {"type": "string", "pattern": "^revisions/[0-9]{6}--[0-9a-f]{6}\\.json$", "description": "The revision file, relative to the plan folder. Pattern-constrained because this string is JOINED ONTO A FILESYSTEM PATH: an absolute value or one carrying `..` would let an imported record choose where the store writes. The shape matches what the store itself mints and nothing else."}
+        "revision": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "plan_digest": {
+          "$ref": "#/$defs/digest"
+        },
+        "build_plan_digest": {
+          "$ref": "#/$defs/digest"
+        },
+        "snapshot": {
+          "type": "string",
+          "pattern": "^revisions/[0-9]{6}--[0-9a-f]{6}\\.json$",
+          "description": "The revision file, relative to the plan folder. Pattern-constrained because this string is JOINED ONTO A FILESYSTEM PATH: an absolute value or one carrying `..` would let an imported record choose where the store writes. The shape matches what the store itself mints and nothing else."
+        }
       },
       "description": "The head. `revision` doubles as the compare-and-swap token every mutating verb must present."
     },
     "ledger": {
       "type": "array",
       "minItems": 1,
-      "items": {"$ref": "#/$defs/ledger_entry"},
+      "items": {
+        "$ref": "#/$defs/ledger_entry"
+      },
       "description": "Every revision ever minted, oldest first and contiguous from 1. Append-only: a revision is never rewritten and never removed, because a reader who sees only the head cannot tell a settled decision from a reversed one. Redaction excises a BODY and leaves its entry standing."
     },
-    "approval": {"oneOf": [{"type": "null"}, {"$ref": "#/$defs/approval"}]},
-    "plan_review": {"oneOf": [{"type": "null"}, {"$ref": "#/$defs/plan_review"}]},
-    "seal": {"oneOf": [{"type": "null"}, {"$ref": "#/$defs/seal"}]},
-    "findings_presented": {"oneOf": [{"type": "null"}, {"$ref": "#/$defs/findings_presented"}]},
-    "build_binding": {"oneOf": [{"type": "null"}, {"$ref": "#/$defs/build_binding"}]},
+    "approval": {
+      "oneOf": [
+        {
+          "type": "null"
+        },
+        {
+          "$ref": "#/$defs/approval"
+        }
+      ]
+    },
+    "plan_review": {
+      "oneOf": [
+        {
+          "type": "null"
+        },
+        {
+          "$ref": "#/$defs/plan_review"
+        }
+      ]
+    },
+    "seal": {
+      "oneOf": [
+        {
+          "type": "null"
+        },
+        {
+          "$ref": "#/$defs/seal"
+        }
+      ]
+    },
+    "findings_presented": {
+      "oneOf": [
+        {
+          "type": "null"
+        },
+        {
+          "$ref": "#/$defs/findings_presented"
+        }
+      ]
+    },
+    "build_lease": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "version",
+        "generation",
+        "current",
+        "history"
+      ],
+      "properties": {
+        "version": {
+          "const": 1
+        },
+        "generation": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "current": {
+          "oneOf": [
+            {
+              "type": "null"
+            },
+            {
+              "$ref": "#/$defs/build_claim"
+            }
+          ]
+        },
+        "history": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/build_claim"
+          }
+        }
+      }
+    },
+    "build_binding": {
+      "oneOf": [
+        {
+          "type": "null"
+        },
+        {
+          "$ref": "#/$defs/build_binding"
+        }
+      ]
+    },
     "closure": {
-      "oneOf": [{"type": "null"}, {"$ref": "#/$defs/closure"}],
+      "oneOf": [
+        {
+          "type": "null"
+        },
+        {
+          "$ref": "#/$defs/closure"
+        }
+      ],
       "description": "How this plan ended, when it has. Recorded rather than derived because none of the three endings leaves a trace anywhere else: a merged Build looks the same from here as an abandoned one."
     },
     "intake": {
       "type": "object",
       "additionalProperties": false,
-      "required": ["provenance"],
+      "required": [
+        "provenance"
+      ],
       "properties": {
-        "provenance": {"type": "string", "minLength": 1},
-        "predecessors": {"type": "array", "items": {"type": "string", "minLength": 1}}
+        "provenance": {
+          "type": "string",
+          "minLength": 1
+        },
+        "predecessors": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "minLength": 1
+          }
+        }
       }
     },
-    "program_id": {"type": "string", "pattern": "^prg_[0-9a-f]{12}$"},
+    "program_id": {
+      "type": "string",
+      "pattern": "^prg_[0-9a-f]{12}$"
+    },
     "consent": {
       "type": "array",
-      "items": {"$ref": "#/$defs/attestation"},
+      "items": {
+        "$ref": "#/$defs/attestation"
+      },
       "description": "The operator decisions recorded at this plan's consent gates, in the order they were made, each an event: the gate and the moment. Additive by construction: an attestation is never edited or removed, and a gate checks the gate before it left its entry. Entries written before 2026-09-05 may carry a `decision` text; nothing writes or renders it."
     },
     "amendments": {
       "type": "array",
-      "items": {"$ref": "#/$defs/amendment"},
+      "items": {
+        "$ref": "#/$defs/amendment"
+      },
       "description": "Corrections made to recorded artifacts before their freeze moments. Kept so a corrected record still shows that it was corrected: an amendment that left no trace would make the recording layer look infallible, which is exactly the impression the freeze rules exist to avoid giving."
+    },
+    "review_contract_renewals": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "owner": {
+            "$ref": "reviewer-contract.v1.json#/properties/referent"
+          },
+          "old_digest": {
+            "$ref": "#/$defs/digest"
+          },
+          "contract": {
+            "$ref": "reviewer-contract.v1.json"
+          },
+          "action": {
+            "enum": [
+              "retain",
+              "adopt"
+            ]
+          },
+          "delta": {
+            "type": "array",
+            "items": {
+              "type": "object"
+            }
+          },
+          "installation_digest": {
+            "$ref": "#/$defs/digest"
+          },
+          "observed_drift": {
+            "type": "object"
+          },
+          "previous_decision": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "preview_digest": {
+            "$ref": "#/$defs/digest"
+          },
+          "reason": {
+            "type": "string",
+            "minLength": 1
+          },
+          "at": {
+            "$ref": "#/$defs/timestamp"
+          },
+          "operator_decided": {
+            "const": true
+          },
+          "adopt_lenses": {
+            "type": "array",
+            "minItems": 1,
+            "uniqueItems": true,
+            "items": {
+              "type": "string",
+              "pattern": "^(plan-review|pre-submission-review):[a-z][a-z0-9-]*$"
+            }
+          },
+          "lens_actions": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": [
+                "role",
+                "lens",
+                "action",
+                "old",
+                "new"
+              ],
+              "properties": {
+                "role": {
+                  "enum": [
+                    "plan-review",
+                    "pre-submission-review"
+                  ]
+                },
+                "lens": {
+                  "type": "string",
+                  "minLength": 1
+                },
+                "action": {
+                  "enum": [
+                    "retain",
+                    "adopt"
+                  ]
+                },
+                "old": {
+                  "anyOf": [
+                    {
+                      "$ref": "#/$defs/digest"
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ]
+                },
+                "new": {
+                  "anyOf": [
+                    {
+                      "$ref": "#/$defs/digest"
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ]
+                }
+              }
+            }
+          }
+        },
+        "required": [
+          "owner",
+          "old_digest",
+          "contract",
+          "action",
+          "delta",
+          "installation_digest",
+          "observed_drift",
+          "previous_decision",
+          "preview_digest",
+          "reason",
+          "at",
+          "operator_decided"
+        ]
+      }
+    },
+    "approval_history": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "approval",
+          "renewals"
+        ],
+        "properties": {
+          "approval": {
+            "$ref": "#/$defs/approval"
+          },
+          "renewals": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "additionalProperties": false,
+              "properties": {
+                "owner": {
+                  "$ref": "reviewer-contract.v1.json#/properties/referent"
+                },
+                "old_digest": {
+                  "$ref": "#/$defs/digest"
+                },
+                "contract": {
+                  "$ref": "reviewer-contract.v1.json"
+                },
+                "action": {
+                  "enum": [
+                    "retain",
+                    "adopt"
+                  ]
+                },
+                "delta": {
+                  "type": "array",
+                  "items": {
+                    "type": "object"
+                  }
+                },
+                "installation_digest": {
+                  "$ref": "#/$defs/digest"
+                },
+                "observed_drift": {
+                  "type": "object"
+                },
+                "previous_decision": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "preview_digest": {
+                  "$ref": "#/$defs/digest"
+                },
+                "reason": {
+                  "type": "string",
+                  "minLength": 1
+                },
+                "at": {
+                  "$ref": "#/$defs/timestamp"
+                },
+                "operator_decided": {
+                  "const": true
+                }
+              },
+              "required": [
+                "owner",
+                "old_digest",
+                "contract",
+                "action",
+                "delta",
+                "installation_digest",
+                "observed_drift",
+                "previous_decision",
+                "preview_digest",
+                "reason",
+                "at",
+                "operator_decided"
+              ]
+            }
+          }
+        }
+      }
+    },
+    "review_contract_format": {
+      "const": 1
+    },
+    "supplemental_reviews": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "renewal_digest",
+          "review"
+        ],
+        "properties": {
+          "renewal_digest": {
+            "$ref": "#/$defs/digest"
+          },
+          "review": {
+            "$ref": "#/$defs/plan_review"
+          }
+        }
+      }
     }
   },
   "$defs": {
-    "timestamp": {"type": "string", "pattern": "^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}Z$"},
-    "digest": {"type": "string", "pattern": "^sha256:[0-9a-f]{64}$"},
+    "admission": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "observed_at",
+        "material"
+      ],
+      "properties": {
+        "observed_at": {
+          "type": "string",
+          "minLength": 1
+        },
+        "material": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "repository",
+            "pr",
+            "head_repository",
+            "head_ref",
+            "head",
+            "target_repository",
+            "target_ref",
+            "target_tip"
+          ],
+          "properties": {
+            "repository": {
+              "type": "string",
+              "minLength": 1
+            },
+            "pr": {
+              "type": "integer",
+              "minimum": 1
+            },
+            "head_repository": {
+              "type": "string",
+              "minLength": 1
+            },
+            "head_ref": {
+              "type": "string",
+              "minLength": 1
+            },
+            "head": {
+              "type": "string",
+              "pattern": "^[0-9a-f]{40}$"
+            },
+            "target_repository": {
+              "type": "string",
+              "minLength": 1
+            },
+            "target_ref": {
+              "type": "string",
+              "minLength": 1
+            },
+            "target_tip": {
+              "type": "string",
+              "pattern": "^[0-9a-f]{40}$"
+            },
+            "issues": {
+              "type": "array",
+              "uniqueItems": true,
+              "items": {
+                "type": "integer",
+                "minimum": 1
+              }
+            },
+            "overlap": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": [
+                "coverage",
+                "matches",
+                "errors",
+                "local_digest"
+              ],
+              "properties": {
+                "coverage": {
+                  "enum": [
+                    "not-applicable",
+                    "complete",
+                    "incomplete"
+                  ]
+                },
+                "matches": {
+                  "type": "array",
+                  "items": {
+                    "type": "string",
+                    "minLength": 1
+                  }
+                },
+                "errors": {
+                  "type": "array",
+                  "items": {
+                    "type": "string",
+                    "minLength": 1
+                  }
+                },
+                "local_digest": {
+                  "type": "string",
+                  "minLength": 1
+                }
+              }
+            },
+            "override": {
+              "oneOf": [
+                {
+                  "type": "null"
+                },
+                {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "required": [
+                    "observation_digest",
+                    "reason"
+                  ],
+                  "properties": {
+                    "observation_digest": {
+                      "type": "string",
+                      "minLength": 1
+                    },
+                    "reason": {
+                      "type": "string",
+                      "minLength": 1
+                    }
+                  }
+                }
+              ]
+            }
+          }
+        }
+      }
+    },
+    "timestamp": {
+      "type": "string",
+      "pattern": "^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}Z$"
+    },
+    "digest": {
+      "type": "string",
+      "pattern": "^sha256:[0-9a-f]{64}$"
+    },
     "ledger_entry": {
       "type": "object",
       "additionalProperties": false,
-      "required": ["revision", "plan_digest", "snapshot", "revised_at"],
+      "required": [
+        "revision",
+        "plan_digest",
+        "snapshot",
+        "revised_at"
+      ],
       "properties": {
-        "revision": {"type": "integer", "minimum": 1},
-        "plan_digest": {"$ref": "#/$defs/digest"},
-        "snapshot": {"type": "string", "pattern": "^revisions/[0-9]{6}--[0-9a-f]{6}\\.json$", "description": "The revision file, relative to the plan folder. Pattern-constrained because this string is JOINED ONTO A FILESYSTEM PATH: an absolute value or one carrying `..` would let an imported record choose where the store writes. The shape matches what the store itself mints and nothing else."},
-        "revised_at": {"$ref": "#/$defs/timestamp"},
-        "note": {"type": "string", "minLength": 1},
+        "revision": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "plan_digest": {
+          "$ref": "#/$defs/digest"
+        },
+        "snapshot": {
+          "type": "string",
+          "pattern": "^revisions/[0-9]{6}--[0-9a-f]{6}\\.json$",
+          "description": "The revision file, relative to the plan folder. Pattern-constrained because this string is JOINED ONTO A FILESYSTEM PATH: an absolute value or one carrying `..` would let an imported record choose where the store writes. The shape matches what the store itself mints and nothing else."
+        },
+        "revised_at": {
+          "$ref": "#/$defs/timestamp"
+        },
+        "note": {
+          "type": "string",
+          "minLength": 1
+        },
         "redacted": {
           "type": "object",
           "additionalProperties": false,
-          "required": ["at", "reason"],
+          "required": [
+            "at",
+            "reason"
+          ],
           "properties": {
-            "at": {"$ref": "#/$defs/timestamp"},
-            "reason": {"type": "string", "minLength": 1}
+            "at": {
+              "$ref": "#/$defs/timestamp"
+            },
+            "reason": {
+              "type": "string",
+              "minLength": 1
+            }
           },
-          "description": "This revision's BODY was deliberately excised. The entry, its digest, and its place in the chain remain, so the record still shows that a revision existed here and what it hashed to — a redaction is visible, never a hole that reads like an accident."
+          "description": "This revision's BODY was deliberately excised. The entry, its digest, and its place in the chain remain, so the record still shows that a revision existed here and what it hashed to \u2014 a redaction is visible, never a hole that reads like an accident."
         }
       }
     },
     "approval": {
       "type": "object",
       "additionalProperties": false,
-      "required": ["revision", "plan_digest", "depth", "at"],
+      "required": [
+        "revision",
+        "plan_digest",
+        "depth",
+        "at"
+      ],
       "properties": {
-        "revision": {"type": "integer", "minimum": 1},
-        "plan_digest": {"$ref": "#/$defs/digest"},
-        "depth": {"type": "string", "minLength": 1},
-        "at": {"$ref": "#/$defs/timestamp"}
+        "revision": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "plan_digest": {
+          "$ref": "#/$defs/digest"
+        },
+        "depth": {
+          "type": "string",
+          "minLength": 1
+        },
+        "at": {
+          "$ref": "#/$defs/timestamp"
+        },
+        "review_contract": {
+          "$ref": "reviewer-contract.v1.json"
+        }
       },
       "description": "Bound to a DIGEST, not to the plan: revising the plan retires the approval by construction, because the thing approved no longer exists."
     },
     "findings_presented": {
       "type": "object",
       "additionalProperties": false,
-      "required": ["revision", "packet_digest", "at"],
+      "required": [
+        "revision",
+        "packet_digest",
+        "at"
+      ],
       "properties": {
-        "revision": {"type": "integer", "minimum": 1},
-        "packet_digest": {"$ref": "#/$defs/digest"},
-        "at": {"$ref": "#/$defs/timestamp"}
+        "revision": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "packet_digest": {
+          "$ref": "#/$defs/digest"
+        },
+        "at": {
+          "$ref": "#/$defs/timestamp"
+        },
+        "lineage_digest": {
+          "$ref": "#/$defs/digest"
+        }
       },
       "description": "What the operator was shown at the findings-presented gate: the reviewed revision and the packet the panel read. The gate's decision is the matching `consent` entry; this is its subject, the way `approval` carries the depth."
     },
     "plan_review": {
       "type": "object",
       "additionalProperties": false,
-      "required": ["revision", "plan_digest", "packet_digest", "at", "lenses"],
+      "required": [
+        "revision",
+        "plan_digest",
+        "packet_digest",
+        "at",
+        "lenses"
+      ],
       "properties": {
-        "revision": {"type": "integer", "minimum": 1},
-        "plan_digest": {"$ref": "#/$defs/digest"},
-        "packet_digest": {"$ref": "#/$defs/digest"},
-        "at": {"$ref": "#/$defs/timestamp"},
-        "lenses": {"type": "array", "minItems": 1, "items": {"type": "string", "minLength": 1}},
-        "findings": {"type": "array", "items": {"$ref": "#/$defs/finding"}}
+        "revision": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "plan_digest": {
+          "$ref": "#/$defs/digest"
+        },
+        "packet_digest": {
+          "$ref": "#/$defs/digest"
+        },
+        "at": {
+          "$ref": "#/$defs/timestamp"
+        },
+        "lenses": {
+          "type": "array",
+          "minItems": 1,
+          "items": {
+            "type": "string",
+            "minLength": 1
+          }
+        },
+        "findings": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/finding"
+          }
+        },
+        "contract_digest": {
+          "$ref": "#/$defs/digest"
+        },
+        "obligation_digests": {
+          "type": "object",
+          "additionalProperties": {
+            "$ref": "#/$defs/digest"
+          }
+        }
       },
       "description": "ONE cold review per approved revision. Folding fixes in as later revisions does NOT re-run it: a plan whose every revision re-triggered a panel would never converge, which is the failure the Build side already removed."
     },
     "finding": {
       "type": "object",
       "additionalProperties": false,
-      "required": ["id", "lens", "severity", "summary"],
+      "required": [
+        "id",
+        "lens",
+        "severity",
+        "summary"
+      ],
       "properties": {
-        "id": {"type": "string", "minLength": 1},
-        "lens": {"type": "string", "minLength": 1},
-        "severity": {"enum": ["blocking", "serious", "nit"]},
-        "summary": {"type": "string", "minLength": 1},
-        "disposition": {"enum": ["accepted-fixed", "accepted-tracked", "partially-accepted", "rejected", "escalated"]},
-        "rationale": {"type": "string", "minLength": 1},
-        "operator_summary": {"type": "string", "minLength": 1,
-                             "description": "The operator-safe sentence published on the merge surface. Required by `finding dispose` when a BLOCKING finding is not left blocking, because that is the disagreement an operator must meet at merge rather than discover afterwards."},
-        "blocks_this_pr": {"type": "boolean",
-                           "description": "Whether this plan finding still blocks the pull request it authorized. Recorded here rather than mirrored into Build state, so the disclosure cannot be stripped by the Build's own receipt bookkeeping."},
-        "location": {"type": "string", "minLength": 1,
-                     "description": "Where in the plan the finding lands, carried through from the reviewer shape (plan-review-finding.v1) rather than dropped in translation. It is usually the most actionable part of a finding, and a record that discarded it made the reviewer's own output worse than what they wrote."}
+        "id": {
+          "type": "string",
+          "minLength": 1
+        },
+        "lens": {
+          "type": "string",
+          "minLength": 1
+        },
+        "severity": {
+          "enum": [
+            "blocking",
+            "serious",
+            "nit"
+          ]
+        },
+        "summary": {
+          "type": "string",
+          "minLength": 1
+        },
+        "disposition": {
+          "enum": [
+            "accepted-fixed",
+            "accepted-tracked",
+            "partially-accepted",
+            "rejected",
+            "escalated"
+          ]
+        },
+        "rationale": {
+          "type": "string",
+          "minLength": 1
+        },
+        "operator_summary": {
+          "type": "string",
+          "minLength": 1,
+          "description": "The operator-safe sentence published on the merge surface. Required by `finding dispose` when a BLOCKING finding is not left blocking, because that is the disagreement an operator must meet at merge rather than discover afterwards."
+        },
+        "blocks_this_pr": {
+          "type": "boolean",
+          "description": "Whether this plan finding still blocks the pull request it authorized. Recorded here rather than mirrored into Build state, so the disclosure cannot be stripped by the Build's own receipt bookkeeping."
+        },
+        "location": {
+          "oneOf": [
+            {
+              "$ref": "plan-review-finding.v1.json#/properties/location"
+            },
+            {
+              "type": "string",
+              "minLength": 1
+            }
+          ],
+          "description": "New observed plan findings preserve the producer's exact file/line object or null. The string branch is legacy durable compatibility and explicit controller correction only; it does not permit string locations in raw reviewer reports. Historical strings and absent locations are never inferred, migrated, or rewritten."
+        }
       }
     },
     "attestation": {
       "type": "object",
       "additionalProperties": false,
-      "required": ["gate", "at"],
+      "required": [
+        "gate",
+        "at"
+      ],
       "properties": {
-        "gate": {"enum": ["approve", "findings-presented", "seal", "bind", "adopt"]},
-        "at": {"$ref": "#/$defs/timestamp"},
-        "decision": {"type": "string",
-                     "description": "Legacy. Until 2026-09-05 each gate recorded the operator's words here and the pull request republished them; that ceremony was retired (StarshipSuperjam/engine-template#1125). Entries written before then keep the text because an attestation is never edited; nothing writes or renders it now."}
+        "gate": {
+          "enum": [
+            "approve",
+            "findings-presented",
+            "seal",
+            "bind",
+            "adopt"
+          ]
+        },
+        "at": {
+          "$ref": "#/$defs/timestamp"
+        },
+        "decision": {
+          "type": "string",
+          "description": "Legacy. Until 2026-09-05 each gate recorded the operator's words here and the pull request republished them; that ceremony was retired (StarshipSuperjam/engine-template#1125). Entries written before then keep the text because an attestation is never edited; nothing writes or renders it now."
+        }
       }
     },
     "amendment": {
       "type": "object",
       "additionalProperties": false,
-      "required": ["artifact", "at", "reason"],
+      "required": [
+        "artifact",
+        "at",
+        "reason"
+      ],
       "properties": {
-        "artifact": {"type": "string", "minLength": 1,
-                     "description": "What was corrected: \"approval\", \"plan_review\", or \"finding <id>\"."},
-        "at": {"$ref": "#/$defs/timestamp"},
-        "reason": {"type": "string", "minLength": 1}
+        "artifact": {
+          "type": "string",
+          "minLength": 1,
+          "description": "What was corrected: \"approval\", \"plan_review\", or \"finding <id>\"."
+        },
+        "at": {
+          "$ref": "#/$defs/timestamp"
+        },
+        "reason": {
+          "type": "string",
+          "minLength": 1
+        }
       }
     },
     "seal": {
       "type": "object",
       "additionalProperties": false,
-      "required": ["revision", "reviewed_digest", "sealed_digest", "build_plan_digest", "at", "delta_judgment"],
+      "required": [
+        "revision",
+        "reviewed_digest",
+        "sealed_digest",
+        "build_plan_digest",
+        "at",
+        "delta_judgment"
+      ],
       "properties": {
-        "revision": {"type": "integer", "minimum": 1},
-        "reviewed_digest": {"$ref": "#/$defs/digest"},
-        "sealed_digest": {"$ref": "#/$defs/digest"},
-        "build_plan_digest": {"$ref": "#/$defs/digest"},
-        "at": {"$ref": "#/$defs/timestamp"},
-        "delta_judgment": {"enum": ["none", "scoped"]},
-        "delta_rationale": {"type": "string", "minLength": 1}
+        "revision": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "reviewed_digest": {
+          "$ref": "#/$defs/digest"
+        },
+        "sealed_digest": {
+          "$ref": "#/$defs/digest"
+        },
+        "build_plan_digest": {
+          "$ref": "#/$defs/digest"
+        },
+        "at": {
+          "$ref": "#/$defs/timestamp"
+        },
+        "delta_judgment": {
+          "enum": [
+            "none",
+            "scoped"
+          ]
+        },
+        "delta_rationale": {
+          "type": "string",
+          "minLength": 1
+        },
+        "review_contract_digest": {
+          "$ref": "#/$defs/digest"
+        }
       },
-      "description": "TERMINAL and single-minted. Records both the digest that was reviewed and the digest that was sealed, so the gap between them — the fixes folded in after the review — is disclosable rather than invisible. There is no sealed-but-failed state: a plan with blocking findings simply stays an unsealed draft carrying them."
+      "description": "TERMINAL and single-minted. Records both the digest that was reviewed and the digest that was sealed, so the gap between them \u2014 the fixes folded in after the review \u2014 is disclosable rather than invisible. There is no sealed-but-failed state: a plan with blocking findings simply stays an unsealed draft carrying them."
     },
     "closure": {
       "type": "object",
       "additionalProperties": false,
-      "required": ["state", "at", "reason"],
+      "required": [
+        "state",
+        "at",
+        "reason"
+      ],
       "properties": {
-        "state": {"enum": ["complete", "retired", "abandoned"]},
-        "at": {"$ref": "#/$defs/timestamp"},
-        "reason": {"type": "string", "minLength": 1}
+        "state": {
+          "enum": [
+            "complete",
+            "retired",
+            "abandoned"
+          ]
+        },
+        "at": {
+          "$ref": "#/$defs/timestamp"
+        },
+        "reason": {
+          "type": "string",
+          "minLength": 1
+        }
       },
-      "description": "`complete` — the Build it authorized was merged. `retired` — superseded by a later plan, kept for the record. `abandoned` — deliberately dropped. All three keep the plan and its revisions on the shelf; none of them deletes anything."
+      "description": "`complete` \u2014 the Build it authorized was merged. `retired` \u2014 superseded by a later plan, kept for the record. `abandoned` \u2014 deliberately dropped. All three keep the plan and its revisions on the shelf; none of them deletes anything."
+    },
+    "build_claim": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "build_id",
+        "generation",
+        "state",
+        "snapshot",
+        "repository",
+        "pull_request",
+        "sealed_digest",
+        "build_plan_digest",
+        "worktree",
+        "at",
+        "locator"
+      ],
+      "properties": {
+        "admission": {
+          "$ref": "#/$defs/admission"
+        },
+        "admission_digest": {
+          "type": "string",
+          "pattern": "^sha256:[0-9a-f]{64}$"
+        },
+        "build_id": {
+          "type": "string",
+          "pattern": "^bld_[0-9a-f]{32}$"
+        },
+        "generation": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "state": {
+          "enum": [
+            "preparing",
+            "active",
+            "retiring",
+            "superseded",
+            "abandoned",
+            "complete",
+            "transferring"
+          ]
+        },
+        "snapshot": {
+          "type": "string",
+          "pattern": "^/"
+        },
+        "repository": {
+          "type": "string",
+          "minLength": 1
+        },
+        "pull_request": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "sealed_digest": {
+          "$ref": "#/$defs/digest"
+        },
+        "build_plan_digest": {
+          "$ref": "#/$defs/digest"
+        },
+        "worktree": {
+          "type": "string",
+          "pattern": "^/"
+        },
+        "at": {
+          "$ref": "#/$defs/timestamp"
+        },
+        "locator": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "mode": {
+          "enum": [
+            "same-session",
+            "unattended"
+          ]
+        },
+        "authorizing_issue": {
+          "type": [
+            "integer",
+            "null"
+          ],
+          "minimum": 1
+        },
+        "reason": {
+          "type": "string",
+          "minLength": 1
+        },
+        "terminal_at": {
+          "$ref": "#/$defs/timestamp"
+        },
+        "archive": {
+          "type": "string",
+          "pattern": "^/"
+        },
+        "legacy_source": {
+          "type": "string",
+          "pattern": "^/"
+        },
+        "legacy_digest": {
+          "$ref": "#/$defs/digest"
+        },
+        "transfer": {
+          "oneOf": [
+            {
+              "type": "object",
+              "additionalProperties": false,
+              "required": [
+                "source_revision",
+                "successor_plan_id",
+                "successor_claim",
+                "consent"
+              ],
+              "properties": {
+                "source_revision": {
+                  "type": "integer",
+                  "minimum": 1
+                },
+                "successor_plan_id": {
+                  "type": "string",
+                  "pattern": "^pln_[0-9a-f]{12}$"
+                },
+                "successor_claim": {
+                  "$ref": "#/$defs/build_claim"
+                },
+                "consent": {
+                  "$ref": "#/$defs/attestation"
+                }
+              }
+            },
+            {
+              "type": "object",
+              "additionalProperties": false,
+              "required": [
+                "source_revision",
+                "predecessor_plan_id",
+                "predecessor_identity"
+              ],
+              "properties": {
+                "source_revision": {
+                  "type": "integer",
+                  "minimum": 1
+                },
+                "predecessor_plan_id": {
+                  "type": "string",
+                  "pattern": "^pln_[0-9a-f]{12}$"
+                },
+                "predecessor_identity": {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "required": [
+                    "build_id",
+                    "generation"
+                  ],
+                  "properties": {
+                    "build_id": {
+                      "type": "string",
+                      "pattern": "^bld_[0-9a-f]{32}$"
+                    },
+                    "generation": {
+                      "type": "integer",
+                      "minimum": 1
+                    }
+                  }
+                }
+              }
+            }
+          ]
+        },
+        "terminal_state": {
+          "enum": [
+            "superseded",
+            "abandoned",
+            "complete"
+          ]
+        },
+        "retirement_revision": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "close_state": {
+          "enum": [
+            "abandoned",
+            "retired",
+            "complete",
+            null
+          ]
+        }
+      },
+      "allOf": [
+        {
+          "if": {
+            "properties": {
+              "state": {
+                "enum": [
+                  "retiring",
+                  "superseded",
+                  "abandoned",
+                  "complete",
+                  "transferring"
+                ]
+              }
+            }
+          },
+          "then": {
+            "required": [
+              "reason",
+              "terminal_at",
+              "archive",
+              "terminal_state"
+            ]
+          }
+        }
+      ]
     },
     "build_binding": {
       "type": "object",
       "additionalProperties": false,
-      "required": ["sealed_digest", "build_plan_digest", "at"],
+      "required": [
+        "sealed_digest",
+        "build_plan_digest",
+        "at"
+      ],
       "properties": {
-        "sealed_digest": {"$ref": "#/$defs/digest"},
-        "build_plan_digest": {"$ref": "#/$defs/digest"},
-        "at": {"$ref": "#/$defs/timestamp"},
-        "pull_request": {"type": "integer", "minimum": 1},
-        "repository": {"type": "string", "minLength": 1}
+        "sealed_digest": {
+          "$ref": "#/$defs/digest"
+        },
+        "build_plan_digest": {
+          "$ref": "#/$defs/digest"
+        },
+        "at": {
+          "$ref": "#/$defs/timestamp"
+        },
+        "pull_request": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "repository": {
+          "type": "string",
+          "minLength": 1
+        }
       }
     }
   }

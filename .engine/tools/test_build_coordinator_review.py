@@ -78,6 +78,47 @@ class TestReviewerContractFreshness(unittest.TestCase):
         stage["reviewer_contracts"] = changed
         self.assertEqual(review.current_receipt_lenses(stage), {"feasibility"})
 
+    def test_matching_range_cannot_bypass_a_changed_obligation(self):
+        old = {"lens": "architecture", "path": "a.md", "digest": "sha256:" + "1" * 64,
+               "obligation_digest": "sha256:" + "a" * 64}
+        current = {**old, "obligation_digest": "sha256:" + "b" * 64}
+        stage = {"reviewer_contracts": review.lens_packets("sha256:" + "2" * 64, [current]),
+                 "receipts": [{"lens": "architecture", "packet_digest": "sha256:" + "3" * 64,
+                               "lens_packet_digest": "sha256:" + "4" * 64,
+                               "obligation_digest": old["obligation_digest"]}]}
+        self.assertEqual(review.current_receipt_lenses(stage, covers=lambda _: True), set())
+
+    def test_same_obligation_and_range_carry_forward_across_packet_provenance(self):
+        contract = {"lens": "architecture", "path": "a.md", "digest": "sha256:" + "1" * 64,
+                    "obligation_digest": "sha256:" + "a" * 64}
+        current = review.lens_packets("sha256:" + "2" * 64, [contract])[0]
+        receipt = {"lens": "architecture", "packet_digest": "sha256:" + "old" * 16,
+                   "lens_packet_digest": "sha256:" + "stale" * 12 + "abcd",
+                   "obligation_digest": contract["obligation_digest"]}
+        stage = {"reviewer_contracts": [current], "receipts": [receipt]}
+        self.assertEqual(review.current_receipt_lenses(stage, covers=lambda item: item["packet_digest"].startswith("sha256:")),
+                         {"architecture"})
+
+    def test_new_mandatory_lens_is_missing_until_it_has_a_receipt(self):
+        contracts = review.lens_packets("sha256:" + "a" * 64, [
+            {"lens": "architecture", "obligation_digest": "sha256:" + "1" * 64},
+            {"lens": "security", "obligation_digest": "sha256:" + "2" * 64}])
+        stage = {"reviewer_contracts": contracts, "receipts": [{"lens": "architecture",
+                   "lens_packet_digest": contracts[0]["lens_packet_digest"],
+                   "obligation_digest": contracts[0]["obligation_digest"]}]}
+        self.assertEqual(review.missing_receipts(stage), ["security"])
+
+    def test_effective_archived_renewal_stays_live_but_inactive_archive_does_not(self):
+        receipt = {"lens": "architecture", "packet_digest": "sha256:" + "1" * 64}
+        base = {"reviews": {"deliverable": {"receipts": [], "packet_digest": "sha256:" + "2" * 64}},
+                "repair": None}
+        renewed = {**base, "review_evidence_history": [{"stage": "deliverable", "receipt": receipt,
+                                                        "effective": True}]}
+        inactive = {**base, "review_evidence_history": [{"stage": "deliverable", "receipt": receipt,
+                                                          "effective": False}]}
+        self.assertEqual(review.live_receipts(renewed), [("deliverable", receipt)])
+        self.assertEqual(review.live_receipts(inactive), [])
+
     def test_downgraded_blocking_finding_line_publishes_only_operator_summary(self):
         # StarshipSuperjam/engine-template#981: the disagreement line is published verbatim to the
         # public PR body, so it must carry ONLY the operator-safe summary — never `private_reference`.
@@ -235,6 +276,207 @@ class TestAvailableDepths(unittest.TestCase):
         with self.assertRaises(TypeError):
             review.available_depths(self._protocol(), self._roster("spec-conformance"),
                                     {"quick": None, "standard": "medium", "thorough": "high"})
+
+
+
+
+
+class TestObservedExecutionIngress(CoordinatorCase):
+    """Receipt claims alone do not establish a fresh native execution."""
+
+    def setUp(self):
+        super().setUp()
+        self.seed()
+        self.approve("thorough")
+        self.integrate_all()
+        self.store.mutate(lambda s: s.update(validation={"commit": HEAD_A, "results": [
+            {"id": "self-test", "commit": HEAD_A, "passed": True, "summary": "fixture"}]}))
+        from test_build_coordinator import TestReviewAndFindings
+        self.DELIVERABLE_LENSES = TestReviewAndFindings.DELIVERABLE_LENSES
+        self.packet = TestReviewAndFindings.packet(self)
+        self.args = TestReviewAndFindings.receipt_args(self, self.packet, "spec-conformance", [])
+        self.args.session = "fixture-root"
+
+    def observe(self, output=None):
+        import scoped_agents
+        from test_build_coordinator import observe_review_execution
+        return observe_review_execution(self.review_library, self.review_slug,
+            scoped_agents.build_owner(self.state()), self.args.lens, self.args.lens_packet_digest,
+            [] if output is None else output)
+
+    def record(self):
+        with contextlib.redirect_stdout(io.StringIO()):
+            bc.cmd_review_record(self.args, self.store)
+
+    def test_empty_findings_without_observed_execution_do_not_publish_receipt(self):
+        before = self.state()
+        with self.assertRaisesRegex(bc.CoordinatorError, "unverified"):
+            self.record()
+        self.assertEqual(self.state(), before)
+
+    def test_observed_final_result_is_accepted_and_missing_companion_loses_verification(self):
+        import scoped_agents
+        companion, assignment = self.observe()
+        self.record()
+        state = self.state()
+        receipt = state["reviews"]["deliverable"]["receipts"][0]
+        self.assertTrue(companion.receipt_verified(receipt, scoped_agents.build_owner(state)))
+        self.assertEqual(set(receipt), {"lens", "packet_digest", "referent_digest", "lens_packet_digest",
+            "commit", "finding_ids", "code_execution", "reviewed_range"})
+        companion.path.unlink()
+        self.assertFalse(companion.receipt_verified(receipt, scoped_agents.build_owner(state)))
+        self.assertEqual(scoped_agents.missing_build_evidence(self.review_library, state, [receipt]),
+                         ["spec-conformance"])
+        self.assertEqual(self.state(), state)  # reading never fabricates or rewrites history
+
+    def test_partial_native_turn_does_not_count_as_completed_review(self):
+        self.observe({"status": "needs_clarification"})
+        with self.assertRaisesRegex(bc.CoordinatorError, "unverified"):
+            self.record()
+
+    def test_changed_packet_and_wrong_root_refuse(self):
+        companion, assignment = self.observe()
+        self.args.session = "other-root"
+        with self.assertRaisesRegex(bc.CoordinatorError, "unverified"):
+            self.record()
+        self.args.session = "fixture-root"
+        Path(assignment["packet_path"]).write_text("changed obligations")
+        with self.assertRaisesRegex(bc.CoordinatorError, "unverified"):
+            self.record()
+
+    def test_new_generation_cannot_accept_old_unaccepted_assignment(self):
+        self.observe()
+        self.store.mutate(lambda s: s["ownership"].update(generation=2))
+        with self.assertRaisesRegex(bc.CoordinatorError, "unverified"):
+            self.record()
+
+    def test_invalid_result_schema_is_not_review_completion(self):
+        self.observe([{"severity": "nit", "message": "missing required location"}])
+        with self.assertRaises(bc.CoordinatorError):
+            self.record()
+
+    def test_raw_report_copy_cannot_substitute_for_observed_output(self):
+        report = [{"severity": "blocking", "message": "first", "location": {"file": "a", "line": None}},
+                  {"severity": "serious", "message": "second", "location": None}]
+        companion, assignment = self.observe(report)
+        source = companion.path.parent / "raw-report.json"
+        self.args.report = str(source)
+        before = self.store.path.read_bytes(), companion.path.read_bytes()
+        for value in [[], report[:1], report[::-1], [{**report[0], "message": "replacement"}, report[1]],
+                      [{**report[0], "location": {"file": "a"}}, report[1]], None]:
+            source.write_text(json.dumps(value))
+            with self.assertRaises(bc.CoordinatorError):
+                self.record()
+            self.assertEqual((self.store.path.read_bytes(), companion.path.read_bytes()), before)
+        source.write_text(json.dumps(report, indent=2, sort_keys=True))
+        self.record()
+        accepted = next(iter(companion.read()["acceptances"].values()))
+        self.assertEqual(accepted["reports"][assignment["id"]], report)
+
+
+    def disposition(self, severity="blocking", summary="observed concern"):
+        args = argparse.Namespace(id="chosen-id", stage="deliverable", lens=self.args.lens,
+            severity=severity, summary=summary, disposition="accepted-fixed", rationale="fixed",
+            escalation_kind=None, blocks_this_pr_stated=False, handoff_summary="fixed concern",
+            operator_summary="The observed concern was fixed.")
+        with contextlib.redirect_stdout(io.StringIO()):
+            bc.cmd_finding_record(args, self.store)
+
+    def test_id_only_receipt_binds_first_disposition_but_allows_later_correction(self):
+        companion, _ = self.observe([{"severity": "blocking", "message": "observed concern", "location": None}])
+        self.args.finding = ["chosen-id"]
+        self.record()
+        before = self.store.path.read_bytes(), companion.path.read_bytes()
+        for severity, summary in [("nit", "observed concern"), ("blocking", "replacement")]:
+            with self.assertRaisesRegex(bc.CoordinatorError, "observed_report_mismatch"):
+                self.disposition(severity, summary)
+            self.assertEqual((self.store.path.read_bytes(), companion.path.read_bytes()), before)
+        self.disposition()
+        self.disposition("nit", "Explicit correction after initial observation")
+        self.assertEqual(self.state()["findings"][0]["severity"], "nit")
+
+    def test_pre_receipt_disposition_cannot_substitute_for_initial_observation(self):
+        companion, _ = self.observe([{"severity": "blocking", "message": "observed concern", "location": None}])
+        self.args.finding = ["chosen-id"]
+        self.disposition("nit", "replacement")
+        before = self.store.path.read_bytes(), companion.path.read_bytes()
+        with self.assertRaisesRegex(bc.CoordinatorError, "observed_report_mismatch"):
+            self.record()
+        self.assertEqual((self.store.path.read_bytes(), companion.path.read_bytes()), before)
+        self.disposition()
+        self.record()
+
+    def test_cli_rejection_is_a_parseable_protocol_envelope(self):
+        path = Path(self.temp.name) / "bad-report.json"
+        path.write_text("null")
+        error = io.StringIO()
+        # The real parser and command adapter run. No durable store is needed for a
+        # malformed report, which must refuse before the transaction is reached.
+        with mock.patch.object(bc, "_resolve_store", return_value=None), contextlib.redirect_stderr(error):
+            code = bc.main(["review", "record", "--stage", "deliverable", "--lens", self.args.lens,
+                "--packet-digest", self.args.packet_digest, "--lens-packet-digest", self.args.lens_packet_digest,
+                "--code-execution", "none", "--report", str(path)])
+        self.assertEqual(code, 2)
+        self.assertEqual(json.loads(error.getvalue())["schema_version"], "result-rejection.v1")
+
+    def test_clarification_completes_the_same_assignment_once(self):
+        import scoped_agents
+        from test_build_coordinator import clarify_review_execution
+        companion, assignment = self.observe({"status": "needs_clarification"})
+        with self.assertRaisesRegex(bc.CoordinatorError, "unverified"):
+            self.record()
+        final = clarify_review_execution(companion, assignment)
+        self.assertEqual(len(final["continuations"]), 1)
+        self.record()
+        state = self.state()
+        receipt = state["reviews"]["deliverable"]["receipts"][0]
+        self.assertTrue(companion.receipt_verified(receipt, scoped_agents.build_owner(state)))
+        self.assertEqual(len(companion.read()["acceptances"]), 1)
+
+
+    def test_companion_persisted_before_interrupted_receipt_is_not_coverage(self):
+        companion, assignment = self.observe()
+        before = self.state()
+        def interrupted(change, **kwargs):
+            candidate = json.loads(json.dumps(before))
+            change(candidate)  # companion staged; legacy snapshot publication has not happened
+            raise OSError("simulated interruption before receipt publication")
+        with mock.patch.object(self.store, "mutate", side_effect=interrupted):
+            with self.assertRaisesRegex(OSError, "simulated interruption"):
+                self.record()
+        self.assertEqual(self.state(), before)
+        self.assertEqual(len(companion.read()["acceptances"]), 1)
+        self.assertEqual(self.state()["reviews"]["deliverable"]["receipts"], [])
+        self.record()  # recover the same observed result without inventing another child
+        self.assertEqual(len(companion.read()["acceptances"]), 1)
+        self.assertEqual(len(self.state()["reviews"]["deliverable"]["receipts"]), 1)
+
+    def test_repeated_receipt_does_not_manufacture_another_assignment(self):
+        companion, assignment = self.observe()
+        self.record()
+        self.record()
+        self.assertEqual(len(companion.read()["assignments"]), 1)
+        self.assertEqual(len(companion.read()["acceptances"]), 1)
+        self.assertEqual(len(self.state()["reviews"]["deliverable"]["receipts"]), 1)
+
+
+    def test_worker_completion_cannot_be_used_as_a_review(self):
+        import scoped_agents
+        from test_build_coordinator import observe_review_execution
+        companion, assignment = observe_review_execution(self.review_library, self.review_slug,
+            scoped_agents.build_owner(self.state()), self.args.lens, self.args.lens_packet_digest,
+            {"outcome": "failed", "reason": "Cannot complete", "evidence": {
+                "changed_paths": [], "verification_results": [], "assumptions": [],
+                "unresolved_concerns": []}}, purpose="worker")
+        with self.assertRaisesRegex(bc.CoordinatorError, "worker/scout"):
+            self.record()
+        with mock.patch.object(scoped_agents.plan_store, "PlanLibrary", return_value=self.review_library), \
+                contextlib.redirect_stdout(io.StringIO()):
+            result = scoped_agents.main(["finish", "--plan", PLAN_ID, "--session", "fixture-root",
+                                         "--assignment", assignment["id"]])
+        self.assertEqual(result, 0)
+        self.assertTrue(companion.read()["assignments"][assignment["id"]]["accepted"])
+        self.assertEqual(companion.read()["acceptances"], {})
 
 
 if __name__ == "__main__":

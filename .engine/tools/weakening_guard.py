@@ -66,6 +66,7 @@ impossible ("cannot weaken at all" needs a distinct team identity).
 Superseded by the control-plane weakening guard once that module lands.
 """
 from __future__ import annotations
+import ast
 import json
 import os
 import re
@@ -74,6 +75,7 @@ import time
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))  # the sibling tools dir, for github_client
 from github_client import get_json, get_page, next_link  # noqa: E402 — sibling import after the path insert
+import validate  # noqa: E402  (shared CLI boundary and emitter from this protected-base checkout)
 
 ACK_LABEL = "guardrail-ack"
 # The acknowledgment is bound to the exact head it was granted for, not to the mere presence of the label.
@@ -113,8 +115,10 @@ _TRUSTED_CREATOR_SET = frozenset(login.casefold() for login in _ACK_TRUSTED_CREA
 # not re-trigger this check). When the label is present but the status has not landed yet, retry a bounded few
 # times before failing closed — sized to exceed the companion's post latency, and only when a status is actually
 # expected (the label is on the pull request), so a legitimately-unacked pull request is never padded with waits.
-_ACK_POLL_TRIES = 4
-_ACK_POLL_SLEEP = 3
+# Three reads at 0/30/60 seconds cover the observed late acknowledgment. This is a sleep budget,
+# not a runtime promise: API work also counts toward the validator's whole-process deadline.
+_ACK_POLL_TRIES = 3
+_ACK_POLL_SLEEP = 30
 # The guarded set is defined by a PROPERTY, not a path-prefix list: a committed file that constitutes
 # or configures an enforcement gate — one whose change could remove, disable, rename, or loosen a check, a
 # permission/enforcement hook, or a branch protection. Non-gate tooling (session boot, memory, telemetry, the
@@ -159,15 +163,17 @@ _FLOOR_RULESET_PROXY = (".engine/tools/bootstrap.py", ".engine/tools/team_switch
 # files). Hand-listed because they are not check-scripts and CANNOT be derived from settings.json: it wires gate
 # hooks (modes.py, close.py) and non-gate hooks (boot/memory/telemetry) IDENTICALLY, so deriving all of them would
 # re-guard the non-gate hooks and reintroduce the over-firing already fixed. Both block-budget members are here:
-# modes.py (PreToolUse write-gate) and close.py (Stop finding-disposition gate) — the only two hooks that can emit
-# a merge-relevant deny. A drift-detector test (test_seed.py) fails CI if a NEW PreToolUse/Stop hook whose code
+# modes.py (PreToolUse write-gate), close.py (Stop finding-disposition gate), and the scoped-assignment and
+# spend gates. A drift-detector test (test_seed.py) fails CI if a NEW PreToolUse/Stop hook whose code
 # can emit a block (via hooks.block or hooks.decide) is wired in settings.json but not floored here — the
 # gate-vs-non-gate call is DERIVED from the hook's own code, not a hand-maintained allowlist that could rot.
 _FLOOR_ENFORCEMENT_HOOKS = (
     ".engine/tools/modes.py",          # the Explore/Build write-gate (PreToolUse block-budget member)
+    ".engine/tools/scoped_agents.py",  # fresh-assignment and pending-message gates (PreToolUse)
     ".engine/tools/session_economy.py",  # the subagent-model / self-scheduling spend gate (PreToolUse
     #                                    block-budget member); weakening it silently un-gates fan-out
     ".engine/tools/close.py",          # the finding-disposition gate (Stop block-budget member; HARD-BLOCKS the turn)
+    ".engine/tools/issue_triage.py",   # issue enrollment and assessment/assignment mutation contracts
     ".engine/tools/hook-runner.sh",    # the launcher EVERY hook runs through
     ".engine/tools/hooks.py",          # the hook-law substrate: block budget + fail-open harness
     ".engine/tools/issue_gate.py",     # the engine-Issue reroute matcher the write-gate consults
@@ -429,6 +435,1556 @@ def classify(path: str, status: str, prev: str = "", instance_guards=_READ_INSTA
 
 
 
+# The protected-base census of every hard custom/script rule.  This is deliberately
+# kept beside the guarded-set derivation: moving it to an ordinary helper would let
+# a change remove both a declaration and its protection in one soft disclosure.
+# Optional rules remain in this census; only rules present in the base check
+# directory are active.
+_HARD_SCRIPT_ROOTS = {
+    "engine/check/enforcement-files": ".engine/tools/enforcement_files_check.py",
+    "engine/check/agent-coherence": ".engine/tools/agent_coherence_check.py",
+    "engine/check/audit-digest-fingerprint": ".engine/tools/audit_digest_fingerprint_check.py",
+    "engine/check/block-coherence": ".engine/tools/block_coherence_check.py",
+    "engine/check/build-protocol": ".engine/tools/build_protocol_check.py",
+    "engine/check/catalog-completeness": ".engine/tools/catalog_completeness_check.py",
+    "engine/check/census-completeness": ".engine/tools/census_completeness_check.py",
+    "engine/check/ci-assurance-drift": ".engine/tools/ci_assurance_check.py",
+    "engine/check/codex-agent-coherence": ".engine/tools/codex_agent_coherence_check.py",
+    "engine/check/codex-provider-parity": ".engine/tools/provider_parity_check.py",
+    "engine/check/codex-skill-coherence": ".engine/tools/codex_skill_coherence_check.py",
+    "engine/check/conduct-shape": ".engine/tools/conduct_shape_check.py",
+    "engine/check/dependency-review": ".engine/tools/dependency_discipline/review.py",
+    "engine/check/engine-todo-form": ".engine/tools/engine_todo_form_check.py",
+    "engine/check/first-run-reference-closure": ".engine/tools/first_run_reference_closure_check.py",
+    "engine/check/guardrail-weakening": ".engine/tools/weakening_guard.py",
+    "engine/check/hard-check-bite": ".engine/tools/hard_check_bite_check.py",
+    "engine/check/in-tool-demo-failure-path": ".engine/tools/in_tool_demo_failure_path_check.py",
+    "engine/check/interface-coherence": ".engine/tools/interface_coherence_check.py",
+    "engine/check/knowledge-vocabulary": ".engine/tools/knowledge_vocabulary_check.py",
+    "engine/check/lane-removed": ".engine/tools/lane_removed_check.py",
+    "engine/check/lens-consumption": ".engine/tools/lens_consumption_check.py",
+    "engine/check/manifest-write-funnel": ".engine/tools/manifest_write_funnel_check.py",
+    "engine/check/memory-pointer-public-safety": ".engine/tools/memory_pointer_public_safety_check.py",
+    "engine/check/model-routing": ".engine/tools/model_routing_check.py",
+    "engine/check/module-catalog-drift": ".engine/tools/module_catalog_check.py",
+    "engine/check/module-surfaces-drift": ".engine/tools/module_surfaces_check.py",
+    "engine/check/operator-guarded-paths": ".engine/tools/operator_guarded_paths_check.py",
+    "engine/check/operator-local-references": ".engine/tools/operator_local_references_check.py",
+    "engine/check/policy-override-stale": ".engine/tools/policy_override_check.py",
+    "engine/check/pr-release-impact": ".engine/tools/release_impact_check.py",
+    "engine/check/product-adr-form": ".engine/tools/product_design/adr_form.py",
+    "engine/check/product-design-form": ".engine/tools/product_design/design_form.py",
+    "engine/check/product-lock-integrity": ".engine/tools/product_design/lock_integrity.py",
+    "engine/check/product-spec-coverage": ".engine/tools/product_design/coverage.py",
+    "engine/check/product-spec-form": ".engine/tools/product_design/spec_form.py",
+    "engine/check/product-spec-matrix": ".engine/tools/product_design/obligation_matrix.py",
+    "engine/check/protection": ".engine/tools/protection_guard.py",
+    "engine/check/provider-vocabulary-confinement": ".engine/tools/provider_vocab_check.py",
+    "engine/check/release-integrity": ".engine/tools/release_integrity_check.py",
+    "engine/check/route-budget": ".engine/tools/route_budget_check.py",
+    "engine/check/route-target-existence": ".engine/tools/route_target_existence_check.py",
+    "engine/check/self-map-drift": ".engine/tools/self_map_check.py",
+    "engine/check/setup-route-drift": ".engine/tools/setup_route_drift_check.py",
+    "engine/check/shipped-issue-references": ".engine/tools/shipped_issue_references_check.py",
+    "engine/check/shipped-local-references": ".engine/tools/shipped_local_references_check.py",
+    "engine/check/skill-coherence": ".engine/tools/skill_coherence_check.py",
+    "engine/check/template-shape-spec": ".engine/tools/template_shape_spec_check.py",
+    "engine/check/uv-group-drift": ".engine/tools/uv_group_drift_check.py",
+}
+
+# Explicit source-by-source ownership, audited from each hard check's enforcement
+# calls. Imports used only by other CLI modes, mutation or rendering are excluded
+# with a reason at the edge. These are reviewed expectations, never auto-populated
+# from candidate imports at runtime; changing them changes this hard-floor file.
+ENFORCEMENT_SOURCE_INVENTORY = {'.engine/tools/agent_bindings.py': {'dependencies': ('.engine/tools/repo_identity.py',), 'exclusions': {}},
+ '.engine/tools/agent_coherence_check.py': {'dependencies': ('.engine/tools/reviewer_contracts.py', '.engine/tools/build_coordinator_review.py',
+                  '.engine/tools/build_coordinator_work.py',
+                  '.engine/tools/conformance_sweep.py',
+                  '.engine/tools/project_manager.py',
+                  '.engine/tools/result_contracts.py',
+                  '.engine/tools/validate.py'),
+ 'exclusions': {}},
+ '.engine/tools/attention_rank.py': {'dependencies': ('.engine/tools/moment.py',), 'exclusions': {}},
+ '.engine/tools/audit_digest.py': {'dependencies': ('.engine/tools/validate.py',),
+                                   'exclusions': {'.engine/tools/engine_write.py': 'Only '
+                                                                                   'seal/correct/migrate '
+                                                                                   'write paths use '
+                                                                                   'engine_write; '
+                                                                                   'fingerprint check reads '
+                                                                                   'and recomputes the seal.',
+                                                  '.engine/tools/github_client.py': 'Only the prior-audit '
+                                                                                    'GitHub transport uses '
+                                                                                    'this client; '
+                                                                                    'fingerprint '
+                                                                                    'verification reads the '
+                                                                                    'supplied local digest.',
+                                                  '.engine/tools/memory/__init__.py': 'Package '
+                                                                                      'initialization for '
+                                                                                      'the separate '
+                                                                                      'audit-memory '
+                                                                                      'recollection path; '
+                                                                                      'fingerprint '
+                                                                                      'verification does not '
+                                                                                      'use memory.',
+                                                  '.engine/tools/memory/restore_vault.py': 'Memory '
+                                                                                           'recollection for '
+                                                                                           'the audit '
+                                                                                           'persona is '
+                                                                                           'separate from '
+                                                                                           'fingerprint '
+                                                                                           'verification.',
+                                                  '.engine/tools/moment.py': 'The clock supplies audit '
+                                                                             'writing/staleness dates; '
+                                                                             'fingerprint verification '
+                                                                             'compares the dates already '
+                                                                             'present in the digest.',
+                                                  '.engine/tools/repo_identity.py': 'Repository branch '
+                                                                                    'discovery belongs to '
+                                                                                    'the prior-audit '
+                                                                                    'transport, not local '
+                                                                                    'fingerprint '
+                                                                                    'comparison.'}},
+ '.engine/tools/audit_digest_fingerprint_check.py': {'dependencies': ('.engine/tools/audit_digest.py',
+                                                                      '.engine/tools/validate.py'),
+                                                     'exclusions': {}},
+ '.engine/tools/block_coherence_check.py': {'dependencies': ('.engine/tools/modes.py',
+                                                             '.engine/tools/module_coherence.py',
+                                                             '.engine/tools/validate.py'),
+                                            'exclusions': {}},
+ '.engine/tools/build_protocol.py': {'dependencies': ('.engine/tools/project_manager.py',
+                                                      '.engine/tools/validate.py'),
+                                     'exclusions': {}},
+ '.engine/tools/build_protocol_check.py': {'dependencies': ('.engine/tools/agent_coherence_check.py',
+                                                            '.engine/tools/build_protocol.py',
+                                                            '.engine/tools/validate.py'),
+                                           'exclusions': {}},
+ '.engine/tools/catalog_completeness_check.py': {'dependencies': ('.engine/tools/validate.py',),
+                                                 'exclusions': {}},
+ '.engine/tools/census_completeness_check.py': {'dependencies': ('.engine/tools/repo_identity.py',
+                                                                 '.engine/tools/validate.py'),
+                                                'exclusions': {}},
+ '.engine/tools/ci_assurance.py': {'dependencies': ('.engine/tools/hard_check_bite_check.py',
+                                                    '.engine/tools/module_coherence.py',
+                                                    '.engine/tools/validate.py'),
+                                   'exclusions': {'.engine/tools/engine_write.py': 'Used only to persist the '
+                                                                                   'rendered assurance '
+                                                                                   'document; the drift '
+                                                                                   'check derives and '
+                                                                                   'compares without '
+                                                                                   'writing.'}},
+ '.engine/tools/ci_assurance_check.py': {'dependencies': ('.engine/tools/ci_assurance.py',
+                                                          '.engine/tools/validate.py'),
+                                         'exclusions': {}},
+ '.engine/tools/close.py': {'dependencies': (),
+                            'exclusions': {'.engine/tools/boot.py': 'Block-coherence reads the literal '
+                                                                    'BLOCK_INVARIANT; close-time memory '
+                                                                    'capture and session notices are not run '
+                                                                    'by that check.',
+                                           '.engine/tools/hooks.py': 'Block-coherence reads the literal '
+                                                                     'BLOCK_INVARIANT; close-time memory '
+                                                                     'capture and session notices are not '
+                                                                     'run by that check.',
+                                           '.engine/tools/memory/__init__.py': 'Block-coherence reads the '
+                                                                               'literal BLOCK_INVARIANT; '
+                                                                               'close-time memory capture '
+                                                                               'and session notices are not '
+                                                                               'run by that check.',
+                                           '.engine/tools/memory/capture.py': 'Block-coherence reads the '
+                                                                              'literal BLOCK_INVARIANT; '
+                                                                              'close-time memory capture and '
+                                                                              'session notices are not run '
+                                                                              'by that check.',
+                                           '.engine/tools/memory/ledger.py': 'Block-coherence reads the '
+                                                                             'literal BLOCK_INVARIANT; '
+                                                                             'close-time memory capture and '
+                                                                             'session notices are not run by '
+                                                                             'that check.',
+                                           '.engine/tools/memory/mutation_authority.py': 'Block-coherence '
+                                                                                         'reads the literal '
+                                                                                         'BLOCK_INVARIANT; '
+                                                                                         'close-time memory '
+                                                                                         'capture and '
+                                                                                         'session notices '
+                                                                                         'are not run by '
+                                                                                         'that check.',
+                                           '.engine/tools/moment.py': 'Block-coherence reads the literal '
+                                                                      'BLOCK_INVARIANT; close-time memory '
+                                                                      'capture and session notices are not '
+                                                                      'run by that check.',
+                                           '.engine/tools/telemetry.py': 'Block-coherence reads the literal '
+                                                                         'BLOCK_INVARIANT; close-time memory '
+                                                                         'capture and session notices are '
+                                                                         'not run by that check.',
+                                           '.engine/tools/validate.py': 'Block-coherence reads the literal '
+                                                                        'BLOCK_INVARIANT; close-time memory '
+                                                                        'capture and session notices are not '
+                                                                        'run by that check.'}},
+ '.engine/tools/codex_agent_coherence_check.py': {'dependencies': ('.engine/tools/agent_bindings.py',
+                                                                   '.engine/tools/codex_gen.py',
+                                                                   '.engine/tools/validate.py'),
+                                                  'exclusions': {}},
+ '.engine/tools/codex_gen.py': {'dependencies': ('.engine/tools/agent_bindings.py',
+                  '.engine/tools/result_contracts.py',
+                  '.engine/tools/skill_discovery.py',
+                  '.engine/tools/validate.py'),
+ 'exclusions': {}},
+ '.engine/tools/codex_skill_coherence_check.py': {'dependencies': ('.engine/tools/validate.py',),
+                                                  'exclusions': {}},
+ '.engine/tools/conduct_shape_check.py': {'dependencies': ('.engine/tools/validate.py',), 'exclusions': {}},
+ '.engine/tools/dependency_discipline/review.py': {'dependencies': ('.engine/tools/github_client.py',
+                                                                    '.engine/tools/validate.py'),
+                                                   'exclusions': {}},
+ '.engine/tools/derived_state.py': {'dependencies': ('.engine/tools/repo_identity.py',),
+                                    'exclusions': {'.engine/tools/ci_assurance.py': 'module_surfaces checks '
+                                                                                    'placement through '
+                                                                                    'is_confirmed_home, '
+                                                                                    'which calls '
+                                                                                    'repo_identity only. '
+                                                                                    'Generator and writer '
+                                                                                    'imports belong to '
+                                                                                    'artifact '
+                                                                                    'synchronization, not '
+                                                                                    'that placement '
+                                                                                    'predicate.',
+                                                   '.engine/tools/codex_gen.py': 'module_surfaces checks '
+                                                                                 'placement through '
+                                                                                 'is_confirmed_home, which '
+                                                                                 'calls repo_identity only. '
+                                                                                 'Generator and writer '
+                                                                                 'imports belong to artifact '
+                                                                                 'synchronization, not that '
+                                                                                 'placement predicate.',
+                                                   '.engine/tools/engine_write.py': 'module_surfaces checks '
+                                                                                    'placement through '
+                                                                                    'is_confirmed_home, '
+                                                                                    'which calls '
+                                                                                    'repo_identity only. '
+                                                                                    'Generator and writer '
+                                                                                    'imports belong to '
+                                                                                    'artifact '
+                                                                                    'synchronization, not '
+                                                                                    'that placement '
+                                                                                    'predicate.',
+                                                   '.engine/tools/knowledge_gen.py': 'module_surfaces checks '
+                                                                                     'placement through '
+                                                                                     'is_confirmed_home, '
+                                                                                     'which calls '
+                                                                                     'repo_identity only. '
+                                                                                     'Generator and writer '
+                                                                                     'imports belong to '
+                                                                                     'artifact '
+                                                                                     'synchronization, not '
+                                                                                     'that placement '
+                                                                                     'predicate.',
+                                                   '.engine/tools/module_catalog.py': 'module_surfaces '
+                                                                                      'checks placement '
+                                                                                      'through '
+                                                                                      'is_confirmed_home, '
+                                                                                      'which calls '
+                                                                                      'repo_identity only. '
+                                                                                      'Generator and writer '
+                                                                                      'imports belong to '
+                                                                                      'artifact '
+                                                                                      'synchronization, not '
+                                                                                      'that placement '
+                                                                                      'predicate.',
+                                                   '.engine/tools/module_surfaces.py': 'module_surfaces '
+                                                                                       'checks placement '
+                                                                                       'through '
+                                                                                       'is_confirmed_home, '
+                                                                                       'which calls '
+                                                                                       'repo_identity only. '
+                                                                                       'Generator and writer '
+                                                                                       'imports belong to '
+                                                                                       'artifact '
+                                                                                       'synchronization, not '
+                                                                                       'that placement '
+                                                                                       'predicate.',
+                                                   '.engine/tools/product_design/__init__.py': 'module_surfaces '
+                                                                                               'checks '
+                                                                                               'placement '
+                                                                                               'through '
+                                                                                               'is_confirmed_home, '
+                                                                                               'which calls '
+                                                                                               'repo_identity '
+                                                                                               'only. '
+                                                                                               'Generator '
+                                                                                               'and writer '
+                                                                                               'imports '
+                                                                                               'belong to '
+                                                                                               'artifact '
+                                                                                               'synchronization, '
+                                                                                               'not that '
+                                                                                               'placement '
+                                                                                               'predicate.',
+                                                   '.engine/tools/product_design/obligation_matrix.py': 'module_surfaces '
+                                                                                                        'checks '
+                                                                                                        'placement '
+                                                                                                        'through '
+                                                                                                        'is_confirmed_home, '
+                                                                                                        'which '
+                                                                                                        'calls '
+                                                                                                        'repo_identity '
+                                                                                                        'only. '
+                                                                                                        'Generator '
+                                                                                                        'and '
+                                                                                                        'writer '
+                                                                                                        'imports '
+                                                                                                        'belong '
+                                                                                                        'to '
+                                                                                                        'artifact '
+                                                                                                        'synchronization, '
+                                                                                                        'not '
+                                                                                                        'that '
+                                                                                                        'placement '
+                                                                                                        'predicate.',
+                                                   '.engine/tools/self_map.py': 'module_surfaces checks '
+                                                                                'placement through '
+                                                                                'is_confirmed_home, which '
+                                                                                'calls repo_identity only. '
+                                                                                'Generator and writer '
+                                                                                'imports belong to artifact '
+                                                                                'synchronization, not that '
+                                                                                'placement predicate.',
+                                                   '.engine/tools/setup_route_gen.py': 'module_surfaces '
+                                                                                       'checks placement '
+                                                                                       'through '
+                                                                                       'is_confirmed_home, '
+                                                                                       'which calls '
+                                                                                       'repo_identity only. '
+                                                                                       'Generator and writer '
+                                                                                       'imports belong to '
+                                                                                       'artifact '
+                                                                                       'synchronization, not '
+                                                                                       'that placement '
+                                                                                       'predicate.',
+                                                   '.engine/tools/validate.py': 'module_surfaces checks '
+                                                                                'placement through '
+                                                                                'is_confirmed_home, which '
+                                                                                'calls repo_identity only. '
+                                                                                'Generator and writer '
+                                                                                'imports belong to artifact '
+                                                                                'synchronization, not that '
+                                                                                'placement predicate.'}},
+ '.engine/tools/engine_todo.py': {'dependencies': ('.engine/tools/module_manager.py',
+                                                   '.engine/tools/repo_identity.py',
+                                                   '.engine/tools/validate.py'),
+                                  'exclusions': {}},
+ '.engine/tools/engine_todo_form_check.py': {'dependencies': ('.engine/tools/engine_todo.py',
+                                                              '.engine/tools/validate.py'),
+                                             'exclusions': {}},
+ '.engine/tools/execution_environment.py': {'dependencies': ('.engine/tools/moment.py',
+                                                             '.engine/tools/repo_identity.py'),
+                                            'exclusions': {}},
+ '.engine/tools/first_run_reference_closure_check.py': {'dependencies': ('.engine/tools/validate.py',),
+                                                        'exclusions': {}},
+ '.engine/tools/github_client.py': {'dependencies': (), 'exclusions': {}},
+ '.engine/tools/hard_check_bite_check.py': {'dependencies': ('.engine/tools/repo_identity.py',
+                                                             '.engine/tools/validate.py'),
+                                            'exclusions': {}},
+ '.engine/tools/hooks.py': {'dependencies': (),
+                            'exclusions': {'.engine/tools/moment.py': 'Block-coherence reads the literal '
+                                                                      'BLOCK_ELIGIBLE_INVARIANTS registry; '
+                                                                      'event handling and telemetry are '
+                                                                      'outside that call path.',
+                                           '.engine/tools/mutation_guards.py': 'Block-coherence reads the '
+                                                                               'literal '
+                                                                               'BLOCK_ELIGIBLE_INVARIANTS '
+                                                                               'registry; event handling and '
+                                                                               'telemetry are outside that '
+                                                                               'call path.',
+                                           '.engine/tools/providers.py': 'Block-coherence reads the literal '
+                                                                         'BLOCK_ELIGIBLE_INVARIANTS '
+                                                                         'registry; event handling and '
+                                                                         'telemetry are outside that call '
+                                                                         'path.',
+                                           '.engine/tools/telemetry.py': 'Block-coherence reads the literal '
+                                                                         'BLOCK_ELIGIBLE_INVARIANTS '
+                                                                         'registry; event handling and '
+                                                                         'telemetry are outside that call '
+                                                                         'path.',
+                                           '.engine/tools/validate.py': 'Block-coherence reads the literal '
+                                                                        'BLOCK_ELIGIBLE_INVARIANTS registry; '
+                                                                        'event handling and telemetry are '
+                                                                        'outside that call path.'}},
+ '.engine/tools/in_tool_demo_failure_path_check.py': {'dependencies': ('.engine/tools/validate.py',),
+                                                      'exclusions': {}},
+ '.engine/tools/interface_coherence_check.py': {'dependencies': ('.engine/tools/validate.py',),
+                                                'exclusions': {}},
+ '.engine/tools/knowledge_gen.py': {'dependencies': ('.engine/tools/module_coherence.py',
+                                                     '.engine/tools/validate.py',
+                                                     '.engine/tools/weakening_guard.py'),
+                                    'exclusions': {'.engine/tools/hooks.py': 'Commit-hook regeneration and '
+                                                                             'its demonstration are separate '
+                                                                             'from knowledge_gen.check '
+                                                                             'derivation/comparison.'}},
+ '.engine/tools/knowledge_vocabulary_check.py': {'dependencies': ('.engine/tools/validate.py',),
+                                                 'exclusions': {}},
+ '.engine/tools/lane_removed_check.py': {'dependencies': ('.engine/tools/agent_coherence_check.py',
+                                                          '.engine/tools/validate.py'),
+                                         'exclusions': {}},
+ '.engine/tools/lens_consumption_check.py': {'dependencies': ('.engine/tools/agent_coherence_check.py',
+                                                              '.engine/tools/build_protocol.py',
+                                                              '.engine/tools/validate.py'),
+                                             'exclusions': {}},
+ '.engine/tools/local_references.py': {'dependencies': ('.engine/tools/validate.py',), 'exclusions': {}},
+ '.engine/tools/manifest_write_funnel_check.py': {'dependencies': ('.engine/tools/validate.py',),
+                                                  'exclusions': {}},
+ '.engine/tools/memory_pointer_public_safety_check.py': {'dependencies': ('.engine/tools/repo_identity.py',
+                                                                          '.engine/tools/validate.py'),
+                                                         'exclusions': {}},
+ '.engine/tools/model_routing_check.py': {'dependencies': ('.engine/tools/agent_coherence_check.py',
+                                                           '.engine/tools/execution_environment.py',
+                                                           '.engine/tools/validate.py'),
+                                          'exclusions': {}},
+ '.engine/tools/modes.py': {'dependencies': (),
+                            'exclusions': {'.engine/tools/checkout_health.py': 'The block-coherence check '
+                                                                               'reads STANCES and literal '
+                                                                               'BLOCK_INVARIANT records; '
+                                                                               'hook handling, plan import '
+                                                                               'and session/checkout '
+                                                                               'operations are outside that '
+                                                                               'call path.',
+                                           '.engine/tools/hooks.py': 'The block-coherence check reads '
+                                                                     'STANCES and literal BLOCK_INVARIANT '
+                                                                     'records; hook handling, plan import '
+                                                                     'and session/checkout operations are '
+                                                                     'outside that call path.',
+                                           '.engine/tools/issue_gate.py': 'The block-coherence check reads '
+                                                                          'STANCES and literal '
+                                                                          'BLOCK_INVARIANT records; hook '
+                                                                          'handling, plan import and '
+                                                                          'session/checkout operations are '
+                                                                          'outside that call path.',
+                                           '.engine/tools/project_manager.py': 'The block-coherence check '
+                                                                               'reads STANCES and literal '
+                                                                               'BLOCK_INVARIANT records; '
+                                                                               'hook handling, plan import '
+                                                                               'and session/checkout '
+                                                                               'operations are outside that '
+                                                                               'call path.',
+                                           '.engine/tools/providers.py': 'The block-coherence check reads '
+                                                                         'STANCES and literal '
+                                                                         'BLOCK_INVARIANT records; hook '
+                                                                         'handling, plan import and '
+                                                                         'session/checkout operations are '
+                                                                         'outside that call path.'}},
+ '.engine/tools/module_catalog.py': {'dependencies': ('.engine/tools/module_coherence.py',
+                                                      '.engine/tools/validate.py'),
+                                     'exclusions': {}},
+ '.engine/tools/module_catalog_check.py': {'dependencies': ('.engine/tools/module_catalog.py',
+                                                            '.engine/tools/validate.py'),
+                                           'exclusions': {}},
+ '.engine/tools/module_coherence.py': {'dependencies': ('.engine/tools/scoped_agents.py',
+                                                        '.engine/tools/close.py',
+                                                        '.engine/tools/hooks.py',
+                                                        '.engine/tools/modes.py',
+                                                        '.engine/tools/repo_identity.py',
+                                                        '.engine/tools/session_economy.py',
+                                                        '.engine/tools/validate.py',
+                                                        '.engine/tools/wiring.py'),
+                                       'exclusions': {}},
+ '.engine/tools/module_manager.py': {'dependencies': ('.engine/tools/module_coherence.py',
+                                                      '.engine/tools/validate.py'),
+                                     'exclusions': {'.engine/tools/boot.py': 'The hard checks use '
+                                                                             'derive_uv_groups and '
+                                                                             'engine_todo.engine_owned_skip '
+                                                                             '-> overlay_replace_paths. This '
+                                                                             'import belongs to '
+                                                                             'add/remove/upgrade, rendering '
+                                                                             'or transaction operations, '
+                                                                             'outside those read-only '
+                                                                             'calculations.',
+                                                    '.engine/tools/bootstrap.py': 'The hard checks use '
+                                                                                  'derive_uv_groups and '
+                                                                                  'engine_todo.engine_owned_skip '
+                                                                                  '-> overlay_replace_paths. '
+                                                                                  'This import belongs to '
+                                                                                  'add/remove/upgrade, '
+                                                                                  'rendering or transaction '
+                                                                                  'operations, outside those '
+                                                                                  'read-only calculations.',
+                                                    '.engine/tools/checkout_health.py': 'The hard checks use '
+                                                                                        'derive_uv_groups '
+                                                                                        'and '
+                                                                                        'engine_todo.engine_owned_skip '
+                                                                                        '-> '
+                                                                                        'overlay_replace_paths. '
+                                                                                        'This import belongs '
+                                                                                        'to '
+                                                                                        'add/remove/upgrade, '
+                                                                                        'rendering or '
+                                                                                        'transaction '
+                                                                                        'operations, outside '
+                                                                                        'those read-only '
+                                                                                        'calculations.',
+                                                    '.engine/tools/close.py': 'The hard checks use '
+                                                                              'derive_uv_groups and '
+                                                                              'engine_todo.engine_owned_skip '
+                                                                              '-> overlay_replace_paths. '
+                                                                              'This import belongs to '
+                                                                              'add/remove/upgrade, rendering '
+                                                                              'or transaction operations, '
+                                                                              'outside those read-only '
+                                                                              'calculations.',
+                                                    '.engine/tools/derived_state.py': 'The hard checks use '
+                                                                                      'derive_uv_groups and '
+                                                                                      'engine_todo.engine_owned_skip '
+                                                                                      '-> '
+                                                                                      'overlay_replace_paths. '
+                                                                                      'This import belongs '
+                                                                                      'to '
+                                                                                      'add/remove/upgrade, '
+                                                                                      'rendering or '
+                                                                                      'transaction '
+                                                                                      'operations, outside '
+                                                                                      'those read-only '
+                                                                                      'calculations.',
+                                                    '.engine/tools/engine_write.py': 'The hard checks use '
+                                                                                     'derive_uv_groups and '
+                                                                                     'engine_todo.engine_owned_skip '
+                                                                                     '-> '
+                                                                                     'overlay_replace_paths. '
+                                                                                     'This import belongs to '
+                                                                                     'add/remove/upgrade, '
+                                                                                     'rendering or '
+                                                                                     'transaction '
+                                                                                     'operations, outside '
+                                                                                     'those read-only '
+                                                                                     'calculations.',
+                                                    '.engine/tools/github_client.py': 'The hard checks use '
+                                                                                      'derive_uv_groups and '
+                                                                                      'engine_todo.engine_owned_skip '
+                                                                                      '-> '
+                                                                                      'overlay_replace_paths. '
+                                                                                      'This import belongs '
+                                                                                      'to '
+                                                                                      'add/remove/upgrade, '
+                                                                                      'rendering or '
+                                                                                      'transaction '
+                                                                                      'operations, outside '
+                                                                                      'those read-only '
+                                                                                      'calculations.',
+                                                    '.engine/tools/hooks.py': 'The hard checks use '
+                                                                              'derive_uv_groups and '
+                                                                              'engine_todo.engine_owned_skip '
+                                                                              '-> overlay_replace_paths. '
+                                                                              'This import belongs to '
+                                                                              'add/remove/upgrade, rendering '
+                                                                              'or transaction operations, '
+                                                                              'outside those read-only '
+                                                                              'calculations.',
+                                                    '.engine/tools/memory/__init__.py': 'The hard checks use '
+                                                                                        'derive_uv_groups '
+                                                                                        'and '
+                                                                                        'engine_todo.engine_owned_skip '
+                                                                                        '-> '
+                                                                                        'overlay_replace_paths. '
+                                                                                        'This import belongs '
+                                                                                        'to '
+                                                                                        'add/remove/upgrade, '
+                                                                                        'rendering or '
+                                                                                        'transaction '
+                                                                                        'operations, outside '
+                                                                                        'those read-only '
+                                                                                        'calculations.',
+                                                    '.engine/tools/memory/capture.py': 'The hard checks use '
+                                                                                       'derive_uv_groups and '
+                                                                                       'engine_todo.engine_owned_skip '
+                                                                                       '-> '
+                                                                                       'overlay_replace_paths. '
+                                                                                       'This import belongs '
+                                                                                       'to '
+                                                                                       'add/remove/upgrade, '
+                                                                                       'rendering or '
+                                                                                       'transaction '
+                                                                                       'operations, outside '
+                                                                                       'those read-only '
+                                                                                       'calculations.',
+                                                    '.engine/tools/memory/ledger.py': 'The hard checks use '
+                                                                                      'derive_uv_groups and '
+                                                                                      'engine_todo.engine_owned_skip '
+                                                                                      '-> '
+                                                                                      'overlay_replace_paths. '
+                                                                                      'This import belongs '
+                                                                                      'to '
+                                                                                      'add/remove/upgrade, '
+                                                                                      'rendering or '
+                                                                                      'transaction '
+                                                                                      'operations, outside '
+                                                                                      'those read-only '
+                                                                                      'calculations.',
+                                                    '.engine/tools/memory/restore_vault.py': 'The hard '
+                                                                                             'checks use '
+                                                                                             'derive_uv_groups '
+                                                                                             'and '
+                                                                                             'engine_todo.engine_owned_skip '
+                                                                                             '-> '
+                                                                                             'overlay_replace_paths. '
+                                                                                             'This import '
+                                                                                             'belongs to '
+                                                                                             'add/remove/upgrade, '
+                                                                                             'rendering or '
+                                                                                             'transaction '
+                                                                                             'operations, '
+                                                                                             'outside those '
+                                                                                             'read-only '
+                                                                                             'calculations.',
+                                                    '.engine/tools/module_catalog.py': 'The hard checks use '
+                                                                                       'derive_uv_groups and '
+                                                                                       'engine_todo.engine_owned_skip '
+                                                                                       '-> '
+                                                                                       'overlay_replace_paths. '
+                                                                                       'This import belongs '
+                                                                                       'to '
+                                                                                       'add/remove/upgrade, '
+                                                                                       'rendering or '
+                                                                                       'transaction '
+                                                                                       'operations, outside '
+                                                                                       'those read-only '
+                                                                                       'calculations.',
+                                                    '.engine/tools/module_manager.py': 'The hard checks use '
+                                                                                       'derive_uv_groups and '
+                                                                                       'engine_todo.engine_owned_skip '
+                                                                                       '-> '
+                                                                                       'overlay_replace_paths. '
+                                                                                       'This import belongs '
+                                                                                       'to '
+                                                                                       'add/remove/upgrade, '
+                                                                                       'rendering or '
+                                                                                       'transaction '
+                                                                                       'operations, outside '
+                                                                                       'those read-only '
+                                                                                       'calculations.',
+                                                    '.engine/tools/release_cut.py': 'The hard checks use '
+                                                                                    'derive_uv_groups and '
+                                                                                    'engine_todo.engine_owned_skip '
+                                                                                    '-> '
+                                                                                    'overlay_replace_paths. '
+                                                                                    'This import belongs to '
+                                                                                    'add/remove/upgrade, '
+                                                                                    'rendering or '
+                                                                                    'transaction operations, '
+                                                                                    'outside those read-only '
+                                                                                    'calculations.',
+                                                    '.engine/tools/release_impact_check.py': 'The hard '
+                                                                                             'checks use '
+                                                                                             'derive_uv_groups '
+                                                                                             'and '
+                                                                                             'engine_todo.engine_owned_skip '
+                                                                                             '-> '
+                                                                                             'overlay_replace_paths. '
+                                                                                             'This import '
+                                                                                             'belongs to '
+                                                                                             'add/remove/upgrade, '
+                                                                                             'rendering or '
+                                                                                             'transaction '
+                                                                                             'operations, '
+                                                                                             'outside those '
+                                                                                             'read-only '
+                                                                                             'calculations.',
+                                                    '.engine/tools/release_source.py': 'The hard checks use '
+                                                                                       'derive_uv_groups and '
+                                                                                       'engine_todo.engine_owned_skip '
+                                                                                       '-> '
+                                                                                       'overlay_replace_paths. '
+                                                                                       'This import belongs '
+                                                                                       'to '
+                                                                                       'add/remove/upgrade, '
+                                                                                       'rendering or '
+                                                                                       'transaction '
+                                                                                       'operations, outside '
+                                                                                       'those read-only '
+                                                                                       'calculations.',
+                                                    '.engine/tools/render_safety.py': 'The hard checks use '
+                                                                                      'derive_uv_groups and '
+                                                                                      'engine_todo.engine_owned_skip '
+                                                                                      '-> '
+                                                                                      'overlay_replace_paths. '
+                                                                                      'This import belongs '
+                                                                                      'to '
+                                                                                      'add/remove/upgrade, '
+                                                                                      'rendering or '
+                                                                                      'transaction '
+                                                                                      'operations, outside '
+                                                                                      'those read-only '
+                                                                                      'calculations.',
+                                                    '.engine/tools/repo_identity.py': 'The hard checks use '
+                                                                                      'derive_uv_groups and '
+                                                                                      'engine_todo.engine_owned_skip '
+                                                                                      '-> '
+                                                                                      'overlay_replace_paths. '
+                                                                                      'This import belongs '
+                                                                                      'to '
+                                                                                      'add/remove/upgrade, '
+                                                                                      'rendering or '
+                                                                                      'transaction '
+                                                                                      'operations, outside '
+                                                                                      'those read-only '
+                                                                                      'calculations.',
+                                                    '.engine/tools/telemetry.py': 'The hard checks use '
+                                                                                  'derive_uv_groups and '
+                                                                                  'engine_todo.engine_owned_skip '
+                                                                                  '-> overlay_replace_paths. '
+                                                                                  'This import belongs to '
+                                                                                  'add/remove/upgrade, '
+                                                                                  'rendering or transaction '
+                                                                                  'operations, outside those '
+                                                                                  'read-only calculations.',
+                                                    '.engine/tools/transaction.py': 'The hard checks use '
+                                                                                    'derive_uv_groups and '
+                                                                                    'engine_todo.engine_owned_skip '
+                                                                                    '-> '
+                                                                                    'overlay_replace_paths. '
+                                                                                    'This import belongs to '
+                                                                                    'add/remove/upgrade, '
+                                                                                    'rendering or '
+                                                                                    'transaction operations, '
+                                                                                    'outside those read-only '
+                                                                                    'calculations.',
+                                                    '.engine/tools/transaction_envelope.py': 'The hard '
+                                                                                             'checks use '
+                                                                                             'derive_uv_groups '
+                                                                                             'and '
+                                                                                             'engine_todo.engine_owned_skip '
+                                                                                             '-> '
+                                                                                             'overlay_replace_paths. '
+                                                                                             'This import '
+                                                                                             'belongs to '
+                                                                                             'add/remove/upgrade, '
+                                                                                             'rendering or '
+                                                                                             'transaction '
+                                                                                             'operations, '
+                                                                                             'outside those '
+                                                                                             'read-only '
+                                                                                             'calculations.',
+                                                    '.engine/tools/transaction_handoff.py': 'The hard checks '
+                                                                                            'use '
+                                                                                            'derive_uv_groups '
+                                                                                            'and '
+                                                                                            'engine_todo.engine_owned_skip '
+                                                                                            '-> '
+                                                                                            'overlay_replace_paths. '
+                                                                                            'This import '
+                                                                                            'belongs to '
+                                                                                            'add/remove/upgrade, '
+                                                                                            'rendering or '
+                                                                                            'transaction '
+                                                                                            'operations, '
+                                                                                            'outside those '
+                                                                                            'read-only '
+                                                                                            'calculations.',
+                                                    '.engine/tools/wiring.py': 'The hard checks use '
+                                                                               'derive_uv_groups and '
+                                                                               'engine_todo.engine_owned_skip '
+                                                                               '-> overlay_replace_paths. '
+                                                                               'This import belongs to '
+                                                                               'add/remove/upgrade, '
+                                                                               'rendering or transaction '
+                                                                               'operations, outside those '
+                                                                               'read-only calculations.'}},
+ '.engine/tools/module_surfaces.py': {'dependencies': ('.engine/tools/derived_state.py',
+                                                       '.engine/tools/module_coherence.py',
+                                                       '.engine/tools/validate.py'),
+                                      'exclusions': {}},
+ '.engine/tools/module_surfaces_check.py': {'dependencies': ('.engine/tools/module_surfaces.py',
+                                                             '.engine/tools/validate.py'),
+                                            'exclusions': {}},
+ '.engine/tools/moment.py': {'dependencies': (), 'exclusions': {}},
+ '.engine/tools/operator_guarded_paths_check.py': {'dependencies': ('.engine/tools/validate.py',),
+                                                   'exclusions': {}},
+ '.engine/tools/operator_local_references_check.py': {'dependencies': ('.engine/tools/local_references.py',
+                                                                       '.engine/tools/validate.py'),
+                                                      'exclusions': {}},
+ '.engine/tools/operator_overrides.py': {'dependencies': ('.engine/tools/validate.py',), 'exclusions': {}},
+ '.engine/tools/policy_override_check.py': {'dependencies': ('.engine/tools/attention_rank.py',
+                                                             '.engine/tools/operator_overrides.py',
+                                                             '.engine/tools/validate.py'),
+                                            'exclusions': {}},
+ '.engine/tools/product_design/__init__.py': {'dependencies': (), 'exclusions': {}},
+ '.engine/tools/product_design/adr_form.py': {'dependencies': ('.engine/tools/product_design/__init__.py',
+                                                               '.engine/tools/product_design/spec_form.py',
+                                                               '.engine/tools/validate.py'),
+                                              'exclusions': {}},
+ '.engine/tools/product_design/coverage.py': {'dependencies': ('.engine/tools/product_design/__init__.py',
+                                                               '.engine/tools/product_design/spec_form.py',
+                                                               '.engine/tools/validate.py'),
+                                              'exclusions': {}},
+ '.engine/tools/product_design/design_form.py': {'dependencies': ('.engine/tools/product_design/__init__.py',
+                                                                  '.engine/tools/product_design/spec_form.py',
+                                                                  '.engine/tools/validate.py'),
+                                                 'exclusions': {}},
+ '.engine/tools/product_design/lock_integrity.py': {'dependencies': ('.engine/tools/github_client.py',
+                                                                     '.engine/tools/product_design/__init__.py',
+                                                                     '.engine/tools/product_design/spec_form.py',
+                                                                     '.engine/tools/validate.py',
+                                                                     '.engine/tools/weakening_guard.py'),
+                                                    'exclusions': {}},
+ '.engine/tools/product_design/obligation_matrix.py': {'dependencies': ('.engine/tools/product_design/__init__.py',
+                                                                        '.engine/tools/product_design/spec_form.py',
+                                                                        '.engine/tools/validate.py'),
+                                                       'exclusions': {'.engine/tools/hooks.py': 'Commit-hook '
+                                                                                                'regeneration '
+                                                                                                'and its '
+                                                                                                'demonstration '
+                                                                                                'are '
+                                                                                                'separate '
+                                                                                                'from the CI '
+                                                                                                'matrix '
+                                                                                                'comparison.'}},
+ '.engine/tools/product_design/spec_form.py': {'dependencies': ('.engine/tools/validate.py',),
+                                               'exclusions': {}},
+ '.engine/tools/project_manager.py': {'dependencies': ('.engine/tools/reviewer_contracts.py', '.engine/tools/plan_store.py', '.engine/tools/result_contracts.py'),
+ 'exclusions': {'.engine/tools/providers.py': 'Hard-check paths read PLAN_REVIEW_LENSES and call pure '
+                                              'ingest_review_report; plan lifecycle, persistence, '
+                                              'provider and GitHub operations are not invoked.',
+                '.engine/tools/scoped_agents.py': 'Hard-check paths read PLAN_REVIEW_LENSES and call '
+                                                  'pure ingest_review_report; plan lifecycle, '
+                                                  'persistence, provider and GitHub operations are not '
+                                                  'invoked.',
+                '.engine/tools/build_coordinator_core.py': 'Hard-check paths read PLAN_REVIEW_LENSES '
+                                                           'and call pure ingest_review_report; plan '
+                                                           'lifecycle, persistence, provider and GitHub '
+                                                           'operations are not invoked.',
+                '.engine/tools/build_coordinator_github.py': 'Hard-check paths read PLAN_REVIEW_LENSES '
+                                                             'and call pure ingest_review_report; plan '
+                                                             'lifecycle, persistence, provider and '
+                                                             'GitHub operations are not invoked.',
+                '.engine/tools/build_state_store.py': 'Hard-check paths read PLAN_REVIEW_LENSES and '
+                                                      'call pure ingest_review_report; plan lifecycle, '
+                                                      'persistence, provider and GitHub operations are '
+                                                      'not invoked.',
+                '.engine/tools/moment.py': 'Hard-check paths read PLAN_REVIEW_LENSES and call pure '
+                                           'ingest_review_report; plan lifecycle, persistence, provider '
+                                           'and GitHub operations are not invoked.',
+                '.engine/tools/plan_contract.py': 'Hard-check paths read PLAN_REVIEW_LENSES and call '
+                                                  'pure ingest_review_report; plan lifecycle, '
+                                                  'persistence, provider and GitHub operations are not '
+                                                  'invoked.',
+                '.engine/tools/plan_lifecycle.py': 'Hard-check paths read PLAN_REVIEW_LENSES and call '
+                                                   'pure ingest_review_report; plan lifecycle, '
+                                                   'persistence, provider and GitHub operations are not '
+                                                   'invoked.',
+                '.engine/tools/plan_program.py': 'Hard-check paths read PLAN_REVIEW_LENSES and call '
+                                                 'pure ingest_review_report; plan lifecycle, '
+                                                 'persistence, provider and GitHub operations are not '
+                                                 'invoked.',
+                '.engine/tools/plan_projection.py': 'Hard-check paths read PLAN_REVIEW_LENSES and call '
+                                                    'pure ingest_review_report; plan lifecycle, '
+                                                    'persistence, provider and GitHub operations are '
+                                                    'not invoked.'}},
+ '.engine/tools/protection_guard.py': {'dependencies': ('.engine/tools/github_client.py',
+                                                        '.engine/tools/repo_identity.py',
+                                                        '.engine/tools/validate.py'),
+                                       'exclusions': {}},
+ '.engine/tools/provider_parity_check.py': {'dependencies': ('.engine/tools/skill_discovery.py',
+                                                             '.engine/tools/validate.py'),
+                                            'exclusions': {}},
+ '.engine/tools/provider_vocab_check.py': {'dependencies': ('.engine/tools/validate.py',), 'exclusions': {}},
+ '.engine/tools/release_impact.py': {'dependencies': (), 'exclusions': {}},
+ '.engine/tools/release_impact_check.py': {'dependencies': ('.engine/tools/release_impact.py',
+                                                            '.engine/tools/validate.py'),
+                                           'exclusions': {}},
+ '.engine/tools/release_integrity_check.py': {'dependencies': ('.engine/tools/module_coherence.py',
+                                                               '.engine/tools/validate.py'),
+                                              'exclusions': {}},
+ '.engine/tools/repo_identity.py': {'dependencies': ('.engine/tools/validate.py',), 'exclusions': {}},
+ '.engine/tools/route_budget_check.py': {'dependencies': ('.engine/tools/codex_gen.py',
+                                                          '.engine/tools/skill_discovery.py',
+                                                          '.engine/tools/validate.py'),
+                                         'exclusions': {}},
+ '.engine/tools/route_target_existence_check.py': {'dependencies': ('.engine/tools/codex_gen.py',
+                                                                    '.engine/tools/skill_discovery.py',
+                                                                    '.engine/tools/validate.py'),
+                                                   'exclusions': {}},
+ '.engine/tools/self_map.py': {'dependencies': ('.engine/tools/codex_gen.py',
+                                                '.engine/tools/module_coherence.py',
+                                                '.engine/tools/skill_discovery.py',
+                                                '.engine/tools/validate.py'),
+                               'exclusions': {'.engine/tools/hooks.py': 'Commit-hook regeneration and its '
+                                                                        'demonstration are separate from '
+                                                                        'self_map.check '
+                                                                        'derivation/comparison.'}},
+ '.engine/tools/self_map_check.py': {'dependencies': ('.engine/tools/self_map.py',
+                                                      '.engine/tools/validate.py'),
+                                     'exclusions': {}},
+ '.engine/tools/scoped_agents.py': {'dependencies': (),
+ 'exclusions': {'.engine/tools/reviewer_contracts.py': 'module_coherence reads BLOCK_INVARIANT only; reviewer contract validation and historical adoption are outside that hard-check path.', '.engine/tools/build_coordinator_core.py': 'module_coherence reads the literal '
+                                                           'BLOCK_INVARIANT only; assignment storage, '
+                                                           'runtime hooks and receipt validation are '
+                                                           'outside that hard-check path.',
+                '.engine/tools/hooks.py': 'module_coherence reads the literal BLOCK_INVARIANT only; '
+                                          'assignment storage, runtime hooks and receipt validation are '
+                                          'outside that hard-check path.',
+                '.engine/tools/moment.py': 'module_coherence reads the literal BLOCK_INVARIANT only; '
+                                           'assignment storage, runtime hooks and receipt validation '
+                                           'are outside that hard-check path.',
+                '.engine/tools/plan_store.py': 'module_coherence reads the literal BLOCK_INVARIANT '
+                                               'only; assignment storage, runtime hooks and receipt '
+                                               'validation are outside that hard-check path.',
+                '.engine/tools/providers.py': 'module_coherence reads the literal BLOCK_INVARIANT only; '
+                                              'assignment storage, runtime hooks and receipt validation '
+                                              'are outside that hard-check path.',
+                '.engine/tools/build_state_store.py': 'module_coherence reads the literal '
+                                                      'BLOCK_INVARIANT only; assignment storage, '
+                                                      'runtime hooks and receipt validation are outside '
+                                                      'that hard-check path.',
+                '.engine/tools/build_coordinator_review.py': 'module_coherence reads the literal '
+                                                             'BLOCK_INVARIANT only; scoped assignment '
+                                                             'preparation and report acceptance are not '
+                                                             'invoked by that hard-check path.',
+                '.engine/tools/project_manager.py': 'module_coherence reads the literal BLOCK_INVARIANT '
+                                                    'only; scoped assignment preparation and report '
+                                                    'acceptance are not invoked by that hard-check '
+                                                    'path.',
+                '.engine/tools/result_contracts.py': 'module_coherence reads the literal '
+                                                     'BLOCK_INVARIANT only; scoped assignment '
+                                                     'preparation and report acceptance are not invoked '
+                                                     'by that hard-check path.',
+                '.engine/tools/validate.py': 'module_coherence reads the literal BLOCK_INVARIANT only; '
+                                             'scoped assignment preparation and report acceptance are '
+                                             'not invoked by that hard-check path.'}},
+ '.engine/tools/session_economy.py': {'dependencies': (),
+                                      'exclusions': {'.engine/tools/hooks.py': 'Block-coherence reads the '
+                                                                               'literal BLOCK_INVARIANT; '
+                                                                               'provider detection and hook '
+                                                                               'execution are separate '
+                                                                               'runtime paths.',
+                                                     '.engine/tools/providers.py': 'Block-coherence reads '
+                                                                                   'the literal '
+                                                                                   'BLOCK_INVARIANT; '
+                                                                                   'provider detection and '
+                                                                                   'hook execution are '
+                                                                                   'separate runtime '
+                                                                                   'paths.'}},
+ '.engine/tools/setup_route_drift_check.py': {'dependencies': ('.engine/tools/setup_route_gen.py',
+                                                               '.engine/tools/validate.py'),
+                                              'exclusions': {}},
+ '.engine/tools/setup_route_gen.py': {'dependencies': ('.engine/tools/module_coherence.py',
+                                                       '.engine/tools/module_surfaces.py',
+                                                       '.engine/tools/validate.py'),
+                                      'exclusions': {}},
+ '.engine/tools/shipped_issue_references_check.py': {'dependencies': ('.engine/tools/module_coherence.py',
+                                                                      '.engine/tools/repo_identity.py',
+                                                                      '.engine/tools/validate.py'),
+                                                     'exclusions': {}},
+ '.engine/tools/shipped_local_references_check.py': {'dependencies': ('.engine/tools/local_references.py',
+                                                                      '.engine/tools/shipped_issue_references_check.py',
+                                                                      '.engine/tools/validate.py'),
+                                                     'exclusions': {}},
+ '.engine/tools/skill_coherence_check.py': {'dependencies': ('.engine/tools/skill_discovery.py',
+                                                             '.engine/tools/validate.py'),
+                                            'exclusions': {}},
+ '.engine/tools/skill_discovery.py': {'dependencies': ('.engine/tools/validate.py',), 'exclusions': {}},
+ '.engine/tools/template_shape_spec_check.py': {'dependencies': ('.engine/tools/validate.py',),
+                                                'exclusions': {}},
+ '.engine/tools/uv_group_drift_check.py': {'dependencies': ('.engine/tools/module_manager.py',
+                                                            '.engine/tools/validate.py'),
+                                           'exclusions': {}},
+ '.engine/tools/validate.py': {'dependencies': ('.engine/tools/github_client.py',
+                                                '.engine/tools/knowledge_gen.py',
+                                                '.engine/tools/module_surfaces.py'),
+                               'exclusions': {'.engine/tools/hooks.py': 'Used by hook/accept-hook CLI '
+                                                                        'adapters, not the CI run_unit or '
+                                                                        'parser/validation functions called '
+                                                                        'by hard script checks.',
+                                              '.engine/tools/moment.py': 'Used only to timestamp PostToolUse '
+                                                                         'telemetry; CI run_unit does not '
+                                                                         'run that hook.',
+                                              '.engine/tools/telemetry.py': 'PostToolUse capture is separate '
+                                                                            'from CI run_unit and finding '
+                                                                            'computation.'}},
+ '.engine/tools/enforcement_files_check.py': {'dependencies': ('.engine/tools/validate.py',
+                                                                '.engine/tools/weakening_guard.py'), 'exclusions': {}},
+ '.engine/tools/weakening_guard.py': {'dependencies': ('.engine/tools/github_client.py',
+                                                       '.engine/tools/validate.py'),
+                                      'exclusions': {}},
+ '.engine/tools/wiring.py': {'dependencies': ('.engine/tools/validate.py',), 'exclusions': {}},
+ '.engine/tools/build_coordinator_core.py': {'dependencies': ('.engine/tools/result_contracts.py',), 'exclusions': {}},
+ '.engine/tools/build_coordinator_review.py': {'dependencies': ('.engine/tools/reviewer_contracts.py', '.engine/tools/build_coordinator_core.py',
+                                                                '.engine/tools/result_contracts.py'),
+                                               'exclusions': {'.engine/tools/scoped_agents.py': 'Agent coherence invokes pure ingest_review_report only; historical receipt-key lookup is outside that hard-check path.', '.engine/tools/close_linkage_preflight.py': 'agent_coherence '
+                                                                                                          'invokes '
+                                                                                                          'pure '
+                                                                                                          'ingest_review_report '
+                                                                                                          'only; '
+                                                                                                          'close-linkage '
+                                                                                                          'validation '
+                                                                                                          'is '
+                                                                                                          'outside '
+                                                                                                          'that '
+                                                                                                          'hard-check '
+                                                                                                          'path.'}},
+ '.engine/tools/build_coordinator_work.py': {'dependencies': ('.engine/tools/build_coordinator_core.py',
+                                                              '.engine/tools/result_contracts.py'),
+                                             'exclusions': {'.engine/tools/build_coordinator_dag.py': 'agent_coherence '
+                                                                                                      'invokes '
+                                                                                                      'pure '
+                                                                                                      'ingest_worker_report '
+                                                                                                      'only; '
+                                                                                                      'DAG '
+                                                                                                      'planning '
+                                                                                                      'and '
+                                                                                                      'integration '
+                                                                                                      'are '
+                                                                                                      'outside '
+                                                                                                      'that '
+                                                                                                      'hard-check '
+                                                                                                      'path.'}},
+ '.engine/tools/conformance_sweep.py': {'dependencies': ('.engine/tools/result_contracts.py',),
+                                        'exclusions': {'.engine/tools/github_client.py': 'agent_coherence '
+                                                                                         'invokes pure '
+                                                                                         'validate_block '
+                                                                                         'only; '
+                                                                                         'conformance '
+                                                                                         'discovery, '
+                                                                                         'history, '
+                                                                                         'promotion and '
+                                                                                         'GitHub '
+                                                                                         'operations '
+                                                                                         'are outside '
+                                                                                         'that '
+                                                                                         'hard-check '
+                                                                                         'path.',
+                                                       '.engine/tools/issue_author.py': 'agent_coherence '
+                                                                                        'invokes pure '
+                                                                                        'validate_block '
+                                                                                        'only; '
+                                                                                        'conformance '
+                                                                                        'discovery, '
+                                                                                        'history, '
+                                                                                        'promotion and '
+                                                                                        'GitHub '
+                                                                                        'operations are '
+                                                                                        'outside that '
+                                                                                        'hard-check '
+                                                                                        'path.',
+                                                       '.engine/tools/moment.py': 'agent_coherence '
+                                                                                  'invokes pure '
+                                                                                  'validate_block only; '
+                                                                                  'conformance '
+                                                                                  'discovery, history, '
+                                                                                  'promotion and GitHub '
+                                                                                  'operations are '
+                                                                                  'outside that '
+                                                                                  'hard-check path.',
+                                                       '.engine/tools/repo_identity.py': 'agent_coherence '
+                                                                                         'invokes pure '
+                                                                                         'validate_block '
+                                                                                         'only; '
+                                                                                         'conformance '
+                                                                                         'discovery, '
+                                                                                         'history, '
+                                                                                         'promotion and '
+                                                                                         'GitHub '
+                                                                                         'operations '
+                                                                                         'are outside '
+                                                                                         'that '
+                                                                                         'hard-check '
+                                                                                         'path.',
+                                                       '.engine/tools/spec_referent.py': 'agent_coherence '
+                                                                                         'invokes pure '
+                                                                                         'validate_block '
+                                                                                         'only; '
+                                                                                         'conformance '
+                                                                                         'discovery, '
+                                                                                         'history, '
+                                                                                         'promotion and '
+                                                                                         'GitHub '
+                                                                                         'operations '
+                                                                                         'are outside '
+                                                                                         'that '
+                                                                                         'hard-check '
+                                                                                         'path.',
+                                                       '.engine/tools/telemetry.py': 'agent_coherence '
+                                                                                     'invokes pure '
+                                                                                     'validate_block '
+                                                                                     'only; conformance '
+                                                                                     'discovery, '
+                                                                                     'history, '
+                                                                                     'promotion and '
+                                                                                     'GitHub operations '
+                                                                                     'are outside that '
+                                                                                     'hard-check path.',
+                                                       '.engine/tools/validate.py': 'agent_coherence '
+                                                                                    'invokes pure '
+                                                                                    'validate_block '
+                                                                                    'only; conformance '
+                                                                                    'discovery, '
+                                                                                    'history, promotion '
+                                                                                    'and GitHub '
+                                                                                    'operations are '
+                                                                                    'outside that '
+                                                                                    'hard-check path.'}},
+ '.engine/tools/plan_store.py': {'dependencies': ('.engine/tools/reviewer_contracts.py', '.engine/tools/build_coordinator_core.py',),
+                                 'exclusions': {'.engine/tools/checkout_health.py': 'The hard-check '
+                                                                                    'ingress uses '
+                                                                                    'PlanStoreError, an '
+                                                                                    'alias of '
+                                                                                    'core.CoordinatorError; '
+                                                                                    'plan storage, '
+                                                                                    'checkout selection '
+                                                                                    'and lifecycle '
+                                                                                    'operations are not '
+                                                                                    'invoked.',
+                                                '.engine/tools/moment.py': 'The hard-check ingress uses '
+                                                                           'PlanStoreError, an alias of '
+                                                                           'core.CoordinatorError; plan '
+                                                                           'storage, checkout selection '
+                                                                           'and lifecycle operations '
+                                                                           'are not invoked.',
+                                                '.engine/tools/plan_contract.py': 'The hard-check '
+                                                                                  'ingress uses '
+                                                                                  'PlanStoreError, an '
+                                                                                  'alias of '
+                                                                                  'core.CoordinatorError; '
+                                                                                  'plan storage, '
+                                                                                  'checkout selection '
+                                                                                  'and lifecycle '
+                                                                                  'operations are not '
+                                                                                  'invoked.'}},
+ '.engine/tools/reviewer_contracts.py': {
+     'dependencies': ('.engine/tools/agent_bindings.py', '.engine/tools/build_coordinator_core.py',
+                      '.engine/tools/result_contracts.py'),
+     'exclusions': {
+         '.engine/tools/scoped_agents.py': 'Agent coherence validates declarations only; scoped evidence and historical adoption are separate lifecycle operations.',
+         '.engine/tools/build_coordinator_review.py': 'Agent coherence validates declarations only; historical packet reconstruction is not invoked.',
+         '.engine/tools/plan_contract.py': 'Agent coherence validates declarations only; historical plan validation is not invoked.'}},
+ '.engine/tools/result_contracts.py': {'dependencies': (), 'exclusions': {}}}
+
+
+ENFORCEMENT_DYNAMIC_LOADERS = {'.engine/tools/close.py': {'calls': ("Call(func=Name(id='real_import', ctx=Load()), args=[Name(id='name', "
+                                      "ctx=Load()), Starred(value=Name(id='a', ctx=Load()), ctx=Load())], "
+                                      "keywords=[keyword(value=Name(id='k', ctx=Load()))])",),
+                            'reason': 'The embedded no-capture self-test wraps builtins.__import__ to prove '
+                                      'capture stays off; BLOCK_INVARIANT inspection does not run this test.',
+                            'source': '.engine/tools/close.py'},
+ '.engine/tools/module_manager.py': {'calls': ("Call(func=Attribute(value=Attribute(value=Name(id='importlib', "
+                                               "ctx=Load()), attr='util', ctx=Load()), "
+                                               "attr='module_from_spec', ctx=Load()), args=[Name(id='spec', "
+                                               'ctx=Load())], keywords=[])',
+                                               "Call(func=Attribute(value=Attribute(value=Name(id='importlib', "
+                                               "ctx=Load()), attr='util', ctx=Load()), "
+                                               "attr='spec_from_file_location', ctx=Load()), "
+                                               "args=[JoinedStr(values=[Constant(value='engine_migration_'), "
+                                               "FormattedValue(value=Name(id='uniq', ctx=Load()), "
+                                               "conversion=-1)]), Name(id='path', ctx=Load())], keywords=[])",
+                                               "Call(func=Attribute(value=Attribute(value=Name(id='spec', "
+                                               "ctx=Load()), attr='loader', ctx=Load()), attr='exec_module', "
+                                               "ctx=Load()), args=[Name(id='mod', ctx=Load())], keywords=[])",
+                                               "Call(func=Name(id='__import__', ctx=Load()), "
+                                               "args=[Name(id='adapter_module', ctx=Load())], keywords=[])"),
+                                     'reason': 'Migration module construction/execution and transaction '
+                                               'adapters run only on install/update paths, not '
+                                               'derive_uv_groups or overlay_replace_paths used by hard '
+                                               'checks.',
+                                     'source': '.engine/tools/module_manager.py'},
+ '.engine/tools/validate.py': {'calls': ("Call(func=Attribute(value=Attribute(value=Name(id='importlib', "
+                                         "ctx=Load()), attr='util', ctx=Load()), attr='module_from_spec', "
+                                         "ctx=Load()), args=[Name(id='spec', ctx=Load())], keywords=[])",
+                                         "Call(func=Attribute(value=Attribute(value=Name(id='importlib', "
+                                         "ctx=Load()), attr='util', ctx=Load()), "
+                                         "attr='spec_from_file_location', ctx=Load()), "
+                                         "args=[JoinedStr(values=[Constant(value='engine_kind_'), "
+                                         "FormattedValue(value=Name(id='name', ctx=Load()), "
+                                         "conversion=-1)]), Name(id='path', ctx=Load())], keywords=[])",
+                                         "Call(func=Attribute(value=Attribute(value=Name(id='spec', "
+                                         "ctx=Load()), attr='loader', ctx=Load()), attr='exec_module', "
+                                         "ctx=Load()), args=[Name(id='module', ctx=Load())], keywords=[])",
+                                         "Call(func=Attribute(value=Name(id='importlib', ctx=Load()), "
+                                         "attr='import_module', ctx=Load()), args=[Name(id='module_name', "
+                                         'ctx=Load())], keywords=[])'),
+                               'reason': 'Lazy optional external dependencies and module-kind '
+                                         'construction/execution are runtime-selected; literal paths are '
+                                         'unavailable. Module-kind files remain independently guarded by the '
+                                         'existing kind path floor.',
+                               'source': '.engine/tools/validate.py'}}
+_DRIFT_EXTERNAL_MODULES = frozenset({"yaml", "jsonschema"})
+
+
+def _tool_module_index(root: str, inventory=None) -> dict:
+    """Map importable local tool module names to declared source paths, without imports."""
+    indexed = {}
+    inventory = ENFORCEMENT_SOURCE_INVENTORY if inventory is None else inventory
+    paths = set(inventory)
+    for entry in inventory.values():
+        if isinstance(entry, dict):
+            paths.update(entry.get('dependencies', ()))
+            paths.update(entry.get('exclusions', ()))
+    tools = os.path.join(root, '.engine', 'tools')
+    for base, _dirs, files in os.walk(tools):
+        for filename in files:
+            if filename.endswith('.py'):
+                rel = os.path.relpath(os.path.join(base, filename), tools).replace(os.sep, '/')
+                paths.add('.engine/tools/' + rel)
+    for path in sorted(paths):
+        rel = path[len('.engine/tools/'):]
+        if rel.endswith('/__init__.py'):
+            name = rel[:-12].replace('/', '.')
+        else:
+            name = rel[:-3].replace('/', '.')
+        # A package initializer is Python's package target when a same-named
+        # module file also exists; select it deliberately, never by set order.
+        if name not in indexed or path.endswith('/__init__.py'):
+            indexed[name] = path
+    return indexed
+
+
+def _package_for_source(source: str) -> str:
+    return '.'.join(source[len('.engine/tools/'):].split('/')[:-1])
+
+
+def _literal_string(node):
+    return node.value if isinstance(node, ast.Constant) and isinstance(node.value, str) else None
+
+
+def _ast_import_edges(source: str, text: str, index: dict) -> tuple[set, list, list, list]:
+    """Resolve bounded Python import syntax without importing any target.
+
+    Attribute exports are not inferred. Runtime-dependent loaders are retained as
+    exact call multisets for explicit review, not treated as resolved imports.
+    """
+    tree = ast.parse(text, filename=source)
+    edges, literal, unsupported, unresolved = set(), [], [], []
+    nodes = list(ast.walk(tree))
+    # Bindings from different lexical scopes must never overwrite each other.
+    # Keep possible loader identities conservatively; an unrelated local alias
+    # can add ambiguity, but cannot erase a loader visible elsewhere in the file.
+    aliases = {'__import__': {'builtins.__import__'}, 'exec': {'builtins.exec'},
+               'eval': {'builtins.eval'}, 'getattr': {'builtins.getattr'}}
+    loader_names = {'importlib.import_module', 'builtins.__import__'}
+    loader_modules = {'importlib', 'importlib.util', 'importlib.machinery', 'builtins', 'runpy'}
+    unsupported_names = {'spec_from_file_location', 'spec_from_loader', 'module_from_spec',
+                         'SourceFileLoader', 'SourcelessFileLoader', 'ExtensionFileLoader',
+                         'exec_module', 'load_module', 'run_module', 'run_path', 'exec', 'eval'}
+
+    def spellings(node):
+        if isinstance(node, ast.Name):
+            return aliases.get(node.id, {node.id})
+        if isinstance(node, ast.Attribute):
+            return {base + '.' + node.attr for base in spellings(node.value)} or {node.attr}
+        if isinstance(node, ast.Call) and 'builtins.getattr' in spellings(node.func):
+            if node.args and spellings(node.args[0]) & loader_modules:
+                # Resolve only a literal attribute on a known loader module.
+                # Dynamic or unusual signatures remain explicit loader calls.
+                attr = _literal_string(node.args[1]) if len(node.args) >= 2 else None
+                if len(node.args) in (2, 3) and not node.keywords and attr is not None:
+                    return {base + '.' + attr for base in spellings(node.args[0]) & loader_modules}
+                return {'__loader__.unknown'}
+        return set()
+
+    def add_alias(name, values):
+        old = aliases.setdefault(name, set())
+        extra = values - old
+        old.update(extra)
+        return bool(extra)
+
+    for node in nodes:
+        if isinstance(node, ast.Import):
+            for item in node.names:
+                add_alias(item.asname or item.name.split('.')[0],
+                          {item.name if item.asname else item.name.split('.')[0]})
+        elif isinstance(node, ast.ImportFrom) and not node.level and node.module:
+            for item in node.names:
+                if item.name != '*':
+                    add_alias(item.asname or item.name, {node.module + '.' + item.name})
+    # Propagate only known loader functions/modules. This finite identity set
+    # handles module-object and callable aliases without evaluating assignments.
+    for _ in range(len(nodes) + 1):
+        changed = False
+        for node in nodes:
+            if isinstance(node, (ast.Assign, ast.AnnAssign)):
+                targets = node.targets if isinstance(node, ast.Assign) else [node.target]
+                values = set()
+                for value in spellings(node.value):
+                    if value in loader_names | loader_modules | {'builtins.getattr', '__loader__.unknown'}:
+                        values.add(value)
+                    elif value.rsplit('.', 1)[-1] in unsupported_names:
+                        values.add('__loader__.' + value.rsplit('.', 1)[-1])
+                for target in targets:
+                    if isinstance(target, ast.Name) and values:
+                        changed = add_alias(target.id, values) or changed
+        if not changed:
+            break
+
+    def namespace(name):
+        return any(key.startswith(name + '.') for key in index)
+
+    def local_top(name):
+        top = name.split('.')[0]
+        return top in index or namespace(top)
+
+    def add_module(name):
+        """Return whether a module resolves; add real package initialization edges."""
+        if name in index or namespace(name):
+            parts = name.split('.')
+            for count in range(1, len(parts)):
+                parent = index.get('.'.join(parts[:count]))
+                if parent:
+                    if not parent.endswith('/__init__.py'):
+                        unresolved.append(name)
+                        return False
+                    edges.add(parent)
+            if name in index:
+                edges.add(index[name])
+            return True
+        if local_top(name) or name.split('.')[0] not in sys.stdlib_module_names | _DRIFT_EXTERNAL_MODULES:
+            unresolved.append(name)
+            return False
+        return True
+
+    def relative_name(module, level, package):
+        parts = package.split('.') if package else []
+        if level < 1 or level > len(parts):
+            return None
+        return '.'.join(parts[:len(parts) - level + 1] + ([module] if module else []))
+
+    for node in nodes:
+        if isinstance(node, ast.Import):
+            for item in node.names:
+                add_module(item.name)
+        elif isinstance(node, ast.ImportFrom):
+            name = (relative_name(node.module, node.level, _package_for_source(source))
+                    if node.level else node.module)
+            if not name:
+                unresolved.append('.' * node.level + (node.module or '') + ' (relative import outside package)')
+                continue
+            if add_module(name):
+                for item in node.names:
+                    child = name + '.' + item.name
+                    if item.name != '*' and (child in index or namespace(child)):
+                        add_module(child)
+        elif isinstance(node, ast.Call):
+            # A dynamic selector is itself part of the reviewed expression,
+            # even when its result is assigned before it is invoked.
+            if '__loader__.unknown' in spellings(node):
+                unsupported.append(ast.dump(node, include_attributes=False))
+            names = spellings(node.func)
+            possible_loaders = names & loader_names
+            nonstandard = ('__loader__.unknown' in names or
+                           any(name.rsplit('.', 1)[-1] in unsupported_names for name in names))
+            if not possible_loaders and not nonstandard:
+                continue
+            dump = ast.dump(node, include_attributes=False)
+            if nonstandard or not possible_loaders:
+                unsupported.append(dump)
+                continue
+            # If both import APIs are possible, only their common one-argument
+            # literal form is resolved; richer forms remain explicit exceptions.
+            name = ('builtins.__import__' if 'builtins.__import__' in possible_loaders
+                    else 'importlib.import_module')
+            # Unsupported signatures keep every argument in the reviewed AST.
+            args = list(node.args)
+            keywords = {k.arg: k.value for k in node.keywords}
+            if (any(isinstance(arg, ast.Starred) for arg in args) or None in keywords
+                    or len(keywords) != len(node.keywords)):
+                unsupported.append(dump)
+                continue
+            if name == 'builtins.__import__':
+                safe = len(args) == 1 and not keywords
+                target = _literal_string(args[0]) if safe else None
+                package = None
+            else:
+                safe = (len(args) <= 2 and set(keywords) <= {'name', 'package'}
+                        and not (args and 'name' in keywords)
+                        and not (len(args) == 2 and 'package' in keywords))
+                target_node = args[0] if args else keywords.get('name')
+                package_node = args[1] if len(args) == 2 else keywords.get('package')
+                target = _literal_string(target_node)
+                package = _literal_string(package_node)
+                safe = safe and (package_node is None or package is not None)
+            if not safe or target is None:
+                unsupported.append(dump)
+                continue
+            if target.startswith('.'):
+                level = len(target) - len(target.lstrip('.'))
+                target = relative_name(target[level:], level, package)
+                if not target:
+                    unsupported.append(dump)
+                    continue
+            if not target:
+                unresolved.append('(empty import name)')
+            else:
+                add_module(target)
+            literal.append(dump)
+    return edges, sorted(literal), sorted(unsupported), sorted(set(unresolved))
+
+
+def _literal_inventory_value(node):
+    """Literal-only inventory data, with duplicate dictionary keys refused."""
+    for child in ast.walk(node):
+        if isinstance(child, ast.Dict):
+            keys = [ast.literal_eval(key) for key in child.keys]
+            if len(set(keys)) != len(keys):
+                raise ValueError('duplicate key in enforcement declaration')
+    return ast.literal_eval(node)
+
+
+def _validate_loader_inventory(loaders, inventory):
+    if not isinstance(loaders, dict):
+        raise ValueError('dynamic-loader exceptions must be a mapping')
+    for source, spec in loaders.items():
+        if not _canonical_inventory_path(source) or source not in inventory:
+            raise ValueError(f'{source!r}: dynamic-loader exception names an undeclared source')
+        if (not isinstance(spec, dict) or set(spec) != {'source', 'reason', 'calls'}
+                or spec['source'] != source or not isinstance(spec['reason'], str)
+                or not spec['reason'].strip() or not isinstance(spec['calls'], (tuple, list))
+                or not spec['calls'] or any(not isinstance(call, str) or not call.startswith('Call(')
+                                           for call in spec['calls'])
+                or list(spec['calls']) != sorted(spec['calls'])):
+            raise ValueError(f'{source}: malformed dynamic-loader exception; source, nonempty reason, '
+                             'sorted nonempty AST call multiset required')
+
+
+def enforcement_drift_findings(root: str) -> list[str]:
+    """Compare candidate imports to its protected literal inventory, without execution."""
+    root = os.path.realpath(root)
+    try:
+        guard_path = os.path.join(root, '.engine/tools/weakening_guard.py')
+        if os.path.commonpath((root, os.path.realpath(guard_path))) != root:
+            raise ValueError('candidate guard escapes the candidate root')
+        with open(guard_path, encoding='utf-8') as fh:
+            tree = ast.parse(fh.read(), filename=guard_path)
+        names = {'_HARD_SCRIPT_ROOTS', 'ENFORCEMENT_SOURCE_INVENTORY', 'ENFORCEMENT_DYNAMIC_LOADERS'}
+        values = {}
+        for node in tree.body:
+            if isinstance(node, (ast.Assign, ast.AnnAssign, ast.AugAssign)):
+                targets = node.targets if isinstance(node, ast.Assign) else [node.target]
+                for target in targets:
+                    if isinstance(target, ast.Name) and target.id in names:
+                        if target.id in values:
+                            raise ValueError(f'{target.id}: declaration assigned more than once')
+                        if not isinstance(node, ast.Assign) or len(targets) != 1:
+                            raise ValueError(f'{target.id}: expected one literal assignment')
+                        values[target.id] = _literal_inventory_value(node.value)
+        roots, inventory, loaders = (values['_HARD_SCRIPT_ROOTS'], values['ENFORCEMENT_SOURCE_INVENTORY'],
+                                     values['ENFORCEMENT_DYNAMIC_LOADERS'])
+        active = {}
+        check_dir = os.path.join(root, '.engine/check')
+        for name in sorted(os.listdir(check_dir)):
+            if not name.endswith('.json'):
+                continue
+            with open(os.path.join(check_dir, name), encoding='utf-8') as fh:
+                rule = json.load(fh)
+            if not isinstance(rule, dict):
+                raise ValueError(f'{name}: check rule must be an object')
+            if rule.get('kind') == 'custom/script' and rule.get('tier') == 'hard':
+                rule_id = rule.get('id')
+                script = (rule.get('params') or {}).get('script')
+                if not isinstance(rule_id, str) or not rule_id or rule_id in active:
+                    raise ValueError(f'{name}: missing or duplicate active hard rule ID')
+                active[rule_id] = script
+        coverage = _validate_enforcement_inventory(active, os.path.join(root, '.engine/tools'), inventory, roots)
+        _validate_loader_inventory(loaders, inventory)
+        index = _tool_module_index(root, inventory)
+    except Exception as exc:  # reject invalid declarations before computing any partial topology
+        return [f'Enforcement inventory is invalid: {exc}']
+    errors = []
+    for source in sorted(coverage):
+        entry = inventory[source]
+        try:
+            with open(os.path.join(root, source), encoding='utf-8') as fh:
+                edges, _literal, unsupported, unresolved = _ast_import_edges(source, fh.read(), index)
+        except (OSError, UnicodeError, SyntaxError, ValueError, RecursionError) as exc:
+            errors.append(f'{source}: cannot read or parse AST ({exc})')
+            continue
+        dispositions = set(entry['dependencies']) | set(entry['exclusions'])
+        for edge in sorted(edges - dispositions):
+            errors.append(f'{source}: local import edge {edge} is unclassified; declare a dependency or reasoned exclusion')
+        for edge in sorted(dispositions - edges):
+            errors.append(f'{source}: declared disposition for {edge} is stale; remove it or restore the import')
+        for name in unresolved:
+            errors.append(f'{source}: import {name} cannot be resolved as local, standard-library, or reviewed external')
+        expected = list(loaders[source]['calls']) if source in loaders else []
+        if unsupported != expected:
+            errors.append(f'{source}: dynamic-loader call multiset differs from its reviewed exception; '
+                          'declare new/changed unsupported calls or remove stale expectations')
+    return errors
+
+
+def _canonical_inventory_path(path: object) -> bool:
+    """Whether a declaration is a canonical, repository-relative tools Python path."""
+    return (isinstance(path, str) and path.startswith(_BLANKET_TOOLS_PREFIX)
+            and path.endswith(".py") and "\\" not in path and "//" not in path
+            and all(part not in {"", ".", ".."} for part in path.split("/"))
+            and not path.startswith("/") and not path.startswith("../"))
+
+
+def _validate_enforcement_inventory(active_roots: dict, tools_dir: str,
+                                    inventory=None, expected_roots=None) -> set:
+    """Validate declarations and return active coverage; never return partial coverage.
+
+    All declarations have a checked shape, even for dormant optional roots. Only
+    active enforcement files must exist. Explicit inputs are for tests/checking;
+    the guard's production caller supplies its own protected-base directory.
+    """
+    inventory = ENFORCEMENT_SOURCE_INVENTORY if inventory is None else inventory
+    expected_roots = _HARD_SCRIPT_ROOTS if expected_roots is None else expected_roots
+    if not all(isinstance(value, dict) for value in (active_roots, inventory, expected_roots)):
+        raise ValueError("enforcement roots and sources must be mappings")
+    for rule_id, path in expected_roots.items():
+        if not isinstance(rule_id, str) or not rule_id or not _canonical_inventory_path(path):
+            raise ValueError("invalid expected enforcement root")
+        if path not in inventory:
+            raise ValueError(f"{path} has no source declaration")
+    for path, entry in inventory.items():
+        if not _canonical_inventory_path(path) or not isinstance(entry, dict):
+            raise ValueError(f"invalid enforcement source declaration: {path!r}")
+        if set(entry) != {"dependencies", "exclusions"}:
+            raise ValueError(f"{path} must declare dependencies and exclusions")
+        deps, excluded = entry["dependencies"], entry["exclusions"]
+        if not isinstance(deps, (tuple, list)) or not isinstance(excluded, dict):
+            raise ValueError(f"{path} has malformed dependency dispositions")
+        if any(not _canonical_inventory_path(dep) for dep in deps):
+            raise ValueError(f"{path} has a noncanonical dependency path")
+        if len(set(deps)) != len(deps) or set(deps) & set(excluded):
+            raise ValueError(f"{path} has duplicate or conflicting dispositions")
+        for dep in deps:
+            if dep not in inventory:
+                raise ValueError(f"{dep} has no source declaration (required by {path})")
+        for excluded_path, reason in excluded.items():
+            if (not _canonical_inventory_path(excluded_path) or not isinstance(reason, str)
+                    or not reason.strip()):
+                raise ValueError(f"{path} has an invalid exclusion or empty reason")
+    for rule_id, path in active_roots.items():
+        if rule_id not in expected_roots:
+            raise ValueError(f"{rule_id} has no enforcement root declaration; add its ID and script to "
+                             "_HARD_SCRIPT_ROOTS and its source to ENFORCEMENT_SOURCE_INVENTORY in "
+                             ".engine/tools/weakening_guard.py, then rerun the enforcement-files check")
+        if expected_roots[rule_id] != path:
+            raise ValueError(f"{rule_id} script differs from its enforcement declaration")
+    root_real = os.path.realpath(tools_dir)
+    todo, seen = list(active_roots.values()), set()
+    while todo:
+        path = todo.pop()
+        if path in seen:
+            continue
+        disk_path = os.path.join(tools_dir, path[len(_BLANKET_TOOLS_PREFIX):])
+        if os.path.commonpath((root_real, os.path.realpath(disk_path))) != root_real:
+            raise ValueError(f"{path} escapes the tools directory")
+        if not os.path.isfile(disk_path):
+            raise ValueError(f"{path} is missing or is not a file")
+        # The declared name must be the file whose bytes execute. Even a link
+        # within tools could otherwise route enforcement to an unguarded target.
+        expected_real = os.path.join(root_real, path[len(_BLANKET_TOOLS_PREFIX):])
+        if os.path.realpath(disk_path) != expected_real:
+            raise ValueError(f"{path} is a symbolic-link source; declare a regular enforcement file")
+        seen.add(path)
+        todo.extend(inventory[path]["dependencies"])
+    return seen
+
+
+def _derive_enforcement_coverage(active_roots: dict, tools_dir: str,
+                                 inventory=None, expected_roots=None) -> set | None:
+    """Fail-safe adapter: any invalid/unreadable inventory selects blanket coverage."""
+    try:
+        if inventory is None:
+            _validate_loader_inventory(ENFORCEMENT_DYNAMIC_LOADERS, ENFORCEMENT_SOURCE_INVENTORY)
+        return _validate_enforcement_inventory(active_roots, tools_dir, inventory, expected_roots)
+    except Exception:  # noqa: BLE001 — the guard never accepts a partial derivation
+        return None
+
+
 def _derive_check_scripts(check_dir: str | None = None) -> set | None:
     """The enforcement scripts guarded BY PRESENCE: every `.engine/check/*.json` rule's
     `params.script` path, read from the base checkout. Returns the set of repo-relative script paths, or None on
@@ -438,6 +1994,7 @@ def _derive_check_scripts(check_dir: str | None = None) -> set | None:
     script from the guarded set (the fail-open the design rejects)."""
     check_dir = check_dir if check_dir is not None else _BASE_CHECK_DIR
     scripts: set = set()
+    hard_roots: dict = {}
     try:
         for fn in sorted(os.listdir(check_dir)):
             if not fn.endswith(".json"):
@@ -445,11 +2002,21 @@ def _derive_check_scripts(check_dir: str | None = None) -> set | None:
             with open(os.path.join(check_dir, fn), encoding="utf-8") as fh:
                 data = json.load(fh)
             script = (data.get("params") or {}).get("script")
+            if data.get("kind") == "custom/script" and data.get("tier") == "hard":
+                rule_id = data.get("id")
+                if (not isinstance(rule_id, str) or not rule_id or rule_id in hard_roots
+                        or not isinstance(script, str) or not script.strip()):
+                    return None
+                hard_roots[rule_id] = script
             if isinstance(script, str) and script.strip():
                 scripts.add(script)
     except Exception:  # noqa: BLE001 — ANY failure -> None -> caller guards the whole tools dir (fail-safe)
         return None
-    return scripts
+    tools_dir = os.path.join(os.path.dirname(check_dir), "tools")
+    coverage = _derive_enforcement_coverage(hard_roots, tools_dir)
+    if coverage is None:
+        return None
+    return scripts | coverage
 
 
 def is_guardrail(path: str, derived_scripts=_DERIVE, instance_guards=_READ_INSTANCE) -> bool:
@@ -1168,12 +2735,16 @@ _ACK_APPLY_NOTE = (
     f"To approve this deliberately, apply the `{ACK_LABEL}` label to this pull request (one deliberate action, "
     "distinct from the merge click).")
 _ACK_REAPPLY_NOTE = (
-    f"To acknowledge THIS version, apply the `{ACK_LABEL}` label again. If the label is still attached from an "
-    "earlier version, remove it and re-apply it — an already-present label posts no fresh acknowledgment. If "
-    "you just applied it, the acknowledgment record may still be landing; re-run this check in a moment.")
+    "If you just applied the label to this version, the acknowledgment record may still be landing; "
+    "re-run this check in a moment. Do not remove and re-apply the label just to retry the check. "
+    "If a new commit was pushed since you acknowledged it, review this version before approving it: "
+    f"remove the old `{ACK_LABEL}` label and re-apply it to acknowledge THIS version. "
+    "An already-present label posts no fresh acknowledgment. If re-running still blocks, inspect this "
+    "commit's `engine-ack` status and the acknowledgment workflow for a failure or rejected approval.")
 _ACK_FAILCLOSED_NOTE = (
     "GUARDRAIL CHECK: could not read the acknowledgment status for this pull request's head; failing closed. "
-    f"Re-run this check; if it persists, re-apply the `{ACK_LABEL}` label to re-post the acknowledgment.")
+    "Re-run this check; if it persists, inspect the acknowledgment workflow and this commit's "
+    "`engine-ack` status. Do not remove and re-apply the label just to retry the check.")
 # Appended to a DOWNGRADE (the ack cleared a killswitch finding) so the operator is never misled about WHAT
 # the acknowledgment proves (StarshipSuperjam/engine-template#958). Deliberately tier-AGNOSTIC: it reads no
 # committed manifest, so the guard's verdict stays derived purely from the live file listing and the live
@@ -1189,17 +2760,13 @@ _ACK_NOHEAD_NOTE = (
     "GUARDRAIL CHECK: the pull request event carried no head commit for this pull request; failing closed.")
 
 
-def emit(findings: list) -> int:
-    """Write the finding.v1 array to stdout (the custom/script machine channel) and return
-    0 — a successful evaluation, whatever it found. Each finding carries its own severity;
-    the dispatcher's custom/script kind decides where the teeth land. Human-readable prose
-    — including the deliberate guardrail-ack guidance — lives inside each finding's
-    `message`, so stdout stays pure JSON."""
-    print(json.dumps(findings))
-    return 0
+emit = validate.emit
+USAGE = ("Usage: weakening_guard.py [-h|--help]\n\n"
+         "Checks pull-request changes that weaken guardrails and emits a finding.v1 JSON array. "
+         "Environment: GITHUB_REPOSITORY, GITHUB_TOKEN, GITHUB_EVENT_PATH, ENGINE_RULE_TIER.")
 
 
-def main() -> int:
+def _main() -> int:
     tier = os.environ.get("ENGINE_RULE_TIER", "hard")  # the rule's tier, passed by the kind
     repo = os.environ.get("GITHUB_REPOSITORY", "")
     token = os.environ.get("GITHUB_TOKEN", "")
@@ -1448,5 +3015,10 @@ def main() -> int:
     return emit(findings)
 
 
+def main(argv: list | None = None) -> int:
+    argv = [] if argv is None else argv
+    return validate.cli_main(argv, usage=USAGE, run=lambda _argv: _main())
+
+
 if __name__ == "__main__":
-    sys.exit(main())
+    sys.exit(main(sys.argv[1:]))

@@ -1,0 +1,1 @@
+{"id":"engine/check/root","kind":"custom/script","tier":"hard","params":{"script":".engine/tools/root.py"}}

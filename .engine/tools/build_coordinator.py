@@ -7,11 +7,14 @@ finding remedy, operator escalation, or re-review depth, and it has no merge ope
 from __future__ import annotations
 
 import argparse
+import copy
+import plan_lifecycle
 import json
 import os
 from pathlib import Path
 import re
 import secrets
+import shlex
 import stat
 import subprocess
 import sys
@@ -27,8 +30,10 @@ import build_coordinator_core as core
 import build_coordinator_dag as dag
 import build_coordinator_github as github
 import build_coordinator_review as review
+import reviewer_contracts
 import build_coordinator_spec as spec_service
 import build_coordinator_work as work
+import build_entry_preflight as entry
 import build_review_range as ranges
 import build_state_store
 import ci_gatekeeper
@@ -39,6 +44,8 @@ import moment
 import repo_identity
 import review_integrity
 import session_relay
+import providers
+import scoped_agents
 
 ROOT = Path(__file__).resolve().parents[2]
 PROTOCOL_PATH = ROOT / ".engine" / "build-protocol.json"
@@ -214,6 +221,9 @@ def _state_schema_for(state: dict) -> Path:
         raise CoordinatorError(
             f"unrecognized Build snapshot version {version!r}; expected "
             + " or ".join(sorted(STATE_SCHEMAS)))
+    contract = reviewer_contracts.effective_build(state)
+    if contract and contract["referent"]["plan_id"] != state["plan"]["plan_id"]:
+        raise CoordinatorError("Build review contract names another sealed plan")
     return schema
 
 
@@ -233,18 +243,26 @@ Snapshot = core.RevisionedStore
 def _resolve_store(args) -> Snapshot:
     """Which snapshot this command acts on: the one named, or the one bound to this worktree.
 
-    `--state` still means exactly what it always meant — this file, no lookup — and it wins, because
-    a caller who named a path is answering the question this function otherwise has to infer. What
-    changed is the default. Before, omitting `--state` was an error, because there was nowhere else a
-    snapshot could be; now the durable snapshot lives with the plan that bound it, and the worktree
-    the session is standing in is what names it. That is the whole restart story: a session that
-    comes back to the same worktree finds the same evidence, with nothing to have remembered.
+    An explicit path names a minimal external locator or the exact canonical snapshot. The
+    worktree supplies discovery when no path is named; neither route supplies a caller's expected
+    identity. That expectation comes from bind or explicit verified continuation and survives
+    subsequent commands, including when a replacement reuses a path or revision.
     """
-    if args.state:
-        return StateStore(args.state, args.expect_revision)
     library = _library()
+    identity = _expected_identity(args)
+    if args.state:
+        return build_state_store.resolve_explicit(args.state, _state_schema_for,
+            args.expect_revision, library=library, identity=identity)
     return build_state_store.resolve_for_worktree(
-        ROOT, _state_schema_for, args.expect_revision, library=library)
+        ROOT, _state_schema_for, args.expect_revision, library=library, identity=identity)
+
+
+def _expected_identity(args):
+    build_id = getattr(args, 'expect_build_id', None)
+    generation = getattr(args, 'expect_generation', None)
+    if bool(build_id) != (generation is not None):
+        raise CoordinatorError('supply both --expect-build-id and --expect-generation')
+    return {'build_id': build_id, 'generation': generation} if build_id else None
 
 
 # --- unconditional resume verification ----------------------------------------
@@ -271,8 +289,8 @@ def _resolve_store(args) -> Snapshot:
 # the very diagnosis the operator opened `status` to get.
 _READ_ONLY_VERBS = frozenset({
     ("status", None), ("depths", None),
-    ("state", "where"),
-    ("review", "packet"),
+    ("state", "where"), ("state", "continue"),
+    ("review", "packet"), ("review", "contract-preview"), ("review", "historical-preview"),
     ("work", "frontier"), ("work", "packet"),
     ("contract", "template"), ("contract", "preview"),
     ("submit", "preview"),
@@ -360,7 +378,10 @@ def verify_resume(store, args) -> None:
     # base. Its own command verifies the old/new commits, bases, and contribution before it re-anchors
     # any evidence, so applying the ordinary ancestor check first would deadlock the recovery path.
     # Only that expected rewritten-head mismatch is waived; a different worktree still refuses here.
-    reasons = resume_reasons(state, allow_rewritten_head=(command, sub) == ("reconcile", None))
+    applying_rewrite = ((command, sub) == ("reconcile", None)
+                        and not getattr(args, "prepare", False)
+                        and not getattr(args, "cancel_preparation", False))
+    reasons = resume_reasons(state, allow_rewritten_head=applying_rewrite)
     verb = command if not sub else f"{command} {sub}"
     if reasons:
         raise CoordinatorError(
@@ -455,28 +476,233 @@ def _stage_range(stage: dict, kind: str) -> tuple[str | None, str | None]:
     return stage.get("base_commit"), stage.get("reviewed_commit")
 
 
-def _coverage(stage: dict, kind: str):
-    """The carry-forward predicate for one stage: does a receipt's recorded range already contain every
-    authored commit this stage asks about? Built here because it needs git and ROOT; consumed by the pure
-    `build_coordinator_review` through injection, so that module keeps no repository knowledge."""
+def _coverage(stage: dict, kind: str, state=None):
+    """Actual reads, optionally carried through re-derived, patch-equivalent reconciles.
+
+    Reconcile is evidence about the contribution, never a fresh receipt. Walk its exact range chain
+    backwards and re-measure each link; a stored `contribution_identical` flag alone grants no credit.
+    """
     base, tip = _stage_range(stage, kind)
-    return lambda receipt: ranges.receipt_covers(ROOT, receipt, base, tip)
+    def covers(receipt):
+        if ranges.receipt_covers(ROOT, receipt, base, tip, stage.get("base_advances", [])):
+            return True
+        wanted_base, wanted_tip = base, tip
+        for entry in reversed((state or {}).get("reconciles", [])):
+            if not entry.get("contribution_identical") or entry.get("base_after") != wanted_base:
+                continue
+            try:
+                if entry["to_commit"] != wanted_tip and (not _is_ancestor(entry["to_commit"], wanted_tip) or
+                        ranges.authored_between(ROOT, entry["to_commit"], wanted_tip)):
+                    continue
+                if _contribution_divergence(entry["base_before"], entry["from_commit"],
+                                            entry["base_after"], entry["to_commit"]):
+                    return False
+                wanted_base, wanted_tip = entry["base_before"], entry["from_commit"]
+                if ranges.receipt_covers(ROOT, receipt, wanted_base, wanted_tip):
+                    return True
+            except (CoordinatorError, ranges.RangeUnreadable, _Unmeasurable, KeyError, TypeError):
+                return False
+        return False
+    return covers
 
 
-def _missing_receipts(stage: dict, kind: str = "deliverable") -> list[str]:
-    return review.missing_receipts(stage, _coverage(stage, kind))
+def _review_lineage_digest(state):
+    frozen = reviewer_contracts.effective_build(state)
+    return core.digest({"contract": frozen["digest"] if frozen else None,
+        "renewals": state.get("review_contract_renewals", []),
+        "adoptions": state.get("review_contract_adoptions", []),
+        "receipts": review.live_receipts(state), "history": state.get("review_evidence_history", []),
+        "findings": state["findings"]})
 
 
-def _outstanding_repair_lenses(repair: dict | None) -> list[str]:
-    """The repair lenses that still owe a read — the requested lenses minus those with a receipt that
-    stands, whether it attests this packet or carries forward from a range that already covered it.
-    Single-homed because the status render, the readiness predicate and `_repair_round_complete` must
-    agree; when they disagreed, `status` reported a repair satisfied that the gate then refused."""
+def _review_lineage_marker(state):
+    return "<!-- engine-review-lineage:" + _review_lineage_digest(state) + " -->"
+
+
+def _review_contract_current(state):
+    return not reviewer_contracts.effective_build(state) or (state.get("pr_contract") or {}).get("review_lineage_digest") == _review_lineage_digest(state)
+
+
+def _build_review_drift(state):
+    contract = reviewer_contracts.effective_build(state)
+    if contract is None:
+        return []
+    adopted = reviewer_contracts.adoption(state)
+    if adopted and not state.get("review_contract_renewals") and adopted["installation_digest"] == reviewer_contracts.installation_digest(ROOT):
+        return []
+    decisions = state.get("review_contract_renewals", [])
+    changes = [c for c in reviewer_contracts.unresolved_drift(contract, ROOT, decisions)
+               if c["role"] == "pre-submission-review"]
+    return [f"{c['lens']}: changed reviewer mandate requires explicit retention or adoption" for c in changes]
+
+
+def _review_source_provenance(state):
+    contract = reviewer_contracts.effective_build(state)
+    return reviewer_contracts.source_provenance(contract, ROOT) if contract else []
+
+
+def _remember_review_evidence(state):
+    """Save original origins before packet regeneration can change their inferred stage."""
+    for stage, receipt in review.retained_receipts(state):
+        state.setdefault("review_receipt_origins", {}).setdefault(scoped_agents.receipt_key(receipt), stage)
+
+
+def _unresolved_review_findings(state):
+    return set(review.missing_findings(state)) | {
+        f["id"] for f in review.live_findings(state) if review.blocks_submission(f)}
+
+
+def _archive_replaced_review(state, lens, replacement):
+    _remember_review_evidence(state)
+    unresolved = _unresolved_review_findings(state)
+    for stage, old in review.live_receipts(state):
+        if old["lens"] != lens or old == replacement:
+            continue
+        entry = {"stage": stage, "receipt": copy.deepcopy(old),
+                 "effective": (old.get("obligation_digest") != replacement.get("obligation_digest")
+                               or bool(unresolved.intersection(old['finding_ids'])))}
+        history = state.setdefault("review_evidence_history", [])
+        prior = next((e for e in history if e["receipt"] == old), None)
+        if prior is None:
+            history.append(entry)
+        else:
+            prior["effective"] = entry["effective"]
+
+
+def _coverage_results(stage, kind, state, lenses=None, *, _facts=None):
+    # One calculation, one set of freshly observed facts. Never retain this across commands.
+    facts = {} if _facts is None else _facts
+    lenses = lenses if lenses is not None else [c["lens"] for c in stage.get("reviewer_contracts", [])]
+    return {lens: _coverage_result(stage, kind, state, lens, _facts=facts) for lens in lenses}
+
+
+def _coverage_result(stage: dict, kind: str, state: dict, lens: str, *, _facts=None) -> dict:
+    """One authority-filtered cumulative answer for every coverage consumer."""
+    facts = {} if _facts is None else _facts
+    def once(key, compute):
+        if key not in facts:
+            facts[key] = compute()
+        return facts[key]
+    def ancestor(base, tip):
+        return once(("ancestor", base, tip), lambda: _is_ancestor(base, tip))
+    query = once(("git-query",), lambda: ranges.ReadQuery(ROOT))
+    panel = once(("panel",), lambda: reviewer_contracts.build_panel(state))
+    contracts = panel if panel is not None else (stage.get("reviewer_contracts") or
+        state["reviews"]["deliverable"].get("reviewer_contracts", []))
+    contract = next((c for c in contracts if c["lens"] == lens), {"lens": lens})
+
+    def verified(receipt):
+        try:
+            return once(("execution", core.canonical(receipt)),
+                lambda: not scoped_agents.missing_build_evidence(_library(), state, [receipt],
+                    _observations=once(("companion-observations",), dict)))
+        except (OSError, ValueError, core.CoordinatorError):
+            return False
+
+    receipts, rejected = review.eligible_coverage_receipts(state, contract, verified,
+        lambda r: reviewer_contracts.adopted_obligation(state, r, r["lens"]))
+    original_tips = [r["commit"] for r in receipts
+        if r.get("packet_digest") == state["reviews"]["deliverable"].get("packet_digest")
+        and r.get("referent_digest") == state["reviews"]["deliverable"].get("referent_digest")]
+
+    def identical(entry):
+        return (entry.get("contribution_identical") and not divergence(entry))
+
+    def divergence(entry):
+        values = tuple(entry[k] for k in ("base_before", "from_commit", "base_after", "to_commit"))
+        return once(("divergence", *values), lambda: _contribution_divergence(*values))
+
+    def after_original(anchor, reconciles):
+        # An accepted original packet bounds which later proportional decisions can narrow its
+        # question. Refreshing the deliverable packet asks a new whole range. Across a rewrite,
+        # only a freshly re-proven identical contribution can carry that bound forward.
+        tips = list(original_tips)
+        for entry in reconciles:
+            if any(ancestor(tip, entry["from_commit"]) for tip in tips) and identical(entry):
+                tips.append(entry["to_commit"])
+        return any(ancestor(tip, anchor) for tip in tips)
+
+    def apply_scope(result, tip, reconciles):
+        if kind != "deliverable" or not result["verified"]:
+            return result
+        unassigned = set()
+        decisions = [*state.get("repair_rounds", []), *([state["repair"]] if state.get("repair") else [])]
+        for decision in decisions:
+            if decision.get("judgment") not in ("scoped", "none") or lens in decision.get("lenses", []):
+                continue
+            anchor = decision.get("anchor") or decision.get("reviewed_commit")
+            final = decision.get("final_commit")
+            try:
+                if (anchor and final and ancestor(anchor, tip) and ancestor(anchor, final)
+                        and (ancestor(final, tip) or ancestor(tip, final))
+                        and after_original(anchor, reconciles)):
+                    unassigned.update(query.authored(anchor, final))
+            except (CoordinatorError, ranges.RangeUnreadable, _Unmeasurable, KeyError, TypeError):
+                continue
+        if unassigned:
+            result["unread"] = [sha for sha in result["unread"] if sha not in unassigned]
+            result["covered"] = not result["unread"]
+            result["scope_note"] = "original deliverable and assigned repair scopes; other proportional repairs are excluded, not claimed read"
+        return result
+
+    def measure(base, tip, reconciles):
+        advances = list({p["merge_commit"]:p for p in [*state.get("base_advances", []),
+            *stage.get("base_advances", [])]}.values())
+        result = apply_scope(ranges.cumulative_coverage(ROOT, receipts, base, tip, advances, query=query), tip, reconciles)
+        if result["covered"] or not result["verified"] or not receipts:
+            return result
+        # Re-prove each identical-contribution link. A fully evidenced old prefix may stand for
+        # that equivalent new prefix; any authored tail still needs its own exact original reads.
+        # Shrinking the ledger on recursion prevents cycles, and never maps a partially read prefix.
+        for index in range(len(reconciles)-1, -1, -1):
+            entry = reconciles[index]
+            if not entry.get("contribution_identical") or entry.get("base_after") != base:
+                continue
+            try:
+                if not ancestor(entry["to_commit"], tip):
+                    continue
+                if divergence(entry):
+                    continue
+                prior = measure(entry["base_before"], entry["from_commit"], reconciles[:index])
+                if not prior["covered"]:
+                    continue
+                prefix = set(query.authored(base, entry["to_commit"], advances))
+                wanted = query.authored(base, tip, advances)
+                credit = set(result["read"]) | prefix
+                result.update(read=[sha for sha in wanted if sha in credit],
+                              unread=[sha for sha in wanted if sha not in credit])
+                result["covered"] = not result["unread"]
+                result["scope_note"] = "includes a reverified identical-contribution prefix under the original assigned scopes; original receipt ranges are unchanged"
+                return apply_scope(result, tip, reconciles)
+            except (CoordinatorError, ranges.RangeUnreadable, _Unmeasurable, KeyError, TypeError):
+                continue
+        return result
+
+    result = measure(*_stage_range(stage, kind), state.get("reconciles", []))
+    # A zero authored delta cannot stand in for the required initial review.
+    result["covered"] = bool(receipts) and result["covered"]
+    result["unverified"].extend(rejected)
+    if not receipts:
+        result["unverified"].append("no eligible original review retained; restore evidence or review unread work")
+    return result
+
+
+def _missing_receipts(stage: dict, kind: str = "deliverable", *, state=None) -> list[str]:
+    if state is None:
+        return review.missing_receipts(stage, _coverage(stage, kind))
+    return [lens for lens, result in _coverage_results(stage, kind, state).items() if not result["covered"]]
+
+
+def _outstanding_repair_lenses(repair: dict | None, *, state=None) -> list[str]:
+    """The same cumulative decision used for dispatch, status and submission."""
     if not repair:
         return []
+    if state is not None:
+        return [lens for lens, result in _coverage_results(
+            repair, "repair", state, repair.get("lenses", [])).items() if not result["covered"]]
     covers = _coverage(repair, "repair")
     standing = {r["lens"] for r in repair.get("receipts", []) if
-                r.get("packet_digest") == repair.get("packet_digest") or covers(r)}
+                review.receipt_attests_scope(repair, r, "repair") or covers(r)}
     return [lens for lens in repair.get("lenses", []) if lens not in standing]
 
 
@@ -584,11 +810,35 @@ def _receipt_crosscheck(plan: dict, state: dict) -> dict:
             "attributed_commits": sorted(covered), "disagreements": disagreements}
 
 
+def _recovery_instructions(plan: dict, state: dict) -> dict:
+    """Expose the original opaque identity needed to resume interrupted reverification."""
+    events = state.get("rewrite_recoveries", [])
+    if not events:
+        return {}
+    event = events[-1]
+    result = {}
+    for item in plan["work_items"]:
+        node_id = item["id"]
+        if node_id not in event["invalidated_nodes"] or state["work"].get(node_id, {}).get("integration"):
+            continue
+        original = event["prior_work"].get(node_id, {}).get("integration")
+        if not original:
+            continue
+        attempt, head = original["attempt_id"], event["to_commit"]
+        command = ("work integrate --item " + shlex.quote(node_id) + " --attempt " + shlex.quote(attempt)
+                   + " --plan <payload.json> --commit " + head
+                   + " --recovery --verification-input '<fresh check and result>'")
+        result[node_id] = {"attempt_id": attempt, "commit": head,
+                           "depends_on": item.get("depends_on", []), "command": command}
+    return result
+
+
 def _work_projection(plan: dict, state: dict) -> dict:
     """The DAG status section for a v2 Build: ready/claimable sets, per-node state, capacity, holders."""
     lifecycle = dag.derive_lifecycle(plan, state)
     parallelism = plan.get("parallelism", {"mode": "serial", "max_concurrency": 1})
     nodes = {}
+    recoveries = _recovery_instructions(plan, state)
     for node_id, node in lifecycle.items():
         nw = (state.get("work") or {}).get(node_id) or {}
         claim = nw.get("claim") or {}
@@ -603,6 +853,7 @@ def _work_projection(plan: dict, state: dict) -> dict:
             "integration_commit": integration.get("commit"),
             "focused_verification": integration.get("focused_verification"),
             "artifact_digest": result.get("artifact_digest"),
+            "recovery": recoveries.get(node_id),
             # A returned result's unresolved concerns are surfaced here for the integrator's judgment
             # (obligation 2): they never auto-block and never auto-redispatch, but they are not silent.
             "unresolved_concerns": (result.get("evidence") or {}).get("unresolved_concerns", []),
@@ -725,10 +976,30 @@ def _status(state: dict, plan: dict | None = None) -> dict:
         required_evidence.append("green candidate validation for the final commit")
     if not _final_ok(state, head):
         required_evidence.append("imported engine-ci proof for the final commit — `validate final import`")
+    review_facts = {}
+    delivery_results = _coverage_results(delivery, "deliverable", state, _facts=review_facts)
+    missing_delivery = [lens for lens, result in delivery_results.items() if not result["covered"]]
+    repair_results = {}
     if delivery["packet_digest"] is None and not fast_path:
         required_evidence.append("deliverable-review packet")
     else:
-        required_evidence.extend(f"deliverable-review receipt: {x}" for x in _missing_receipts(delivery))
+        required_evidence.extend(f"deliverable-review receipt: {x} — " + ranges.cumulative_report(
+            x, delivery_results[x]) for x in missing_delivery)
+    live_receipts = [receipt for _, receipt in review.live_receipts(state)]
+    if live_receipts:
+        try:
+            unverified = []
+            for receipt in live_receipts:
+                key = ("execution", core.canonical(receipt))
+                if key not in review_facts:
+                    review_facts[key] = not scoped_agents.missing_build_evidence(_library(), state, [receipt],
+                        _observations=review_facts.setdefault(("companion-observations",), {}))
+                if not review_facts[key]:
+                    unverified.append(receipt["lens"])
+            unverified = sorted(set(unverified))
+        except (OSError, ValueError, core.CoordinatorError):
+            unverified = sorted({receipt["lens"] for receipt in live_receipts})
+        required_evidence.extend(f"verified fresh review execution: {lens}" for lens in unverified)
     rewritten = _history_was_rewritten(state, head)
     if delivery["reviewed_commit"] and delivery["reviewed_commit"] != head:
         repair = state["repair"]
@@ -741,33 +1012,36 @@ def _status(state: dict, plan: dict | None = None) -> dict:
                 "it ends the repair loop without a re-review and clears the repair packet, so reach for "
                 "it when the divergence genuinely carries nothing a lens would find.")
         elif repair["judgment"] != "none":
-            outstanding = _outstanding_repair_lenses(repair)
+            repair_results = _coverage_results(repair, "repair", state, repair["lenses"], _facts=review_facts)
+            outstanding = [lens for lens, result in repair_results.items() if not result["covered"]]
             # Name the DELTA each outstanding lens still owes, never a bare "run it again". The wall this
             # replaces was a session told to re-run two lenses with no way to see that one of them had
             # already read everything in the range.
             base, tip = _stage_range(repair, "repair")
             by_lens = {r["lens"]: r for r in repair.get("receipts", [])}
             for lens in outstanding:
-                detail = (" — " + ranges.coverage_report(ROOT, by_lens[lens], base, tip)
-                          if lens in by_lens else "")
+                detail = " — " + ranges.cumulative_report(lens, repair_results[lens])
                 required_evidence.append(f"repair-review receipt: {lens}{detail}")
     protocol = _protocol()
     if state["approval"]:
         depth = state["approval"]["depth"]
-        current_delivery = _required(protocol, depth, _installed())
-        def contracts_current(current, recorded):
-            actual = {item["lens"]: (item["path"], item["digest"])
-                      for item in recorded.get("reviewer_contracts", [])}
-            return all(actual.get(item["lens"]) == (item["path"], item["digest"]) for item in current)
-        delivery_coverage_current = contracts_current(current_delivery, delivery)
+        frozen_panel = reviewer_contracts.build_panel(state)
+        current_delivery = frozen_panel if frozen_panel is not None else _required(protocol, depth, _installed())
+        actual = {item["lens"]: item for item in delivery.get("reviewer_contracts", [])}
+        if frozen_panel is not None:
+            delivery_coverage_current = set(actual) == {p["lens"] for p in frozen_panel} and all(
+                actual.get(p["lens"], {}).get("obligation_digest") == p["obligation_digest"] for p in frozen_panel)
+            required_evidence.extend(_build_review_drift(state))
+        else:
+            delivery_coverage_current = all((actual.get(p["lens"], {}).get("path"), actual.get(p["lens"], {}).get("digest")) == (p["path"], p["digest"]) for p in current_delivery)
         if delivery["packet_digest"] and not delivery_coverage_current:
-            required_evidence.append("refresh deliverable-review coverage for the currently installed reviewers")
+            required_evidence.append("refresh deliverable-review coverage for the approved reviewer obligations" if frozen_panel is not None else "refresh deliverable-review coverage for the currently installed reviewers")
     else:
         delivery_coverage_current = True
     passed = {x["id"] for x in state["preflights"] if x["commit"] == head and x["passed"]}
     required_preflights = [x for x in protocol["preflights"] if x["required"]]
     required_evidence.extend(f"green preflight: {x['id']}" for x in required_preflights if x["id"] not in passed)
-    if not state["pr_contract"] or state["pr_contract"]["commit"] != head or not state["pr_contract"]["complete"]:
+    if not state["pr_contract"] or state["pr_contract"]["commit"] != head or not state["pr_contract"]["complete"] or not _review_contract_current(state):
         required_evidence.append("complete PR contract for the final commit")
     if state["plan"].get("diverged_from_seal"):
         warnings.append(f"the executed plan differs from the sealed plan {state['plan']['plan_id']}; the "
@@ -822,13 +1096,13 @@ def _status(state: dict, plan: dict | None = None) -> dict:
     approval_ready = state["approval"] is not None and state["approval"].get("plan_digest") == state["plan"]["digest"]
     dispositions_ready = not missing_findings and not blocking
     valid = _candidate_ok(state, head)
-    delivery_ready = fast_path or (delivery["packet_digest"] is not None and not _missing_receipts(delivery) and delivery_coverage_current)
+    delivery_ready = fast_path or (delivery["packet_digest"] is not None and not missing_delivery and delivery_coverage_current)
     repair_ready = not delivery["reviewed_commit"] or delivery["reviewed_commit"] == head or (
         state["repair"] is not None and state["repair"]["reviewed_commit"] == delivery["reviewed_commit"]
         and state["repair"]["final_commit"] == head and (state["repair"]["judgment"] == "none" or
-        not _outstanding_repair_lenses(state["repair"])))
+        all(result["covered"] for result in repair_results.values())))
     preflight_ready = not [x for x in required_preflights if x["id"] not in passed]
-    contract_ready = bool(state["pr_contract"] and state["pr_contract"]["commit"] == head and state["pr_contract"]["complete"])
+    contract_ready = bool(state["pr_contract"] and state["pr_contract"]["commit"] == head and state["pr_contract"]["complete"] and _review_contract_current(state))
     final_ready = _final_ok(state, head)
 
     if not approval_ready:
@@ -855,6 +1129,9 @@ def _status(state: dict, plan: dict | None = None) -> dict:
             "run focused verification through `engine-validation-runner` unless you need the raw log",
             "run final validation when the change is cohesive — here, not through a scout, since its "
             "evidence binds to this checkout and a scout only ever sees a copy"]
+    elif rewritten and delivery.get("reviewed_commit"):
+        phase, next_one, available = (REPAIR_ASSESSMENT, "re-anchor the review bindings with `reconcile`",
+                                      ["re-anchor the bindings with `reconcile` after a history rewrite"])
     elif not delivery_ready:
         phase, next_one, available = DELIVERABLE_REVIEW, "prepare or complete the deliverable review", []
     elif not repair_ready:
@@ -875,6 +1152,10 @@ def _status(state: dict, plan: dict | None = None) -> dict:
                                        "import the merge proof with `validate final import`",
                                        ["push the head and wait for engine-ci, then import the proof "
                                         "with `validate final import`"])
+    elif required_evidence:
+        phase, next_one, available = DELIVERABLE_REVIEW, "resolve the missing or incompatible review evidence", []
+    elif judgments:
+        phase, next_one, available = ENGINEERING_DECISION, None, ["resolve the recorded engineering decision"]
     else:
         phase, next_one, available = READY, "preview submission", []
     ordered_items = [] if not plan else [item["id"] for item in plan["work_items"]]
@@ -883,7 +1164,8 @@ def _status(state: dict, plan: dict | None = None) -> dict:
     result = {"phase": phase, "runbook": runbook_for(state, phase, protocol),
               "head_commit": head, "snapshot_revision": state["revision"],
               "required_evidence": required_evidence, "engineering_judgment": judgments,
-              "warnings": warnings, "suggested_next": next_one, "available_activities": available,
+              "warnings": warnings + _review_source_provenance(state) + reviewer_contracts.decision_lines(state),
+              "suggested_next": next_one, "available_activities": available,
               "progress": {"completed": completed_items, "total": len(ordered_items),
                            "current": state["progress"]["current_item"], "next": next_item}}
     if plan is not None and state.get("schema_version") == "build-state.v2":
@@ -924,7 +1206,7 @@ def _library() -> "plan_store.PlanLibrary":
 # without assurance, and the operator named it governance overreach.
 
 
-def _sealed_plan(selector: str, *, entering: bool = True) -> tuple[str, str, dict]:
+def _sealed_plan(selector: str, *, entering: bool = True, transfer_recovery: bool = False) -> tuple[str, str, dict]:
     """Resolve a sealed plan in the local library: (plan_id, sealed_digest, build payload).
 
     This is the ONLY door a plan comes through. Anything unsealed is refused here rather than at some
@@ -958,7 +1240,11 @@ def _sealed_plan(selector: str, *, entering: bool = True) -> tuple[str, str, dic
             "lifecycle first — preview, approve with a depth, record the one cold plan review, "
             f"disposition its findings, then `project_manager.py seal {record['plan_id']}`.")
     closure = record.get("closure")
-    if closure and not entering:
+    if closure and transfer_recovery:
+        print(f"warning: {record['plan_id']} is {closure['state']}; checking sealed evidence for "
+              "transfer recovery. The ownership transaction will refuse entry and recover any matching journal.",
+              file=sys.stderr)
+    elif closure and not entering:
         # Disclosed, never swallowed: the operator is finishing a Build whose plan was closed under
         # it, and that is worth saying out loud even though it does not stop the resume.
         # Warn, do not reassure. Letting the resume through is right; leaving it there is not.
@@ -1009,129 +1295,6 @@ def _sealed_plan(selector: str, *, entering: bool = True) -> tuple[str, str, dic
         raise CoordinatorError(
             f"the build payload inside {record['plan_id']} does not match the digest its seal recorded")
     return record["plan_id"], seal["sealed_digest"], payload
-
-
-def _record_build_binding(plan_id: str, repository: str, pr: int, sealed_digest: str,
-                          build_plan_digest: str, consent: dict | None = None) -> None:
-    """Mark the sealed plan as the one now driving a Build. The bind half of an interlock — fatal.
-
-    This write used to be best-effort, and that hollowed out the guard on the other side:
-    `program supersede` re-asserts "no build_binding" inside the plan record's own lock before it
-    retires a plan, which only means something if every Build actually writes its binding — and
-    writes it BEFORE the Build exists. So three things changed together and stand together:
-
-    - The closure precondition is re-asserted HERE, inside the mutator, under the same lock the
-      supersede-side check runs under. `_sealed_plan` checked it earlier, but that read was
-      unlocked, and a supersession landing in the gap left a Build starting on a plan the record
-      had just put away. Whichever of the two writes lands first now wins; the other refuses.
-    - A failure REFUSES the bind instead of disclosing and proceeding: an unbound running Build is
-      exactly the state the interlock exists to prevent, so "the Build proceeds without a binding"
-      was the failure wearing a shrug.
-    - Callers run this before creating or mutating Build state. A crash after this write leaves a
-      plan marked bound with no Build behind it — supersede then refuses (the safe direction), and
-      re-running the bind overwrites the marker and converges.
-
-    The bind ATTESTATION rides along here because the plan record is where the other three gates'
-    attestations already live, and a consent trail split across two stores has a seam to lose
-    things in.
-    """
-    import moment
-    import plan_lifecycle
-    library = _library()
-    suppressed = {}
-    try:
-        slug = library.resolve(plan_id)
-        record = library.read_record(slug)
-        binding = {"sealed_digest": sealed_digest, "build_plan_digest": build_plan_digest,
-                   "at": moment.utc_now(), "pull_request": pr, "repository": repository}
-
-        def mark(current):
-            closure = current.get("closure")
-            # The dedup exists for ONE case: a crash-retry of THIS SAME bind, which re-writes the
-            # marker and must not record the operator deciding twice. Keyed on the binding identity
-            # (same repository, PR and both digests — `at` excluded, since a retry mints a fresh
-            # clock) plus the gate: a bind of the same plan onto a NEW pull request after a
-            # `state supersede` is a new binding and records its own event. What this cannot tell
-            # apart is a re-bind onto the SAME pull request after a supersede, which presents the
-            # identical binding; that records one event, and the bind says so on stderr.
-            def same_binding(existing):
-                return existing and all(
-                    existing.get(key) == binding.get(key)
-                    for key in ("repository", "pull_request", "sealed_digest", "build_plan_digest"))
-            entries = current.get("consent") or []
-            if consent and consent.get("gate") in plan_lifecycle.PRIOR_GATE:
-                # Bind and adopt both look back to the seal: a sealed plan whose record carries no
-                # seal decision is a record the seal did not write, whatever `seal` says.
-                prior = plan_lifecycle.missing_prior_consent(current, consent["gate"])
-                if prior:
-                    raise CoordinatorError(prior)
-            already_attested = consent and same_binding(current.get("build_binding")) and any(
-                entry.get("gate") == consent.get("gate") for entry in entries)
-            suppressed["duplicate"] = bool(already_attested)
-            if closure:
-                raise CoordinatorError(
-                    f"{plan_id} was closed ({closure['state']}: {closure['reason']}) while this "
-                    "bind was being prepared, and a closed plan does not start a Build. Nothing "
-                    "was bound. If the closure is a mistake and the plan is unsealed, `reopen` "
-                    "undoes it; a sealed plan's closure is permanent — clone it into a new plan, "
-                    "or build its replacement if one exists.")
-            current["build_binding"] = binding
-            # Idempotent per (binding, gate): a crash-retry of the same bind re-writes the marker
-            # but must not record the operator deciding the same thing twice.
-            if consent and not already_attested:
-                current.setdefault("consent", []).append(consent)
-
-        library.update_record(slug, mark, expected_revision=record["current"]["revision"])
-        if suppressed.get("duplicate"):
-            print("build-coordinator: this binding already carries a bind decision, so none was recorded "
-                  "again — a retry of the same bind and a re-bind onto the same pull request look the "
-                  "same from here.", file=sys.stderr)
-    except CoordinatorError:
-        raise
-    except Exception as exc:  # noqa: BLE001 — refused, never shrugged past
-        raise CoordinatorError(
-            f"could not record the Build binding on {plan_id} ({exc}), and an unbound Build is the "
-            "state the supersede interlock exists to prevent — so the bind refuses rather than "
-            "proceeding without it. Repair the plan library and run the bind again.") from exc
-
-
-def _restore_binding(slug: str, previous_binding: dict | None, previous_consent: list,
-                     written_binding: dict, appended_consent: dict | None) -> None:
-    """Undo exactly the binding write a now-refused command made — and nothing anyone else wrote.
-
-    The first cut restored a pre-image captured before the binding write, through a mutator with no
-    precondition — the one write on this path that did not re-assert its own precondition under the
-    lock, and a reviewer drove the consequence: a concurrent session's bind landed in the window,
-    and the rollback erased its binding AND its consent attestation, silently. So this asserts,
-    INSIDE the mutator, that the record's binding is still the one this command wrote (identity
-    fields, not `at` — the clock is fresh on every write); if anything else moved it, the rollback
-    refuses and the caller discloses instead of overwriting. And it removes only the single consent
-    entry this command appended, by POSITION, never the whole array and never by value — entries are
-    events (a gate and a whole-second moment), so two genuine same-gate decisions in one second are
-    equal, and a filter by equality would erase the earlier one along with the retracted one. The
-    trail is append-only for every act that HAPPENED; the one sanctioned retraction is a command
-    taking back the entry it itself just wrote for an act it then refused to perform.
-    """
-    library = _library()
-
-    def unmark(current):
-        existing = current.get("build_binding") or {}
-        if any(existing.get(key) != written_binding.get(key)
-               for key in ("repository", "pull_request", "sealed_digest", "build_plan_digest")):
-            raise CoordinatorError(
-                "another session moved this plan's binding while the rollback was being prepared; "
-                "leaving the record as that session wrote it")
-        current["build_binding"] = previous_binding
-        entries = list(current.get("consent") or [])
-        if appended_consent and len(entries) == len(previous_consent) + 1 \
-                and entries[-1] == appended_consent:
-            entries.pop()
-        if entries:
-            current["consent"] = entries
-        else:
-            current.pop("consent", None)
-
-    library.update_record(slug, unmark)
 
 
 def _check_authorization(plan: dict, issue: int | None, mode: str) -> None:
@@ -1230,6 +1393,22 @@ def _record_session_binding(state: dict, *, pr_number: int) -> None:
               f"{exc}", file=sys.stderr)
 
 
+def _observe_admission(args, plan, pr, library, identity=None):
+    admission = entry.observe_fresh(ROOT, args.repository, args.pr, pr)
+    material = admission['material']
+    material['issues'] = entry.issue_numbers(plan, args.issue, pr, args.repository)
+    material['overlap'] = entry.overlap_observation(ROOT, library, args.repository, material['issues'],
+        identity=identity, candidate=material, worktree=ROOT)
+    material['override'] = entry.accept_overlap(args.repository, material['issues'], material['overlap'],
+        override=getattr(args, 'overlap_override', None), reason=getattr(args, 'overlap_reason', None))
+    return admission
+
+
+def _verify_admission_local(library, admission, identity=None):
+    entry.verify_frozen(ROOT, admission)
+    entry.verify_local_overlap(library, admission['material'], identity=identity, worktree=ROOT)
+
+
 def cmd_plan_bind(args, store: Snapshot) -> None:
     mode = getattr(args, "mode", "same-session")
     plan_id, sealed_digest, plan = _sealed_plan(args.plan)
@@ -1246,6 +1425,35 @@ def cmd_plan_bind(args, store: Snapshot) -> None:
             "can be imported from the old one — and seal that. If a v1 Build is already in flight, "
             "finish it on the engine it started on.")
     issue = args.issue
+    library = _library()
+    slug = library.resolve(plan_id)
+    existing = (library.read_record(slug).get('build_lease') or {}).get('current')
+    caller = _expected_identity(args)
+    if caller and (not existing or caller != build_state_store.claim_identity(existing)):
+        raise CoordinatorError('stale Build identity on bind retry; preserve the existing claim and use verified continuation')
+    if existing and existing['state'] == 'active':
+        # A bind retry cannot mint new freshness or consent for work already running.
+        wanted = {'repository': args.repository, 'pull_request': args.pr, 'mode': mode,
+                  'authorizing_issue': issue, 'worktree': str(ROOT.resolve()),
+                  'sealed_digest': sealed_digest, 'build_plan_digest': _digest(plan)}
+        if any(existing.get(k) != v for k, v in wanted.items()):
+            raise CoordinatorError('this plan already has a different Build claim; use state continue with its recorded identity')
+        active = build_state_store.ClaimedBuildStore(library, slug, _state_schema_for,
+            identity=build_state_store.claim_identity(existing))
+        state = active.read()
+        expected_revision = getattr(args, 'expect_revision', None)
+        if expected_revision is not None and expected_revision != state['revision']:
+            raise CoordinatorError('stale Build revision on bind retry; reread the current continuation evidence')
+        reasons = resume_reasons(state)
+        if reasons:
+            raise CoordinatorError('active Build continuation refused: ' + '; '.join(reasons))
+        _record_session_binding(state, pr_number=args.pr)
+        print(json.dumps({'state': existing['snapshot'], 'ownership': state['ownership'],
+                          'revision': state['revision'], 'continuation': True,
+                          'admission': 'original' if state.get('admission') else 'legacy-unverified'}))
+        return
+    if existing and existing['state'] == 'preparing' and not existing.get('admission'):
+        raise CoordinatorError('this legacy preparation has no frozen admission evidence; preserve it, explicitly retire it, then bind fresh (or resume its original migration/adoption)')
     # Profile first, then authorization. Both can be true of one bad bind — a trivial plan handed an
     # Issue and unattended mode breaks two rules at once — and the profile rule is the root cause: it
     # says this plan may not run in this mode AT ALL, so no Issue could have fixed it. Reporting the
@@ -1262,33 +1470,36 @@ def cmd_plan_bind(args, store: Snapshot) -> None:
     # taken here where the Build actually starts. Recorded, not proven (issue 914's residual).
     import moment
     import plan_lifecycle
-    if not getattr(args, "operator_decided", False):
+    if not existing and not getattr(args, "operator_decided", False):
         raise CoordinatorError(plan_lifecycle.missing_consent({}, "bind"))
     consent = plan_lifecycle.attestation("bind", at=moment.utc_now())
     pr = _verify_draft(args.repository, args.pr)
     if pr.get("headRefOid") != _head():
         raise CoordinatorError("the draft PR head does not match this worktree")
+    identity = build_state_store.claim_identity(existing) if existing else None
+    admission = _observe_admission(args, plan, pr, library, identity)
     state = _initial_state(args.repository, args.pr, pr.get("baseRefOid") or _base(), plan_id,
                            sealed_digest, plan, issue, mode)
+    frozen = reviewer_contracts.effective(library.read_record(slug))
+    if frozen:
+        state["review_contract"] = frozen
+        state["review_contract_format"] = 1
+    state['admission'] = admission
     # Where this Build's evidence lands. With no --state it goes to the durable store beside its own
     # sealed plan, which is the default because the alternative is what actually happened: a killed
     # Build whose approval, receipts, findings and progress were reconstructed by hand.
-    if store is None:
-        store = build_state_store.store_for_plan(plan_id, _state_schema_for, library=_library())
-    # The refusal `store.create` would raise is asserted HERE, before the binding write. Two cold
-    # reviewers independently proved the alternative: with the write first, a plain operator retry —
-    # bind again over an existing Build — rewrote `build_binding` to a PR that carries no Build and
-    # appended a consent attestation for a bind that was then refused. A refused command must leave
-    # nothing behind. (A crash BETWEEN the binding write and `create` still converges: the snapshot
-    # does not exist yet, so this check passes on the re-run and the same binding is rewritten.)
-    if store.path.exists():
-        raise CoordinatorError(
-            f"a durable Build snapshot already exists at {store.path} — this plan's Build is "
-            "already bound. Resume it (`status`, or `handoff export`) rather than re-binding; "
-            "nothing was written.")
-    _record_build_binding(plan_id, args.repository, args.pr, sealed_digest, state["plan"]["digest"],
-                          consent)
-    store.create(state)
+    locator = getattr(args, 'state', None)
+    claim = build_state_store.reserve_build(library, slug, state, consent=consent, locator=locator,
+        validate_entry=lambda: _verify_admission_local(library, admission, identity))
+    # Remote facts are refreshed outside the ownership lock. A changed observation cannot activate
+    # the already-reserved snapshot; retirement, not a silent refresh, is its recovery route.
+    identity = build_state_store.claim_identity(claim)
+    confirmed = _observe_admission(args, plan, _verify_draft(args.repository, args.pr), library, identity)
+    if entry.material_digest(confirmed) != entry.material_digest(admission):
+        raise CoordinatorError('admission changed after reservation; preserve the preparing claim, explicitly retire it, then bind fresh')
+    state = build_state_store.finish_binding(library, slug,
+        build_state_store.claim_identity(claim), state, _state_schema_for,
+        validate_entry=lambda: _verify_admission_local(library, admission, identity))
     # Tag the PR the coordinator just adopted, so it carries a durable "coordinator owns this workflow"
     # marker (StarshipSuperjam/engine-template#1014). Best-effort and non-fatal: a labeling failure is
     # disclosed on stderr and the Build proceeds — the stdout below stays a clean machine-readable line.
@@ -1300,7 +1511,9 @@ def cmd_plan_bind(args, store: Snapshot) -> None:
     # The carrier rule, said at the kickoff itself (StarshipSuperjam/engine-template#1091): on
     # stderr with the other human-facing notes, so stdout stays the one machine-readable line.
     print(plan_lifecycle.CARRIER_RULE, file=sys.stderr)
-    print(json.dumps({"plan_digest": state["plan"]["digest"], "state": str(store.path)}))
+    print(json.dumps({"plan_digest": state["plan"]["digest"], "state": claim['snapshot'],
+                      "ownership": state['ownership'], "revision": state['revision'],
+                      "locator": locator}))
 
 
 def cmd_state_where(args, store: "Snapshot | None") -> None:
@@ -1318,17 +1531,101 @@ def cmd_state_where(args, store: "Snapshot | None") -> None:
         print(f"no durable Build snapshot is bound to {ROOT}")
         return
     for slug, path in found:
+        record = library.read_record(slug)
+        claim = (record.get('build_lease') or {}).get('current')
+        if claim and claim['state'] != 'active':
+            transfer = claim.get('transfer')
+            if transfer and (claim['state'] == 'transferring' or claim['state'] == 'preparing'):
+                successor = transfer.get('successor_plan_id', record['plan_id'])
+                owner = transfer.get('predecessor_identity', build_state_store.claim_identity(claim))
+                print(f"{slug}: interrupted adoption; retry plan adopt --successor {successor} "
+                      f"with --expect-build-id {owner['build_id']} --expect-generation {owner['generation']} "
+                      f"--expect-revision {transfer['source_revision']} and the original predecessor payload")
+                continue
+            if claim['state'] == 'retiring':
+                revision = claim.get('retirement_revision')
+                if revision is None:
+                    evidence = Path(claim['snapshot'])
+                    if not evidence.is_file():
+                        evidence = Path(claim['archive'])
+                    if evidence.is_file():
+                        saved = core.json_file(evidence)
+                        revision = 0 if saved.get('unwritten_preparation') else saved.get('revision')
+                action = claim.get('close_state') or (
+                    'state supersede' if claim['terminal_state'] == 'superseded' else claim['terminal_state'])
+                action = {'abandoned': 'abandon', 'retired': 'retire'}.get(action, action)
+                print(f"{slug}: interrupted retirement; retry with these recorded inputs: " + json.dumps({
+                    'action': action, 'plan': record['plan_id'], 'reason': claim['reason'],
+                    'expect_build_id': claim['build_id'], 'expect_generation': claim['generation'],
+                    'expect_revision': revision, 'snapshot': claim['snapshot'], 'archive': claim['archive']},
+                    sort_keys=True))
+                continue
+            revision = core.json_file(path).get('revision') if path.is_file() else 0
+            print(f"{slug}: interrupted binding; retry with these recorded inputs: " + json.dumps({
+                'action': 'state migrate' if claim.get('legacy_source') else 'plan bind',
+                'plan': record['plan_id'], 'repository': claim['repository'], 'pr': claim['pull_request'],
+                'mode': claim.get('mode'), 'issue': claim.get('authorizing_issue'),
+                'locator': claim['locator'], 'source': claim.get('legacy_source'),
+                'legacy_clients_stopped': bool(claim.get('legacy_source')),
+                'snapshot': claim['snapshot'], 'expect_build_id': claim['build_id'],
+                'expect_generation': claim['generation'], 'expect_revision': revision}, sort_keys=True))
+            continue
         state = core.json_file(path)
         print(f"{slug}: {path} (revision {state.get('revision')}, "
               f"PR {state['build']['pr']}, {state['build']['repository']})")
 
 
+def cmd_state_continue(args, store: Snapshot) -> None:
+    """Explicit cold continuation verifies the named Build before returning caller expectations."""
+    if not isinstance(store, build_state_store.ClaimedBuildStore):
+        raise CoordinatorError('legacy Build: explicitly migrate its evidence before continuation')
+    plan_id, sealed, payload = _sealed_plan(args.plan)
+    verify_resume(store, args)
+    with store._locked():
+        record = store.library.read_record(store.slug)
+        state = core.json_file(store.path)
+        core.validate(state, _state_schema_for(state))
+        build_state_store._assert_claim(record, state.get('ownership'))
+        if (state['plan']['plan_id'] != plan_id or state['plan']['sealed_digest'] != sealed
+                or state['plan']['digest'] != _digest(payload)
+                or state['build']['repository'] != args.repository or state['build']['pr'] != args.pr):
+            raise CoordinatorError('the requested continuation does not match the exact sealed Build')
+        print(json.dumps({'state': str(store.path), 'ownership': state['ownership'],
+                          'revision': state['revision'], 'plan_id': plan_id}))
+
+
 def cmd_state_migrate(args, store: "Snapshot | None") -> None:
     """Move one OS-temp snapshot into the durable library, or refuse and leave it untouched."""
-    destination = build_state_store.migrate(args.source, args.plan, _state_schema_for,
-                                            library=_library(), worktree=ROOT)
-    print(json.dumps({"migrated": str(destination), "source": str(Path(args.source).resolve()),
-                      "source_kept": True}))
+    if not getattr(args, 'legacy_clients_stopped', False):
+        raise CoordinatorError('migration requires --legacy-clients-stopped: pause sessions using old Engine code, '
+                               'wait for running commands to exit, update affected worktrees, then migrate and resume. '
+                               'Tasks and unfinished Builds need not be closed.')
+    library = _library()
+    slug = library.resolve(args.plan)
+    record = library.read_record(slug)
+    current = (record.get('build_lease') or {}).get('current')
+    source = Path(args.source).resolve()
+    if current and current.get('legacy_source') == str(source):
+        canonical = Path(current['snapshot'])
+        if canonical.is_file():
+            state = core.json_file(canonical)
+        elif source.is_file():
+            state = core.json_file(source)
+        else:
+            raise CoordinatorError('migration source and prepared snapshot are missing; recover evidence first')
+        claim = current
+    else:
+        state = core.forward_migrate(core.json_file(source))
+        core.validate(state, _state_schema_for(state))
+        if Path(state['build'].get('worktree', '')).resolve() != ROOT.resolve():
+            raise CoordinatorError('migration does not change the Build worktree; use verified handoff for continuation')
+        claim = build_state_store.reserve_build(library, slug, state, legacy_source=source,
+                                                legacy_clients_stopped=True)
+    saved = build_state_store.finish_binding(library, slug,
+        build_state_store.claim_identity(claim), state, _state_schema_for)
+    print(json.dumps({'migrated': claim['snapshot'], 'source': str(source),
+                      'source_kept': True, 'external_evidence_retained': source.is_file(),
+                      'ownership': saved['ownership'], 'revision': saved['revision']}))
 
 
 # The one place the supersede semantics are worded, shared by the CLI help (parser `description`)
@@ -1358,7 +1655,9 @@ def cmd_state_supersede(args, store: "Snapshot | None") -> None:
     as evidence. Never implicit — see `_SUPERSEDE_GUIDANCE`."""
     library = _library()
     slug = library.resolve(args.plan)
-    retired = build_state_store.supersede(library, slug, reason=args.reason)
+    retired = build_state_store.supersede(library, slug, reason=args.reason,
+        identity=_expected_identity(args), expected_revision=getattr(args, 'expect_revision', None),
+        schema=_state_schema_for)
     if retired is None:
         raise CoordinatorError(
             f"{slug} holds no durable Build snapshot, so there is nothing to supersede.")
@@ -1439,8 +1738,8 @@ def cmd_plan_adopt(args, store: Snapshot) -> None:
     therefore the cost of rebuilding everything it got right, which is a strong incentive to keep
     building against a plan you already believe is flawed.
 
-    What is preserved, and why each is safe. The BINDING — same pull request, same snapshot, same
-    branch — because the work is the same work. The APPROVAL and its depth, taken from the successor's
+    What is preserved, and why each is safe. The BINDING — same Build, pull request and branch;
+    its evidence moves to the successor's private folder with a new generation. The APPROVAL and its depth, taken from the successor's
     OWN plan-side approval: the successor was approved and its panel ran on the plan side, so the
     Build inherits consent that was actually granted for THIS document rather than carrying over the
     predecessor's. And the integration evidence of nodes the successor carries unchanged with
@@ -1460,14 +1759,23 @@ def cmd_plan_adopt(args, store: Snapshot) -> None:
     import plan_lifecycle
     if not getattr(args, "operator_decided", False):
         raise CoordinatorError(plan_lifecycle.missing_consent({}, "adopt"))
-    state = store.read()
+    library = _library()
+    identity = _expected_identity(args)
+    if not identity or getattr(args, 'expect_revision', None) is None:
+        raise CoordinatorError('adoption requires caller-held Build identity, generation and source revision')
+    source_slug, source_store = build_state_store.adoption_source(library, identity, _state_schema_for)
+    state = source_store.read()
+    reasons = resume_reasons(state)
+    if reasons:
+        raise CoordinatorError('adoption must continue the owning worktree and ancestry: ' + '; '.join(reasons))
     bound_id = state["plan"]["plan_id"]
-    successor_id, sealed_digest, successor = _sealed_plan(args.successor)
+    # Closure is checked inside the transfer lock. An existing journal must reach that
+    # check to restore its predecessor when the successor closed before reservation.
+    successor_id, sealed_digest, successor = _sealed_plan(args.successor, entering=False, transfer_recovery=True)
     if successor_id == bound_id:
         raise CoordinatorError(
             f"{successor_id} is the plan this Build is already bound to. A sealed plan cannot be "
             "revised, so adopting it again would change nothing.")
-    library = _library()
     record = library.read_record(library.resolve(successor_id))
     lineage = " ".join((record.get("intake") or {}).get("predecessors", []))
     if bound_id not in lineage:
@@ -1516,6 +1824,11 @@ def cmd_plan_adopt(args, store: Snapshot) -> None:
         # approval" — which had not happened — and pointed at a plan revision that would have undone the
         # adoption's whole purpose. Invisible in a project with no settled specification, and a wall in
         # every project that has one.
+        frozen = reviewer_contracts.effective(record)
+        for key in ("review_contract", "review_contract_format", "review_contract_renewals", "review_evidence_history", "review_receipt_origins", "review_contract_adoptions", "review_contract_build_decisions"):
+            current.pop(key, None)
+        if frozen:
+            current.update(review_contract=frozen, review_contract_format=1)
         approval = record.get("approval")
         if approval:
             current["approval"] = {"plan_digest": current["plan"]["digest"],
@@ -1526,32 +1839,12 @@ def cmd_plan_adopt(args, store: Snapshot) -> None:
              "operator_change": f"adopted sealed successor {successor_id}, whose own approval, review "
                                 "and seal are the authority for continuing on it"})
 
-    # The successor's binding lands first so the Build never runs on an unbound plan — but adoption
-    # involves TWO records, and a `mutate` that then refuses (a revision race, a validation failure)
-    # must not leave the successor marked bound to a Build that never switched onto it. So the prior
-    # binding state is captured, and a failed mutate restores it before the refusal propagates. If
-    # the restore itself fails, that is said out loud with the exact repair, never swallowed.
-    successor_slug = _library().resolve(successor_id)
-    previous_record = _library().read_record(successor_slug)
-    previous_binding = previous_record.get("build_binding")
-    previous_consent = list(previous_record.get("consent") or [])
-    written_binding = {"repository": state["build"]["repository"],
-                       "pull_request": state["build"]["pr"],
-                       "sealed_digest": sealed_digest, "build_plan_digest": _digest(successor)}
-    _record_build_binding(successor_id, state["build"]["repository"], state["build"]["pr"],
-                          sealed_digest, _digest(successor), consent)
-    try:
-        store.mutate(change, from_revision=state["revision"])
-    except BaseException:
-        try:
-            _restore_binding(successor_slug, previous_binding, previous_consent,
-                             written_binding, consent)
-        except BaseException as rollback_exc:  # noqa: BLE001 — disclosed with the exact repair
-            print(f"build-coordinator: the adoption failed AND the successor's binding could not be "
-                  f"restored ({rollback_exc}) — {successor_id} may be marked bound to a Build that "
-                  "is still on its predecessor. Repair by re-running this adopt, or clear the "
-                  "marker by completing/abandoning through the ordinary verbs.", file=sys.stderr)
-        raise
+    saved = build_state_store.adopt_build(library, source_slug, library.resolve(successor_id),
+        identity, args.expect_revision, _state_schema_for, change=change, consent=consent)
+    store = build_state_store.ClaimedBuildStore(library, library.resolve(successor_id),
+        _state_schema_for, identity=saved['ownership'])
+    print(json.dumps({'ownership': saved['ownership'], 'revision': saved['revision'],
+                      'state': str(store.path)}))
     preserved = sorted(keep)
     print(f"adopted sealed successor {successor_id}; the Build continues on PR "
           f"{state['build']['pr']} with its binding intact")
@@ -1720,6 +2013,8 @@ def cmd_status(args, store: Snapshot) -> None:
                     reason = reason[:157] + "..."
                 line += f" [failure: {reason}]"
             print(line)
+            if node.get("recovery"):
+                print("    reverify dependencies first; with current identity flags: " + node["recovery"]["command"])
         if w["resource_holders"]:
             print("  resources held by: " + ", ".join(sorted(w["resource_holders"])))
         crosscheck = w.get("receipt_crosscheck")
@@ -1782,6 +2077,99 @@ def _emit_packet(packet: dict, args) -> None:
           f"{len(packet['required_lenses'])} required lens(es), commit {packet.get('commit') or 'plan'}")
 
 
+def _build_contract_preview(state, action, adopt_lenses=None):
+    old = reviewer_contracts.effective_build(state)
+    if old is None:
+        raise CoordinatorError("historical Build requires evidence-scoped contract adoption")
+    lenses = [p["lens"] for p in _required(_protocol(), old["depth"], _installed())]
+    proposed = reviewer_contracts.propose_build(state, ROOT, lenses)
+    preview = reviewer_contracts.renewal_preview(reviewer_contracts.build_record(state), proposed, ROOT, action,
+                                               adopt_lenses)
+    preview["build_owner"] = scoped_agents.build_owner(state)
+    preview["state_digest"] = core.digest(state)
+    preview["preview_digest"] = core.digest({k:v for k,v in preview.items() if k != "preview_digest"})
+    return preview
+
+
+def cmd_build_contract_preview(args, store):
+    state = store.read()
+    _assert_plan(state, _plan(args.plan))
+    preview = _build_contract_preview(state, args.action, getattr(args, 'adopt_lens', None))
+    text = json.dumps(preview, indent=2, ensure_ascii=False) + "\n"
+    if args.output:
+        core.write_private_path(Path(args.output), text)
+    else:
+        print(text)
+
+
+def cmd_build_contract_apply(args, store):
+    preview = json.loads(_input(args.input))
+    if not args.operator_decided or not args.reason.strip():
+        raise CoordinatorError("Build reviewer renewal requires the operator's decision and reason")
+    plan = _plan(args.plan)
+    if preview.get("preview_digest") != core.digest({k:v for k,v in preview.items() if k != "preview_digest"}):
+        raise CoordinatorError("Build renewal preview was modified")
+    current = store.read()
+    _assert_plan(current, plan)
+    if preview.get("build_owner") != scoped_agents.build_owner(current):
+        raise CoordinatorError("renewal belongs to another Build owner or generation")
+    if any(d["preview_digest"] == preview["preview_digest"] for d in current.get("review_contract_renewals", [])):
+        print("Build reviewer renewal already recorded; original evidence retained.")
+        return
+    def change(state):
+        _assert_plan(state, plan)
+        if preview.get("build_owner") != scoped_agents.build_owner(state):
+            raise CoordinatorError("renewal belongs to another Build owner or generation")
+        if any(d["preview_digest"] == preview.get("preview_digest") for d in state.get("review_contract_renewals", [])):
+            return
+        if _build_contract_preview(state, preview.get("action"), preview.get('adopt_lenses')) != preview:
+            raise CoordinatorError("Build renewal preview is stale or modified; preview the current evidence")
+        adapter = reviewer_contracts.build_record(state)
+        reviewer_contracts.apply_renewal(adapter, preview, reason=args.reason, at=moment.utc_now(), operator_decided=True)
+        state["review_contract_renewals"] = adapter["review_contract_renewals"]
+        state.setdefault("review_contract_build_decisions", {})[preview["preview_digest"]] = preview["build_owner"]
+        state["pr_contract"] = None
+        state["preflights"] = []
+        state["submission"] = "draft"
+    store.mutate(change)
+    print("Recorded Build reviewer renewal; original sealed contract and all review evidence retained.")
+
+
+def cmd_build_historical_preview(args, store):
+    state = store.read(); _assert_plan(state, _plan(args.plan))
+    library = _library(); slug = library.resolve(state["plan"]["plan_id"])
+    value = reviewer_contracts.adoption_preview(state, library, slug, json.loads(_input(args.input)), ROOT)
+    text = json.dumps(value, indent=2) + "\n"
+    if args.output:
+        core.write_private_path(Path(args.output), text)
+    else:
+        print(text)
+
+
+def cmd_build_historical_apply(args, store):
+    preview = json.loads(_input(args.input)); plan = _plan(args.plan)
+    current = store.read(); _assert_plan(current, plan)
+    if preview.get("owner") != scoped_agents.build_owner(current):
+        raise CoordinatorError("historical decision belongs to another Build owner or generation")
+    if any(e["preview_digest"] == preview.get("preview_digest") for e in current.get("review_contract_adoptions", [])):
+        reviewer_contracts.apply_adoption(current, preview, reason=args.reason, at=moment.utc_now(), operator_decided=args.operator_decided)
+        print("Historical adoption already recorded; original evidence retained.")
+        return
+    def change(state):
+        _assert_plan(state, plan)
+        library = _library(); slug = library.resolve(state["plan"]["plan_id"])
+        expected = reviewer_contracts.adoption_preview(state, library, slug, preview.get("locator"), ROOT)
+        if expected != preview:
+            raise CoordinatorError("historical preview is stale or modified; preview the retained evidence again")
+        reviewer_contracts.apply_adoption(state, preview, reason=args.reason, at=moment.utc_now(), operator_decided=args.operator_decided)
+        _remember_review_evidence(state)
+        state["pr_contract"] = None
+        state["preflights"] = []
+        state["submission"] = "draft"
+    store.mutate(change)
+    print("Recorded receipt-scoped historical adoption; refresh the packet and merge disclosure, preserving original evidence.")
+
+
 def _packet(args, store: Snapshot | None) -> None:
     plan = _plan(args.plan)
     impact = json.loads(_input(args.impact)) if args.impact else {}
@@ -1822,7 +2210,7 @@ def _packet(args, store: Snapshot | None) -> None:
                   "intent_digest": _digest(plan["raw_intent"].encode()), "spec": canonical_spec,
                   "commit": commit, "base_commit": args.base if commit else None, "impact": impact,
                   "protocol_digest": _digest(protocol), "installed_lenses": installed_names,
-                  "required_lenses": required, "standalone": True}
+                  "required_lenses": required, "standalone": True, "approval_authority": "none — standalone packet has no approval authority"}
         if stage == "deliverable":
             declarations = _hard_check_declarations()
             path, digest = _write_json_artifact("build-hard-check-declarations", declarations)
@@ -1846,6 +2234,10 @@ def _packet(args, store: Snapshot | None) -> None:
     canonical_spec = _assert_spec_current(state, plan, check_issue=True)
     if not state["approval"]:
         raise CoordinatorError("approve the plan and depth before preparing review packets")
+    frozen = reviewer_contracts.effective_build(state)
+    if frozen:
+        installed = reviewer_contracts.build_panel(state)
+        installed_names = [item["lens"] for item in installed]
     if stage == "repair":
         repair = state["repair"]
         if not repair or repair["judgment"] == "none":
@@ -1856,7 +2248,7 @@ def _packet(args, store: Snapshot | None) -> None:
         if not _candidate_ok(state, commit):
             raise CoordinatorError("green candidate validation for the repaired commit is required before re-review")
     else:
-        required_contracts = _required(protocol, state["approval"]["depth"], installed)
+        required_contracts = installed if frozen else _required(protocol, state["approval"]["depth"], installed)
         required = [item["lens"] for item in required_contracts]
         commit = _head()
         if not _candidate_ok(state, commit):
@@ -1874,6 +2266,9 @@ def _packet(args, store: Snapshot | None) -> None:
               "spec": canonical_spec, "commit": commit, "base_commit": _base() if commit else None,
               "impact": impact, "protocol_digest": _digest(protocol),
               "installed_lenses": installed_names, "required_lenses": required}
+    if frozen:
+        referent["review_contract"] = frozen
+        referent["approval_authority"] = {"owner": scoped_agents.build_owner(state), "sealed_digest": state["plan"]["sealed_digest"]}
     if stage == "repair":
         # Point the re-review at the REPAIR, mechanically. `base_commit` is the merge base — the whole
         # PR — so without this a repair reviewer is handed the entire change again and left to work out
@@ -1911,10 +2306,11 @@ def _packet(args, store: Snapshot | None) -> None:
     # re-cut instead of being thrown away and re-run for nothing.
     new_base = (state["repair"]["reviewed_commit"] if stage == "repair" else packet["base_commit"])
     new_tip = commit
-    covers = lambda receipt: ranges.receipt_covers(ROOT, receipt, new_base, new_tip)   # noqa: E731
+    covers = lambda receipt: ranges.receipt_covers(ROOT, receipt, new_base, new_tip, current.get("base_advances", []))   # noqa: E731
 
     def change(s):
         old = s["repair"] if stage == "repair" else s["reviews"][stage]
+        _remember_review_evidence(s)
         expected = {item["lens"]: item["lens_packet_digest"] for item in contracts}
         # A receipt survives on either ground: it attests THIS packet, or the range it recorded reading
         # already contains every authored commit this packet asks about. It is kept byte-identical
@@ -1926,6 +2322,16 @@ def _packet(args, store: Snapshot | None) -> None:
                               if receipt["lens"] in expected
                               and (receipt.get("lens_packet_digest") == expected[receipt["lens"]]
                                    or covers(receipt))]
+        if frozen:
+            preserved_receipts = list((old or {}).get("receipts", []))
+        # Retain only originals being removed; current receipts already remain durable.
+        history = s.setdefault("review_evidence_history", [])
+        unresolved = _unresolved_review_findings(s)
+        for receipt in (old or {}).get("receipts", []):
+            if receipt not in preserved_receipts and not any(e["receipt"] == receipt for e in history):
+                produced_by = s["review_receipt_origins"][scoped_agents.receipt_key(receipt)]
+                history.append({"stage": produced_by, "receipt": copy.deepcopy(receipt),
+                                "effective": bool(unresolved.intersection(receipt["finding_ids"]))})
         if stage == "repair":
             s["repair"]["packet_digest"] = packet["packet_digest"]
             s["repair"]["referent_digest"] = referent_digest
@@ -1958,6 +2364,26 @@ def _packet(args, store: Snapshot | None) -> None:
         # fan-out, so refresh the checkout baseline to now (the documented "re-captured at the next review
         # packet"); otherwise the preflight would compare against a stale, arbitrarily-old baseline.
         store.mutate(lambda s: s.update({"checkout_snapshot": checkout_baseline}), from_revision=revision)
+    if getattr(args, "session", None):
+        library = _library()
+        slug = library.resolve(state["plan"]["plan_id"])
+        source = library.plan_dir(slug) / "scoped-build-review-source.json"
+        packet_content = json.dumps(packet, indent=2, sort_keys=True) + "\n"
+        core.write_private_path(source, packet_content)
+        fresh = store.read()
+        target = fresh["repair"] if stage == "repair" else fresh["reviews"][stage]
+        owed = set(_outstanding_repair_lenses(target, state=fresh) if stage == "repair" else _missing_receipts(target, state=fresh))
+        dispatch_contracts = [c for c in contracts if c["lens"] in owed]
+        assignments = scoped_agents.prepare_packets(
+            library, slug, scoped_agents.build_owner(state), args.session, source,
+            {c["lens"]: c["lens_packet_digest"] for c in dispatch_contracts},
+            {c["lens"]: Path(c["path"]).stem for c in dispatch_contracts},
+            expected_file_digest=core.digest(packet_content.encode("utf-8")), review_contract=frozen)
+        print("Scoped assignments: " + json.dumps(assignments, sort_keys=True), file=sys.stderr)
+    else:
+        note = reviewer_contracts.historical_disclosure(state)
+        print(note or "Execution freshness is unverified: prepare scoped assignments with --session before dispatch.",
+              file=sys.stderr)
     _emit_packet(packet, args)
     if store is not None:
         _read_now(store)
@@ -1994,7 +2420,8 @@ def _findings_batch(source: str, stage: str, lens: str | None = None) -> list[di
     entry anywhere records nothing, so a half-applied batch is not a state a session can land in.
     """
     try:
-        document = json.loads(_input(source))
+        import result_contracts
+        document = result_contracts.parse(result_contracts.read_input(source))
     except ValueError as exc:
         raise CoordinatorError(f"findings batch is not JSON: {exc}") from exc
     _validate(document, FINDINGS_BATCH_SCHEMA)
@@ -2057,9 +2484,42 @@ def _receipt_finding_ids(args) -> list[str]:
 
 
 def cmd_review_record(args, store: Snapshot) -> None:
-    finding_ids = sorted(set(_receipt_finding_ids(args)))
+    before = store.read() if store is not None else {}
+    if _build_review_drift(before):
+        raise CoordinatorError("; ".join(_build_review_drift(before)))
+    frozen = reviewer_contracts.effective_build(before)
+    finding_ids = _receipt_finding_ids(args)
+    if len(finding_ids) != len(set(finding_ids)):
+        raise CoordinatorError("review finding ids must be unique")
+    reports = None
+    source = getattr(args, "findings_from_file", None)
+    controller_entries = _findings_batch(source, args.stage, args.lens) if source else None
+    if getattr(args, "report", None):
+        import result_contracts
+        try:
+            compiled = review.ingest_review_report(result_contracts.read_input(args.report),
+                next(p["result_contract"] for p in reviewer_contracts.build_panel(before) if p["lens"] == args.lens)
+                if frozen else result_contracts.resolve("pre-submission-review-finding.v1"), lens=args.lens, retained=bool(frozen))
+            reports = {args.lens: compiled["report"]}
+            collides = any(previous["packet_digest"] != args.packet_digest
+                           and set(previous["finding_ids"]) & {f["id"] for f in compiled["findings"]}
+                           for _, previous in review.retained_receipts(before))
+            prefix = "B" + args.packet_digest.split(":")[-1][:12] + "-" if frozen or collides else ""
+            expected_ids = [prefix + f["id"] for f in compiled["findings"]]
+            if finding_ids and finding_ids != expected_ids:
+                result_contracts.reject("observed_report_mismatch", category="authority")
+            finding_ids = expected_ids
+        except result_contracts.Rejection as exc:
+            raise CoordinatorError(str(exc)) from exc
 
+    if store is None:
+        raise CoordinatorError("review acceptance requires a bound Build snapshot")
     def change(state):
+        for _, previous in review.retained_receipts(state):
+            if previous["packet_digest"] != args.packet_digest and set(previous["finding_ids"]) & set(finding_ids):
+                raise CoordinatorError("new review findings need unique ids; original findings cannot be overwritten")
+        if reviewer_contracts.effective_build(state) != frozen:
+            raise CoordinatorError("Build review contract changed during receipt acceptance")
         if args.stage == "repair":
             target = state["repair"]
             if not target or target["packet_digest"] != args.packet_digest:
@@ -2079,20 +2539,16 @@ def cmd_review_record(args, store: Snapshot) -> None:
                        # What this lens actually READ, so a later re-bind can ask whether anything in the
                        # new range is new to it instead of assuming everything is.
                        "reviewed_range": {"base": target["reviewed_commit"], "tip": target["final_commit"]}}
+            if frozen:
+                receipt.update(contract_digest=frozen["digest"], obligation_digest=contract["obligation_digest"])
+            _archive_replaced_review(state, args.lens, receipt)
+            state.setdefault("review_receipt_origins", {})[scoped_agents.receipt_key(receipt)] = args.stage
             target["receipts"] = [r for r in target["receipts"] if r["lens"] != args.lens] + [receipt]
             delivery = state["reviews"]["deliverable"]
             delivery["receipts"] = [r for r in delivery["receipts"] if r["lens"] != args.lens] + [receipt]
             delivery["reviewer_contracts"] = [
                 item for item in delivery["reviewer_contracts"] if item["lens"] != args.lens
             ] + [contract]
-            if not _outstanding_repair_lenses(target):
-                # `base_commit` advances WITH `reviewed_commit`, never behind it. Advancing only the
-                # reviewed commit left the pair naming two different points in history, so any later
-                # measurement across `base_commit..reviewed_commit` spanned a wider range than the branch
-                # actually contributed and swept in upstream commits on one side only.
-                delivery["reviewed_commit"] = target["final_commit"]
-                if target.get("base_commit"):
-                    delivery["base_commit"] = target["base_commit"]
         else:
             if args.stage != "deliverable":
                 raise CoordinatorError(
@@ -2114,9 +2570,34 @@ def cmd_review_record(args, store: Snapshot) -> None:
                        "commit": target["reviewed_commit"], "finding_ids": finding_ids,
                        "code_execution": args.code_execution,
                        "reviewed_range": {"base": target["base_commit"], "tip": target["reviewed_commit"]}}
+            if frozen:
+                receipt.update(contract_digest=frozen["digest"], obligation_digest=contract["obligation_digest"])
+            _archive_replaced_review(state, args.lens, receipt)
+            state.setdefault("review_receipt_origins", {})[scoped_agents.receipt_key(receipt)] = args.stage
             target["receipts"] = [r for r in target["receipts"] if r["lens"] != args.lens] + [receipt]
+        if frozen:
+            library = _library()
+            assignment = scoped_agents.Store(library, library.resolve(state["plan"]["plan_id"])).verified_locked(
+                owner=scoped_agents.build_owner(state), root=providers.resolve_session(explicit=getattr(args, "session", None)),
+                lens=args.lens, packet_digest=receipt["lens_packet_digest"])
+            bound = assignment.get("review_contract")
+            item = next((p for p in (bound or {}).get("panels", {}).get("pre-submission-review", []) if p["lens"] == args.lens), None)
+            if item is None or reviewer_contracts.obligation_digest(bound["referent"], item) != receipt["obligation_digest"]:
+                raise CoordinatorError("review execution did not bind the approved Build obligation")
+        scoped_agents.accept_build(_library(), state, receipt,
+            providers.resolve_session(explicit=getattr(args, "session", None)), supplied_reports=reports,
+            controller_entries=controller_entries)
+        if args.stage == "repair" and not _outstanding_repair_lenses(state["repair"], state=state):
+            # Advance only after the new receipt has accepted execution evidence. Coverage must
+            # never count an unaccepted receipt simply because it is already in this transaction.
+            delivery = state["reviews"]["deliverable"]
+            delivery["reviewed_commit"] = state["repair"]["final_commit"]
+            if state["repair"].get("base_commit"):
+                delivery["base_commit"] = state["repair"]["base_commit"]
     store.mutate(change)
     print(f"recorded {args.stage} review from {args.lens} with {len(finding_ids)} finding(s)")
+    if finding_ids:
+        print("finding IDs: " + ", ".join(finding_ids))
     _read_now(store)
 
 
@@ -2211,6 +2692,13 @@ def cmd_finding_record(args, store: Snapshot) -> None:
                 raise CoordinatorError(f"no current {args.stage} review packet")
             else:
                 raise CoordinatorError(f"{lens} was not requested by the current {args.stage} packet")
+            prior = next((f for f in state["findings"] if f["id"] == finding_id
+                          and f["lens"] == lens and f["packet_digest"] == packet
+                          and f.get("lens_packet_digest") == lens_packet_digest), None)
+            if by_receipt and prior is None:
+                scoped_agents.validate_initial_build_finding(_library(), state, receipt, entry)
+            if reviewer_contracts.effective_build(state) and any(f["id"] == finding_id and f["packet_digest"] != packet for f in state["findings"]):
+                raise CoordinatorError("new findings require unique ids; cannot overwrite an earlier review outcome")
             recorded.append({"id": finding_id, "stage": args.stage, "lens": lens, "packet_digest": packet,
                              "lens_packet_digest": lens_packet_digest, "commit": commit,
                              "severity": entry["severity"], "summary": entry["summary"],
@@ -2926,7 +3414,7 @@ def cmd_sync_artifacts(args, store: Snapshot) -> None:
                       "regenerated": [r.path for r in results if r.changed]}, indent=2, sort_keys=True))
 
 
-def _repair_round_complete(repair: dict | None) -> bool:
+def _repair_round_complete(repair: dict | None, state=None) -> bool:
     """Whether a repair round finished the re-review it asked for. A `none` judgment requests no lenses
     and so never satisfies this -- it terminates the loop without re-review rather than completing one.
     Single-homed because two readers need it and a second copy could drift: the reviewed-commit advance
@@ -2934,7 +3422,7 @@ def _repair_round_complete(repair: dict | None) -> bool:
     the escalation gate creates."""
     if not repair or repair["judgment"] == "none":
         return False
-    return not _outstanding_repair_lenses(repair)
+    return not _outstanding_repair_lenses(repair, state=state)
 
 
 class _Unmeasurable(Exception):
@@ -3028,7 +3516,7 @@ def _effective_reviewed(state: dict) -> str | None:
     twice and one fabricated round counted against the escalation threshold."""
     reviewed = state["reviews"]["deliverable"]["reviewed_commit"]
     prior = state["repair"]
-    if _repair_round_complete(prior):
+    if _repair_round_complete(prior, state):
         final = prior["final_commit"]
         # SUPERSESSION retires a repair anchor, not orphanhood. A rebase orphans the round's final commit,
         # but the commit stays readable and is still exactly what was last reviewed, so it remains the
@@ -3062,31 +3550,195 @@ def _history_was_rewritten(state: dict, head: str) -> bool:
     return bool(recorded_base) and bool(current_base) and recorded_base != current_base
 
 
+def _rewrite_checkout() -> tuple[str, str]:
+    """Require a finished, clean checkout on a named branch; never repair git implicitly."""
+    branch = core.run(["git", "symbolic-ref", "--short", "HEAD"], root=ROOT)
+    dirty = core.run(["git", "status", "--porcelain"], root=ROOT)
+    if branch.returncode or dirty.returncode or dirty.stdout.strip():
+        raise CoordinatorError("rewrite recovery requires a clean checkout on the Build branch")
+    for marker in ("rebase-merge", "rebase-apply", "MERGE_HEAD", "CHERRY_PICK_HEAD"):
+        path = core.run(["git", "rev-parse", "--git-path", marker], root=ROOT)
+        if path.returncode or (ROOT / path.stdout.strip()).exists():
+            raise CoordinatorError("finish or abort the git operation before rewrite recovery")
+    return branch.stdout.strip(), _head()
+
+
+def _rewrite_identity(state: dict, branch: str) -> dict:
+    if not state.get("ownership"):
+        raise CoordinatorError("rewrite preparation requires canonical Build ownership; migrate this legacy Build first")
+    return {"ownership": state["ownership"], "plan_digest": state["plan"]["digest"],
+            "repository": state["build"]["repository"], "pr": state["build"]["pr"],
+            "worktree": str(ROOT.resolve()), "branch": branch}
+
+
+def _prepare_rewrite(args, store, state, plan):
+    reasons = resume_reasons(state)
+    if reasons:
+        raise CoordinatorError("prepare recovery before rewriting history: " + "; ".join(reasons))
+    if _effective_reviewed(state):
+        raise CoordinatorError("this Build has review evidence; use the reviewed reconcile path")
+    branch, head = _rewrite_checkout()
+    identity = _rewrite_identity(state, branch)
+    old = state.get("rewrite_preparation")
+    if getattr(args, "cancel_preparation", False):
+        if old:
+            store.mutate(lambda s: s.pop("rewrite_preparation", None), from_revision=state["revision"])
+        print("rewrite preparation cancelled; retained git objects remain available")
+        return
+    if old:
+        if (old["identity"] != identity or old["source_head"] != head
+                or old["prepared_revision"] != state["revision"]):
+            raise CoordinatorError("a different rewrite preparation is pending; cancel it on the original line before preparing again")
+        print(json.dumps(old))
+        return
+    if any(n.get("claim") and not n.get("integration") for n in state.get("work", {}).values()):
+        raise CoordinatorError("finish or abandon outstanding work claims before preparing a rewrite")
+    pending = {node for event in state.get("rewrite_recoveries", [])
+               if event["preparation"]["identity"]["plan_digest"] == state["plan"]["digest"]
+               for node in event["invalidated_nodes"]
+               if not state.get("work", {}).get(node, {}).get("integration")}
+    if pending:
+        raise CoordinatorError("reverify affected nodes before preparing another rewrite: " + ", ".join(sorted(pending)))
+    pr = _verify_draft(identity["repository"], identity["pr"])
+    if not pr.get("baseRefName") or not pr.get("headRefName"):
+        pr.update(_gh_json(["pr", "view", str(identity["pr"]), "--repo", identity["repository"],
+                            "--json", "headRefName,baseRefName,headRefOid"]))
+    target = pr.get("baseRefName")
+    if pr.get("headRefName") != branch or pr.get("headRefOid") != head or not target:
+        raise CoordinatorError("the draft PR must name this branch and HEAD and a verifiable target ref")
+    if not repo_identity.slug_eq(repo_identity.origin_slug(str(ROOT)), identity["repository"]):
+        raise CoordinatorError("rewrite target repository differs from origin")
+    fetched = core.run(["git", "fetch", "--no-tags", "origin",
+                        f"+refs/heads/{target}:refs/remotes/origin/{target}"], root=ROOT)
+    tip = core.run(["git", "rev-parse", "--verify", f"refs/remotes/origin/{target}^{{commit}}"], root=ROOT)
+    base = core.run(["git", "merge-base", head, tip.stdout.strip()], root=ROOT)
+    if fetched.returncode or tip.returncode or base.returncode:
+        raise CoordinatorError("could not fetch and verify the rewrite target; no preparation recorded")
+    if (_rewrite_checkout() != (branch, head)
+            or not repo_identity.slug_eq(repo_identity.origin_slug(str(ROOT)), identity["repository"])):
+        raise CoordinatorError("checkout changed during rewrite preparation; retry")
+    preparation = {"identity": identity, "source_head": head, "source_base": base.stdout.strip(),
+                   "target_ref": target, "target_tip": tip.stdout.strip(),
+                   "prepared_revision": state["revision"] + 1}
+    preparation["id"] = _digest(preparation)
+    retained = "refs/engine/build-recovery/" + identity["ownership"]["build_id"] + "/" + preparation["id"].split(":")[1]
+    result = core.run(["git", "update-ref", retained, head], root=ROOT)
+    if result.returncode:
+        raise CoordinatorError("could not retain the original history; no preparation recorded")
+    store.mutate(lambda s: s.update(rewrite_preparation=preparation), from_revision=state["revision"])
+    print(json.dumps(preparation))
+
+
+def _rewrite_affected(plan, paths):
+    affected = {n["id"] for n in plan["work_items"]
+                if any(dag.path_within_declared(p, n["paths"]) for p in paths)}
+    # An unassigned change cannot be localized honestly.
+    if any(not any(dag.path_within_declared(p, n["paths"]) for n in plan["work_items"]) for p in paths):
+        affected = {n["id"] for n in plan["work_items"]}
+    while True:
+        expanded = affected | {n["id"] for n in plan["work_items"] if affected.intersection(n.get("depends_on", []))}
+        if expanded == affected:
+            return sorted(affected)
+        affected = expanded
+
+
+def _apply_unreviewed_rewrite(store, state, plan):
+    branch, head = _rewrite_checkout()
+    preparation = state.get("rewrite_preparation")
+    if not preparation:
+        if any(e["to_commit"] == head and e["preparation"]["identity"] == _rewrite_identity(state, branch)
+               for e in state.get("rewrite_recoveries", [])):
+            print("this history rewrite is already recorded")
+            return
+        raise CoordinatorError(
+            "no prepared rewrite; no evidence changed. In this clean isolated Build worktree only, "
+            "preserve the recovered work first with `git branch codex/recovery-rescue-" + head[:12] + " HEAD`. "
+            "Inspect `git reflog show " + shlex.quote(branch) + "` and verify the pre-rewrite tip; "
+            "do not guess it from the current base or delete the rescue branch. After verifying that tip, "
+            "return this Build branch with `git reset --keep <verified-pre-rewrite-tip>`, restore its matching "
+            "draft PR head (if already pushed, inspect the remote and use an exact force-with-lease), then "
+            "run reconcile --prepare before rebasing again. Reapply any needed resolution from the retained "
+            "rescue branch. If the original objects cannot be verified, recover them from backup; never "
+            "edit the snapshot or replace the plan. These are manual recovery steps, not actions performed here.")
+    if preparation["identity"] != _rewrite_identity(state, branch) or state["revision"] != preparation["prepared_revision"]:
+        raise CoordinatorError("rewrite preparation no longer matches this Build revision and identity; preserve both histories and recover the original preparation")
+    source, base, target = preparation["source_head"], preparation["source_base"], preparation["target_tip"]
+    identity = preparation["identity"]
+    if not repo_identity.slug_eq(repo_identity.origin_slug(str(ROOT)), identity["repository"]):
+        raise CoordinatorError("rewrite origin no longer matches the prepared repository")
+    pr = _verify_draft(identity["repository"], identity["pr"])
+    if not pr.get("baseRefName") or not pr.get("headRefName"):
+        pr.update(_gh_json(["pr", "view", str(identity["pr"]), "--repo", identity["repository"],
+                            "--json", "headRefName,baseRefName,headRefOid"]))
+    if (pr.get("headRefOid") not in (source, head) or pr.get("headRefName") != branch
+            or pr.get("baseRefName") != preparation["target_ref"]):
+        raise CoordinatorError("the PR head or target no longer matches this prepared rewrite")
+    # Positive local git provenance is required, not just a plausible replacement SHA.
+    log = core.run(["git", "reflog", "show", "-2", "--format=%H%x00%gs", f"refs/heads/{branch}"], root=ROOT)
+    entries = log.stdout.splitlines()
+    if (log.returncode or len(entries) != 2 or not entries[0].startswith(head + "\0rebase (finish):")
+            or not entries[0].endswith("onto " + target) or not entries[1].startswith(source + "\0")
+            or source == head or base == target or not _is_ancestor(target, head)):
+        raise CoordinatorError("HEAD is not the completed rebase of the prepared source onto its pinned target; no anchor changed")
+    try:
+        paths = _contribution_divergence(base, source, target, head)
+    except _Unmeasurable as exc:
+        raise CoordinatorError("rewrite contribution cannot be measured; preserve original evidence: " + str(exc)) from exc
+    affected = _rewrite_affected(plan, paths)
+    event = {"preparation": preparation, "to_commit": head, "divergent_paths": paths,
+             "invalidated_nodes": affected, "prior_work": state.get("work", {}),
+             "prior_progress": state["progress"]}
+    baseline = review_integrity.snapshot(str(ROOT))
+    def change(s):
+        if (_rewrite_checkout() != (branch, head)
+                or not repo_identity.slug_eq(repo_identity.origin_slug(str(ROOT)), identity["repository"])):
+            raise CoordinatorError("checkout changed during rewrite verification")
+        # Deep copies preserve original receipts, attempts and verification for audit and re-derivation.
+        s.setdefault("rewrite_recoveries", []).append(json.loads(json.dumps(event)))
+        for node_id in affected:
+            nw = s.get("work", {}).get(node_id)
+            if nw and nw.get("integration"):
+                attempt = nw["integration"]["attempt_id"]
+                nw["integration"] = None
+                nw["latest_failure"] = work.failure_record(attempt, "integration",
+                    "history rewrite changed this node or a dependency; run work integrate --recovery with fresh verification", dag.DISP_OPEN)
+        s["progress"]["completed"] = [p for p in s["progress"]["completed"] if p["id"] not in affected]
+        s["plan"]["bound_head"] = head
+        s.pop("rewrite_preparation", None)
+        s["validation"] = s["pr_contract"] = s["checkpoint"] = None
+        s["preflights"] = []
+        s.pop("artifact_sync", None)
+        s["checkout_snapshot"] = baseline
+    store.mutate(change, from_revision=state["revision"])
+    print("unreviewed rewrite recorded; original evidence retained; " +
+          ("reverify affected nodes: " + ", ".join(affected) if affected else "contribution unchanged"))
+    for node_id, recovery in _recovery_instructions(plan, store.read()).items():
+        print(node_id + ": reverify dependencies first; with current identity flags: " + recovery["command"])
+
+
 def cmd_reconcile(args, store: Snapshot) -> None:
-    """Re-anchor the deliverable review's commit bindings after a diff-preserving history rewrite.
+    """Recover a deliberately rewritten Build without inventing or discarding its evidence.
 
-    The merge-freshness floor and a linear-history ruleset together make a rebase the required reconcile
-    for an already-reviewed branch, and a rebase rewrites the very SHAs the review evidence is bound to
-    (StarshipSuperjam/engine-template#1000). The receipts themselves survive -- they bind to packet
-    digests -- so what breaks is narrower than the audit trail: the coordinator can no longer tell what
-    the branch contributed, and demands a fresh judgment for a diff nobody changed.
+    Ordinary target catch-up can merge: protect-main does not require linear history. An unreviewed
+    rewrite first freezes source/target identity with --prepare, then verifies retained objects and
+    completed-rebase provenance before re-anchoring. Clean contribution keeps the original ledger;
+    divergent contribution archives it and requires affected nodes and dependents to be reverified.
 
-    There are exactly two outcomes and no operator-typed escape between them. When the branch's own
-    contribution is provably identical, the bindings move to the new head and the reconcile is published.
-    When it is not -- or cannot be measured -- the bindings move only as far as the NEW BASE, which leaves
-    `reviewed_commit != head` and hands the session straight back to `repair assess`, now against a
-    meaningful `base_after..head` diff instead of an orphaned one. That path consumes a repair round, arms
-    the escalation gate, and publishes the reviewed-vs-submitted line, so the weaker outcome is the one
-    carrying MORE scrutiny, not less. A session cannot spend a string to skip re-review here."""
+    Reviewed recovery keeps its existing contribution comparison. An identical contribution moves
+    review bindings; a differing or unmeasurable one anchors at the new base and requires the ordinary
+    proportional repair judgment. Neither path creates review receipts or replaces the approved plan.
+    """
     head = _head()
     state = store.read()
     revision = state["revision"]
     plan = _plan(args.plan)
     _assert_plan(state, plan)
+    if getattr(args, "prepare", False) or getattr(args, "cancel_preparation", False):
+        return _prepare_rewrite(args, store, state, plan)
     delivery = state["reviews"]["deliverable"]
     reviewed = _effective_reviewed(state)
     if not reviewed:
-        raise CoordinatorError("deliverable review has not recorded a reviewed commit; there is nothing to re-anchor")
+        return _apply_unreviewed_rewrite(store, state, plan)
     if reviewed == head:
         raise CoordinatorError("the reviewed commit is already the current head; nothing was rewritten")
     if _is_ancestor(reviewed, head):
@@ -3428,6 +4080,49 @@ def _trajectory(rounds: list) -> str:
     return "\n".join(lines)
 
 
+def _observe_base_advances(state: dict, reviewed: str, head: str) -> list[dict]:
+    """Remote identity is observed outside the state lock; unreadable proof buys no coverage.
+
+    Push the current draft head before assessing a clean catch-up merge. Reuse the same
+    verified default-target observation as fresh admission, without creating a new admission.
+    """
+    prior = (state.get("repair") or {}).get("base_advances", [])
+    try:
+        merges = ranges._git(ROOT, ["rev-list", "--first-parent", "--merges", f"{reviewed}..{head}"]).splitlines()
+    except ranges.RangeUnreadable:
+        return list(prior)
+    if not merges:
+        return list(prior)
+    try:
+        repo, number = state["build"]["repository"], state["build"]["pr"]
+        observed = entry.observe_fresh(ROOT, repo, number, github.pr_state(ROOT, repo, number))
+    except CoordinatorError:
+        # Admission's stale-branch remedy is for UNBOUND work, so do not relay that rebase advice
+        # to an active Build. Ordinary proportional review still applies without remote proof.
+        print("clean target-merge coverage could not be verified: check the clean worktree, current "
+              "pushed draft head and fetched default target; merge target catch-up normally and retry. "
+              "No new merge exemption was granted.", file=sys.stderr)
+        return list(prior)
+    proofs = [proof for merge in merges
+              if (proof := ranges.prove_base_advance(ROOT, merge, observed["material"]))]
+    if proofs and not _candidate_ok(state, head):
+        raise CoordinatorError("clean target-merge receipt preservation requires green candidate validation "
+                               "of the actual merged HEAD; run validate --plan <payload>, then retry repair assess")
+    known = {p["merge_commit"]: p for p in prior}
+    for proof in proofs:
+        known.setdefault(proof["merge_commit"], proof | {
+            "observed_at": observed["observed_at"], "validated_head": head})
+    return list(known.values())
+
+
+def _base_advance_lines(state: dict) -> list[str]:
+    return [f"Clean target merge: `{p['target_repository']}` `{p['target_ref']}` at "
+            f"`{p['target_tip']}` entered through `{p['merge_commit']}`; its tree matched the automatic "
+            f"merge result `{p['merge_tree']}`. Candidate validation passed at `{p['validated_head']}`; "
+            "target ancestry was exempted from unread work without restamping receipts or read ranges."
+            for p in state.get("base_advances", [])]
+
+
 def cmd_repair_assess(args, store: Snapshot) -> None:
     head = _head()
     state = store.read()
@@ -3458,6 +4153,7 @@ def cmd_repair_assess(args, store: Snapshot) -> None:
                 "deliverable review against the current head rather than recording a judgment on a span "
                 "that cannot be computed.") from exc
         raise
+    base_advances = _observe_base_advances(state, reviewed, head)
     # Re-assessing the SAME divergence (upgrading a scoped judgment to full, say) replaces its entry in
     # place rather than counting twice.
     rounds = list(state.get("repair_rounds", []))
@@ -3466,7 +4162,7 @@ def cmd_repair_assess(args, store: Snapshot) -> None:
         machine output the engine generated itself, and no reviewer would read it. An unmeasurable range
         answers yes: never a free pass (StarshipSuperjam/engine-template#1065)."""
         try:
-            return bool(ranges.authored_between(ROOT, base, tip))
+            return bool(ranges.authored_between(ROOT, base, tip, base_advances))
         except ranges.RangeUnreadable:
             return True
 
@@ -3480,7 +4176,7 @@ def cmd_repair_assess(args, store: Snapshot) -> None:
     # head, `_same_episode` correctly read the generated commit as nothing authored, and the abandoned
     # round was re-pointed instead of counted. Repeated, the ledger never grew -- the counted budget
     # refunded every time and the ceiling never reached, because the ceiling counts entries.
-    fanned_out = bool(prior and prior.get("packet_digest") and not _repair_round_complete(prior))
+    fanned_out = bool(prior and prior.get("packet_digest") and not _repair_round_complete(prior, state))
 
     def _same_episode(entry: dict) -> bool:
         """Whether this assess is the round `entry` already recorded, re-pointed rather than repeated.
@@ -3545,7 +4241,7 @@ def cmd_repair_assess(args, store: Snapshot) -> None:
                 f"as blocking this PR. Name the lenses this round should put back on the diff.")
         roster_provenance = "blocker-union"
     if args.judgment == "full":
-        lenses = [item["lens"] for item in _required(_protocol(), "thorough", _installed())]
+        lenses = [item["lens"] for item in (reviewer_contracts.build_panel(state) if reviewer_contracts.effective_build(state) else _required(_protocol(), "thorough", _installed()))]
         roster_provenance = "none"
 
     # A round costs what it SPENDS. Dispatching a panel -- two or more cold lenses -- is the spend; a `none`
@@ -3597,8 +4293,13 @@ def cmd_repair_assess(args, store: Snapshot) -> None:
     # session is told precisely which lenses owe a read of which commits instead of facing the
     # all-or-nothing wall that cost two true receipts in StarshipSuperjam/engine-template#1063.
     carried, dropped = [], []
+    question = {"reviewed_commit": reviewed, "final_commit": head, "base_advances": base_advances,
+                "reviewer_contracts": state["reviews"]["deliverable"].get("reviewer_contracts", [])}
+    coverage = {}
     for receipt in (prior or {}).get("receipts", []):
-        (carried if ranges.receipt_covers(ROOT, receipt, reviewed, head) else dropped).append(receipt)
+        lens = receipt["lens"]
+        coverage.setdefault(lens, _coverage_result(question, "repair", state, lens))
+        (carried if coverage[lens]["covered"] else dropped).append(receipt)
     # A dropped receipt is always NAMED. It is only REFUSED on a `none` judgment, and the difference is
     # what each path costs. A scoped or full round drops a receipt and then asks that lens to read the new
     # range, so the evidence is replaced rather than lost — naming it is enough, and walling every ordinary
@@ -3606,7 +4307,7 @@ def cmd_repair_assess(args, store: Snapshot) -> None:
     # one StarshipSuperjam/engine-template#1012 named: it discards the receipt AND ends the repair loop
     # with no re-review, mid-stream, prompted by a status line that used to read like a step to take.
     if dropped:
-        detail = "; ".join(ranges.coverage_report(ROOT, r, reviewed, head) for r in dropped)
+        detail = "; ".join(ranges.cumulative_report(r["lens"], coverage[r["lens"]]) for r in dropped)
         also = f" {len(carried)} receipt(s) DO still cover it and are kept." if carried else ""
         if args.judgment == "none" and not getattr(args, "accept_receipt_loss", False):
             raise CoordinatorError(
@@ -3650,13 +4351,26 @@ def cmd_repair_assess(args, store: Snapshot) -> None:
               "rationale": args.rationale, "lenses": lenses, "packet_digest": None,
               "referent_digest": None, "reviewer_contracts": [], "receipts": carried,
               "anchor": anchor, "counted": counted, "classification": classification,
-              "roster_provenance": roster_provenance}
-    store.mutate(lambda s: s.update({"repair": repair, "repair_rounds": rounds}), from_revision=revision)
+              "roster_provenance": roster_provenance, "base_advances": base_advances}
+    def record(s):
+        if _head() != head:
+            raise CoordinatorError("HEAD changed during repair assessment; retry on the validated candidate")
+        _remember_review_evidence(s)
+        history = s.setdefault("review_evidence_history", [])
+        unresolved = _unresolved_review_findings(s)
+        for receipt in (s.get("repair") or {}).get("receipts", []):
+            if receipt not in carried and not any(e["receipt"] == receipt for e in history):
+                history.append({"stage": "repair", "receipt": copy.deepcopy(receipt),
+                                "effective": bool(unresolved.intersection(receipt["finding_ids"]))})
+        ledger = {p["merge_commit"]: p for p in s.get("base_advances", [])}
+        ledger.update({p["merge_commit"]: p for p in base_advances})
+        s.update({"repair": repair, "repair_rounds": rounds, "base_advances": list(ledger.values())})
+    store.mutate(record, from_revision=revision)
     print(json.dumps(repair, indent=2, sort_keys=True))
     print("\nHow the rounds have gone:\n" + _trajectory(rounds))
     if carried:
         print(f"carried {len(carried)} repair receipt(s) forward — "
-              + "; ".join(ranges.coverage_report(ROOT, r, reviewed, head) for r in carried), file=sys.stderr)
+              + "; ".join(ranges.cumulative_report(r["lens"], coverage[r["lens"]]) for r in carried), file=sys.stderr)
     if same:
         print("this re-points the repair round already recorded at "
               f"{reviewed[:12]} rather than opening a new one against the escalation gate", file=sys.stderr)
@@ -3697,11 +4411,14 @@ def _compute_preflight_legs(state: dict, head: str, pr_data: dict, body: str) ->
     # while dropping the "worth a look before you merge" line the headline is standing in front of. The
     # recorded operator guidance is required with them: the headline asserts that guidance was disclosed,
     # so the assertion and the thing it asserts have to be gated together.
-    missing_rounds = [line for line in _repair_round_lines(state) + _round_guidance_lines(state)
+    missing_rounds = [line for line in _repair_round_lines(state) + _round_guidance_lines(state) + _base_advance_lines(state)
                       if line not in body]
     if missing_rounds:
         contract_passed = False
         contract_summary += f"; missing {len(missing_rounds)} line(s) of the repair-rounds disclosure"
+    if reviewer_contracts.effective_build(state) and _review_lineage_marker(state) not in body:
+        contract_passed = False
+        contract_summary += "; PR body does not present the complete current review lineage"
     profile = _run([sys.executable, str(ROOT / ".engine" / "tools" / "scope_profile.py"), base])
     profile_summary = (profile.stdout or profile.stderr or "no scope-profile output").strip()
     declarations = _hard_check_declarations()
@@ -3762,6 +4479,8 @@ def cmd_preflight(args, store: Snapshot) -> None:
         def change(s):
             s["preflights"] = results
             s["pr_contract"] = {"commit": head, "body_digest": _digest(body.encode()), "complete": contract_passed}
+            if reviewer_contracts.effective_build(s):
+                s["pr_contract"]["review_lineage_digest"] = _review_lineage_digest(s)
     store.mutate(change, from_revision=revision)
     if getattr(args, "json", False):
         print(json.dumps(results, indent=2, sort_keys=True))
@@ -3797,6 +4516,8 @@ def _bounded_work(work_map: dict) -> dict:
             claim["worktree"] = redacted
         result = nw.get("latest_result")
         if result:
+            # The immutable full report remains private in the canonical snapshot.
+            result.pop("report", None)
             if result.get("artifact_ref"):
                 result["artifact_ref"] = redacted
             evidence = result.get("evidence") or {}
@@ -3864,6 +4585,9 @@ def _handoff(state: dict) -> dict:
              "plan_change_escalations": state.get("plan_change_escalations", []),
              "reconciles": state.get("reconciles", [])}
     value["work"] = _bounded_work(state.get("work", {}))
+    if state.get('ownership'):
+        value['ownership'] = state['ownership']
+        value['snapshot_revision'] = state['revision']
     _validate(value, HANDOFF_SCHEMA_V2)
     return value
 
@@ -3889,11 +4613,28 @@ def cmd_handoff_export(args, store: Snapshot) -> None:
     _assert_plan(state, sealed)
     _assert_spec_boundary(state, sealed)
     value = _handoff(state)
+    if isinstance(store, build_state_store.ClaimedBuildStore):
+        with store._locked():
+            state = core.json_file(store.path)
+            core.validate(state, _state_schema_for(state))
+            record = store.library.read_record(store.slug)
+            claim = build_state_store._assert_claim(record, state.get('ownership'))
+            build_state_store._assert_snapshot_claim(record, claim, state)
+            _assert_plan(state, sealed)
+            value = _handoff(state)
+            value['snapshot'] = str(store.path)
+    print("Private execution companions remain in the canonical plan library; they are not in this "
+          "redacted handoff. Restore retains existing companions. Missing evidence stays unverified "
+          "and cannot support new acceptance.", file=sys.stderr)
     rendered = json.dumps(value, indent=2, sort_keys=True) + "\n"
     if args.output == "-":
         print(rendered, end="")
     else:
-        core.write_private_path(Path(args.output), rendered)
+        destination = Path(args.output).parent.resolve() / Path(args.output).name
+        if (isinstance(store, build_state_store.ClaimedBuildStore)
+                and destination.is_relative_to(store.library.root.resolve())):
+            raise CoordinatorError('handoff output must be a new file outside the plan library')
+        core.write_private_path(destination, rendered, replace=False)
         print(f"wrote bounded handoff snapshot to {args.output}")
 
 
@@ -4000,6 +4741,42 @@ def _rederive_restored_receipts(plan: dict, state: dict) -> None:
         integ["receipt"] = fresh
 
 
+def _verify_recovered_progress(state: dict, head: str) -> None:
+    if _head() != head:
+        raise CoordinatorError("checkout changed while restoring the handoff")
+    for completed in state["progress"].get("completed", []):
+        node_id, commit = completed["id"], completed["commit"]
+        candidate = commit
+        if not _commit_present(commit):
+            raise CoordinatorError(f"handoff progress commit for {node_id} is not contained by the live PR head: original object missing")
+        for event in state.get("rewrite_recoveries", []):
+            prep = event["preparation"]
+            if not _is_ancestor(candidate, prep["source_head"]):
+                continue
+            branch = core.run(["git", "symbolic-ref", "--short", "HEAD"], root=ROOT)
+            if (branch.returncode or prep["identity"] != _rewrite_identity(state, branch.stdout.strip())
+                    or prep["id"] != _digest({k: v for k, v in prep.items() if k != "id"})
+                    or not _is_ancestor(prep["target_tip"], event["to_commit"])):
+                continue
+            try:
+                measured = _contribution_divergence(prep["source_base"], prep["source_head"],
+                                                     prep["target_tip"], event["to_commit"])
+            except _Unmeasurable:
+                continue
+            if measured != event["divergent_paths"]:
+                continue
+            if node_id in event["invalidated_nodes"]:
+                # Verification can live in a later event's retained work map after a second rewrite.
+                histories = [state.get("work", {})] + [e["prior_work"] for e in state.get("rewrite_recoveries", [])]
+                expected = {"recovery_id": prep["id"], "commit": event["to_commit"]}
+                if not any(h.get(node_id, {}).get("integration", {}).get("recovery_verification") == expected
+                           for h in histories if h.get(node_id, {}).get("integration")):
+                    continue
+            candidate = event["to_commit"]
+        if not _is_ancestor(candidate, head):
+            raise CoordinatorError(f"handoff progress commit for {node_id} is not contained by the live PR head or a verified canonical recovery")
+
+
 def cmd_handoff_restore(args, store: Snapshot) -> None:
     if not args.input:
         raise CoordinatorError(
@@ -4047,11 +4824,8 @@ def cmd_handoff_restore(args, store: Snapshot) -> None:
     if pr.get("number") != value["build"]["pr"] or pr.get("state") != "OPEN" or pr.get("headRefOid") != _head():
         raise CoordinatorError("handoff PR is not the open claim at this worktree's current HEAD")
     for completed in value["progress"].get("completed", []):
-        commit = completed.get("commit")
-        if (not isinstance(commit, str)
-                or _run(["git", "cat-file", "-e", f"{commit}^{{commit}}"]).returncode
-                or _run(["git", "merge-base", "--is-ancestor", commit, pr["headRefOid"]]).returncode):
-            raise CoordinatorError(f"handoff progress commit for {completed.get('id', 'unknown item')} is not contained by the live PR head")
+        if _run(["git", "cat-file", "-e", completed["commit"] + "^{commit}"], cwd=ROOT).returncode:
+            raise CoordinatorError(f"handoff progress commit for {completed['id']} is not contained by the live PR head: original object missing")
     # The replacement anchor for cold continuation: the sealed plan RECORD, not an Issue body. The plan
     # must still be in the library, still sealed, still sealed to the same digest, and still carrying
     # the payload this Build was bound to. Any of those missing or changed and continuation is blocked —
@@ -4080,9 +4854,14 @@ def cmd_handoff_restore(args, store: Snapshot) -> None:
     # trusted as carried. This runs after the work map is rebuilt so sibling receipts are in place for
     # the attribution re-derivation, and before the snapshot is written so a bad receipt writes nothing.
     _rederive_restored_receipts(plan, state)
-    store.create(state)
+    library = _library()
+    state = build_state_store.restore_handoff(library, library.resolve(plan_id), value, state,
+        _state_schema_for, worktree=ROOT, projection=_handoff, locator=getattr(args, 'state', None),
+        validate_progress=lambda canonical: _verify_recovered_progress(canonical, pr["headRefOid"]))
     _record_session_binding(state, pr_number=value["build"]["pr"])
     print(f"restored Build snapshot against sealed plan {plan_id}")
+    print(json.dumps({'ownership': state['ownership'], 'revision': state['revision'],
+                      'state': value['snapshot']}))
 
 
 def _submit_preview(store: Snapshot, plan_path: str) -> dict:
@@ -4116,7 +4895,7 @@ def _submit_preview(store: Snapshot, plan_path: str) -> dict:
     base = pr.get("baseRefOid")
     if not base or _run(["git", "merge-base", "--is-ancestor", base, status["head_commit"]]).returncode:
         raise CoordinatorError("the final commit does not contain the live target-branch base; reconcile, validate, and assess review proportionally")
-    if status["phase"] != "ready":
+    if status["phase"] != "ready" or status["required_evidence"] or status["engineering_judgment"]:
         raise CoordinatorError("submission evidence is incomplete: " + "; ".join(status["required_evidence"] + status["engineering_judgment"]))
     # The live rollup, re-read at the moment of submission: importing the proof once does not excuse
     # presenting a head whose required check is no longer green. Three distinct states, three messages.
@@ -4424,6 +5203,7 @@ def cmd_work_claim(args, store: Snapshot) -> None:
         nw["latest_failure"] = None
         state["work"][args.item] = nw
         emitted["packet"] = work.build_packet(plan, state, args.item, effective_route, base_sha, attempt_id, args.worktree)
+        nw["claim"]["result_contract"] = emitted["packet"]["result_contract"]
 
     _work_mutate(store, change)
     if "blocked" in emitted:
@@ -4451,23 +5231,27 @@ def cmd_work_result(args, store: Snapshot) -> None:
     plan = _plan(args.plan)
     _require_dag_plan(plan)
     item = work.node_item(plan, args.item)
+    import result_contracts
     try:
-        payload = json.loads(_input(args.input))
-    except ValueError as exc:
-        raise CoordinatorError(f"work result input is not JSON: {exc}") from exc
-    base_sha = payload.get("base_sha")
-    if not base_sha:
-        raise CoordinatorError("work result must report the base_sha the worker built from")
+        raw = result_contracts.read_input(args.input)
+    except result_contracts.Rejection as exc:
+        raise CoordinatorError(str(exc)) from exc
 
     def change(state):
         _assert_plan(state, plan)
         nw = _node_work(state, args.item)
-        result = work.bind_result(nw, item, args.attempt, base_sha, payload)
+        claim = nw.get("claim") or {}
+        payload = work.ingest_worker_report(raw, claim.get("result_contract"))
+        observed = None
+        if (payload["outcome"] == "returned" and
+                work.identity_mode_for_route(claim.get("requested_route") or {}) == "accepted-candidate"):
+            observed = _staged_tree_digest(str(ROOT))
+        result = work.bind_result(nw, item, args.attempt, claim.get("base_sha"), raw,
+                                  observed_digest=observed)
         nw["latest_result"] = result
         if result["outcome"] == "failed":
-            nw["latest_failure"] = work.failure_record(
-                args.attempt, payload.get("class", "worker"),
-                payload.get("reason", "worker reported a failure"))
+            nw["latest_failure"] = work.failure_record(args.attempt, "worker", payload["reason"])
+
         else:
             # A returned result supersedes any open failure for this attempt, so the node never
             # derives as failed while holding a complete, contract-satisfying returned result.
@@ -4480,7 +5264,7 @@ def cmd_work_result(args, store: Snapshot) -> None:
 def _commit_on_branch(commit: str) -> bool:
     if not re.fullmatch(r"[0-9a-f]{40}", commit):
         return False
-    return _run(["git", "merge-base", "--is-ancestor", commit, "HEAD"]).returncode == 0
+    return _run(["git", "merge-base", "--is-ancestor", commit, "HEAD"], cwd=ROOT).returncode == 0
 
 
 def cmd_work_reject(args, store: Snapshot) -> None:
@@ -4545,6 +5329,8 @@ def cmd_work_integrate(args, store: Snapshot) -> None:
     def change(state):
         _assert_plan(state, plan)
         nw = _node_work(state, args.item)
+        if getattr(args, "recovery", False):
+            return _integrate_recovered_work(args, state, plan, item, nw)
         result = nw.get("latest_result")
         if not result or result.get("outcome") != "returned" or result.get("attempt_id") != args.attempt:
             raise CoordinatorError(f"work item {args.item} has no returned result for attempt {args.attempt} to integrate")
@@ -4623,6 +5409,36 @@ def _sibling_attributions(plan: dict, state: dict, node_id: str) -> list:
         else:
             attributions.append({"node": oid, "fallback_commit": integ["commit"]})
     return attributions
+
+
+def _integrate_recovered_work(args, state, plan, item, nw):
+    """Earn current verification without pretending an original receipt covered rewritten commits.
+
+    This remains inside work integrate's single completion mutation. The archived receipt and result
+    stay unchanged; a separate record identifies the HEAD on which focused verification was repeated.
+    """
+    events = state.get("rewrite_recoveries", [])
+    event = events[-1] if events else None
+    if not event or args.item not in event["invalidated_nodes"]:
+        raise CoordinatorError("this node has no recorded rewrite invalidation to reverify")
+    original = event["prior_work"].get(args.item, {}).get("integration")
+    if (not original or original["attempt_id"] != args.attempt or nw.get("claim")
+            or nw.get("integration") or args.commit != event["to_commit"] or _head() != args.commit):
+        raise CoordinatorError("recovery integration must name the original attempt and unchanged recovered HEAD, without a new claim")
+    if any(not state["work"].get(dep, {}).get("integration") for dep in item.get("depends_on", [])):
+        raise CoordinatorError("reverify this node's dependencies first")
+    historical = dict(state, work=json.loads(json.dumps(event["prior_work"])))
+    _rederive_restored_receipts(plan, historical)
+    if not original.get("receipt"):
+        raise CoordinatorError("the original node has no reproducible receipt; explicitly retry its work")
+    integration = json.loads(json.dumps(original))
+    integration["focused_verification"] = args.verification_input.strip()
+    integration["recovery_verification"] = {"recovery_id": event["preparation"]["id"], "commit": args.commit}
+    nw["integration"] = integration
+    nw["latest_failure"] = None
+    state["progress"]["completed"] = [p for p in state["progress"]["completed"] if p["id"] != args.item]
+    state["progress"]["completed"].append({"id": args.item, "commit": original["commit"]})
+    return ("integrated", None, [])
 
 
 def _compute_receipt(repo_root: str, plan: dict, state: dict, node_id: str, claim_base: str,
@@ -4854,7 +5670,8 @@ def _sealed_plan_review(state: dict) -> dict | None:
     receipt at all. Structural immunity rather than a flag to remember to set.
     """
     record, _ = _sealed_plan_record(state)
-    return (record or {}).get("plan_review")
+    original = (record or {}).get("plan_review")
+    return {**original, "findings": plan_lifecycle.findings(record)} if original else None
 
 
 def _break_closing_keywords(text: str) -> str:
@@ -4983,6 +5800,9 @@ def _plan_review_clause(state: dict) -> str:
         return ("Whether the sealed plan was reviewed could NOT be established while composing this "
                 "body — the plan this Build names could not be read from the local plan library. Read "
                 "the plan's own record before merging")
+    adoption_note = reviewer_contracts.historical_disclosure(record or {})
+    if adoption_note:
+        return adoption_note + (" The executed plan differs from the sealed plan; the historical decision does not cover that delta." if diverged else "")
     if plan_review and diverged:
         return (f"The sealed plan was reviewed at {depth} depth by "
                 + ", ".join(plan_review.get("lenses", [])) +
@@ -5097,7 +5917,7 @@ def _plan_finding_lines(state: dict) -> list[str]:
     plan_review = (record or {}).get("plan_review")
     if not plan_review:
         return []
-    findings = plan_review.get("findings", [])
+    findings = plan_lifecycle.findings(record)
     if not findings:
         return []
     full, counted = partition_findings(findings)
@@ -5132,6 +5952,21 @@ def _plan_disagreement_lines(state: dict) -> list[str]:
 
 
 def _drift_line(state: dict, head: str) -> str:
+    lines = [_review_drift_line(state, head), *_base_advance_lines(state)]
+    frozen = reviewer_contracts.effective_build(state)
+    if frozen:
+        lines.extend(_review_source_provenance(state))
+        lines.extend(reviewer_contracts.decision_lines(state))
+        adopted_line = reviewer_contracts.historical_disclosure(state)
+        if adopted_line:
+            lines.append(adopted_line)
+        historical_sources = any(p["source"].get("identity_mode") == "legacy-source" for ps in frozen["panels"].values() for p in ps)
+        lines.append(f"Reviewer obligations are {'adopted from retained sources' if adopted_line or historical_sources else 'frozen at approval'}; {len(state.get('review_contract_renewals', []))} explicit renewal(s). Reviewer effort remains harness-controlled, with no promised floor.")
+        lines.append(_review_lineage_marker(state))
+    return " ".join(lines)
+
+
+def _review_drift_line(state: dict, head: str) -> str:
     """The PR body's "Reviewed vs submitted" disclosure, composed from recorded state.
 
     Pure and single-homed so it can be driven end to end by a test: the operator's consent surface is the
@@ -5297,21 +6132,38 @@ def _assemble_evidence(state: dict, plan: dict, claim: dict, head: str, pr_data:
         review_coverage = (f"{depth} depth — no cold reviewers ran; the coverage is your own read of the change "
                            "plus the automatic checks (the full CI suite and self-tests).")
 
-    # Code-execution disclosure (BO-41): every current review receipt must carry it. An older snapshot whose
-    # receipts predate the field cannot be composed until they are re-recorded — a precise remediation, never a
-    # fabricated "no code ran". The disclosure's PRESENCE is mechanical; its truth stays the reviewer's report.
-    receipts = list(state.get("reviews", {}).get("deliverable", {}).get("receipts", []))
-    missing = sorted({r["lens"] for r in receipts if "code_execution" not in r})
+    delivery = state["reviews"]["deliverable"]
+    if delivery.get("packet_digest"):
+        summaries = [ranges.cumulative_report(c["lens"],
+            _coverage_result(delivery,"deliverable",state,c["lens"]))
+            for c in delivery.get("reviewer_contracts", [])]
+        originals = sorted({(r["lens"], r["reviewed_range"]["base"], r["reviewed_range"]["tip"])
+            for _,r in review.retained_receipts(state) if r.get("reviewed_range")
+            and r["reviewed_range"].get("base") and r["reviewed_range"].get("tip")})
+        review_coverage += "\n\nCumulative coverage: " + "; ".join(summaries) + "."
+        if originals:
+            review_coverage += "\nOriginal recorded read ranges (eligibility checked separately): " + "; ".join(
+                f"{lens} `{base[:12]}..{tip[:12]}`" for lens,base,tip in originals) + "."
+
+    # Current deliverable receipts still require the reviewer's explicit declaration (BO-41).
+    # Retained originals keep their bytes: missing historical declarations are disclosed as unknown,
+    # not invented or made into an unrecoverable gate after a fresh receipt replaces the old one.
+    receipts = [receipt for _, receipt in review.retained_receipts(state)]
+    missing = sorted({r["lens"] for r in delivery["receipts"] if "code_execution" not in r})
     if missing:
         raise CoordinatorError(
             "these review receipts predate the code-execution disclosure and must be re-recorded before "
             f"composing: {', '.join(missing)} — re-run `review record … --code-execution "
             "none|discarded-copy|in-place`")
-    # Three behaviours, three words. Reviewers do one of three things with the change's code, and the
-    # disclosure used to carry only two — so a lens that ran the suite IN THE OPERATOR'S OWN CHECKOUT
-    # was recorded as though it had used a throwaway copy, which is a materially different claim about
-    # what touched their project. B2's carried finding CO-1; the third value is the fix.
-    code_execution_line = code_execution_disclosure({r.get("code_execution") for r in receipts})
+    kinds = {r["code_execution"] for r in receipts if "code_execution" in r}
+    unknown = sorted({r["lens"] for r in receipts if "code_execution" not in r})
+    code_execution_line = code_execution_disclosure(kinds)
+    if unknown:
+        if not kinds.intersection({"in-place", "discarded-copy"}):
+            code_execution_line = "receipts with an execution declaration report no code execution"
+        code_execution_line += (
+            "; execution is unknown for retained historical receipts without a declaration "
+            f"({', '.join(unknown)}); their original evidence is unchanged")
     drift_line = _drift_line(state, head)
 
     # Index-regeneration disclosure (BO-24): which of the engine's generated surfaces this PR changed,
@@ -5561,6 +6413,8 @@ def cmd_contract_apply(args, store: Snapshot) -> None:
         def change(s):
             s["preflights"] = legs["results"]
             s["pr_contract"] = {"commit": head, "body_digest": body_digest, "complete": legs["contract_passed"]}
+            if reviewer_contracts.effective_build(s):
+                s["pr_contract"]["review_lineage_digest"] = _review_lineage_digest(s)
     store.mutate(change, from_revision=revision)
     result = {"commit": head, "body_digest": body_digest, "complete": legs["contract_passed"],
               "summary": legs["contract_summary"], "ready": False, "merge": False}
@@ -5577,31 +6431,65 @@ def parser() -> argparse.ArgumentParser:
     p = argparse.ArgumentParser(description=__doc__)
     p.add_argument("--state", help="path to the harness-owned local Build snapshot; omitted only for standalone pre-PR packets")
     p.add_argument("--expect-revision", type=int, help="optional compare-and-swap guard")
+    p.add_argument('--expect-build-id', help='Build identity received from bind or verified continuation')
+    p.add_argument('--expect-generation', type=int, help='lease generation received with that identity')
     sub = p.add_subparsers(dest="command", required=True)
     plan = sub.add_parser("plan").add_subparsers(dest="plan_command", required=True)
     bind = plan.add_parser("bind"); bind.add_argument("--plan", required=True, help="a SEALED plan in the local library, by id or by name"); bind.add_argument("--mode", choices=["same-session", "unattended"], default="same-session"); bind.add_argument("--repository", required=True); bind.add_argument("--pr", type=int, required=True); bind.add_argument("--issue", type=int, help="the Issue that AUTHORIZES this work; never its plan"); bind.add_argument("--operator-decided", action="store_true", help="Record that the operator, asked, gave the go for this Build to begin. The record is the gate and the moment, never their words; the bind refuses without it."); bind.set_defaults(func=cmd_plan_bind)
+    bind.add_argument("--overlap-override", help="the current overlap observation digest explicitly accepted by the operator")
+    bind.add_argument("--overlap-reason", help="why the operator chose to proceed despite those exact observations")
     adopt = plan.add_parser("adopt", help="consume a SEALED successor plan without restarting the Build"); adopt.add_argument("--successor", required=True, help="a sealed plan in the library that names the bound plan as its predecessor"); adopt.add_argument("--input", required=True, help="the plan this Build is currently executing, for the node-by-node comparison"); adopt.add_argument("--operator-decided", action="store_true", help="Record that the operator, asked, authorised the Build to continue on the successor."); adopt.set_defaults(func=cmd_plan_adopt)
     revise = plan.add_parser("revise"); revise.add_argument("--input", required=True); revise.add_argument("--operator-change", help="The operator's decision authorizing execution of a plan that differs from the sealed one. The sealed plan is unchanged; the divergence is disclosed at merge."); revise.set_defaults(func=cmd_plan_revise)
     approve = sub.add_parser("approve"); approve.add_argument("--plan", required=True); approve.add_argument("--depth", choices=["quick", "standard", "thorough"], required=True); approve.set_defaults(func=cmd_approve)
     status = sub.add_parser("status"); status.add_argument("--plan"); status.add_argument("--json", action="store_true"); status.set_defaults(func=cmd_status)
     depths = sub.add_parser("depths"); depths.add_argument("--json", action="store_true"); depths.set_defaults(func=cmd_depths)
     review = sub.add_parser("review").add_subparsers(dest="review_command", required=True)
+    history_preview = review.add_parser("historical-preview")
+    history_preview.add_argument("--plan", required=True); history_preview.add_argument("--input", required=True)
+    history_preview.add_argument("--output"); history_preview.set_defaults(func=cmd_build_historical_preview)
+    history_apply = review.add_parser("historical-apply")
+    history_apply.add_argument("--plan", required=True); history_apply.add_argument("--input", required=True)
+    history_apply.add_argument("--reason", required=True); history_apply.add_argument("--operator-decided", action="store_true")
+    history_apply.set_defaults(func=cmd_build_historical_apply)
+    renew_preview = review.add_parser("contract-preview")
+    renew_preview.add_argument("--plan", required=True)
+    renew_preview.add_argument("--action", choices=["retain", "adopt"], required=True)
+    renew_preview.add_argument('--adopt-lens', action='append', metavar='ROLE:LENS',
+                               help='With adopt, adopt only these changed obligations and retain the others; repeat as needed.')
+    renew_preview.add_argument("--output")
+    renew_preview.set_defaults(func=cmd_build_contract_preview)
+    renew_apply = review.add_parser("contract-apply")
+    renew_apply.add_argument("--plan", required=True)
+    renew_apply.add_argument("--input", required=True)
+    renew_apply.add_argument("--reason", required=True)
+    renew_apply.add_argument("--operator-decided", action="store_true")
+    renew_apply.set_defaults(func=cmd_build_contract_apply)
     packet = review.add_parser("packet"); packet.add_argument("--stage", choices=["deliverable", "repair"], required=True); packet.add_argument("--plan", required=True); packet.add_argument("--impact"); packet.add_argument("--output"); packet.add_argument("--json", action="store_true"); packet.add_argument("--standalone", action="store_true"); packet.add_argument("--repository"); packet.add_argument("--commit"); packet.add_argument("--base"); packet.add_argument("--depth", choices=["quick", "standard", "thorough"]); packet.set_defaults(func=_packet)
-    record = review.add_parser("record"); record.add_argument("--stage", choices=["deliverable", "repair"], required=True); record.add_argument("--lens", required=True); record.add_argument("--packet-digest", required=True); record.add_argument("--lens-packet-digest", required=True); record.add_argument("--finding", action="append"); record.add_argument("--findings-from-file", help="A build-findings-batch.v1 file (or -) whose ids this receipt demands. The SAME file `finding record --from-file` reads, so a receipt and its findings cannot disagree; mutually exclusive with --finding."); record.add_argument("--code-execution", choices=["none", "discarded-copy", "in-place"], required=True); record.set_defaults(func=cmd_review_record)
+    record = review.add_parser("record"); record.add_argument("--stage", choices=["deliverable", "repair"], required=True); record.add_argument("--lens", required=True); record.add_argument("--packet-digest", required=True); record.add_argument("--lens-packet-digest", required=True); record.add_argument("--finding", action="append"); record.add_argument("--findings-from-file", help="A build-findings-batch.v1 file (or -) whose ids this receipt demands. The SAME file `finding record --from-file` reads, so a receipt and its findings cannot disagree; mutually exclusive with --finding."); record.add_argument("--code-execution", choices=["none", "discarded-copy", "in-place"], required=True); record.add_argument("--report", help="Strict raw reviewer JSON; must equal the observed child report. Compiles Engine finding ids."); record.set_defaults(func=cmd_review_record)
     finding = sub.add_parser("finding").add_subparsers(dest="finding_command", required=True)
+    packet.add_argument("--session", help="Owning root session for observed review assignments")
+    record.add_argument("--session", help="Owning root session whose review execution was observed")
     frecord = finding.add_parser("record"); frecord.add_argument("--id"); frecord.add_argument("--stage", choices=["deliverable", "repair"], required=True); frecord.add_argument("--lens"); frecord.add_argument("--severity", choices=["blocking", "serious", "nit"]); frecord.add_argument("--summary"); frecord.add_argument("--disposition", choices=["accepted-fixed", "accepted-tracked", "partially-accepted", "rejected", "escalated"]); frecord.add_argument("--rationale"); frecord.add_argument("--escalation-kind", choices=["design", "law", "authority", "capability-boundary", "guardrail-ack", "operator-only"]); block = frecord.add_mutually_exclusive_group(); block.add_argument("--blocks-this-pr", action="store_const", const=True, dest="blocks_this_pr_stated"); block.add_argument("--does-not-block-this-pr", action="store_const", const=False, dest="blocks_this_pr_stated"); frecord.add_argument("--handoff-summary"); frecord.add_argument("--operator-summary"); frecord.add_argument("--private-reference", help="Local-only reviewer note; kept in build-state, never published to the PR body and not read back by any verb."); frecord.add_argument("--findings-from-file", "--from-file", dest="from_file", help="A build-findings-batch.v1 file (or -) carrying a whole round's dispositions. The SAME flag name and the SAME file `review record` takes, so one cut file feeds both verbs and their ids cannot drift; --from-file remains as an alias. Validated entirely before anything is written, then recorded in one mutation: a malformed entry records nothing."); frecord.set_defaults(func=cmd_finding_record)
     assumption = sub.add_parser("assumption").add_subparsers(dest="assumption_command", required=True)
     adispose = assumption.add_parser("dispose"); adispose.add_argument("--plan", required=True); adispose.add_argument("--claim", required=True); adispose.add_argument("--as", dest="resolved_as", choices=["verified", "accepted-risk"], required=True); adispose.add_argument("--basis", required=True); adispose.set_defaults(func=cmd_assumption_dispose)
     checkpoint = sub.add_parser("checkpoint"); checkpoint.add_argument("--plan", required=True); checkpoint.add_argument("--input", required=True); checkpoint.add_argument("--json", action="store_true"); checkpoint.set_defaults(func=cmd_checkpoint)
     state_p = sub.add_parser("state").add_subparsers(dest="state_command", required=True)
     swhere = state_p.add_parser("where"); swhere.set_defaults(func=cmd_state_where)
-    smigrate = state_p.add_parser("migrate"); smigrate.add_argument("--source", required=True, help="an existing OS-temp Build snapshot"); smigrate.add_argument("--plan", required=True, help="the sealed plan whose library folder receives it"); smigrate.set_defaults(func=cmd_state_migrate)
+    continuation = state_p.add_parser('continue', help='verify an explicitly named Build and return caller expectations')
+    continuation.add_argument('--plan', required=True)
+    continuation.add_argument('--repository', required=True)
+    continuation.add_argument('--pr', type=int, required=True)
+    continuation.set_defaults(func=cmd_state_continue)
+    smigrate = state_p.add_parser("migrate"); smigrate.add_argument("--source", required=True, help="an existing legacy Build snapshot"); smigrate.add_argument("--plan", required=True, help="the sealed plan whose library folder receives it"); smigrate.add_argument("--legacy-clients-stopped", action="store_true", help="confirm old Engine commands have exited and affected sessions will resume only with updated code; unfinished tasks may stay open"); smigrate.set_defaults(func=cmd_state_migrate)
     ssupersede = state_p.add_parser("supersede", help="clear a confirmed-stale binding so a fresh Build of the plan may start", description=_SUPERSEDE_GUIDANCE); ssupersede.add_argument("--plan", required=True, help="the sealed plan whose confirmed-stale snapshot is set aside"); ssupersede.add_argument("--reason", required=True, help="why it is confirmed stale; recorded beside the retained snapshot"); ssupersede.set_defaults(func=cmd_state_supersede)
     validate = sub.add_parser("validate"); validate.add_argument("mode", nargs="?", choices=["candidate", "final"], help="bare `validate` and `validate candidate` are the same run; `validate final import` verifies and imports the live engine-ci proof for the submitted head"); validate.add_argument("action", nargs="?", choices=["import"], help="for `final`: import is the only action — the proof is never run locally"); validate.add_argument("--force", action="store_true", help="re-run even when the cached candidate identity matches"); validate.add_argument("--plan", help="the approved plan; REQUIRED for a build-plan.v2 Build, whose node roster lives only there"); validate.set_defaults(func=cmd_validate)
     sync_artifacts = sub.add_parser("sync-artifacts"); sync_artifacts.set_defaults(func=cmd_sync_artifacts)
     repair = sub.add_parser("repair").add_subparsers(dest="repair_command", required=True)
     assess = repair.add_parser("assess"); assess.add_argument("--judgment", choices=["none", "scoped", "full"], required=True); assess.add_argument("--rationale", required=True); assess.add_argument("--guidance", help="The operator's answer when a third or later repair round is proposed; published in the PR body."); assess.add_argument("--lens", action="append"); assess.add_argument("--accept-receipt-loss", action="store_true", help="Re-bind even though recorded repair receipts do not cover the new divergence and will be dropped. Without it the re-bind refuses and names what each lens still owes."); assess.set_defaults(func=cmd_repair_assess)
     reconcile = sub.add_parser("reconcile"); reconcile.add_argument("--plan", required=True); reconcile.set_defaults(func=cmd_reconcile)
+    preparation = reconcile.add_mutually_exclusive_group()
+    preparation.add_argument("--prepare", action="store_true", help="pin and retain an unreviewed Build's source before an intentional rebase")
+    preparation.add_argument("--cancel-preparation", action="store_true", help="cancel a preparation while still on the original Build line")
     preflight = sub.add_parser("preflight"); preflight.add_argument("--pr-body"); preflight.add_argument("--json", action="store_true"); preflight.set_defaults(func=cmd_preflight)
     handoff = sub.add_parser("handoff").add_subparsers(dest="handoff_command", required=True)
     export = handoff.add_parser("export"); export.add_argument("--output", default="-"); export.set_defaults(func=cmd_handoff_export)
@@ -5623,6 +6511,7 @@ def parser() -> argparse.ArgumentParser:
     wretry = work_p.add_parser("retry"); wretry.add_argument("--item", required=True); wretry.add_argument("--strategy", choices=["redispatch", "integrator-inline"], required=True); wretry.add_argument("--reason", required=True); wretry.set_defaults(func=cmd_work_retry)
     wabandon = work_p.add_parser("abandon"); wabandon.add_argument("--item", required=True); wabandon.add_argument("--attempt", required=True); wabandon.add_argument("--reason", required=True); wabandon.set_defaults(func=cmd_work_abandon)
     wintegrate = work_p.add_parser("integrate"); wintegrate.add_argument("--item", required=True); wintegrate.add_argument("--attempt", required=True); wintegrate.add_argument("--commit", required=True); wintegrate.add_argument("--verification-input", required=True); wintegrate.add_argument("--plan", required=True, help="the approved plan; integration enforces the receipt against its declared paths, no-op permission, and sibling attribution"); wintegrate.set_defaults(func=cmd_work_integrate)
+    wintegrate.add_argument("--recovery", action="store_true", help="record fresh verification at the recovered HEAD for an invalidated original integration")
     wstage = work_p.add_parser("stage-digest"); wstage.add_argument("--item", required=True); wstage.add_argument("--plan", required=True); wstage.set_defaults(func=cmd_work_stage_digest)
     return p
 
@@ -5729,6 +6618,26 @@ def reground_handler(payload: dict) -> dict:
     # and injecting a second, narrower orientation there would compete with it.
     if (payload.get("source") or payload.get("matcher")) != "compact":
         return hooks.proceed()
+    cwd = payload.get("cwd")
+    if cwd is not None:
+        same_worktree = False
+        if isinstance(cwd, str) and cwd:
+            try:
+                location, root = Path(cwd).resolve(), ROOT.resolve()
+                same_worktree = location.is_dir() and (location == root or root in location.parents)
+                # Read only directory markers: another repository/worktree inside this one owns
+                # its own context. Resolving paths also prevents symlink escapes. Git environment
+                # selectors cannot redirect this filesystem-only check.
+                while same_worktree and location != root:
+                    marker = location / ".git"
+                    if marker.exists() or marker.is_symlink():
+                        same_worktree = False
+                    location = location.parent
+            except (OSError, RuntimeError, ValueError):
+                same_worktree = False
+        if not same_worktree:
+            return hooks.inject("Engine: this session was compacted, but the hook worktree does not match "
+                                "this Engine checkout. No Build pointer is assumed.")
     try:
         library = _library()
         found = build_state_store.bound_snapshots(ROOT, library=library)
@@ -5751,6 +6660,10 @@ def reground_handler(payload: dict) -> dict:
         state = core.json_file(path)
     except Exception:  # noqa: BLE001
         return hooks.proceed()
+    worktree = (state.get("build") or {}).get("worktree")
+    if not isinstance(worktree, str) or Path(worktree).resolve() != ROOT.resolve():
+        return hooks.inject("Engine: this session was compacted, but the Build snapshot names a "
+                            "different worktree. No Build pointer is assumed.")
     # The compaction itself is not written down anywhere. This hook REACTS to one; nothing reads a
     # history of them, and keeping a record no reader consumes would be bookkeeping for its own sake.
     # `slug` is the snapshot's own plan-directory identity (from bound_snapshots), which the advisory
@@ -5777,17 +6690,33 @@ def main(argv: list[str] | None = None) -> int:
         binding = args.command == "plan" and getattr(args, "plan_command", None) == "bind"
         if standalone and (not args.repository or not args.depth):
             raise CoordinatorError("standalone review packets require --repository and --depth")
-        deferred = binding and not args.state
+        restoring = _verb(args) == ('handoff', 'restore')
+        deferred = binding or restoring or _verb(args) == ('plan', 'adopt')
         store = None if (standalone or stateless or deferred) else _resolve_store(args)
+        if _verb(args) == ('handoff', 'export') and not isinstance(store, build_state_store.ClaimedBuildStore):
+            raise CoordinatorError('legacy Build: migrate its snapshot before exporting a handoff')
         # Before the verb, never inside it: one chokepoint the whole gate rides on, so a verb cannot
         # be added that quietly skips it. `plan bind` is exempt because it CREATES the snapshot the
         # check reads — there is nothing yet to disagree with.
         if store is not None and not binding and _mutates(args):
+            if not isinstance(store, build_state_store.ClaimedBuildStore):
+                raise CoordinatorError('legacy snapshot mutations require explicit state migrate first')
+            if not _expected_identity(args) or args.expect_revision is None:
+                raise CoordinatorError('mutations require --expect-build-id, --expect-generation and --expect-revision; '
+                                       'carry the identity received from bind or verified continuation')
+            store.verify_mutation_entry()
             verify_resume(store, args)
         args.func(args, store)
         return 0
     except CoordinatorError as exc:
-        print(f"build-coordinator: {exc}", file=sys.stderr)
+        import result_contracts
+        envelope = result_contracts.rejection_envelope(exc)
+        print(json.dumps(envelope, sort_keys=True) if envelope is not None else
+              f"build-coordinator: {exc}", file=sys.stderr)
+        return 2
+    except OSError as exc:
+        print(f"build-coordinator: durable operation did not finish ({exc}). Preserve the evidence; "
+              "inspect state where and retry the same recorded operation and identity to recover.", file=sys.stderr)
         return 2
 
 

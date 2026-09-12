@@ -32,10 +32,12 @@ from __future__ import annotations
 import argparse
 import json
 import os
+import re
 from pathlib import Path
 import sys
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+import moment
 import issue_author                     # noqa: E402  (the one body contract)
 import telemetry                        # noqa: E402  (the supported GitHub boundary)
 
@@ -45,29 +47,10 @@ class ReportAmbiguous(Exception):
     """More than one open Issue looks like this workflow's report. Never resolved by picking one."""
 
 
-def _fenced(output: str) -> str:
-    """Demonstration output, made safe to place inside a code fence in a body OTHER engine code parses.
-
-    The workflow's security story is that the write-token half RENDERS demonstration output and never
-    parses it. That story was false one layer down: a fence does not contain what it wraps. Output
-    carrying a triple backtick closes the fence early, and anything after it is body — including the
-    engine's own invisible trailers. A demonstration could therefore set the severity class the triage
-    meter counts and the dedup key the Issue register uses, because those parsers take the LAST trailer
-    of their kind and the forged one was later.
-
-    So two things are neutralized: the fence terminator, and the comment opener that every engine
-    control marker begins with. Both are replaced visibly rather than deleted — a reader sees that
-    something was defanged instead of silently reading altered output."""
-    text = (output or "").replace("`" * 3, "'" * 3 + " [backticks neutralized]")
-    return text.replace("<!--", "&lt;!-- [marker neutralized]")
-
-
-MARKER = "<!-- engine-nightly-demos:v1 -->"
-TITLE = "a shipped demonstration is failing"
-KIND = "Fix"
-# How many failing demonstrations are named in the body. A corpus-wide breakage should read as "everything
-# is failing, start at the top", not as a wall no one finishes.
-_NAMED = 12
+_fenced = issue_author.nightly_fenced
+MARKER = issue_author.NIGHTLY_MARKER
+TITLE = issue_author.NIGHTLY_TITLE
+KIND = issue_author.NIGHTLY_KIND
 
 
 def _is_report(body: str) -> bool:
@@ -102,60 +85,53 @@ def find_report(issues: list) -> dict | None:
     return matches[0] if matches else None
 
 
-def render(result: dict, repository: str, run_url: str | None = None) -> str:
-    """The Issue body for a red run, through the engine's own helper so it meets the body contract."""
-    failures = result.get("failures") or []
-    shown = failures[:_NAMED]
-    lines = [f"- `{f['demo']}` — exit {f['exit_code']}" for f in shown]
-    if len(failures) > len(shown):
-        lines.append(f"- …and {len(failures) - len(shown)} more")
-    what = (
-        f"The nightly run of this engine's behavioral demonstrations went red: {len(failures)} of "
-        f"{len(result.get('ran') or [])} failed.\n\n"
-        "A demonstration is a fail-then-pass reproducer of a real past incident — it exists so that a change "
-        "which quietly reintroduces that incident goes red AT the incident rather than at some downstream "
-        "symptom months later. One failing means either the guarded behaviour has regressed, or the "
-        "demonstration itself has gone stale against a deliberate change. Both need a person; neither is "
-        "urgent tonight.\n\n"
-        + "\n".join(lines))
-    tail = "\n".join(f"### {f['demo']}\n\n```\n{_fenced(f['output'])}\n```" for f in shown)
-    whats_next = (
-        "Run the corpus locally and read the failure the demonstration itself prints — each one states, in "
-        "plain words, what it expected and what it saw:\n\n"
-        "```\nuv run --directory .engine --frozen -- python tools/demonstration_corpus.py\n```\n\n"
-        "Then either fix the regression the demonstration caught, or — if the behaviour changed on purpose "
-        "— update the demonstration in the same change that changed it, so the reproducer still describes "
-        "something true.\n\n"
-        "This Issue is the ONLY one this workflow keeps open. While it stays red, each night updates this "
-        "body with the current failure set rather than filing another; the night it goes green, this closes "
-        "itself.\n\n"
-        "**Please COMMENT rather than editing this body.** The workflow recognises its own report by an "
-        "invisible marker on the last line — the rule that stops anyone who merely quotes this report from "
-        "having their Issue closed by a green run. An edit that appends text below that marker makes the "
-        "workflow stop recognising this Issue, and the next red night files a second one. Comments are "
-        "untouched by the nightly update.\n\n"
-        f"The failing output, as the demonstrations printed it:\n\n{tail}")
-    references = [("the nightly run that reported this", run_url)] if run_url else None
-    return (issue_author.render_engine_issue_body(
-        what_this_is=what, whats_next=whats_next, references=references, kind=KIND)
-        + "\n" + MARKER + "\n")
+render = issue_author.render_nightly_report
+_failure_evidence = issue_author.nightly_failure_evidence
 
 
 def report(result: dict, issues_api, repository: str, run_url: str | None = None) -> dict:
     """Apply the singular-Issue rules. Returns what was done, for the workflow's step summary."""
-    open_report = find_report(issues_api.list_open_engine_issues())
+    now = moment.utc_now()
+    recovery = issue_author.recover_producer_records(
+        'nightly', issues_api, source_key='engine-nightly-demos:v1', observation=now)
+    def outcome(value):
+        # Preserve the long-standing terse result for inactive/empty journals, while a real
+        # recovery or a held activated journal remains visible to the workflow.
+        if recovery['state'] not in ('none', 'unactivated'):
+            return {**value, 'recovery': recovery}
+        return value
+    open_issues = issues_api.list_open_engine_issues()
+    observed_closures = issue_author.recover_producer_records('nightly', issues_api, observation=now,
+        source_key='engine-nightly-demos:v1', open_issue_numbers=[issue['number'] for issue in open_issues])
+    if observed_closures['state'] == 'held' or (observed_closures['state'] == 'recovered' and recovery['state'] != 'held'):
+        recovery = observed_closures
+    open_report = find_report(open_issues)
     if result.get("ok"):
         if open_report:
             issues_api.close_issue(open_report["number"])
-            return {"action": "closed", "issue": open_report["number"]}
-        return {"action": "none"}
+            closure = issue_author.recover_producer_records('nightly', issues_api, observation=now,
+                source_key='engine-nightly-demos:v1', closed_issue_numbers=[open_report['number']])
+            if closure['state'] == 'held':
+                recovery = closure
+            return outcome({"action": "closed", "issue": open_report["number"]})
+        return outcome({"action": "none"})
+    if not open_report:
+        issues_api.ensure_label()
+        created = issue_author.create_producer_result('nightly',
+            {'result': result, 'run_url': run_url, 'now': now}, issues_api)
+        if created['filing'] != 'created':
+            return outcome({'action': 'held', 'issue': None, 'triage': created})
+        return outcome({'action': 'filed' if created.get('newly_created') else 'recovered',
+                        'issue': created['number'], 'triage': created})
     body = render(result, repository, run_url)
+    evidence = _failure_evidence(result)
+    body = telemetry.producer_body(body, evidence, now,
+                                   previous=(open_report.get('body') or '') if open_report else None,
+                                   final_marker=MARKER)
     if open_report:
         issues_api.update_issue(open_report["number"], body)
-        return {"action": "updated", "issue": open_report["number"]}
-    issues_api.ensure_label()
-    opened = issues_api.open_issue(f"{KIND}: {TITLE}", body)
-    return {"action": "filed", "issue": opened.get("number")}
+        return outcome({"action": "updated", "issue": open_report["number"]})
+    raise AssertionError("Unreachable: all new reports use the complete helper operation.")
 
 
 def main(argv: list | None = None) -> int:
@@ -189,7 +165,7 @@ def main(argv: list | None = None) -> int:
         return 2
     try:
         outcome = report(result, telemetry.GitHubIssues(args.repository, token), args.repository, args.run_url)
-    except ReportAmbiguous as exc:
+    except (ReportAmbiguous, issue_author.IssueInputError, telemetry.DegradedReadError) as exc:
         # The refusal already carries the operator's remedy; letting it out as a traceback threw that
         # remedy away and bypassed this tool's own exit convention. It stays a refusal — picking one of
         # two candidate reports is the failure mode the marker rule exists to prevent — but it refuses
@@ -197,7 +173,7 @@ def main(argv: list | None = None) -> int:
         print(f"nightly-demo-report: {exc}", file=sys.stderr)
         return 2
     print(json.dumps(outcome, indent=2, sort_keys=True))
-    return 0
+    return 1 if outcome.get('action') == 'held' else 0
 
 
 if __name__ == "__main__":

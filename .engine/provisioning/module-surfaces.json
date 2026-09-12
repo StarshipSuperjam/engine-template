@@ -597,6 +597,9 @@
   ".engine/check/doc-shape.json": [
    "validators-core"
   ],
+  ".engine/check/enforcement-files.json": [
+   "validators-core"
+  ],
   ".engine/check/engine-manifest.json": [
    "validators-core"
   ],
@@ -789,6 +792,9 @@
   ".engine/docs/product-design.md": [
    "product-design"
   ],
+  ".engine/docs/result-contracts.md": [
+   "core"
+  ],
   ".engine/erasures/proposal.json": [
    "memory-substrate-sqlite-fts5"
   ],
@@ -933,6 +939,12 @@
   ".engine/operations/first-run.md": [
    "core"
   ],
+  ".engine/operations/issue-recovery.md": [
+   "core"
+  ],
+  ".engine/operations/issue-triage.md": [
+   "core"
+  ],
   ".engine/operations/knowledge-impact-check.md": [
    "core"
   ],
@@ -974,6 +986,9 @@
   ],
   ".engine/operations/routine-entry.md": [
    "routine-mode"
+  ],
+  ".engine/operations/scoped-agent-orchestration.md": [
+   "core"
   ],
   ".engine/operations/serialized-integration.md": [
    "core"
@@ -1134,6 +1149,15 @@
   ".engine/schemas/interface.v1.json": [
    "core"
   ],
+  ".engine/schemas/issue-recovery.v1.json": [
+   "core"
+  ],
+  ".engine/schemas/issue-submission-input.v1.json": [
+   "core"
+  ],
+  ".engine/schemas/issue-triage.v1.json": [
+   "core"
+  ],
   ".engine/schemas/knowledge.v1.json": [
    "core"
   ],
@@ -1147,6 +1171,12 @@
    "core"
   ],
   ".engine/schemas/operation.v1.json": [
+   "core"
+  ],
+  ".engine/schemas/operator-issue-recovery.v1.json": [
+   "core"
+  ],
+  ".engine/schemas/operator-issue-triage.v1.json": [
    "core"
   ],
   ".engine/schemas/persistent-execution-context.v1.json": [
@@ -1183,6 +1213,15 @@
    "core"
   ],
   ".engine/schemas/provisioning-catalog.v1.json": [
+   "core"
+  ],
+  ".engine/schemas/result-rejection.v1.json": [
+   "core"
+  ],
+  ".engine/schemas/reviewer-contract.v1.json": [
+   "core"
+  ],
+  ".engine/schemas/scoped-agent-evidence.v1.json": [
    "core"
   ],
   ".engine/schemas/selftest-run-record.v1.json": [
@@ -1332,6 +1371,9 @@
   ".engine/tools/build_coordinator_work.py": [
    "core"
   ],
+  ".engine/tools/build_entry_preflight.py": [
+   "core"
+  ],
   ".engine/tools/build_protocol.py": [
    "core"
   ],
@@ -1384,6 +1426,9 @@
    "core"
   ],
   ".engine/tools/codex_gen.py": [
+   "core"
+  ],
+  ".engine/tools/codex_qualification.py": [
    "core"
   ],
   ".engine/tools/codex_skill_coherence_check.py": [
@@ -1554,7 +1599,13 @@
   ".engine/tools/demo_restore_migration_routing.py": [
    "core"
   ],
+  ".engine/tools/demo_result_contracts.py": [
+   "core"
+  ],
   ".engine/tools/demo_reverse_adjacency.py": [
+   "core"
+  ],
+  ".engine/tools/demo_review_coverage.py": [
    "core"
   ],
   ".engine/tools/demo_scope_profile.py": [
@@ -1600,6 +1651,9 @@
    "dependency-discipline"
   ],
   ".engine/tools/derived_state.py": [
+   "core"
+  ],
+  ".engine/tools/enforcement_files_check.py": [
    "core"
   ],
   ".engine/tools/engine_fixture.py": [
@@ -1711,6 +1765,15 @@
    "core"
   ],
   ".engine/tools/issue_label_client.py": [
+   "core"
+  ],
+  ".engine/tools/issue_recovery.py": [
+   "core"
+  ],
+  ".engine/tools/issue_recovery_store.py": [
+   "core"
+  ],
+  ".engine/tools/issue_triage.py": [
    "core"
   ],
   ".engine/tools/knowledge_gen.py": [
@@ -2157,7 +2220,16 @@
   ".engine/tools/repo_identity.py": [
    "core"
   ],
+  ".engine/tools/result_contracts.py": [
+   "core"
+  ],
   ".engine/tools/review_integrity.py": [
+   "core"
+  ],
+  ".engine/tools/review_reader.py": [
+   "core"
+  ],
+  ".engine/tools/reviewer_contracts.py": [
    "core"
   ],
   ".engine/tools/route_budget_check.py": [
@@ -2173,6 +2245,9 @@
    "core"
   ],
   ".engine/tools/scope_profile.py": [
+   "core"
+  ],
+  ".engine/tools/scoped_agents.py": [
    "core"
   ],
   ".engine/tools/security_floor.py": [
@@ -2298,6 +2373,9 @@
   ".engine/tools/test_build_coordinator_work.py": [
    "core"
   ],
+  ".engine/tools/test_build_entry_preflight.py": [
+   "core"
+  ],
   ".engine/tools/test_build_protocol.py": [
    "core"
   ],
@@ -2311,6 +2389,9 @@
    "core"
   ],
   ".engine/tools/test_change_classification.py": [
+   "core"
+  ],
+  ".engine/tools/test_check_cli.py": [
    "core"
   ],
   ".engine/tools/test_checkout_auto_update.py": [
@@ -2332,6 +2413,9 @@
    "core"
   ],
   ".engine/tools/test_codex_gen.py": [
+   "core"
+  ],
+  ".engine/tools/test_codex_qualification.py": [
    "core"
   ],
   ".engine/tools/test_codex_settings.py": [
@@ -2359,6 +2443,9 @@
    "core"
   ],
   ".engine/tools/test_doc.py": [
+   "core"
+  ],
+  ".engine/tools/test_enforcement_files_check.py": [
    "core"
   ],
   ".engine/tools/test_engine_fixture.py": [
@@ -2448,6 +2535,12 @@
   ".engine/tools/test_issue_kind_label.py": [
    "core"
   ],
+  ".engine/tools/test_issue_recovery.py": [
+   "core"
+  ],
+  ".engine/tools/test_issue_triage.py": [
+   "core"
+  ],
   ".engine/tools/test_knowledge.py": [
    "core"
   ],
@@ -2506,6 +2599,9 @@
    "core"
   ],
   ".engine/tools/test_moment.py": [
+   "core"
+  ],
+  ".engine/tools/test_nightly_demo_report.py": [
    "core"
   ],
   ".engine/tools/test_nightly_demos.py": [
@@ -2613,6 +2709,9 @@
   ".engine/tools/test_repo_identity.py": [
    "core"
   ],
+  ".engine/tools/test_result_contracts.py": [
+   "core"
+  ],
   ".engine/tools/test_retire_eadr_records.py": [
    "core"
   ],
@@ -2625,7 +2724,13 @@
   ".engine/tools/test_review_integrity.py": [
    "core"
   ],
+  ".engine/tools/test_review_reader.py": [
+   "core"
+  ],
   ".engine/tools/test_review_recipe_equivalence.py": [
+   "core"
+  ],
+  ".engine/tools/test_reviewer_contracts.py": [
    "core"
   ],
   ".engine/tools/test_route_budget_check.py": [
@@ -2638,6 +2743,9 @@
    "core"
   ],
   ".engine/tools/test_scope_profile.py": [
+   "core"
+  ],
+  ".engine/tools/test_scoped_agents.py": [
    "core"
   ],
   ".engine/tools/test_secret_scan.py": [
@@ -2798,6 +2906,9 @@
   ],
   ".engine/tools/work_record.py": [
    "core"
+  ],
+  ".github/workflows/audit-prep.yml": [
+   "audit-library"
   ]
  }
 }

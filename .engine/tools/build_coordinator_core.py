@@ -114,7 +114,8 @@ def assert_revision(actual: int, expected: int | None, what: str, remedy: str) -
         raise CoordinatorError(f"{what} revision is {actual}, not expected {expected}; {remedy}")
 
 
-def atomic_write(path: Path, text: str, *, durable: bool = False, mode: int | None = None) -> None:
+def atomic_write(path: Path, text: str, *, durable: bool = False, mode: int | None = None,
+                 require_directory_flush: bool = False) -> None:
     """Write `text` to `path` so a reader sees either the whole old file or the whole new one.
 
     Write to a temp file in the SAME directory (a cross-filesystem rename is not atomic), flush,
@@ -148,7 +149,11 @@ def atomic_write(path: Path, text: str, *, durable: bool = False, mode: int | No
             # A directory flush that the platform declines is normal on some filesystems, so this one
             # is not fatal — the file itself is already durable, and only the rename's ordering is
             # at risk. Not worth refusing a write over; worth not pretending it happened either.
-            fsync_dir(path.parent)
+            flushed = fsync_dir(path.parent)
+            if require_directory_flush and not flushed:
+                raise CoordinatorError(
+                    f"the replacement at {path} is visible but its directory could not be flushed; "
+                    "durability is uncertain. Retry the recorded transaction; do not start another Build.")
     finally:
         if os.path.exists(temp_name):
             os.unlink(temp_name)
@@ -253,19 +258,58 @@ def input_text(path: str) -> str:
         raise CoordinatorError(f"could not read {path}: {exc}") from exc
 
 
-def validate(instance: Any, schema_path: Path) -> None:
+def _local_validation_schema(schema_path: Path) -> dict:
+    """Expand external local references only; retain native recursive local definitions.
+
+    Plan records have a recursive transfer definition. Fully expanding that durable schema
+    would impose the result protocol's no-recursion rule on an existing durable contract.
+    External fragments use the bounded result resolver, while internal refs stay with jsonschema.
+    """
+    import result_contracts
+    budget = [0, 0]
+    documents = {}
+
+    def expand(value, depth=0):
+        budget[0] += 1
+        if budget[0] > result_contracts.LIMITS["values"] or depth > result_contracts.LIMITS["depth"]:
+            result_contracts.reject("schema_expansion_limit", category="authority")
+        if isinstance(value, list):
+            return [expand(v, depth + 1) for v in value]
+        if not isinstance(value, dict):
+            return value
+        ref = value.get("$ref")
+        if "$ref" in value and not isinstance(ref, str):
+            result_contracts.reject("invalid_schema_reference", category="authority")
+        if ref is not None and not ref.startswith("#"):
+            budget[1] += 1
+            if budget[1] > 256:
+                result_contracts.reject("schema_reference_limit", category="authority")
+            target = result_contracts.local_schema(ref, schema_path.parent, _documents=documents)
+            siblings = expand({k: v for k, v in value.items() if k != "$ref"}, depth + 1)
+            return {"allOf": [target, siblings]} if siblings else target
+        return {k: expand(v, depth + 1) for k, v in value.items()}
+
+    try:
+        return expand(json_file(schema_path))
+    except result_contracts.Rejection as exc:
+        raise CoordinatorError(str(exc)) from exc
+
+
+def validate(instance: Any, schema_path: Path, *, local_refs: bool = False) -> None:
     try:
         from jsonschema import Draft202012Validator
     except ImportError as exc:
         raise CoordinatorError("the Engine runtime is missing jsonschema; run this tool through uv") from exc
-    errors = sorted(Draft202012Validator(json_file(schema_path)).iter_errors(instance), key=lambda e: list(e.path))
+    schema = _local_validation_schema(schema_path) if local_refs else json_file(schema_path)
+    errors = sorted(Draft202012Validator(schema).iter_errors(instance), key=lambda e: list(e.path))
     if errors:
         error = _most_specific(errors[0])
         where = ".".join(str(p) for p in error.absolute_path) or "document"
         raise CoordinatorError(f"{schema_path.stem} rejected {where}: {error.message}")
 
 
-def validate_part(instance: Any, schema_path: Path, pointer: str, label: str) -> None:
+def validate_part(instance: Any, schema_path: Path, pointer: str, label: str, *,
+                  local_refs: bool = False) -> None:
     """Validate one FRAGMENT against a named definition inside a schema, with the same error legibility
     the whole-document path gives.
 
@@ -273,7 +317,7 @@ def validate_part(instance: Any, schema_path: Path, pointer: str, label: str) ->
     the moment it is read, rather than surviving until the write and surfacing as a complaint about the
     enclosing record. The ordering matters wherever a verb also enforces ceremony — a session that
     mistyped a severity should be told about the severity, not about a flag it has not reached yet."""
-    document = json_file(schema_path)
+    document = _local_validation_schema(schema_path) if local_refs else json_file(schema_path)
     schema = {**{key: value for key, value in document.items() if key.startswith("$def")}, "$ref": pointer}
     try:
         from jsonschema import Draft202012Validator
@@ -411,9 +455,9 @@ def write_json_artifact(prefix: str, value: Any) -> tuple[str, str]:
     return str(path), value_digest
 
 
-def write_private_path(path: Path, rendered: str) -> None:
+def write_private_path(path: Path, rendered: str, *, replace: bool = True) -> None:
     """Write a caller-selected artifact atomically and owner-read/write only."""
-    path = path.resolve()
+    path = path.resolve() if replace else path.absolute()
     path.parent.mkdir(parents=True, exist_ok=True)
     fd, temporary = tempfile.mkstemp(prefix=path.name + ".", dir=path.parent)
     try:
@@ -422,7 +466,15 @@ def write_private_path(path: Path, rendered: str) -> None:
             handle.write(rendered)
             handle.flush()
             os.fsync(handle.fileno())
-        os.replace(temporary, path)
+        if replace:
+            os.replace(temporary, path)
+        else:
+            # Publish the complete artifact only if the name is still unused. A pre-check
+            # followed by replace would race another creator and could destroy its evidence.
+            try:
+                os.link(temporary, path)
+            except FileExistsError as exc:
+                raise CoordinatorError('export destination already exists; choose a new output path') from exc
     finally:
         if os.path.exists(temporary):
             os.unlink(temporary)
@@ -539,6 +591,7 @@ class RevisionedStore:
 
     durable = False
     file_mode: int | None = None
+    require_directory_flush = False
     what = "snapshot"
     missing_remedy = "there is nothing to read"
     stale_remedy = "re-read it"
@@ -573,9 +626,18 @@ class RevisionedStore:
 
     def create(self, state: dict) -> None:
         with self._locked():
+            self._check_write(state, creating=True)
             if self.path.exists():
                 raise CoordinatorError(f"{self.what} already exists at {self.path}")
             self._write(state)
+
+    def verify_mutation_entry(self) -> None:
+        """Check ownership and revision before command side effects; writes still check again."""
+        with self._locked():
+            state = forward_migrate(json_file(self.path))
+            validate(state, self._schema_for(state))
+            self._check_write(state, creating=False)
+            assert_revision(state['revision'], self.expected_revision, 'snapshot', self.stale_remedy)
 
     def mutate(self, change: Callable[[dict], Any], *, from_revision: int | None = None) -> Any:
         with self._locked():
@@ -583,17 +645,65 @@ class RevisionedStore:
                 raise CoordinatorError(f"no {self.what} at {self.path}; {self.missing_remedy}")
             state = forward_migrate(json_file(self.path))
             validate(state, self._schema_for(state))
+            self._check_write(state, creating=False)
             expected = self.expected_revision if self.expected_revision is not None else from_revision
             assert_revision(state["revision"], expected, "snapshot", self.stale_remedy)
             result = change(state)
+            self._check_write(state, creating=False)
             state["revision"] += 1
             self._write(state)
+            if self.expected_revision is not None:
+                self.expected_revision = state["revision"]
             return result
+
+    def _check_write(self, state: dict, *, creating: bool) -> None:
+        """Ownership seam for plan-owned stores, called while their locks are held."""
+
+    def retire(self, archive: Path, *, validate_owner, prepare) -> dict:
+        """Retire under this store's permanent lock; callbacks compose the plan transaction.
+
+        The caller enters with any parent ownership locks held. `prepare` journals the terminal
+        reason after locked validation and before archive writes. A completed rename with an
+        unfinished journal is retryable from the archive; an unrelated archive is never replaced.
+        The sibling lock is never removed, including when the active file is gone.
+        """
+        with self._locked():
+            return self.retire_locked(archive, validate_owner=validate_owner, prepare=prepare)
+
+    def retire_locked(self, archive: Path, *, validate_owner, prepare) -> dict:
+        """The same retirement while a multi-store transaction already holds this store's lock."""
+        archive = Path(archive).resolve()
+        if archive in (self.path, self.lock) or archive.parent != self.path.parent:
+            raise CoordinatorError('retirement archives must stay beside their snapshot on the same filesystem')
+        source_exists = self.path.is_file()
+        if self.path.exists() and not source_exists:
+            raise CoordinatorError('the snapshot slot is not a regular file; recover its evidence before retirement')
+        if not source_exists and not archive.is_file():
+            raise CoordinatorError('snapshot and retirement archive are missing; recover the evidence before retrying')
+        state = forward_migrate(json_file(self.path if source_exists else archive))
+        validate(state, self._schema_for(state))
+        assert_revision(state['revision'], self.expected_revision, 'snapshot', self.stale_remedy)
+        validate_owner(state)
+        if source_exists and archive.exists():
+            previous = forward_migrate(json_file(archive))
+            if digest(previous) != digest(state):
+                raise CoordinatorError('retirement archive contains different evidence; neither copy was changed')
+        if self.path.parent.stat().st_dev != archive.parent.stat().st_dev:
+            raise CoordinatorError('cross-filesystem retirement is unsupported; source evidence is unchanged')
+        prepare(state)
+        atomic_write(archive, json.dumps(state, indent=2, sort_keys=True) + '\n',
+                     durable=True, mode=0o600, require_directory_flush=True)
+        if source_exists:
+            self.path.replace(archive)
+        if not fsync_dir(archive.parent):
+            raise CoordinatorError('retirement rename is visible but not durably confirmed; retry its recorded transaction')
+        return state
 
     def _write(self, state: dict) -> None:
         validate(state, self._schema_for(state))
         atomic_write(self.path, json.dumps(state, indent=2, sort_keys=True) + "\n",
-                     durable=self.durable, mode=self.file_mode)
+                     durable=self.durable, mode=self.file_mode,
+                     require_directory_flush=self.require_directory_flush)
 
 
 class StateStore(RevisionedStore):

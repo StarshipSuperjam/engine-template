@@ -221,16 +221,16 @@ class TestWorkerBinding(unittest.TestCase):
 
     def test_worker_resolves_through_implementation_class_not_tier(self):
         fm = {"name": "engine-worker-x", "role": "worker", "implementation-class": "builder"}
-        self.assertEqual(ab._binding_for(fm, self._bindings()), {"model": "sonnet", "effort": "medium"})
+        self.assertEqual(ab.resolve_persona(fm, self._bindings()), {"model": "sonnet", "effort": "medium"})
 
     def test_reviewer_still_resolves_through_tier(self):
         fm = {"name": "engine-review-x", "role": "plan-review", "model-tier": "judgment"}
-        self.assertEqual(ab._binding_for(fm, self._bindings()), {"model": "opus", "effort": "high"})
+        self.assertEqual(ab.resolve_persona(fm, self._bindings()), {"model": "opus", "effort": "high"})
 
     def test_worker_with_no_binding_raises(self):
         fm = {"name": "engine-worker-x", "role": "worker", "implementation-class": "ghost"}
         with self.assertRaises(KeyError):
-            ab._binding_for(fm, self._bindings())
+            ab.resolve_persona(fm, self._bindings())
 
 
 class TestReviewDepthIsRosterOnly(unittest.TestCase):
@@ -247,6 +247,119 @@ class TestReviewDepthIsRosterOnly(unittest.TestCase):
     def test_the_bindings_module_resolves_no_depth_effort(self):
         self.assertFalse(hasattr(ab, "depth_effort"))
         self.assertNotIn("operator_review_effort", sys.modules.get("agent_bindings").__dict__)
+
+
+class TestProviderPersonaBindings(unittest.TestCase):
+    def bindings(self):
+        data = _valid_bindings()
+        data["providers"] = {"codex": {"tiers": {
+            "judgment": {"model": "gpt-test-1", "effort": "high"},
+            "mechanical": {"model": "gpt-test-2", "effort": "low"}},
+            "overrides": {"systematic": {"model": "gpt-test-3"}}}}
+        return data
+
+    def test_provider_override_is_separate_from_claude(self):
+        data = self.bindings()
+        self.assertEqual(ab.resolve("systematic", "judgment", data, "codex"),
+                         {"model": "gpt-test-3", "effort": "high"})
+        self.assertEqual(ab.resolve("systematic", "judgment", data),
+                         {"model": "opus", "effort": "high"})
+        self.assertEqual(_errors(data), [])
+
+    def test_missing_or_invalid_codex_bindings_do_not_fall_back(self):
+        with self.assertRaisesRegex(KeyError, "providers.codex"):
+            ab.resolve("reviewer", "judgment", _valid_bindings(), "codex")
+        for bad in (None, [], "", "Model With Spaces"):
+            data = self.bindings()
+            data["providers"]["codex"]["tiers"]["judgment"]["model"] = bad
+            self.assertTrue(_errors(data))
+            with self.assertRaises(ValueError):
+                ab.resolve("reviewer", "judgment", data, "codex")
+
+    def test_provider_schema_rejects_incomplete_tiers_and_unknown_provider(self):
+        data = self.bindings()
+        del data["providers"]["codex"]["tiers"]["mechanical"]
+        self.assertTrue(_errors(data))
+        data = self.bindings()
+        data["providers"]["unknown"] = {}
+        self.assertTrue(_errors(data))
+
+
+
+
+class TestHigherEffortVocabulary(unittest.TestCase):
+    def bindings(self):
+        return {"schema_version": 1,
+                "tiers": {"judgment": {"model": "opus", "effort": "high"},
+                          "mechanical": {"model": "haiku", "effort": "low"}},
+                "overrides": {"audit": {"model": "sonnet", "effort": "medium"}},
+                "providers": {"codex": {
+                    "tiers": {"judgment": {"model": "gpt-test", "effort": "high"},
+                              "mechanical": {"model": "gpt-small", "effort": "low"}},
+                    "overrides": {"audit": {"model": "gpt-override", "effort": "medium"}}}},
+                "implementation_classes": {cls: {provider: {"model": "test", "effort": "medium"}
+                    for provider in ("claude", "codex")} for cls in ("builder", "bounded")}}
+
+    def locations(self):
+        for prefix in ((), ("providers", "codex")):
+            for tier in ("judgment", "mechanical"):
+                yield prefix + ("tiers", tier)
+            yield prefix + ("overrides", "audit")
+        for cls in ("builder", "bounded"):
+            for provider in ("claude", "codex"):
+                yield ("implementation_classes", cls, provider)
+
+    def test_schema_accepts_exact_vocabulary_at_every_binding_location(self):
+        for path in self.locations():
+            for effort in ("low", "medium", "high", "xhigh", "max", "ultra",
+                           "", "maximum", "none", "minimal", None, 1, True, [], {}):
+                with self.subTest(path=path, effort=effort):
+                    bindings = self.bindings()
+                    slot = bindings
+                    for key in path:
+                        slot = slot[key]
+                    slot["effort"] = effort
+                    self.assertEqual(not _errors(bindings),
+                                     isinstance(effort, str) and effort in
+                                     ("low", "medium", "high", "xhigh", "max", "ultra"))
+
+    def test_resolver_preserves_tiers_and_override_precedence(self):
+        for provider in ("claude", "codex"):
+            for effort in ("xhigh", "max", "ultra"):
+                with self.subTest(provider=provider, effort=effort):
+                    bindings = self.bindings()
+                    selected = bindings if provider == "claude" else bindings["providers"]["codex"]
+                    selected["tiers"]["judgment"]["effort"] = effort
+                    self.assertEqual(ab.resolve("plain", "judgment", bindings, provider)["effort"], effort)
+                    self.assertEqual(ab.resolve("audit", "judgment", bindings, provider)["effort"], "medium")
+                    selected["overrides"]["audit"]["effort"] = effort
+                    self.assertEqual(ab.resolve("audit", "judgment", bindings, provider)["effort"], effort)
+                    del selected["overrides"]["audit"]["effort"]
+                    self.assertEqual(ab.resolve("audit", "judgment", bindings, provider)["effort"], effort)
+
+    def test_resolver_rejects_invalid_effort_and_accepts_workers(self):
+        for provider in ("claude", "codex"):
+            for effort in ("xhigh", "max", "ultra", "", "maximum", None, 1, True, [], {}):
+                for kind in ("tier", "override", "builder", "bounded"):
+                    with self.subTest(provider=provider, effort=effort, kind=kind):
+                        bindings = self.bindings()
+                        selected = bindings if provider == "claude" else bindings["providers"]["codex"]
+                        if kind in ("builder", "bounded"):
+                            bindings["implementation_classes"][kind][provider]["effort"] = effort
+                            fm = {"role": "worker", "implementation-class": kind}
+                            run = lambda: ab.resolve_persona(fm, bindings, provider)
+                        else:
+                            selected["tiers"]["judgment"]["effort"] = effort if kind == "tier" else "high"
+                            if kind == "override":
+                                selected["overrides"]["audit"]["effort"] = effort
+                            run = lambda: ab.resolve("audit", "judgment", bindings, provider)
+                        if isinstance(effort, str) and effort in ("xhigh", "max", "ultra"):
+                            result = run()
+                            expected = "medium" if kind == "tier" else effort
+                            self.assertEqual(result["effort"], expected)
+                        else:
+                            with self.assertRaises(ValueError):
+                                run()
 
 
 if __name__ == "__main__":

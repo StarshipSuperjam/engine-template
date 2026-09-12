@@ -199,10 +199,10 @@ def engine_agents(root: str | None = None, agents_dir: str | None = None) -> lis
     return agents
 
 
-def emit(findings: list) -> int:
-    """Write the finding.v1 array to stdout and return 0 — a successful evaluation, whatever it found."""
-    print(json.dumps(findings))
-    return 0
+emit = validate.emit
+USAGE = ("Usage: agent_coherence_check.py [-h|--help] [demo]\n\n"
+         "Checks personas and their git-safety declarations, emitting a finding.v1 JSON array. "
+         "Environment: ENGINE_RULE_TIER, ENGINE_AGENT_FIXTURE_DIR.")
 
 
 def _demo() -> int:
@@ -309,7 +309,81 @@ def _demo() -> int:
     return 0
 
 
-def main(argv: list) -> int:
+def result_contract_findings(agents, tier="hard"):
+    """Exercise registered production ingress adapters, including an actual bad report."""
+    import build_coordinator_review
+    import build_coordinator_work
+    import conformance_sweep
+    import project_manager
+    import result_contracts as rc
+    handlers = {module.__name__: module for module in
+                (build_coordinator_review, build_coordinator_work, conformance_sweep, project_manager)}
+    findings = []
+    witnessed = set()
+    for persona in agents:
+        contract = persona.get("output-contract")
+        try:
+            bound = rc.resolve(contract, role=persona.get("role"))
+            entry = rc.CONTRACTS[contract]
+            parts = entry.get("structured_parts", []) if bound["mode"] == "prose" else [contract]
+            for part in parts:
+                if part in witnessed:
+                    continue
+                bound = rc.resolve(part)
+                protocol = rc.CONTRACTS[part]
+                if not callable(getattr(rc, protocol["compiler"], None)):
+                    rc.reject("missing_compiler", category="authority")
+                module, name = protocol["handler"].rsplit(".", 1)
+                handler = getattr(handlers.get(module), name, None)
+                if not callable(handler):
+                    rc.reject("missing_handler", category="authority")
+                kwargs = {"lens": "witness"} if "review" in protocol["roles"][0] else {}
+                valid = ('[]' if kwargs else '{"kind":"product-conformance","items":[]}'
+                         if part == "conformance-verdicts.v1" else
+                         '{"outcome":"failed","reason":"Cannot complete","evidence":'
+                         '{"changed_paths":[],"verification_results":[],"assumptions":[],"unresolved_concerns":[]}}')
+                positive = handler(valid, bound, **kwargs)
+                if not isinstance(positive, dict) or positive.get("status") == "rejected":
+                    rc.reject("positive_witness_failed", category="authority")
+                rejected = False
+                try:
+                    outcome = handler('null', bound, **kwargs)
+                    rejected = isinstance(outcome, dict) and outcome.get("status") == "rejected"
+                except Exception as exc:
+                    try:
+                        rejection = json.loads(str(exc))
+                        rejected = rejection.get("schema_version") == "result-rejection.v1"
+                    except (ValueError, AttributeError):
+                        pass
+                if not rejected:
+                    rc.reject("missing_rejection_witness", category="authority")
+                witnessed.add(part)
+        except Exception as exc:
+            rule = exc.envelope["rule"] if isinstance(exc, rc.Rejection) else "contract_handler_failure"
+            findings.append(validate.finding(tier,
+                f"Persona '{persona.get('name')}' result contract failed: {rule}."))
+    return findings
+
+
+def reviewer_identity_findings(agents, tier="hard"):
+    """Declared semantic identity is shared across both review roles, never a file hash."""
+    import reviewer_contracts
+    seen, lenses, findings = set(), set(), []
+    for fields in agents:
+        if fields.get("role") not in reviewer_contracts.ROLES:
+            continue
+        try:
+            mandate = reviewer_contracts.declaration(fields)
+            key = (fields["role"], fields["lens"])
+            if mandate["id"] in seen or key in lenses:
+                raise reviewer_contracts.ContractError("duplicate reviewer identity or lens")
+            seen.add(mandate["id"]); lenses.add(key)
+        except reviewer_contracts.ContractError as exc:
+            findings.append(validate.finding(tier, f"Persona '{fields.get('name')}' reviewer contract: {exc}."))
+    return findings
+
+
+def _main(argv: list) -> int:
     if argv and argv[0] == "demo":
         return _demo()
     tier = os.environ.get("ENGINE_RULE_TIER", "hard")
@@ -319,8 +393,14 @@ def main(argv: list) -> int:
     fixture_dir = validate.env_override_path("ENGINE_AGENT_FIXTURE_DIR")
     agents = engine_agents(agents_dir=fixture_dir)
     findings = validate.agent_coherence_findings(agents, tier, _MESSAGE)
+    findings += reviewer_identity_findings(agents, tier)
+    findings += result_contract_findings(agents, tier)
     findings += git_safety_findings(tier, agents_dir=fixture_dir)
     return emit(findings)
+
+
+def main(argv: list) -> int:
+    return validate.cli_main(argv, usage=USAGE, run=_main)
 
 
 if __name__ == "__main__":

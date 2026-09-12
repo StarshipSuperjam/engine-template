@@ -30,6 +30,8 @@ class _Ceremony(unittest.TestCase):
     """A real library driven through the real CLI. Nothing here writes a record by hand."""
 
     def setUp(self):
+        from selftest_support import review_fixture
+        review_fixture(self)
         self._tmp = tempfile.TemporaryDirectory()
         self.tmp = Path(self._tmp.name)
         self.root = self.tmp / "plans"
@@ -41,6 +43,35 @@ class _Ceremony(unittest.TestCase):
         # every plan verb to project_manager — the routing a caller does by choosing a tool name.
         tool = program_manager if argv and argv[0] == "program" else project_manager
         out, err = io.StringIO(), io.StringIO()
+        # Historical fixtures must earn review coverage through the observed execution path.
+        if tool is project_manager and len(argv) > 2 and argv[:2] in (("review", "record"), ("review", "amend")):
+            import scoped_agents
+            from test_project_manager import observe_review_execution
+            parsed = project_manager.build_parser().parse_args(["--library", str(self.root), *argv])
+            slug = self.lib.resolve(parsed.plan)
+            record = self.lib.read_record(slug)
+            supplied = json.loads(Path(parsed.findings).read_text()) if parsed.findings else []
+            lenses = list(parsed.lens or (record.get("plan_review") or {}).get("lenses", []))
+            controller = bool(supplied and "summary" in supplied[0])
+            if controller:
+                # Historical controller fixtures opt into that path explicitly; producer arrays remain raw.
+                argv = (*argv, "--controller-findings")
+                Path(parsed.findings).write_text(json.dumps(sorted(supplied, key=lambda f: f["lens"])))
+            elif not parsed.findings:
+                argv = (*argv, "--findings", self.findings_file())
+            for lens in lenses:
+                if controller:
+                    output = [{"severity": f["severity"], "message": f["summary"],
+                               "location": f.get("location")}
+                              for f in supplied if f["lens"] == lens]
+                else:
+                    output = supplied
+                try:
+                    observe_review_execution(self.lib, slug, scoped_agents.plan_owner(record), lens,
+                                             parsed.packet_digest, output)
+                except scoped_agents.EvidenceError:
+                    pass  # Negative packet fixtures must reach the command's own refusal too.
+            argv = (*argv, "--session", "fixture-root")
         with contextlib.redirect_stdout(out), contextlib.redirect_stderr(err):
             code = tool.main(["--library", str(self.root), *argv])
         return code, out.getvalue(), err.getvalue()
@@ -51,8 +82,7 @@ class _Ceremony(unittest.TestCase):
     def packet_digest(self, slug):
         """The digest `review record` will verify against — re-rendered exactly as the verb does."""
         import plan_projection
-        return project_manager.core.digest(
-            plan_projection.render_plan(self.lib.head(slug), self.lib.read_record(slug)).encode("utf-8"))
+        return project_manager.review_packet(self.lib, slug)[1]
 
     def recorded_packet_digest(self, slug):
         """The digest the RECORDED review names. An amendment must match this, not a fresh render:
@@ -87,7 +117,7 @@ class _Ceremony(unittest.TestCase):
 
     def finding(self, id_="ARCH-1", severity="serious", lens=None):
         return {"id": id_, "lens": lens or self.covering()[0], "severity": severity,
-                "summary": "The store's first write precedes its fence."}
+                "summary": "The store's first write precedes its fence.", "location": None}
 
 
 class D1PartialReviewIsNoLongerPermanent(_Ceremony):
@@ -150,7 +180,7 @@ class D3TheTwoFindingShapesTranslate(_Ceremony):
     def test_the_reviewer_shape_is_mapped_rather_than_refused(self):
         slug = self.approved("standard")
         persona = {"severity": "blocking", "message": "The fence lands after the write.",
-                   "location": "C01, the durable store"}
+                   "location": {"file": "C01, the durable store"}}
         code, _, _ = self.run_command(
             "review", "record", slug, "--packet-digest", self.packet_digest(slug),
             "--lens", "architecture", "--findings", self.findings_file(persona))
@@ -179,35 +209,38 @@ class D3TheTwoFindingShapesTranslate(_Ceremony):
                 lenses=["architecture", "feasibility"])
         self.assertIn("carry no lens of their own", str(caught.exception))
 
-    def test_persona_location_object_with_line_renders_as_file_colon_line(self):
+    def test_persona_location_object_with_line_is_preserved(self):
         translated = plan_lifecycle.translate_findings(
             [{"severity": "nit", "message": "msg", "location": {"file": "path/to/file.py", "line": 42}}],
             lenses=["architecture"])
-        self.assertEqual(translated[0]["location"], "path/to/file.py:42")
+        self.assertEqual(translated[0]["location"], {"file": "path/to/file.py", "line": 42})
 
-    def test_persona_location_object_without_line_renders_as_file_path(self):
+    def test_persona_location_object_without_line_is_preserved(self):
         translated = plan_lifecycle.translate_findings(
             [{"severity": "nit", "message": "msg", "location": {"file": "path/to/file.py"}}],
             lenses=["architecture"])
-        self.assertEqual(translated[0]["location"], "path/to/file.py")
+        self.assertEqual(translated[0]["location"], {"file": "path/to/file.py"})
 
-    def test_persona_location_object_with_null_line_renders_as_file_path(self):
+    def test_persona_location_object_with_null_line_is_preserved(self):
         translated = plan_lifecycle.translate_findings(
             [{"severity": "nit", "message": "msg", "location": {"file": "path/to/file.py", "line": None}}],
             lenses=["architecture"])
-        self.assertEqual(translated[0]["location"], "path/to/file.py")
+        self.assertEqual(translated[0]["location"], {"file": "path/to/file.py", "line": None})
 
-    def test_persona_null_location_renders_as_the_plan_as_a_whole(self):
+    def test_persona_null_location_remains_null(self):
         translated = plan_lifecycle.translate_findings(
             [{"severity": "nit", "message": "msg", "location": None}],
             lenses=["architecture"])
-        self.assertEqual(translated[0]["location"], "the plan as a whole")
+        self.assertIsNone(translated[0]["location"])
 
-    def test_persona_string_location_passes_through_unchanged(self):
-        translated = plan_lifecycle.translate_findings(
-            [{"severity": "nit", "message": "msg", "location": "some location string"}],
-            lenses=["architecture"])
-        self.assertEqual(translated[0]["location"], "some location string")
+    def test_persona_string_location_refuses_but_legacy_record_string_survives(self):
+        with self.assertRaises(plan_lifecycle.PlanLifecycleError):
+            plan_lifecycle.translate_findings(
+                [{"severity": "nit", "message": "msg", "location": "some location string"}],
+                lenses=["architecture"])
+        legacy = {"id": "A-1", "lens": "architecture", "severity": "nit",
+                  "summary": "msg", "location": "some location string"}
+        self.assertEqual(plan_lifecycle.translate_findings([legacy], lenses=["architecture"]), [legacy])
 
 
 class D11DepthChoiceClosesAtTheSeal(unittest.TestCase):
@@ -622,7 +655,12 @@ class ConsentGates(_Ceremony):
                          "--disposition", "rejected", "--rationale", "No.",
                          "--does-not-block-this-pr")
         self.run_command("present-findings", slug, "--operator-decided")
-        self.lib.update_record(slug, lambda current: current.pop("findings_presented", None))
+        # This fixture predates both subject blocks and approval envelopes.
+        def historical(current):
+            current.pop("findings_presented", None)
+            current.pop("review_contract_format", None)
+            current["approval"].pop("review_contract", None)
+        self.lib.update_record(slug, historical)
         self.assertEqual(project_manager.seal_refusals(self.lib, slug), [])
         self.assertEqual(self.run_command("seal", slug, "--operator-decided")[0], 0)
 
@@ -784,8 +822,7 @@ class D11TheReviewRecordCarriesLensesAndNothingAboutEffort(_Ceremony):
         self.assertFalse(any("ran at" in r or "effort" in r for r in refusals), refusals)
 
 
-if __name__ == "__main__":
-    unittest.main()
+
 
 
 class D12OneBrokenProgramRecordFrozeEveryPlansSeal(_Ceremony):
@@ -1065,3 +1102,24 @@ class D16TheDisclosuresDoNotStateThingsTheCodeKnowsAreFalse(_Ceremony):
         disclosures = project_manager.seal_disclosures(self.lib, standalone)
         self.assertFalse(any("cannot be parsed" in line for line in disclosures),
                          "a schema-invalid record parses; only its schema fails")
+
+
+class SupplementalPresentation(unittest.TestCase):
+    def test_new_results_and_changed_dispositions_invalidate_presentation(self):
+        record = {'approval': {'review_contract': {'digest': 'frozen'}},
+                  'plan_review': {'findings': [{'id': 'A', 'disposition': 'accepted-fixed'}]}}
+        record['findings_presented'] = {'lineage_digest': plan_lifecycle.review_lineage_digest(record)}
+        self.assertTrue(plan_lifecycle.presentation_current(record))
+        record['supplemental_reviews'] = [{'renewal_digest': 'renewal', 'review': {
+            'findings': [{'id': 'R-A', 'severity': 'serious', 'summary': 'New obligation'}]}}]
+        self.assertFalse(plan_lifecycle.presentation_current(record))
+        self.assertEqual(['A', 'R-A'], [f['id'] for f in plan_lifecycle.findings(record)])
+        record['supplemental_reviews'][0]['review']['findings'][0]['disposition'] = 'accepted-fixed'
+        record['findings_presented']['lineage_digest'] = plan_lifecycle.review_lineage_digest(record)
+        self.assertTrue(plan_lifecycle.presentation_current(record))
+        record['supplemental_reviews'][0]['review']['findings'][0]['disposition'] = 'rejected'
+        self.assertFalse(plan_lifecycle.presentation_current(record))
+
+
+if __name__ == "__main__":
+    unittest.main()

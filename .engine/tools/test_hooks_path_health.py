@@ -293,7 +293,8 @@ class TestAcceptedHookTopology(unittest.TestCase):
         for rel in hp._ACCEPTED_BUNDLE:
             target = pathlib.Path(root) / rel
             target.parent.mkdir(parents=True, exist_ok=True)
-            shutil.copyfile(self.ROOT / rel, target)
+            from selftest_support import accepted_hook_fixture_bytes
+            target.write_bytes(accepted_hook_fixture_bytes(self.ROOT, rel))
         if source is not None:
             (pathlib.Path(root) / ".engine/tools/hook-runner.sh").write_text(source, encoding="utf-8")
         _git(root, "add", *hp._ACCEPTED_BUNDLE)
@@ -318,8 +319,9 @@ class TestAcceptedHookTopology(unittest.TestCase):
             self.assertTrue(all(item["ref"] for item in topology["worktrees"]))
 
     def test_checked_in_generation_digests_match_the_exact_bundle(self):
+        from selftest_support import accepted_hook_fixture_bytes
         actual = {
-            rel: hashlib.sha256((self.ROOT / rel).read_bytes()).hexdigest()
+            rel: hashlib.sha256(accepted_hook_fixture_bytes(self.ROOT, rel)).hexdigest()
             for rel in hp._ACCEPTED_BUNDLE
         }
         self.assertEqual(actual, hp._ACCEPTED_BUNDLE_SHA256)

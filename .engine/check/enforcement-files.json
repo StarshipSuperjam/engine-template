@@ -1,0 +1,9 @@
+{
+  "id": "engine/check/enforcement-files",
+  "target": { "context": "enforcement-import-topology" },
+  "kind": "custom/script",
+  "params": { "script": ".engine/tools/enforcement_files_check.py" },
+  "tier": "hard",
+  "suites": ["CI"],
+  "message": "Hard enforcement sources have a reviewed local import topology. This check reads their ASTs without executing them and fails when an import edge, declared disposition, active root, or dynamic loader review changes. Classify each named edge in weakening_guard.py as an enforcement dependency or a specific reasoned exclusion; do not treat exclusions as proof that a utility cannot affect enforcement."
+}

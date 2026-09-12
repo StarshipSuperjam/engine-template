@@ -100,6 +100,10 @@ _HISTORY_PAGE = 30
 # `<!-- engine-signal -->` marker); parsed then STRIPPED before the digest is sealed.
 _BLOCK_MARKER = "<!-- conformance-verdicts.v1"
 
+# `None` is a meaningful no-access value for promote() callers.  Keep the omitted-argument
+# case distinct so only it is allowed to read ambient Actions credentials.
+_AMBIENT_CREDENTIAL = object()
+
 # The feed's own fence (the persona reads this between the workflow's BEGIN/END markers). Three notices:
 # SILENT — no spec settled, a first-class choice, skip and stay quiet; UNAVAILABLE — the check could not run
 # (disclose it, never a false "no spec"); plus the degraded/active feeds build() assembles.
@@ -429,37 +433,39 @@ def emit_feed() -> int:
 
 # ---- the machine block: parse + strip (pure) ------------------------------------------------
 
-def extract_block(body: str):
-    """`(items, stripped_body)`. The block is the ONE trailing thing after the digest (the prompt fixes it
-    there), so the strip removes everything from the FIRST block marker to the end of the body — robust even
-    when a persona `note` itself contains `-->` (a naive `<!-- … -->` regex would stop at that inner `-->` and
-    leave a fragment in the committed digest). Return the conformance items ONLY when exactly one well-formed,
-    schema-valid, product-conformance block is present; zero / multiple / malformed / off-kind all yield [] (a
-    clean no-op — the digest prose stays the record)."""
+def validate_block(raw, binding=None):
+    """Validation-only adapter: full typed report or rejection, never durable acceptance."""
+    import result_contracts
+    try:
+        bound = binding if binding is not None else result_contracts.resolve("conformance-verdicts.v1")
+        report = result_contracts.ingest(raw, bound, contract="conformance-verdicts.v1", role="audit")
+        return {"status": "valid", "report": result_contracts.compile_audit(report)}
+    except result_contracts.Rejection as exc:
+        return {"status": "rejected", "rejection": exc.envelope}
+
+
+def extract_result(body: str):
+    """Strip the trailing channel while distinguishing absent, rejected and valid reports."""
+    import result_contracts
     body = body or ""
     count = body.count(_BLOCK_MARKER)
     if count == 0:
-        return [], body
+        return {"status": "absent"}, body
     start = body.index(_BLOCK_MARKER)
-    stripped = body[:start].rstrip()                       # the block is trailing: drop it and any trailing ws
-    if count != 1:
-        return [], stripped                                # ambiguous: no promote, but everything is stripped
+    stripped = body[:start].rstrip()
     region = body[start + len(_BLOCK_MARKER):]
-    close = region.rfind("-->")                            # the LAST '-->' is the real close (an inner one in a
-    if close == -1:                                        # note is inside a JSON string and precedes it)
-        return [], stripped
-    try:
-        data = json.loads(region[:close].strip())
-    except ValueError:
-        return [], stripped
-    try:
-        if _schema_errors(data, _load_schema(VERDICTS_SCHEMA_PATH)):
-            return [], stripped
-    except (OSError, ValueError):
-        return [], stripped
-    if data.get("kind") != "product-conformance":
-        return [], stripped
-    return data.get("items", []), stripped
+    close = region.rfind("-->")
+    if count != 1 or close == -1 or region[close + 3:].strip():
+        return {"status": "rejected", "rejection": result_contracts.Rejection(
+            "syntax", "ambiguous_block" if count != 1 else "block_delimiter",
+            contract="conformance-verdicts.v1").envelope}, stripped
+    return validate_block(region[:close].strip()), stripped
+
+
+def extract_block(body: str):
+    """Compatibility projection; the production adapter uses the typed result and discloses refusal."""
+    result, stripped = extract_result(body)
+    return (result["report"]["items"] if result["status"] == "valid" else []), stripped
 
 
 # ---- issue rendering (author-influenced text neutralised; carries the artifact-warrant honesty) ----
@@ -539,6 +545,7 @@ def conformance_records(items: list, root: str) -> list:
             "location": {"file": doc},
             "title": title,
             "body_core": body_core,
+            "body_parts": issue_author.contract_parts(body_core),
         })
     return records
 
@@ -553,24 +560,52 @@ def degraded_record(root: str) -> dict:
         "location": None,
         "title": title,
         "body_core": body_core,
+            "body_parts": issue_author.contract_parts(body_core),
     }
 
 
-def promote(body_file: str, *, repo: str | None = None, token: str | None = None,
+def promote(body_file: str, *, repo=_AMBIENT_CREDENTIAL, token=_AMBIENT_CREDENTIAL,
             transport=None, root: str | None = None) -> tuple:
     """mode: promote — strip the machine block from the digest body (ALWAYS, first, so a failure never leaves
     the JSON committed), then open-or-update one deduped engine issue per divergence verdict, plus the
     degradation gap when a spec is locked but its matrix is missing. Returns (tracked, degraded_github). The
     body file is rewritten in place with the block removed, ready for the seal step. Fail-open at the CLI.
-    `repo`/`token` default to the environment (GITHUB_REPOSITORY / GITHUB_TOKEN); tests inject them."""
+    Omitted `repo`/`token` read GITHUB_REPOSITORY / GITHUB_TOKEN; explicit `None` means no access.
+    Tests inject explicit credentials or a transport."""
+    import result_contracts
     root = _root() if root is None else root
 
     # 1) Read + STRIP the block first — the clean-digest / no-feedback guarantee comes before any network.
     body = ""
     if body_file and os.path.isfile(body_file):
-        with open(body_file, encoding="utf-8") as fh:
-            body = fh.read()
-    items, stripped = extract_block(body)
+        with open(body_file, "rb") as fh:
+            raw = fh.read(result_contracts.LIMITS["bytes"] + 1)
+        if len(raw) > result_contracts.LIMITS["bytes"]:
+            # Strip the machine tail without allocating the oversized body. Keep arbitrary
+            # narrative before the marker; it is not a promoted model verdict.
+            marker = _BLOCK_MARKER.encode("utf-8")
+            with open(body_file, "r+b") as fh:
+                offset, carry = 0, b""
+                while chunk := fh.read(65536):
+                    window = carry + chunk
+                    found = window.find(marker)
+                    if found >= 0:
+                        fh.truncate(offset - len(carry) + found)
+                        break
+                    offset += len(chunk)
+                    carry = window[-(len(marker) - 1):]
+            result = {"status": "rejected", "rejection": result_contracts.Rejection(
+                "schema", "maxBytes", contract="conformance-verdicts.v1").envelope}
+            stripped = body
+        else:
+            body = raw.decode("utf-8")
+            result, stripped = extract_result(body)
+    else:
+        result, stripped = extract_result(body)
+    items = result["report"]["items"] if result["status"] == "valid" else []
+    if result["status"] == "rejected":
+        print("Conformance report rejected (no model verdicts accepted): "
+              + json.dumps(result["rejection"], sort_keys=True), file=sys.stderr)
     if body_file and stripped != body:
         with open(body_file, "w", encoding="utf-8") as fh:
             fh.write(stripped)
@@ -588,8 +623,8 @@ def promote(body_file: str, *, repo: str | None = None, token: str | None = None
         return 0, False
 
     # 3) Promote (open-or-update, never close), deduped by source_id. Requires repo/token.
-    repo = repo if repo is not None else os.environ.get("GITHUB_REPOSITORY")
-    token = token if token is not None else os.environ.get("GITHUB_TOKEN")
+    repo = os.environ.get("GITHUB_REPOSITORY") if repo is _AMBIENT_CREDENTIAL else repo
+    token = os.environ.get("GITHUB_TOKEN") if token is _AMBIENT_CREDENTIAL else token
     if not repo or not token:
         return 0, True
     github = telemetry.GitHubIssues(repo, token, transport=transport)
@@ -697,7 +732,7 @@ def main(argv: list) -> int:
         elif tracked:
             print(f"Tracked {tracked} standing conformance finding(s) as engine issue(s).")
         else:
-            print("No standing conformance findings to track this run.")
+            print("No conformance issues were promoted this run; inspect any report-rejection notice above.")
         return 0
     if cmd == "state":
         print(conditional_state())

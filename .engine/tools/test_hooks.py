@@ -6,7 +6,7 @@ block-budget coherence leg (validate.block_budget_findings).
 Run: uv run --directory .engine --frozen -- python tools/selftest.py
 
 These lock the laws hooks owns:
-  - the event inventory is the engine's chosen subset of six events (SessionEnd is NOT governed — nothing
+  - the event inventory is the engine's chosen subset of eight events (SessionEnd is NOT governed — nothing
     ever ran on it on either runtime, so its never-bound row was retracted), every row naming the systems
     whose behaviour runs on the event: SessionStart five-owner (boot·memory·github-projects-sync·telemetry·
     build-coordinator), PreToolUse six-owner (its actually-bound systems, not a placeholder), PostToolUse
@@ -41,6 +41,7 @@ import json
 import os
 import re
 import shutil
+import shlex
 import stat
 import subprocess
 import sys
@@ -69,10 +70,10 @@ def _run(event, handler, payload=None, stdin_text=None):
 
 
 class TestEventInventory(unittest.TestCase):
-    def test_the_six_governed_events(self):
+    def test_the_eight_governed_events(self):
         self.assertEqual(hooks.EVENTS, {
             "SessionStart", "PreToolUse", "PostToolUse", "PreCompact",
-            "Stop", "UserPromptSubmit"})
+            "Stop", "UserPromptSubmit", "SubagentStart", "SubagentStop"})
 
     def test_sessionend_is_not_governed(self):
         # Retracted (StarshipSuperjam/engine-template#816, migration M2): the row claimed a hooks-owned
@@ -102,14 +103,14 @@ class TestEventInventory(unittest.TestCase):
         # The row used to name a placeholder ("invariant-owner") — the same under-report as StarshipSuperjam/engine-template#784 on the
         # busiest event. These are the systems whose commands are bound on PreToolUse.
         self.assertEqual(set(hooks.EVENT_INVENTORY["PreToolUse"]["owners"]),
-                         {"modes", "knowledge", "self-map", "validation", "product-design", "session-economy"})
+                         {"modes", "knowledge", "self-map", "validation", "product-design", "session-economy", "scoped-agents"})
         self.assertNotIn("invariant-owner", hooks.EVENT_INVENTORY["PreToolUse"]["owners"])
 
     def test_posttooluse_enumerates_its_three_owners(self):
         # validation's touched-file run + telemetry's ambient capture + modes' Claude native-plan
         # intake adapter coexist on one event (the owner inventory).
         self.assertEqual(set(hooks.EVENT_INVENTORY["PostToolUse"]["owners"]),
-                         {"validation", "telemetry", "modes"})
+                         {"validation", "telemetry", "modes", "scoped-agents"})
 
     def test_telemetry_is_a_declared_delegated_owner_on_posttooluse(self):
         # telemetry registers no PostToolUse hook of its own: validate's accept-hook relays each edit into
@@ -502,7 +503,11 @@ class TestHookCommandMatchesWiredLiterals(unittest.TestCase):
                      ".engine/tools/telemetry.py drain-inbox",
                      # The post-compaction re-grounding owner: the ONLY wire on the `compact` matcher,
                      # so it adds one to the set and one to the count.
-                     ".engine/tools/build_coordinator.py reground-hook")
+                     ".engine/tools/build_coordinator.py reground-hook",
+                     ".engine/tools/scoped_agents.py PreToolUse",
+                     ".engine/tools/scoped_agents.py PostToolUse",
+                     ".engine/tools/scoped_agents.py SubagentStart",
+                     ".engine/tools/scoped_agents.py SubagentStop")
     MEMORY_RELPATHS = (".engine/tools/memory/compact.py pre-compact",
                        ".engine/tools/memory/erasure_observer.py session-start",
                        ".engine/tools/memory/backup_vault.py session-start")
@@ -528,11 +533,11 @@ class TestHookCommandMatchesWiredLiterals(unittest.TestCase):
 
         core = validate.load_json(os.path.join(validate.ROOT, ".engine/modules/core/manifest.json"))
         c_cmds = self._hook_cmds(core)
-        self.assertEqual(len(c_cmds), 17, "the seventeen venv-rooted core hook wires (boot ×3 + 9: modes, "
+        self.assertEqual(len(c_cmds), 21, "the twenty-one venv-rooted core hook wires (boot ×3 + 9: modes, "
                          "knowledge_gen, self_map, validate pre-commit, session_economy, modes accept, "
                          "validate accept, close, "
                          "scent + telemetry run-ambient ×2 + telemetry drain-inbox ×2: startup + resume "
-                         "+ build_coordinator reground-hook on the compact matcher)")
+                         "+ build_coordinator reground-hook on the compact matcher + four scoped-agent events)")
         self.assertEqual(set(c_cmds), expected_core, "every core manifest hook command is hook_command's output")
 
         memory = validate.load_json(
@@ -560,14 +565,14 @@ class TestHookCommandMatchesWiredLiterals(unittest.TestCase):
         self.assertEqual(set(pd_cmds), expected_product_design,
                          "product-design's manifest hook command is hook_command's output")
 
-        # settings.json registers all installed modules' hooks: 17 core + 7 memory + 2 board-sync + 1 product-design venv-rooted.
+        # settings.json registers 21 core + 7 memory + 2 board-sync + 1 product-design hooks.
         settings = validate.load_json(os.path.join(validate.ROOT, ".claude", "settings.json"))
         s_cmds = self._venv_hook_commands(
             h.get("command", "") for groups in settings["hooks"].values()
             for grp in groups for h in grp.get("hooks", []))
-        self.assertEqual(len(s_cmds), 27,
-                         "the twenty-seven venv-rooted hook commands in settings "
-                         "(17 core + 7 memory + 2 board-sync + 1 product-design)")
+        self.assertEqual(len(s_cmds), 31,
+                         "the thirty-one venv-rooted hook commands in settings "
+                         "(21 core + 7 memory + 2 board-sync + 1 product-design)")
         self.assertEqual(set(s_cmds), expected_core | expected_memory | expected_projects | expected_product_design,
                          "settings matches the form (and so all four manifests) exactly")
 
@@ -1202,7 +1207,8 @@ class _AcceptedDispatchRepo:
                      "hook-runner.sh", "codex-hook-runner.sh", "providers.py", "hooks_path_health.py"):
             self._put(f".engine/tools/{name}", (_ACCEPTED_TOOLS / name).read_text(encoding="utf-8"))
         for rel in (".claude/settings.json", ".codex/hooks.json"):
-            self._put(rel, (_ACCEPTED_TOOLS.parents[1] / rel).read_text(encoding="utf-8"))
+            from selftest_support import accepted_hook_fixture_bytes
+            self._put(rel, accepted_hook_fixture_bytes(_ACCEPTED_TOOLS.parents[1], rel).decode())
         self._put(".engine/tools/validate.py",
                   "from pathlib import Path\nROOT = str(Path(__file__).resolve().parents[2])\n")
         self._put(".engine/tools/helper.py",
@@ -1358,12 +1364,133 @@ class _AcceptedDispatchRepo:
         return json.loads(path.read_text(encoding="utf-8"))
 
 
+class TestCodexLauncherExecution(unittest.TestCase):
+    """Execute the committed shim, shared runner, and rendered registration in isolation."""
+
+    def setUp(self):
+        self.temp = tempfile.TemporaryDirectory(prefix="codex-launcher-")
+        self.addCleanup(self.temp.cleanup)
+        self.root = Path(self.temp.name) / "project with spaces"
+        self.tools = self.root / ".engine/tools"
+        self.tools.mkdir(parents=True)
+        source = Path(__file__).resolve().parent
+        for name in ("hook-runner.sh", "codex-hook-runner.sh"):
+            shutil.copy2(source / name, self.tools / name)
+        self.interpreter = self.root / ".engine/.venv/bin/python"
+        self.interpreter.parent.mkdir(parents=True)
+        self.interpreter.symlink_to(sys.executable)
+        self.marker = self.root / "target-ran"
+        (self.tools / "launcher_probe.py").write_text(
+            "import json,os,sys\nfrom pathlib import Path\n"
+            "Path(os.environ['L49_TARGET_MARKER']).write_text('ran')\n"
+            "print(json.dumps({'provider':os.environ.get('ENGINE_PROVIDER'),"
+            "'argv':sys.argv[1:],'cwd':os.getcwd(),'stdin_hex':sys.stdin.buffer.read().hex()}))\n"
+            "sys.exit(int(os.environ.get('L49_TARGET_EXIT','0')))\n", encoding="utf-8")
+        self.nested = self.root / "nested path/deeper"
+        self.nested.mkdir(parents=True)
+        self.env = {k: v for k, v in os.environ.items() if not k.startswith("GIT_")}
+        self.env.update(ENGINE_PROVIDER="claude", ENGINE_HOOK_WAIT_POLLS="0",
+                        L49_TARGET_MARKER=str(self.marker), GIT_CONFIG_GLOBAL=os.devnull,
+                        GIT_CONFIG_NOSYSTEM="1")
+        subprocess.run(["git", "init", "-q", str(self.root)], env=self.env, check=True,
+                       capture_output=True)
+
+    def launch(self, cwd, args=(), rendered=False, stdin=""):
+        if rendered:
+            command = hooks.hook_command(".engine/tools/launcher_probe.py", provider="codex")
+            command += " " + shlex.join(args)
+            argv = ["sh", "-c", command]
+        else:
+            argv = ["sh", str(self.tools / "codex-hook-runner.sh"),
+                    ".engine/tools/launcher_probe.py", *args]
+        return subprocess.run(argv, cwd=cwd, env=self.env, input=stdin,
+                              capture_output=True, text=True, timeout=10)
+
+    def test_stdin_and_target_exit_status_survive_direct_and_rendered_launches(self):
+        payload = '{"session_id":"literal-session","text":"spaced value; $NAME"}\n\x00\r\n'
+        for cwd in (self.root, self.nested):
+            for rendered in (False, True):
+                for status in (0, 17):
+                    with self.subTest(cwd=cwd.name, rendered=rendered, status=status):
+                        self.env["L49_TARGET_EXIT"] = str(status)
+                        result = self.launch(cwd, rendered=rendered, stdin=payload)
+                        self.assertEqual(result.returncode, status, result.stderr)
+                        self.assertEqual(json.loads(result.stdout)["stdin_hex"], payload.encode().hex())
+
+    def test_root_nested_and_rendered_paths_preserve_provider_and_argv(self):
+        args = ["hook", "two words", "", '"quoted"', "$UNEXPANDED", "semi;colon"]
+        for cwd in (self.root, self.nested):
+            for rendered in (False, True):
+                with self.subTest(cwd=cwd.name, rendered=rendered):
+                    self.marker.unlink(missing_ok=True)
+                    result = self.launch(cwd, args, rendered)
+                    self.assertEqual(result.returncode, 0, result.stderr)
+                    receipt = json.loads(result.stdout)
+                    self.assertEqual(receipt["provider"], "codex")
+                    self.assertEqual(receipt["argv"], args)
+                    self.assertEqual(Path(receipt["cwd"]).resolve(), (self.root if rendered else cwd).resolve())
+                    self.assertTrue(self.marker.exists())
+
+    def test_missing_root_or_runtime_never_runs_target_or_system_python(self):
+        fake_bin = Path(self.temp.name) / "fake-bin"
+        fake_bin.mkdir()
+        system_marker = Path(self.temp.name) / "system-python-ran"
+        for name in ("python", "python3"):
+            fake = fake_bin / name
+            fake.write_text("#!/bin/sh\n: > " + shlex.quote(str(system_marker)) + "\nexit 99\n")
+            fake.chmod(0o755)
+        self.env["PATH"] = str(fake_bin) + os.pathsep + self.env.get("PATH", "")
+        missing_root = Path(self.temp.name) / "not-a-project"
+        missing_root.mkdir()
+        result = self.launch(missing_root)
+        self.assertEqual(result.returncode, 1, result.stderr)
+        self.assertIn("could not find its project folder", result.stderr)
+        self.assertFalse(self.marker.exists())
+        self.assertFalse(system_marker.exists())
+        self.interpreter.unlink()
+        for runtime in ("absent", "non-executable"):
+            if runtime == "non-executable":
+                self.interpreter.write_text("#!/bin/sh\nexit 99\n")
+                self.interpreter.chmod(0o644)
+            for rendered in (False, True):
+                with self.subTest(runtime=runtime, rendered=rendered):
+                    result = self.launch(self.nested, rendered=rendered)
+                    self.assertEqual(result.returncode, 1, result.stderr)
+                    self.assertIn("private Python runtime is not ready", result.stderr)
+                    self.assertFalse(self.marker.exists())
+                    self.assertFalse(system_marker.exists())
+
+
 class TestAcceptedAutomaticHookDispatch(unittest.TestCase):
     def setUp(self):
         self.repo = _AcceptedDispatchRepo()
 
     def tearDown(self):
         self.repo.cleanup()
+
+    def test_existing_worktree_next_stop_uses_new_shared_activation_on_both_launchers(self):
+        # The worktree is never recreated or switched: this is the already-open-session boundary.
+        self.assertEqual(self.repo.activate().returncode, 0)
+        original_head = _accepted_call('git', '-C', str(self.repo.worktree), 'rev-parse', 'HEAD').stdout.strip()
+        before = {}
+        for provider in ('claude', 'codex'):
+            result = self.repo.run_launcher(provider, dict(os.environ))
+            self.assertEqual(result.returncode, 0, result.stderr)
+            before[provider] = json.loads(result.stdout)['context']['activation']['commit']
+        self.repo._put('.engine/tools/helper.py', "from pathlib import Path\nVALUE='fixed'\nORIGIN=__file__\n")
+        self.repo.git('add', '.engine/tools/helper.py')
+        self.repo.git('commit', '-m', 'accepted successor')
+        successor = self.repo.git('rev-parse', 'HEAD')
+        advanced = self.repo.activate(commit=successor, expected_epoch=1)
+        self.assertEqual(advanced.returncode, 0, advanced.stderr)
+        for provider in ('claude', 'codex'):
+            result = self.repo.run_launcher(provider, dict(os.environ))
+            self.assertEqual(result.returncode, 0, result.stderr)
+            observed = json.loads(result.stdout)
+            self.assertEqual(observed['value'], 'fixed')
+            self.assertEqual(observed['context']['activation']['commit'], successor)
+            self.assertNotEqual(before[provider], successor)
+        self.assertEqual(_accepted_call('git', '-C', str(self.repo.worktree), 'rev-parse', 'HEAD').stdout.strip(), original_head)
 
     def test_activation_schema_exact_objects_epoch_cas_and_legacy_barrier(self):
         import jsonschema
@@ -2361,15 +2488,13 @@ class TestInventoryDriftCheckers(unittest.TestCase):
         self.assertTrue(any("names validation on PostToolUse" in f for f in failures), failures)
 
     def test_provider_only_bindings_satisfy_their_owners_only_across_the_union(self):
-        # Provider-only owners are an established, ledgered shape: build-coordinator's compact-matcher
-        # re-grounding and session-economy's spend gate are Claude-only; modes' native-plan importer on
-        # UserPromptSubmit is Codex-only. Read alone, EACH runtime's file reds the other's owners — which
-        # is exactly why the reverse leg reads the union (green above), never one file.
+        # The compact reminder and spawn gate now bind on both providers. The native-plan importer
+        # on UserPromptSubmit remains Codex-only, so the reverse leg still reads the union.
         live = self._live()
         installed = hooks.installed_modules()
         codex_only = hooks.inventory_reverse_failures({"codex": live["codex"]}, installed)
-        self.assertTrue(any("build-coordinator on SessionStart" in f for f in codex_only), codex_only)
-        self.assertTrue(any("session-economy on PreToolUse" in f for f in codex_only), codex_only)
+        self.assertFalse(any("build-coordinator on SessionStart" in f for f in codex_only), codex_only)
+        self.assertFalse(any("session-economy on PreToolUse" in f for f in codex_only), codex_only)
         claude_only = hooks.inventory_reverse_failures({"claude": live["claude"]}, installed)
         self.assertEqual([f for f in claude_only if "over-reports" in f],
                          ["the inventory names modes on UserPromptSubmit, but no engine command mapped to modes "

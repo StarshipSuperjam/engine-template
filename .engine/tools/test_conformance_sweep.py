@@ -83,6 +83,27 @@ def _block(items, kind="product-conformance") -> str:
     return "prose\n\n<!-- conformance-verdicts.v1\n" + json.dumps({"kind": kind, "items": items}) + "\n-->\n"
 
 
+# These fixtures replace trusted configuration and only the remote journal service. The
+# production helper, rendering, identity lifecycle, assessment and issue transport all run.
+def setUpModule():
+    from unittest.mock import patch
+    import issue_recovery
+    global _producer_fixtures
+    store_type = issue_recovery.GitStore
+    def store(client, activation):
+        return client._transport.__self__.recovery_store
+    _producer_fixtures = [patch('issue_author.resolve_issue_repositories', return_value=['you/proj', 'you/your-project', 'o/r', 'ambient/repo']),
+                          patch('issue_recovery.load_activation', return_value={'repository_id': 42, 'genesis': '0' * 40}),
+                          patch('issue_recovery.GitStore', side_effect=store)]
+    for fixture in _producer_fixtures:
+        fixture.start()
+
+
+def tearDownModule():
+    for fixture in reversed(_producer_fixtures):
+        fixture.stop()
+
+
 class TestLockedDocsAndState(unittest.TestCase):
     def test_locked_docs_enumerates_only_locked(self):
         root = _seed({"docs/spec/a.md": _cap("locked"), "docs/spec/b.md": _cap("draft"),
@@ -224,6 +245,20 @@ class TestFeed(unittest.TestCase):
 
 
 class TestExtractBlock(unittest.TestCase):
+    def test_typed_adapter_preserves_all_verdicts_and_distinguishes_absence(self):
+        items = [_item(verdict=v) for v in ("diverges", "meets", "unsure")]
+        result, stripped = cs.extract_result(_block(items))
+        self.assertEqual(result, {"status": "valid", "report": {"kind": "product-conformance", "items": items}})
+        self.assertNotIn("<!--", stripped)
+        self.assertEqual(cs.extract_result("prose")[0], {"status": "absent"})
+        self.assertEqual(cs.extract_result(_block([]))[0]["status"], "valid")
+        for body in [_block(items) + _block([]), "prose <!-- conformance-verdicts.v1 broken",
+                     _block([{**items[0], "unknown": "must not vanish"}])]:
+            result, stripped = cs.extract_result(body)
+            self.assertEqual(result["status"], "rejected")
+            self.assertEqual(result["rejection"]["schema_version"], "result-rejection.v1")
+            self.assertNotIn("<!--", stripped)
+
     def test_one_valid_block_parses_and_strips(self):
         items, stripped = cs.extract_block(_block([_item()]))
         self.assertEqual(len(items), 1)
@@ -326,6 +361,66 @@ class TestLeakGuard(unittest.TestCase):
 
 
 class TestPromote(unittest.TestCase):
+    def test_oversized_outer_input_is_read_in_bounds_and_machine_tail_is_stripped(self):
+        import contextlib
+        import io
+        from unittest import mock
+        import result_contracts
+        root = _seed({})
+        self.addCleanup(__import__("shutil").rmtree, root, True)
+        for position in (0, 65530, result_contracts.LIMITS["bytes"] + 20):
+            narrative = "n" * position
+            body = self._body_file(narrative + cs._BLOCK_MARKER + "x" * 1100000)
+            original_open = open
+            class BoundedReader:
+                def __init__(self, stream): self.stream = stream
+                def __enter__(self): return self
+                def __exit__(self, *args): self.stream.close()
+                def __getattr__(self, key): return getattr(self.stream, key)
+                def read(inner, size=-1):
+                    self.assertGreater(size, 0)
+                    self.assertLessEqual(size, result_contracts.LIMITS["bytes"] + 1)
+                    return inner.stream.read(size)
+            def checked(path, *args, **kwargs):
+                stream = original_open(path, *args, **kwargs)
+                return BoundedReader(stream) if str(path) == body else stream
+            error = io.StringIO()
+            with mock.patch.object(cs, "open", side_effect=checked, create=True), contextlib.redirect_stderr(error):
+                self.assertEqual(cs.promote(body, repo=None, token=None, root=root), (0, False))
+            self.assertIn("maxBytes", error.getvalue())
+            with open(body) as stream:
+                self.assertEqual(stream.read(), narrative)
+
+    def test_cli_rejection_is_not_reported_as_an_empty_success(self):
+        import contextlib
+        import io
+        from unittest import mock
+        body = self._body_file(_block([{**_item(), "unknown": 1}]))
+        root = _seed({})
+        self.addCleanup(__import__("shutil").rmtree, root, True)
+        output, error = io.StringIO(), io.StringIO()
+        with mock.patch.object(cs, "_root", return_value=root), \
+                contextlib.redirect_stdout(output), contextlib.redirect_stderr(error):
+            self.assertEqual(cs.main(["promote", body]), 0)
+        self.assertIn("report rejected", error.getvalue())
+        self.assertIn("No conformance issues were promoted", output.getvalue())
+        self.assertNotIn("No standing conformance findings", output.getvalue())
+        with open(body) as stream:
+            self.assertNotIn("<!--", stream.read())
+
+    def test_rejected_model_block_is_disclosed_stripped_and_does_not_promote(self):
+        import contextlib
+        import io
+        body = self._body_file(_block([{**_item(), "unknown": 1}]))
+        root = _seed({})
+        self.addCleanup(__import__("shutil").rmtree, root, True)
+        error = io.StringIO()
+        with contextlib.redirect_stderr(error):
+            self.assertEqual(cs.promote(body, repo=None, token=None, root=root), (0, False))
+        self.assertIn("report rejected", error.getvalue())
+        with open(body) as stream:
+            self.assertNotIn("<!--", stream.read())
+
     def _body_file(self, text):
         d = tempfile.mkdtemp(prefix="engine-conformance-body-")
         self.addCleanup(__import__("shutil").rmtree, d, True)
@@ -349,6 +444,60 @@ class TestPromote(unittest.TestCase):
         self.assertEqual((tracked, degraded), (0, True))
         with open(bf, encoding="utf-8") as fh:
             self.assertNotIn("<!--", fh.read())
+
+    def test_explicit_no_credentials_ignore_ambient_values_and_history(self):
+        # `None` means no access even in an Actions-like shell with ambient credentials.  promote() never
+        # reads history (that ambient reader is intentionally limited to emit_feed), and must not construct
+        # a GitHubIssues client or call the injected transport on any explicit-no-access combination.
+        root = _seed({"docs/spec/a.md": _cap("locked")})
+        self.addCleanup(__import__("shutil").rmtree, root, True)
+        matrix_path = self._matrix_path(root)
+        old_repo = os.environ.get("GITHUB_REPOSITORY")
+        old_token = os.environ.get("GITHUB_TOKEN")
+        old_matrix_path = os.environ.get("ENGINE_OBLIGATION_MATRIX_PATH")
+        os.environ["GITHUB_REPOSITORY"] = "ambient/repo"
+        os.environ["GITHUB_TOKEN"] = "ambient-token"
+        os.environ["ENGINE_OBLIGATION_MATRIX_PATH"] = matrix_path
+        self.addCleanup(self._restore_env, "GITHUB_REPOSITORY", old_repo)
+        self.addCleanup(self._restore_env, "GITHUB_TOKEN", old_token)
+        self.addCleanup(self._restore_env, "ENGINE_OBLIGATION_MATRIX_PATH", old_matrix_path)
+
+        original_client = telemetry.GitHubIssues
+        original_history = cs._read_history
+        telemetry.GitHubIssues = lambda *args, **kwargs: self.fail("explicit None constructed GitHubIssues")
+        cs._read_history = lambda *args, **kwargs: self.fail("promote reached emit_feed history reader")
+        self.addCleanup(lambda: setattr(telemetry, "GitHubIssues", original_client))
+        self.addCleanup(lambda: setattr(cs, "_read_history", original_history))
+
+        calls = []
+        def transport(*args):
+            calls.append(args)
+            self.fail("explicit None used a transport")
+
+        for repo, token in ((None, None), (None, "injected-token"), ("injected/repo", None)):
+            bf = self._body_file(_block([_item()]))
+            self.assertEqual(cs.promote(bf, repo=repo, token=token, transport=transport, root=root), (0, True))
+        self.assertEqual(calls, [])
+
+    def test_omitted_credentials_still_use_ambient_values_with_fake_transport(self):
+        # The sentinel preserves the CLI's intended ambient-credential path; the fake transport keeps this
+        # regression fully local.
+        root = _seed({"docs/spec/a.md": _cap("locked")})
+        self.addCleanup(__import__("shutil").rmtree, root, True)
+        matrix_path = self._matrix_path(root)
+        old_repo = os.environ.get("GITHUB_REPOSITORY")
+        old_token = os.environ.get("GITHUB_TOKEN")
+        old_matrix_path = os.environ.get("ENGINE_OBLIGATION_MATRIX_PATH")
+        os.environ["GITHUB_REPOSITORY"] = "ambient/repo"
+        os.environ["GITHUB_TOKEN"] = "ambient-token"
+        os.environ["ENGINE_OBLIGATION_MATRIX_PATH"] = matrix_path
+        self.addCleanup(self._restore_env, "GITHUB_REPOSITORY", old_repo)
+        self.addCleanup(self._restore_env, "GITHUB_TOKEN", old_token)
+        self.addCleanup(self._restore_env, "ENGINE_OBLIGATION_MATRIX_PATH", old_matrix_path)
+        fake = telemetry._FakeGitHub()
+        bf = self._body_file(_block([_item()]))
+        self.assertEqual(cs.promote(bf, transport=fake.transport, root=root), (1, False))
+        self.assertEqual(len(fake.issues), 1)
 
     def test_silent_state_promotes_no_divergence_even_with_a_block(self):
         # spec-conformance nit #2: a divergence block in a repo with no settled spec (silent) promotes nothing
@@ -415,6 +564,13 @@ class TestPromote(unittest.TestCase):
         with open(path, "w", encoding="utf-8") as fh:
             fh.write(json.dumps(_matrix([_row()])))
         return path
+
+    @staticmethod
+    def _restore_env(name, value):
+        if value is None:
+            os.environ.pop(name, None)
+        else:
+            os.environ[name] = value
 
 
 class TestMatrixHistorySeam(unittest.TestCase):

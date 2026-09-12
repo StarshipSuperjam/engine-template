@@ -51,6 +51,48 @@ PlanStoreError = core.CoordinatorError
 ROOT = Path(__file__).resolve().parents[2]
 RECORD_SCHEMA = ROOT / ".engine" / "schemas" / "plan-record.v1.json"
 
+def validate_record(record):
+    core.validate(record, RECORD_SCHEMA, local_refs=True)
+    import reviewer_contracts
+    approval = record.get("approval") or {}
+    if record.get("review_contract_format") == 1 and not approval.get("review_contract"):
+        raise PlanStoreError("frozen approval contract is missing; it cannot downgrade to legacy")
+    adopted = reviewer_contracts.adoption(record)
+    if adopted and adopted["owner"] != {"kind": "plan", "plan": record["plan_id"], "revision": approval["revision"], "digest": approval["plan_digest"]}:
+        raise PlanStoreError("historical adoption names another plan approval")
+    contract = reviewer_contracts.effective(record)
+    if contract and contract["referent"] != {"plan_id": record["plan_id"],
+            "revision": approval["revision"], "plan_digest": approval["plan_digest"]}:
+        raise PlanStoreError("frozen review contract names another approval")
+
+
+    for archived in record.get("approval_history", []):
+        historical = reviewer_contracts.effective({"approval": archived["approval"],
+            "review_contract_renewals": archived["renewals"]})
+        if historical and historical["referent"] != {"plan_id": record["plan_id"],
+                "revision": archived["approval"]["revision"],
+                "plan_digest": archived["approval"]["plan_digest"]}:
+            raise PlanStoreError("archived approval contract names another approval")
+    ids = set()
+    renewals = {r["preview_digest"]: r for r in record.get("review_contract_renewals", [])}
+    for entry in record.get("supplemental_reviews", []):
+        decision = renewals.get(entry["renewal_digest"])
+        if not decision or decision["action"] != "adopt":
+            raise PlanStoreError("supplemental review has no explicit adopted renewal")
+        review = entry["review"]
+        if review.get("contract_digest") != decision["contract"]["digest"]:
+            raise PlanStoreError("supplemental review names another renewal contract")
+        changed = {d["lens"] for d in decision["delta"] if d["role"] == "plan-review" and d["new"]}
+        if not set(review["lenses"]) <= changed:
+            raise PlanStoreError("supplemental execution includes an unchanged or unapproved lens")
+    for review in ([record["plan_review"]] if record.get("plan_review") else []) + [
+            e["review"] for e in record.get("supplemental_reviews", [])]:
+        for finding in review.get("findings", []):
+            if finding["id"] in ids:
+                raise PlanStoreError("review lineage contains duplicate finding ids")
+            ids.add(finding["id"])
+
+
 # Fields a record on disk may carry that plan-record.v1 no longer declares. The record schema forbids
 # unknown properties and every read and write validates, so a retired field has to be dropped at the
 # raw read — the one door every reader and every mutator comes through — or the record becomes
@@ -346,7 +388,7 @@ class PlanLibrary:
 
     def read_record(self, slug: str) -> dict:
         record = self._read_record_unchecked(slug)
-        core.validate(record, RECORD_SCHEMA)
+        validate_record(record)
         return record
 
     def read_revision(self, slug: str, revision: int) -> dict:
@@ -512,7 +554,7 @@ class PlanLibrary:
             }
             if intake:
                 record["intake"] = intake
-            core.validate(record, RECORD_SCHEMA)
+            validate_record(record)
             self._write_json(self._record_path(slug), record)
         return slug
 
@@ -563,7 +605,7 @@ class PlanLibrary:
             # is DERIVED (approved, never reviewed, and the head has moved since) rather than erased.
             # Deriving it keeps the evidence: an operator can still see what was approved and when,
             # which is exactly what they need in order to decide whether re-approving is warranted.
-            core.validate(record, RECORD_SCHEMA)
+            validate_record(record)
             self._write_json(self._record_path(slug), record)
             return record
 
@@ -583,9 +625,23 @@ class PlanLibrary:
             core.assert_revision(record["current"]["revision"], expected_revision, "plan",
                                  "another session revised this plan; re-read it and re-apply your change")
             change(record)
-            core.validate(record, RECORD_SCHEMA)
+            validate_record(record)
             self._write_json(self._record_path(slug), record)
             return record
+
+    def write_build_record_locked(self, slug: str, record: dict) -> None:
+        """Commit a Build transaction while the caller holds `exclusive_lock_for`.
+
+        Plan locks precede snapshot locks; callers must never call update_record from inside
+        either lock. Unlike an ordinary projection update, activation requires the directory
+        barrier too. A failed barrier leaves a visible, recoverable transaction, not success.
+        """
+        if record['plan_id'] != self.read_record(slug)['plan_id']:
+            raise PlanStoreError('a Build transaction cannot change the plan identity')
+        validate_record(record)
+        core.atomic_write(self._record_path(slug),
+                          json.dumps(record, indent=2, sort_keys=True) + '\n',
+                          durable=True, mode=FILE_MODE, require_directory_flush=True)
 
     def redact_revision(self, slug: str, revision: int, *, reason: str) -> dict:
         """Excise one revision's BODY, leaving the chain honest and the excision visible.
@@ -619,7 +675,7 @@ class PlanLibrary:
                 self._unlink_body(path)
                 if reason.strip() != entry["redacted"]["reason"]:
                     entry["redacted"]["reason"] = reason.strip()
-                    core.validate(record, RECORD_SCHEMA)
+                    validate_record(record)
                     self._write_json(self._record_path(slug), record)
                 self._clear_intent(slug, entry)
                 return record
@@ -643,7 +699,7 @@ class PlanLibrary:
             self._write_intent(slug, entry, reason.strip())
             self._unlink_body(path)
             entry["redacted"] = {"at": _now(), "reason": reason.strip()}
-            core.validate(record, RECORD_SCHEMA)
+            validate_record(record)
             self._write_json(self._record_path(slug), record)
             self._clear_intent(slug, entry)
             return record

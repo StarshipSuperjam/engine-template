@@ -18,6 +18,13 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
 import transaction  # noqa: E402
 import transaction_envelope as te  # noqa: E402
+from selftest_support import CONSTRUCTION
+
+
+def _arrival_expected():
+    # The arrival adapter is retired by deployment; all other adapters remain mandatory.
+    return CONSTRUCTION or os.path.isfile(os.path.join(os.path.dirname(__file__),
+                                                       "transaction_adapters_arrival.py"))
 
 
 class RecordingAdapter(transaction.Adapter):
@@ -216,8 +223,12 @@ class TestOperatorTypedOnlyOperations(ProtocolTestCase):
             self.assertIn(mod, transaction._ADAPTER_MODULES)
         failed = transaction.load_adapters()
         for mod in ("transaction_adapters_controlplane", "transaction_adapters_arrival"):
+            if mod == "transaction_adapters_arrival" and not _arrival_expected():
+                continue
             self.assertNotIn(mod, failed, f"{mod} must import cleanly in the engine's home repo")
         for op in ("control-plane-bootstrap", "control-plane-finalize", "engine-arrival"):
+            if op == "engine-arrival" and not _arrival_expected():
+                continue
             self.assertIn(op, transaction._REGISTRY, f"load_adapters must register {op}")
 
     def test_part_b_external_state_operations_are_not_operator_typed_only(self):
@@ -304,8 +315,11 @@ class TestLoadAdaptersReportsAnImportFailure(unittest.TestCase):
 
     def test_the_other_adapters_still_register_and_dispatch(self):
         failed = transaction.load_adapters()
-        # The broken one is the ONLY failure; every real operation still registered and reachable.
-        self.assertEqual(set(failed), {self._BROKEN})
+        # Only the injected failure and the explicitly retired arrival adapter may be absent.
+        expected = {self._BROKEN}
+        if not _arrival_expected():
+            expected.add("transaction_adapters_arrival")
+        self.assertEqual(set(failed), expected)
         for operation in ("engine-upgrade", "engine-upgrade-rollback", "module-add", "module-remove",
                           "engine-remove"):
             self.assertEqual(transaction._adapter_for(operation).operation, operation)
@@ -363,6 +377,8 @@ class TestTheRealCommandLineWorks(unittest.TestCase):
         self.assertEqual(roster.returncode, 2, roster.stdout + roster.stderr)
         operations = json.loads(roster.stdout)["available_operations"]
         for expected in ("control-plane-bootstrap", "control-plane-finalize", "engine-arrival"):
+            if expected == "engine-arrival" and not _arrival_expected():
+                continue
             self.assertIn(expected, operations, "the Part B ops must be on the CLI's served roster")
         for operation in operations:
             result = self._run("inspect", operation)

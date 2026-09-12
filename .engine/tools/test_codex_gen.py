@@ -1,13 +1,14 @@
 #!/usr/bin/env python3
 """Self-tests for the Codex render tool (codex_gen.py) — the pipeline five enforcement surfaces
 depend on. These pin the render transforms (typed-prefix rewrite, session-flag strip, routing
-lines, the read-only floor and no-model rule) and give the render-sync drift gate its fail-side
+lines, the requested read-only floor and central model bindings) and give the render-sync drift gate its fail-side
 witnesses: a hand-edited render, a stale render, and an orphaned render must each be caught.
 
 Run: uv run --directory .engine --frozen -- python tools/selftest.py
 """
 from __future__ import annotations
 import glob
+import json
 import os
 import shutil
 import sys
@@ -17,6 +18,7 @@ import unittest
 from unittest import mock
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+import agent_bindings as ab  # noqa: E402
 import codex_gen   # noqa: E402
 import codex_agent_coherence_check as cac   # noqa: E402
 import validate    # noqa: E402
@@ -65,6 +67,10 @@ class _FixtureTree(unittest.TestCase):
         self.root = self._tmp.name
         _write(os.path.join(self.root, ".claude", "agents", "qa-review-widget.md"), AGENT_SRC)
         _write(os.path.join(self.root, ".claude", "skills", "engine-widget", "SKILL.md"), SKILL_SRC)
+        _write(os.path.join(self.root, ".engine", "policies", "model-bindings.json"), json.dumps({
+            "schema_version": 1, "providers": {"codex": {"tiers": {
+                "judgment": {"model": "gpt-fixture-1", "effort": "high"},
+                "mechanical": {"model": "gpt-fixture-2", "effort": "low"}}}}}))
 
     def tearDown(self):
         self._tmp.cleanup()
@@ -115,6 +121,54 @@ class TestWorkerRenders(unittest.TestCase):
         self.assertIn("scoped write", data["developer_instructions"])
 
 
+
+class TestHigherEffortRendering(unittest.TestCase):
+    def test_execution_effort_and_reviewer_omission_survive_both_renderers(self):
+        for effort in ("xhigh", "max", "ultra"):
+            for role in ("audit", "worker", "plan-review", "pre-submission-review"):
+                with self.subTest(effort=effort, role=role), tempfile.TemporaryDirectory() as root:
+                    worker = role == "worker"
+                    name = "engine-worker-widget" if worker else "qa-review-widget"
+                    source = WORKER_SRC if worker else AGENT_SRC.replace(
+                        "role: pre-submission-review", f"role: {role}").replace("output-contract: pre-submission-review-finding.v1", "output-contract: " + ("audit-finding.v1" if role == "audit" else "plan-review-finding.v1" if role == "plan-review" else "pre-submission-review-finding.v1"))
+                    binding = json.loads(WORKER_BINDINGS)
+                    binding["tiers"]["judgment"]["effort"] = effort
+                    binding["providers"] = {"codex": {"tiers": {
+                        "judgment": {"model": "gpt-fixture", "effort": effort},
+                        "mechanical": {"model": "gpt-small", "effort": "low"}}}}
+                    for provider in ("claude", "codex"):
+                        binding["implementation_classes"]["builder"][provider]["effort"] = effort
+                    src = os.path.join(root, ".claude", "agents", name + ".md")
+                    dst = os.path.join(root, ".codex", "agents", name + ".toml")
+                    _write(src, source)
+                    _write(os.path.join(root, ".engine", "policies", "model-bindings.json"), json.dumps(binding))
+                    ab.render(root)
+                    codex_gen.generate(root)
+                    claude = validate.read(src)
+                    codex = validate.read(dst)
+                    data = tomllib.loads(codex)
+                    reviewer = role in ("plan-review", "pre-submission-review")
+                    if reviewer:
+                        self.assertNotIn("effort:", claude)
+                        self.assertNotIn("model_reasoning_effort", data)
+                    else:
+                        self.assertIn(f"effort: {effort}", claude)
+                        self.assertEqual(data["model_reasoning_effort"], effort)
+                    self.assertEqual(ab.check(root), [])
+                    with mock.patch.object(validate, "ROOT", root):
+                        self.assertEqual(cac.findings("hard", os.path.dirname(dst)), [])
+                    self.assertEqual(ab.render(root), [])
+                    codex_gen.generate(root)
+                    self.assertEqual(validate.read(src), claude)
+                    self.assertEqual(validate.read(dst), codex)
+                    if reviewer:
+                        _write(src, claude.replace("model: opus", f"model: opus\neffort: {effort}"))
+                        self.assertTrue(ab.check(root))
+                        _write(dst, codex + f'\nmodel_reasoning_effort = "{effort}"\n')
+                        with mock.patch.object(validate, "ROOT", root):
+                            self.assertTrue(any("reviewer effort" in f["message"]
+                                                for f in cac.findings("hard", os.path.dirname(dst))))
+
 class TestWorkerFloorScoping(unittest.TestCase):
     """The role-scoped Codex coherence floor: worker renders must carry a matching model and a
     write sandbox; review/audit renders (and any render whose canonical role can't be placed) still
@@ -155,16 +209,25 @@ class TestWorkerFloorScoping(unittest.TestCase):
 
 
 class TestRenderTransforms(_FixtureTree):
-    def test_reviewer_render_carries_the_floor_pins_no_model_and_un_pins_effort(self):
-        # A reviewer twin (role pre-submission-review) carries the read-only floor and NO model id, and — since
-        # NO model_reasoning_effort either: a reviewer's effort is not part of the review contract, so the
-        # twin bakes none and runs at the provider's configured default.
+    def test_reader_guidance_preserves_no_shell_without_ignored_role_server(self):
+        source = os.path.join(self.root, ".claude", "agents", "qa-review-widget.md")
+        original = AGENT_SRC
+        for role in ("plan-review", "pre-submission-review", "audit"):
+            _write(source, original.replace("role: pre-submission-review", "role: " + role).replace("output-contract: pre-submission-review-finding.v1", "output-contract: " + ("audit-finding.v1" if role == "audit" else "plan-review-finding.v1" if role == "plan-review" else "pre-submission-review-finding.v1")))
+            rendered = tomllib.loads(codex_gen.render_agent(source, self.root))
+            self.assertIn("Do not run shell commands", rendered["developer_instructions"])
+            self.assertEqual(rendered["sandbox_mode"], "read-only")
+            self.assertNotIn("mcp_servers", rendered)
+            self.assertEqual("engine-review-reader" in rendered["developer_instructions"],
+                             role == "plan-review")
+
+    def test_reviewer_render_uses_provider_model_and_leaves_effort_unpinned(self):
         codex_gen.generate(self.root)
         path = os.path.join(self.root, ".codex", "agents", "qa-review-widget.toml")
         with open(path, "rb") as fh:
             data = tomllib.load(fh)
         self.assertEqual(data["sandbox_mode"], "read-only")
-        self.assertNotIn("model", data)
+        self.assertEqual(data["model"], "gpt-fixture-1")
         self.assertNotIn("model_reasoning_effort", data,
                          "a reviewer twin carries no effort; effort is not part of the review contract")
         self.assertIn("read-only", data["developer_instructions"])
@@ -172,22 +235,38 @@ class TestRenderTransforms(_FixtureTree):
                       "a Bash-denylisting source renders the no-shell instruction line")
         self.assertIn("Review the widget.", data["developer_instructions"])
 
-    def test_stamped_effort_sources_from_frontmatter_and_model_never_leaks(self):
-        # A NON-reviewer persona stamped with model:/effort: by agent_bindings render (the audit persona keeps
-        # its effort, unlike the un-pinned reviewer roles) — Codex takes the effort from the stamped frontmatter
-        # (not the tier fallback, which would be 'high'), and STILL emits no model id (a pinned model in a
-        # persona rots). This guards the codex_gen change + the no-model-leak rule.
-        stamped = AGENT_SRC.replace("role: pre-submission-review\n", "role: audit\n").replace(
+    def test_audit_uses_codex_bindings_not_the_claude_model_or_effort_stamp(self):
+        stamped = AGENT_SRC.replace("output-contract: pre-submission-review-finding.v1", "output-contract: audit-finding.v1").replace("role: pre-submission-review\n", "role: audit\n").replace(
             "model-tier: judgment\n", "model-tier: judgment\nmodel: sonnet\neffort: low\n")
         _write(os.path.join(self.root, ".claude", "agents", "qa-review-widget.md"), stamped)
         codex_gen.generate(self.root)
         path = os.path.join(self.root, ".codex", "agents", "qa-review-widget.toml")
         with open(path, "rb") as fh:
             data = tomllib.load(fh)
-        self.assertNotIn("model", data, "the stamped model alias must never leak into the Codex render")
+        self.assertEqual(data["model"], "gpt-fixture-1")
         self.assertNotIn("sonnet", validate.read(path), "no model alias appears anywhere in the render")
-        self.assertEqual(data["model_reasoning_effort"], "low",
-                         "effort comes from the stamped frontmatter, not the judgment-tier fallback (high)")
+        self.assertEqual(data["model_reasoning_effort"], "high",
+                         "audit effort comes from the Codex binding, not the Claude effort stamp")
+
+    def test_missing_codex_binding_refuses_generation(self):
+        _write(os.path.join(self.root, ".engine", "policies", "model-bindings.json"), '{"tiers": {}}')
+        with self.assertRaisesRegex(KeyError, "providers.codex"):
+            codex_gen.generate(self.root)
+
+    def test_retune_and_stray_reviewer_effort_are_coherence_findings(self):
+        codex_gen.generate(self.root)
+        binding_path = os.path.join(self.root, ".engine", "policies", "model-bindings.json")
+        bindings = validate.load_json(binding_path)
+        bindings["providers"]["codex"]["tiers"]["judgment"]["model"] = "gpt-retuned-1"
+        _write(binding_path, json.dumps(bindings))
+        agents = os.path.join(self.root, ".codex", "agents")
+        with mock.patch.object(validate, "ROOT", self.root):
+            self.assertTrue(any("central Codex" in f["message"] for f in cac.findings("hard", agents)))
+            codex_gen.generate(self.root)
+            self.assertEqual(cac.findings("hard", agents), [])
+            path = os.path.join(agents, "qa-review-widget.toml")
+            _write(path, validate.read(path) + '\nmodel_reasoning_effort = "high"\n')
+            self.assertTrue(any("reviewer effort" in f["message"] for f in cac.findings("hard", agents)))
 
     def test_skill_render_rewrites_the_verb_and_strips_the_session_flag(self):
         codex_gen.generate(self.root)
@@ -381,10 +460,9 @@ class TestCommittedRendersInSync(unittest.TestCase):
 class TestScoutRoleIsNotRendered(unittest.TestCase):
     """The scout skip in `_agent_sources`, pinned directly.
 
-    A scout has no Codex twin on purpose: a non-worker render pins no model, so the twin would inherit
-    the frontier model and cost more than the inline work it replaces, and the coherence floor's
-    read-only sandbox would forbid a shell-capable scout the scratch copy its containment recipe
-    requires. Such a twin would be silently expensive or silently unable to run.
+    Central model selection does not itself authorize scout rollout. The separately owned scout
+    and runner contracts still need qualification; parent permissions do not isolate a writable
+    scratch copy from the work under review.
 
     Nothing else catches the skip's removal. A reviewer deleted it and regenerated: two scout twins
     appeared, the Codex coherence check returned clean, and the parity ledger produced only SOFT

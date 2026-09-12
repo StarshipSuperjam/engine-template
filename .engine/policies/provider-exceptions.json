@@ -3,80 +3,80 @@
   "exceptions": [
     {
       "kind": "hook",
-      "id": ".engine/tools/build_coordinator.py reground-hook",
-      "missing_or_weaker": "missing",
-      "provider": "codex",
-      "reason": "Post-compaction Build metadata rides Claude Code's SessionStart `compact` source, whose stdout becomes the freshly compacted session's context. Codex has no confirmed equivalent injection source, so this metadata pointer remains Claude-only rather than binding an unverified hook that may do nothing and would force hook re-approval. The continuity law itself is not missing: it lives in both provider root floors, and Codex rebuilds AGENTS.md into the model-visible prompt independently of the compacted conversation. The provider-neutral coordinator also re-verifies every mutating verb against the durable Build record. Codex therefore loses the immediate plan/PR/work-item reminder, not the instruction to continue actionable Build work or the mutation refusal. If Codex post-compaction injection is later proven, this entry is deleted and the metadata counterpart registered."
-    },
-    {
-      "kind": "hook",
       "id": ".engine/tools/modes.py accept-hook",
       "missing_or_weaker": "missing",
       "provider": "codex",
-      "reason": "This hook rides Claude Code's plan-mode completion signal (ExitPlanMode), which Codex has no equivalent for, so it cannot be registered there. What it DOES is no longer what this entry once recorded: it imports the accepted plan into the Project Manager as an unapproved draft, and it does not enter Build on either runtime. The Codex side is not left without the capability — the same import runs there through the typed acceptance envelope on UserPromptSubmit (see the plan-import-hook entry below), which is why this asymmetry is one of SIGNAL, not of function. Build entry stays the typed $engine-start on both runtimes; importing a draft grants no Build authority, so nothing here infers build intent from an acceptance."
+      "reason": "This hook rides Claude Code's plan-mode completion signal (ExitPlanMode), which Codex has no equivalent for, so it cannot be registered there. What it DOES is no longer what this entry once recorded: it imports the accepted plan into the Project Manager as an unapproved draft, and it does not enter Build on either runtime. The Codex side is not left without the capability \u2014 the same import runs there through the typed acceptance envelope on UserPromptSubmit (see the plan-import-hook entry below), which is why this asymmetry is one of SIGNAL, not of function. Build entry stays the typed $engine-start on both runtimes; importing a draft grants no Build authority, so nothing here infers build intent from an acceptance."
     },
     {
       "kind": "hook",
       "id": ".engine/tools/modes.py plan-import-hook",
       "missing_or_weaker": "missing",
       "provider": "claude",
-      "reason": "The mirror of the entry above, and the reason that one is not a capability gap. Codex exposes no plan-exit completion, so its native-plan import is keyed on the acceptance envelope the operator types, read by a UserPromptSubmit owner registered after boot's per-prompt scent. Claude does not carry this registration because it does not need it: acceptance there arrives as a plan-exit completion and is already handled on PostToolUse. Registering both on Claude would give one event two importers of the same document — a duplicate-writer shape, and the second import would mint a second plan id for one accepted plan."
+      "reason": "The mirror of the entry above, and the reason that one is not a capability gap. Codex exposes no plan-exit completion, so its native-plan import is keyed on the acceptance envelope the operator types, read by a UserPromptSubmit owner registered after boot's per-prompt scent. Claude does not carry this registration because it does not need it: acceptance there arrives as a plan-exit completion and is already handled on PostToolUse. Registering both on Claude would give one event two importers of the same document \u2014 a duplicate-writer shape, and the second import would mint a second plan id for one accepted plan."
     },
     {
       "kind": "floor",
       "id": "conduct-loading",
       "missing_or_weaker": "weaker",
       "provider": "codex",
-      "reason": "Claude Code pulls the codes of conduct into every session mechanically (the floor's @import); Codex has no import mechanism, so the AGENTS.md floor carries an imperative required-reading instruction instead — discipline where Claude has mechanics. The session-start briefing (when hooks run) independently carries the orientation, so the instruction is the fallback path, not the only one."
+      "reason": "Claude Code pulls the codes of conduct into every session mechanically (the floor's @import); Codex has no import mechanism, so the AGENTS.md floor carries an imperative required-reading instruction instead \u2014 discipline where Claude has mechanics. The session-start briefing (when hooks run) independently carries the orientation, so the instruction is the fallback path, not the only one."
     },
     {
       "kind": "agent",
       "id": "reviewer-shell-prohibition",
       "missing_or_weaker": "weaker",
       "provider": "codex",
-      "reason": "On Claude, the audit and plan-review personas mechanically denylist shell commands. The Codex agent format has no per-tool denylist field, so its renders carry the prohibition as instruction text and request a read-only sandbox. That request is only the agent's standalone default: Codex reapplies the parent task's live runtime permission override to spawned agents, so a reviewer launched from a Workspace Write parent can be Workspace Write too. The no-shell/no-write wording is then discipline, and the operator's merge is the wall; the read-only TOML must not be described as mechanical child isolation."
+      "reason": "Live qualification on macOS with Codex CLI 0.153.4 (2026-09-08) confirmed that the same custom agent requested read-only, retained its configured model/effort, and inherited the parent task's effective sandbox. A Read Only child could invoke a shell but could not write the fixture file; a Workspace Write child wrote it. The Codex agent format has no per-tool denylist, so reviewer no-shell/no-write instructions remain discipline. Generated reviewers retain the read-only request, the strongest tested default, but it is not mechanical isolation from a Workspace Write parent. CLI evidence does not qualify Desktop. See codex-validation.md; repeat qualification if platform behavior changes."
     },
     {
       "kind": "enforcement",
       "id": "hook-trust-gate",
       "missing_or_weaker": "weaker",
       "provider": "codex",
-      "reason": "Codex skips new or changed project hooks until the operator re-trusts them, so every engine update that touches the hook registration turns the engine's local guardrails OFF until /hooks re-approval. The engine says so at the moment it changes the registration; the status readout additionally warns when NO session in this project has run its hooks recently (a coarse net — a recent session on either runtime clears it for up to a day); and the per-session check is the floor's own grounding rule: verify the start-of-session briefing arrived, and treat the gates as off when it did not. Disclosure at three ranges, because no mechanism can re-trust on the operator's behalf."
+      "reason": "Codex skips new or changed project hooks until the operator re-trusts them, so every engine update that touches the hook registration turns the engine's local guardrails OFF until /hooks re-approval. The engine says so at the moment it changes the registration; the status readout additionally warns when NO session in this project has run its hooks recently (a coarse net \u2014 a recent session on either runtime clears it for up to a day); and the per-session check is the floor's own grounding rule: verify the start-of-session briefing arrived, and treat the gates as off when it did not. Disclosure at three ranges, because no mechanism can re-trust on the operator's behalf."
     },
     {
       "kind": "mcp",
       "id": "engine-helper-tool-approval",
       "missing_or_weaker": "weaker",
       "provider": "codex",
-      "reason": "The engine's two helper servers are registered on Codex with every tool auto-approved. The memory server now exposes six operations, three of which WRITE on the operator's say-so — pin, withhold and restore, beside the reads list-pins and list-withheld — so on Codex a model can save a standing note or take one out of recall without a fresh consent moment, where the Claude side records approval per tool and would prompt. Weighed and accepted as bounded rather than removed: all three append to the ledger and none deletes, withholding is reversed by restore, and permanent erasure stays behind a merged single-purpose pull request no tool here can reach. The wiring map's server remains read-only. The grant is still standing, so any FURTHER tool — in particular anything that removes rather than appends — must revisit this entry and the approval mode together."
+      "reason": "The engine's two helper servers are registered on Codex with every tool auto-approved. The memory server now exposes six operations, three of which WRITE on the operator's say-so \u2014 pin, withhold and restore, beside the reads list-pins and list-withheld \u2014 so on Codex a model can save a standing note or take one out of recall without a fresh consent moment, where the Claude side records approval per tool and would prompt. Weighed and accepted as bounded rather than removed: all three append to the ledger and none deletes, withholding is reversed by restore, and permanent erasure stays behind a merged single-purpose pull request no tool here can reach. The wiring map's server remains read-only. The grant is still standing, so any FURTHER tool \u2014 in particular anything that removes rather than appends \u2014 must revisit this entry and the approval mode together."
     },
     {
       "kind": "enforcement",
       "id": "shell-interception-coverage",
       "missing_or_weaker": "weaker",
       "provider": "codex",
-      "reason": "Codex's own documentation states its pre-tool hook is a guardrail rather than a complete enforcement boundary, and that interception of its newer shell path is incomplete — so the Explore write-gate on Codex can miss shell forms the platform does not surface. The protected main branch and the operator's merge remain the only wall, on every runtime."
-    },
-    {
-      "kind": "hook",
-      "id": ".engine/tools/session_economy.py hook",
-      "missing_or_weaker": "missing",
-      "provider": "codex",
-      "reason": "The session-economy gate refuses an over-powered Explore/Plan subagent spawn and a session scheduling its own wake-up. Codex exposes neither surface: it has no subagent-spawn tool carrying a subagent_type and model, and no in-session wake-up scheduler. There is nothing there for the gate to observe, so its absence is the shape of that runtime rather than a weaker floor. If Codex later grows either surface this exception must be revisited, not renewed."
+      "reason": "Codex's own documentation states its pre-tool hook is a guardrail rather than a complete enforcement boundary, and that interception of its newer shell path is incomplete \u2014 so the Explore write-gate on Codex can miss shell forms the platform does not surface. The protected main branch and the operator's merge remain the only wall, on every runtime."
     },
     {
       "kind": "agent",
       "id": "engine-grounding-scout",
       "missing_or_weaker": "missing",
       "provider": "codex",
-      "reason": "The grounding scout is Claude-only and gets no Codex render, so codex_gen skips the scout role rather than emitting a twin that could not do the job. A non-worker render deliberately pins NO model, and a scout's entire value is that it runs on the cheap tier: a twin inheriting the frontier model would cost more than the inline sweep it exists to replace, so the render would silently invert the point of the persona. Its leaf-lock needs no render either, and that absence is not a weaker floor: the Codex agent contract carries no per-tool allow or denylist at all — its typed fields are name, description, developer_instructions, model, model_reasoning_effort and sandbox_mode — and exposes no subagent-spawn surface, so a denial of Agent and Task has nothing to be expressed against. That matches the session_economy entry above, which records the same absent surface from the gate's side. Revisit if Codex gains per-persona model binding."
+      "reason": "The Codex render remains omitted pending the separate StarshipSuperjam/engine-template#1075 rollout. L4-9 live CLI 0.153.4 probes verified custom model/effort binding and an observable spawn hook, so neither a missing model field nor an absent spawn surface explains this omission anymore. The remaining leaf-lock limit is real: the native agent format has no per-tool allow/denylist, and a read-only child can still invoke a shell. A Workspace Write parent also overrides the child's read-only default. A prose prohibition on recursive delegation does not prove mechanical leaf isolation; no recursion ceiling was established by these probes. The model and observation prerequisites are now available, while a supported scout permission/leaf-lock contract still needs the separately scoped StarshipSuperjam/engine-template#1075 decision. No scout is installed by this change."
     },
     {
       "kind": "agent",
       "id": "engine-validation-runner",
       "missing_or_weaker": "missing",
       "provider": "codex",
-      "reason": "The validation runner is Claude-only for the same model reason as the grounding scout above, and for a second one that is fatal on its own. The coherence floor requires sandbox_mode read-only on every non-worker render; the runner's containment recipe requires it to COPY the whole working tree into a disposable directory before running anything, which is a write. Worth stating plainly, because the same two words mean different things on the two arms and the difference is what makes this asymmetry real rather than a contradiction: Codex's sandbox_mode read-only is a FILESYSTEM sandbox that blocks the copy itself, while the Claude persona's permissions read-only is a TOOL denylist meaning it blocks Edit, Write and NotebookEdit (agent.v1.json says so, and the five QA review lenses already pair that value with a shell for the same reason). The runner is read-only on the WORK under review on both arms; only Codex additionally forbids it the scratch copy it needs to do the job at all. A Codex twin would therefore be sandboxed out of the one job it exists for — it could not make the copy, and running in the live checkout instead is exactly what the recipe forbids. Shipping a persona that is silently unable to run is worse than shipping none. The same vacuous-leaf-lock note applies: Codex has no per-tool denylist and no subagent-spawn surface for the Agent/Task denial to render into. Revisit if Codex gains per-persona model binding or a sandbox posture that separates writing a scratch copy from writing the work under review."
+      "reason": "The Codex render remains omitted pending separate StarshipSuperjam/engine-template#1075 rollout. L4-9 verified custom model/effort binding, removing the former model-selection blocker. The runner must copy the entire working tree into disposable scratch before executing code. Under a Read Only parent that scratch write is blocked; under a Workspace Write parent the child can write, but its read-only request does not independently protect the source checkout. Codex has no per-tool denylist or proven mechanical leaf-lock for this role. A supported source-read-only/scratch-writable containment recipe remains unqualified, so an explicit integrator-created disposable copy is the available validation route; running tests in the live source as a substitute is not. CLI evidence does not qualify Desktop. No runner rollout is implied."
+    },
+    {
+      "kind": "hook",
+      "id": ".engine/tools/session_economy.py hook",
+      "missing_or_weaker": "weaker",
+      "provider": "codex",
+      "reason": "The spawn gate now runs on qualified Codex Agent/spawn spellings and gates the recognized native explorer role using explicit model input. The remaining matcher asymmetry is deliberate: Codex has no qualified native Plan role or equivalent in-session ScheduleWakeup scheduler. No scheduler spelling is invented or registered. The standing no-self-wakeup instruction remains on both runtimes; future role or scheduler support requires fresh qualification. Unknown launch shapes remain unclassified and allowed, never certified compliant."
+    },
+    {
+      "kind": "mcp",
+      "id": "engine-review-reader",
+      "missing_or_weaker": "missing",
+      "provider": "claude",
+      "reason": "Operator-approved Codex-only reader for StarshipSuperjam/engine-template#1269: planning reviewers must retain their no-shell instruction, while this installed Codex host exposes no native local-file reader to them. Claude already provides native Read, so duplicating the MCP server there adds no needed capability. Codex 0.153.4 ignores role-local MCP registration; the compact server is registered at project level and exposes only bounded checkout or registered-packet reads, with no command or write tool. Actual Desktop same-assignment clarification and review acceptance passed. This records the approved provider-specific registration, not a weaker review acceptance requirement."
     }
   ]
 }

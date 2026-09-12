@@ -20,8 +20,8 @@ Render rules (the whole mapping, so review needs no second source):
     - `sandbox_mode = "read-only"` always (every current persona is a report-only reviewer). This is
       the agent's requested standalone default, not mechanical child isolation: a parent task's live
       runtime override can be reapplied by Codex (the declared provider exception).
-    - `model` is NEVER emitted because a pinned model id in a reviewer persona file rots;
-      `model_reasoning_effort` maps the demand tier (judgment -> high, mechanical -> low), EXCEPT for the
+    - `model` follows the central provider-specific tier/override binding;
+      `model_reasoning_effort` follows that same provider binding, EXCEPT for the
       reviewer roles (plan-review, pre-submission-review), whose twins omit it entirely: a reviewer's
       effort is not part of the review contract, so the twin runs at the provider's configured default
       (see the reviewer branch in render_agent).
@@ -47,7 +47,7 @@ import sys
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import validate  # noqa: E402
 import skill_discovery  # noqa: E402  (the shared skill-discovery helper — one glob + slug-identity path)
-import agent_bindings  # noqa: E402  (single source for which reviewer roles have depth-scaled, un-pinned effort)
+import agent_bindings  # noqa: E402  (central provider bindings and the reviewer roles with unpinned effort)
 
 AGENT_SRC_GLOB = os.path.join(".claude", "agents", "engine-*.md")
 _AGENT_SRC_ALL = os.path.join(".claude", "agents", "*.md")
@@ -57,7 +57,6 @@ SKILL_OUT_ROOT = os.path.join(".agents", "skills")
 
 SKILL_EXCLUDE = frozenset()   # every skill renders; engine-routine's Codex twin is a retirement/refusal surface
 
-_EFFORT_BY_TIER = {"judgment": "high", "mechanical": "low"}
 _CODEX_SKILL_DESCRIPTIONS = {
     "engine-routine": ("Retired on Codex — explains how to disable an old unattended Engine build "
                        "Automation and which supported path to use instead."),
@@ -127,27 +126,47 @@ def _impl_binding(cls: str, root: str | None) -> dict:
     the same source the Claude side stamps from, so the two providers can never silently diverge."""
     path = os.path.join(root or validate.ROOT, ".engine", "policies", "model-bindings.json")
     bindings = validate.load_json(path)
-    provider = (bindings.get("implementation_classes", {}).get(cls) or {}).get("codex")
-    if not provider:
-        raise KeyError(f"no implementation_classes.{cls}.codex binding for a worker render")
-    return provider
+    return agent_bindings.resolve_persona(
+        {"role": "worker", "implementation-class": cls}, bindings, "codex")
 
 
 def _routing_lines(fm: dict) -> str:
+    import result_contracts
+    bound = result_contracts.resolve(fm.get("output-contract"), role=fm.get("role"))
+    if bound["mode"] == "prose":
+        guidance = f"Output contract: {bound['id']} is intentional prose, not structured acceptance evidence."
+        if fm.get("role") == "audit":
+            guidance += " Its conformance-verdicts.v1 block is validated separately; no durable report receipt is minted."
+    elif fm.get("role") == "worker":
+        guidance = (f"Output contract: {bound['id']}. Return one JSON object with outcome and complete evidence "
+                    "(changed_paths, verification_results, assumptions, unresolved_concerns). Each verification "
+                    "has command, outcome and detail; failed outcome also requires reason. Identity comes from "
+                    "the claim; only worker-commit mode accepts an artifact_ref claim.")
+    else:
+        guidance = (f"Output contract: return a complete {bound['id']} JSON array of severity, message, location "
+                    "findings. [] is a completed empty report; null, prose or a partial status is not. "
+                    "Do not add ids, lenses or dispositions; the controller owns those.")
+    guidance += (" Canonical ingress enforces the dispatch binding and limits; native structured formatting "
+                 "is unqualified and cannot replace that validation." if bound["mode"] == "structured" else "")
     disallowed = fm.get("disallowedTools") or []
     if isinstance(disallowed, str):
         disallowed = [t.strip() for t in disallowed.split(",")]
     if fm.get("role") == "worker":
-        return (f"Output contract: report your result on the {fm.get('output-contract')} shape.\n"
+        return (guidance + "\n"
                 "Permissions: scoped write. You implement only within your node's declared paths and "
                 "return your work product to the orchestrator; you never push the PR branch, open a "
                 "pull request, or integrate — the orchestrator is the single writer.")
-    lines = [f"Output contract: report every finding on the {fm.get('output-contract')} shape "
-             f"(severity, message, location).",
+    lines = [guidance,
              "Permissions floor: read-only. You review and report; you never edit files, commit, "
              "push, open pull requests, or resolve your own findings."]
+    if fm.get("reviewer-contract"):
+        lines.append(f"Reviewer mandate: {fm['reviewer-contract']} version {fm.get('reviewer-contract-version')}. "
+                     "Effort remains harness-controlled; no reviewer effort floor is promised.")
     if "Bash" in disallowed:
         lines.append("Do not run shell commands; work from reading alone.")
+    if fm.get("role") == "plan-review":
+        lines.append("Read review packets, clarification supplements and repository files with "
+                     "the engine-review-reader read_file tool.")
     return "\n".join(lines)
 
 
@@ -164,8 +183,7 @@ def render_agent(src_path: str, root: str | None = None) -> str:
     ]
     if fm.get("role") == "worker":
         # A dispatched worker renders an EXPLICIT per-provider model + effort (single-sourced from
-        # implementation_classes) and a write-capable sandbox — the no-model rule is a
-        # REVIEWER-identity guard and does not apply to a worker that only writes its own node.
+        # implementation_classes) and a write-capable requested sandbox.
         binding = _impl_binding(fm.get("implementation-class"), root)
         lines += [
             'sandbox_mode = "workspace-write"',
@@ -173,14 +191,14 @@ def render_agent(src_path: str, root: str | None = None) -> str:
             f'model_reasoning_effort = "{binding["effort"]}"',
         ]
     else:
-        # A reviewer render emits NO model — a pinned model id rots — and NO effort: a reviewer's effort is
-        # not part of the review contract, so the twin omits model_reasoning_effort and runs at the
-        # provider's configured default. Non-reviewer personas (the audit persona) keep their stamped
-        # effort, or the tier fallback if not yet stamped.
+        # Models come from the provider's central binding, never the Claude model stamp.
+        # Reviewers still carry no effort: review depth selects coverage, not reasoning effort.
+        binding = agent_bindings.resolve_persona(
+            fm, agent_bindings.load_bindings(root or validate.ROOT), "codex")
         lines.append('sandbox_mode = "read-only"')
+        lines.append(f"model = {json.dumps(binding['model'])}")
         if fm.get("role") not in agent_bindings.EFFORT_UNPINNED_ROLES:
-            effort = fm.get("effort") or _EFFORT_BY_TIER.get(fm.get("model-tier"), "high")
-            lines.append(f'model_reasoning_effort = "{effort}"')
+            lines.append(f'model_reasoning_effort = "{binding["effort"]}"')
     lines += [f"developer_instructions = {json.dumps(instructions)}", ""]
     return "\n".join(lines)
 
@@ -213,15 +231,11 @@ def _agent_sources(root: str) -> list:
     # or not (the roster is the source directory, so a new persona gets its twin automatically) —
     # EXCEPT the scout role, which is Claude-only and is skipped rather than rendered.
     #
-    # The skip is structural, not a preference. This renderer never emits a `model` (a pinned id
-    # rots), and the coherence floor requires `sandbox_mode = "read-only"` on every non-worker
-    # render. A scout survives neither rule: its whole value is running on the cheap tier, so a twin
-    # inheriting the frontier model would cost more than the inline work it replaces; and a
-    # shell-capable scout must copy the working tree into a disposable directory before it runs
-    # anything, which a read-only sandbox forbids. The twin would be silently expensive or silently
-    # unable to run — worse than an absent one, because the roster would still offer it. The absence
-    # is declared per persona in .engine/policies/provider-exceptions.json, which is what keeps the
-    # parity check green; remove this skip without removing those entries and the two disagree.
+    # Provider model binding is now available, but that does not authorize scout rollout.
+    # StarshipSuperjam/engine-template#1075 owns that separate decision. In particular, a Read Only
+    # parent prevents the runner's scratch copy, while a Workspace Write parent also permits writes
+    # to the work under review. Keep the explicit exclusions until their contracts are qualified.
+    # The matching exceptions live in .engine/policies/provider-exceptions.json.
     return [path for path in sorted(glob.glob(os.path.join(root, _AGENT_SRC_ALL)))
             if dict(validate.frontmatter(path)).get("role") != "scout"]
 

@@ -36,6 +36,128 @@ import validate  # noqa: E402
 import wiring  # noqa: E402
 
 
+class TestObsoleteSetupRoutes(unittest.TestCase):
+    def test_declined_route_uses_prior_published_bytes_and_the_structural_guard_stays_strict(self):
+        from pathlib import Path
+        import setup_route_gen
+        mid = "former-addon"
+        rel = f".claude/skills/engine-setup-{mid}/SKILL.md"
+        old = {"id": mid, "status": "default-on", "presentation": {"setup_trigger": "enable the fixture"}}
+        for transition in ("required", "retired"):
+            for shape in ("generated", "authored", "line-endings", "unavailable", "wrong-version", "untracked"):
+                with self.subTest(transition=transition, shape=shape), tempfile.TemporaryDirectory() as directory:
+                    root, release, prior = (Path(directory) / name for name in ("live", "release", "prior"))
+                    release.mkdir()
+                    target = root / rel
+                    target.parent.mkdir(parents=True)
+                    body = setup_route_gen._render(mid, old["presentation"])
+                    # The old published bytes, not a re-render of the possibly authored live header,
+                    # decide equality. This also permits a historical generator's distinct formatting.
+                    body += "\n"
+                    target.write_bytes((body + ("Operator note.\n" if shape == "authored" else "")).encode())
+                    if shape == "line-endings":
+                        target.write_bytes(body.replace("\n", "\r\n").encode())
+                    before = target.read_bytes()
+                    (root / ".engine").mkdir()
+                    (root / ".engine/engine.json").write_text(json.dumps({
+                        "engine_release": "0.1.0", "home_repository": "acme/engine",
+                        "packages": {"core": "0.1.0", **({mid: "0.2.0"} if transition == "required" else {})}}))
+                    old_manifest = prior / f".engine/modules/{mid}/manifest.json"
+                    old_manifest.parent.mkdir(parents=True)
+                    old_manifest.write_text(json.dumps(old))
+                    (prior / ".engine/engine.json").write_text(json.dumps({
+                        "engine_release": "0.9.0" if shape == "wrong-version" else "0.1.0"}))
+                    published = prior / rel
+                    published.parent.mkdir(parents=True)
+                    published.write_bytes(body.encode())
+                    candidates = {mid: {"id": mid, "status": "required"}} if transition == "required" else {}
+                    if candidates:
+                        live_manifest = root / f".engine/modules/{mid}/manifest.json"
+                        live_manifest.parent.mkdir(parents=True)
+                        live_manifest.write_text(json.dumps(candidates[mid]))
+                    tracked = set() if shape == "untracked" else {rel}
+                    old_by_id = {"core": {"id": "core", "provides": {"skills": [rel]}}}
+                    with module_manager._redirect_root(str(root)), \
+                         mock.patch.object(module_manager, "retire_set", return_value=([], [])), \
+                         mock.patch.object(module_manager, "engine_synced_map", return_value={}), \
+                         mock.patch.object(module_manager, "_copy_synced", return_value=[]), \
+                         mock.patch.object(module_manager.release_source, "_resolve_release_ref", return_value="v0.1.0") as resolve, \
+                         mock.patch.object(module_manager.release_source, "_fetch_release_tree", return_value=str(prior),
+                                           side_effect=OSError("offline") if shape == "unavailable" else None) as fetch:
+                        _, removed = module_manager._reconcile_surface(
+                            str(release), candidates, [rel], old_by_id, tracked=tracked)
+                    if shape == "generated":
+                        self.assertFalse(target.exists())
+                        self.assertEqual(removed["engine"], [rel])
+                        self.assertEqual(setup_route_gen.check(root=str(root)), [])
+                    else:
+                        self.assertEqual(target.read_bytes(), before)
+                        self.assertTrue(removed["left_in_place"])
+                        self.assertTrue(setup_route_gen.check(root=str(root)))
+                    if shape == "untracked":
+                        fetch.assert_not_called()
+                    else:
+                        resolve.assert_called_once_with("0.1.0", repo="acme/engine")
+                        self.assertEqual(fetch.call_count, 1)
+                        self.assertEqual(fetch.call_args.args[0], "v0.1.0")
+                        self.assertEqual(fetch.call_args.kwargs, {"repo": "acme/engine"})
+
+    def test_only_the_tracked_exact_obsolete_generated_route_is_retired(self):
+        from pathlib import Path
+        import setup_route_gen
+        mid = "former-addon"
+        rel = f".claude/skills/engine-setup-{mid}/SKILL.md"
+        old = {"id": mid, "status": "default-on", "presentation": {"setup_trigger": "enable the fixture"}}
+        for shape in ("generated", "authored", "line-endings", "untracked", "still-offerable", "symlink",
+                      "declined-authored", "declined-generated"):
+            with self.subTest(shape=shape), tempfile.TemporaryDirectory() as directory:
+                root, release = Path(directory) / "live", Path(directory) / "release"
+                release.mkdir()
+                target = root / rel
+                target.parent.mkdir(parents=True)
+                body = setup_route_gen._render(mid, old["presentation"])
+                authored = shape in ("authored", "declined-authored")
+                target.write_text(body + ("\nOperator notes.\n" if authored else ""))
+                if shape == "line-endings":
+                    target.write_bytes(body.replace("\n", "\r\n").encode("utf-8"))
+                adjacent = target.parent / "operator.md"
+                adjacent.write_text("Keep my notes.\n")
+                if shape == "symlink":
+                    outside = Path(directory) / "outside.md"
+                    outside.write_text(body)
+                    target.unlink()
+                    target.symlink_to(outside)
+                candidates = {mid: {"id": mid, "status": "optional" if shape == "still-offerable" else "required"}}
+                tracked = set() if shape == "untracked" else {rel}
+                # Exercise the whole deletion leg, including a route named by old_owned: preserving
+                # authored content in the route helper must not let the generic deletion loop take it.
+                synced = {rel: str(target)} if shape == "still-offerable" else {}
+                old_by_id = {"core": {"id": "core", "provides": {"skills": [rel]}}}
+                if not shape.startswith("declined-"):
+                    old_by_id[mid] = old
+                with module_manager._redirect_root(str(root)), \
+                     mock.patch.object(module_manager, "retire_set", return_value=([], [])), \
+                     mock.patch.object(module_manager, "engine_synced_map", return_value=synced), \
+                     mock.patch.object(module_manager, "_copy_synced", return_value=[]):
+                    _, removed = module_manager._reconcile_surface(
+                        str(release), candidates, [rel], old_by_id, tracked=tracked)
+                self.assertEqual(target.exists(), shape != "generated")
+                self.assertEqual(rel in removed["engine"], shape == "generated")
+                self.assertEqual(adjacent.read_text(), "Keep my notes.\n")
+                if authored:
+                    self.assertEqual(target.read_text(), body + "\nOperator notes.\n")
+                if shape == "line-endings":
+                    self.assertEqual(target.read_bytes(), body.replace("\n", "\r\n").encode("utf-8"))
+                if shape in ("authored", "line-endings", "untracked", "symlink", "declined-authored", "declined-generated"):
+                    self.assertTrue(removed["left_in_place"])
+                if shape.startswith("declined-"):
+                    self.assertIn("generation metadata is unavailable", removed["left_in_place"][0])
+                if shape == "declined-generated":
+                    self.assertEqual(target.read_bytes(), body.encode("utf-8"))
+                if shape == "symlink":
+                    self.assertEqual(outside.read_text(), body)
+
+
 def _m(mid, status="optional", depends=None, version="0.0.0"):
     return (f".engine/modules/{mid}/manifest.json",
             {"id": mid, "version": version, "status": status, "provides": {},
@@ -1234,10 +1356,13 @@ class TestVersionStamp(unittest.TestCase):
 
     def test_surface_promotes_exactly_one_finding_via_a_faked_github(self):
         import telemetry
-        gh = telemetry.GitHubIssues("you/proj", "tok", transport=telemetry._FakeGitHub().transport)
-        num = module_manager.surface_stamp_mismatch(
-            "ledger", "0.2.0", "0.1.0", "engine restore ledger",
-            now="2026-01-01T00:00:00Z", github=gh)
+        fake = telemetry._FakeGitHub()
+        gh = telemetry.GitHubIssues("you/proj", "tok", transport=fake.transport,
+                                   recovery_store=fake.recovery_store)
+        with mock.patch.dict(os.environ, {"GITHUB_REPOSITORY": "you/proj"}):
+            num = module_manager.surface_stamp_mismatch(
+                "ledger", "0.2.0", "0.1.0", "engine restore ledger",
+                now="2026-01-01T00:00:00Z", github=gh)
         self.assertTrue(num)                                   # an Issue number was opened
         # no mismatch -> nothing surfaced
         self.assertIsNone(module_manager.surface_stamp_mismatch(
@@ -2886,6 +3011,31 @@ class TestRemoveEngine(unittest.TestCase):
             # An all-engine greenfield CLAUDE.md is the floor wrapped in the engine fence (6a); removal
             # block-reverses it → whitespace-only → the file is deleted (nothing operator-owned to keep).
             fh.write(wiring.fence_apply("", module_manager._FLOOR_FENCE, ["# floor"], style=wiring.MD_FENCE))
+
+    def test_module_owned_audit_workflow_is_removed_but_product_workflow_survives(self):
+        manifest_rel = ".engine/modules/audit-library/manifest.json"
+        audit = validate.load_json(os.path.join(validate.ROOT, manifest_rel))
+        opener, transport, _, _ = self._fakes(True)
+        with tempfile.TemporaryDirectory() as directory:
+            with module_manager._redirect_root(directory):
+                self._fixture_with_github(directory)
+                manifest_path = os.path.join(directory, manifest_rel)
+                os.makedirs(os.path.dirname(manifest_path), exist_ok=True)
+                with open(manifest_path, "w", encoding="utf-8") as stream:
+                    json.dump(audit, stream)
+                audit_path = os.path.join(directory, ".github/workflows/audit-prep.yml")
+                product_path = os.path.join(directory, ".github/workflows/product.yml")
+                for path in (audit_path, product_path):
+                    with open(path, "w", encoding="utf-8") as stream:
+                        stream.write("workflow sentinel\n")
+                result = module_manager.remove_engine(
+                    opener=opener, transport=transport, choice="keep", announce=lambda _: None,
+                    repo="fixture/project", token="fixture-token")
+                self.assertFalse(result["refused"], result)
+                self.assertFalse(os.path.exists(audit_path))
+                self.assertIn(".github/workflows/audit-prep.yml", result["deleted"])
+                with open(product_path, encoding="utf-8") as stream:
+                    self.assertEqual(stream.read(), "workflow sentinel\n")
 
     def test_reverses_wires_deletes_all_engine_files_and_opens_a_pr(self):
         opener, transport, prs, _ = self._fakes(True)

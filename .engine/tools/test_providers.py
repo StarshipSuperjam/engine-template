@@ -91,6 +91,14 @@ class TestNormalizeCodexEdit(unittest.TestCase):
         self.assertEqual(out["tool_name"], "Bash")
         self.assertEqual(out["tool_input"]["command"], "git commit -m 'x y'")
 
+    def test_actual_exec_command_preserves_session_cwd_and_retains_command_workdir(self):
+        out = providers.normalize("PreToolUse", {"tool_name": "exec_command", "tool_input": {
+            "cmd": "gh issue create -t x", "workdir": "/external/project"}, "cwd": "/session/project"})
+        self.assertEqual(out["tool_name"], "Bash")
+        self.assertEqual(out["tool_input"]["command"], "gh issue create -t x")
+        self.assertEqual(out["tool_input"]["workdir"], "/external/project")
+        self.assertEqual(out["cwd"], "/session/project")
+
 
 class TestSessionResolution(unittest.TestCase):
     def test_payload_session_id_wins(self):
@@ -485,6 +493,304 @@ class TestCodexHookCommandForm(unittest.TestCase):
     def test_claude_form_is_byte_identical_to_the_default(self):
         rel = ".engine/tools/boot.py"
         self.assertEqual(hooks.hook_command(rel), hooks.hook_command(rel, provider="claude"))
+
+
+class TestLaunchNormalization(unittest.TestCase):
+    def test_captured_provider_launch_shapes_keep_their_provenance_and_unknowns(self):
+        # Claude: actual project transcript tool_use, line 85, 2026-08-31T04:40:05.884Z,
+        # CLI 2.1.247; source line SHA256 a5164db8db8300e05b6392e4d1decfb2ea1e63860071adaa7eb0ba21997a77e8.
+        # This is a transcript projection, NOT an observed hook envelope. Session/tool fields
+        # are retained; task prose and description are removed. No fresh Claude hook is claimed.
+        claude = {"session_id": "57d75b64-73b9-4cf5-b477-0f3df0e307fc", "tool_name": "Agent",
+                  "tool_input": {"subagent_type": "Explore", "model": "sonnet"}}
+        # Codex: captured PreToolUse in the 2026-09-08 CLI 0.153.4/macOS qualification,
+        # h1-hooks.jsonl, parent below; bounded original event is retained in Build evidence.
+        # The top-level model is the parent model, and must never be promoted to child evidence.
+        codex = {"hook_event_name": "PreToolUse", "session_id": "01a08374-15d6-7da1-9fa8-851b5701f101",
+                 "model": "gpt-5.6-terra", "tool_name": "collaborationspawn_agent", "tool_input": {
+                     "task_name": "child_created", "agent_type": "explorer", "fork_turns": "none",
+                     "model": "gpt-5.6-luna", "reasoning_effort": "low"}}
+        for provider, payload, model in (("claude", claude, "sonnet"), ("codex", codex, "gpt-5.6-luna")):
+            with self.subTest(provider=provider):
+                launch = providers.launch_record(payload, provider)
+                self.assertEqual(launch["semantic_role"], "search")
+                self.assertEqual(launch["session_id"], payload["session_id"])
+                self.assertEqual(launch["requested_model"], model)
+                self.assertEqual(launch["model_source"], "tool_input.model")
+                self.assertIsNone(launch["effective_model"])
+                self.assertIsNone(launch["effective_sandbox"])
+        with mock.patch.dict(os.environ, {providers.PROVIDER_ENV: "claude"}):
+            self.assertIs(providers.normalize("PreToolUse", claude), claude)
+        self.assertEqual(providers.normalize("PreToolUse", codex)["provider_launch"]["requested_effort"], "low")
+
+    def test_observed_spawn_preserves_identity_and_never_borrows_parent_model(self):
+        payload = {"tool_name": "collaborationspawn_agent", "model": "gpt-6-astra",
+                   "session_id": "parent:exact/id", "tool_input": {
+                       "agent_type": "explorer", "fork_turns": "none", "message": "private task"}}
+        out = providers.normalize("PreToolUse", payload)
+        self.assertEqual(out["tool_name"], "Agent")
+        self.assertEqual(out["tool_input"]["subagent_type"], "Explore")
+        launch = out["provider_launch"]
+        self.assertEqual(launch["semantic_role"], "search")
+        self.assertEqual(launch["session_id"], "parent:exact/id")
+        self.assertIsNone(launch["requested_model"])
+        self.assertIsNone(launch["effective_model"])
+        self.assertIn("requested_model", launch["unknown_fields"])
+        self.assertNotIn("private task", json.dumps(out["provider_raw"]))
+        self.assertNotIn("subagent_type", payload["tool_input"])
+
+    def test_explicit_settings_have_provenance_not_effective_claims(self):
+        payload = {"tool_name": "spawn_agent", "session_id": "s", "tool_input": {
+            "agent_type": "explorer", "model": "gpt-5.6-luna", "reasoning_effort": "low",
+            "sandbox_mode": "read-only", "fork_turns": "none"}}
+        launch = providers.launch_record(payload, "codex")
+        self.assertEqual(launch["model_source"], "tool_input.model")
+        self.assertEqual(launch["requested_model"], "gpt-5.6-luna")
+        self.assertEqual(launch["requested_effort"], "low")
+        self.assertEqual(launch["sandbox_intent"], "read-only")
+        self.assertIsNone(launch["effective_sandbox"])
+        self.assertIsNone(launch["recursion_limit"])
+
+    def test_prose_and_task_name_do_not_classify_an_unknown_agent(self):
+        payload = {"tool_name": "spawn_agent", "tool_input": {
+            "task_name": "Explore", "message": "Use model gpt-5.6-luna to plan.", "agent_type": "custom"}}
+        launch = providers.launch_record(payload, "codex")
+        self.assertEqual(launch["semantic_role"], "unclassified")
+        self.assertIsNone(launch["requested_model"])
+        self.assertIsNone(providers.launch_record({"tool_name": "future_spawn"}, "codex"))
+
+    def test_claude_launch_remains_identity_and_has_a_separate_record(self):
+        payload = {"tool_name": "Agent", "tool_input": {"subagent_type": "Plan", "model": "haiku"}}
+        with mock.patch.dict(os.environ, {providers.PROVIDER_ENV: "claude"}):
+            self.assertIs(providers.normalize("PreToolUse", payload), payload)
+            launch = providers.launch_record(payload)
+        self.assertEqual(launch["semantic_role"], "plan")
+        self.assertEqual(launch["requested_model"], "haiku")
+
+    def test_malformed_tool_fields_stay_unknown(self):
+        for value in (None, [], 1):
+            payload = {"tool_name": value}
+            self.assertIs(providers.normalize("PreToolUse", payload), payload)
+            self.assertIsNone(providers.launch_record(payload, "codex"))
+
+
+class TestScopedAgentBaseline(unittest.TestCase):
+    """Sanitized September 9 Desktop envelopes, distinct from Claude documentation fixtures.
+
+    These exercise the real normalization boundary, not a simulated native allocator. Replaced
+    identities and paths preserve the observed parent/child split; no private task bodies are kept.
+    The local probe's packets/witness flags were instrumentation, not native payload fields.
+    """
+
+    def test_desktop_launch_preserves_correlation_fields_on_both_tool_events(self):
+        for event in ("PreToolUse", "PostToolUse"):
+            payload = {"hook_event_name": event, "session_id": "parent", "turn_id": "turn",
+                       "tool_use_id": "call-launch", "tool_name": "collaborationspawn_agent",
+                       "tool_input": {"agent_type": "default", "task_name": "review_a",
+                                      "fork_turns": "none", "message": "synthetic packet path"}}
+            result = providers.normalize(event, payload)
+            self.assertEqual(result["tool_name"], "Agent")
+            self.assertEqual(result["session_id"], "parent")
+            self.assertEqual(result["tool_use_id"], "call-launch")
+            self.assertEqual(result["provider_launch"]["fork_context"], "none")
+            self.assertNotIn("agent_id", result)  # a request does not establish the actual child
+
+    def test_desktop_child_read_does_not_replace_parent_session_with_child_id(self):
+        payload = {"session_id": "parent", "agent_id": "child-a", "agent_type": "default",
+                   "turn_id": "child-turn", "tool_name": "Bash", "tool_use_id": "exec-read",
+                   "tool_input": {"command": "cat /fixture/packets/A.json"},
+                   "tool_response": "synthetic packet content"}
+        result = providers.normalize("PostToolUse", payload)
+        self.assertEqual((result["session_id"], result["agent_id"]), ("parent", "child-a"))
+        self.assertEqual(result["tool_response"], "synthetic packet content")
+        self.assertEqual(result["tool_use_id"], "exec-read")
+
+    def test_desktop_control_tools_are_distinct_from_launches(self):
+        for tool in ("collaborationsend_message", "collaborationfollowup_task"):
+            payload = {"turn_id": "turn", "session_id": "parent", "tool_name": tool,
+                       "tool_input": {"target": "review_a", "message": "synthetic"}}
+            self.assertEqual(providers.detect(payload), "codex")
+            self.assertIsNone(providers.launch_record(payload, "codex"))
+            result = providers.normalize("PreToolUse", payload)
+            self.assertEqual(result["tool_input"]["target"], "review_a")
+
+    def test_claude_documented_child_fields_remain_identity_without_codex_turn_id(self):
+        # Official hooks reference: common session_id plus agent_id/agent_type on child tools.
+        # Documentation contract only; no live Claude run is represented by this fixture.
+        with mock.patch.dict(os.environ, {providers.PROVIDER_ENV: "claude"}):
+            for event in ("PreToolUse", "PostToolUse", "SubagentStart", "SubagentStop"):
+                payload = {"hook_event_name": event, "session_id": "parent", "agent_id": "child",
+                           "agent_type": "engine-design-review-architecture"}
+                self.assertIs(providers.normalize(event, payload), payload)
+                self.assertEqual(providers.detect(payload), "claude")
+            message = {"tool_name": "SendMessage", "tool_input": {
+                "type": "message", "recipient": "child", "content": "synthetic clarification"}}
+            self.assertIs(providers.normalize("PreToolUse", message), message)
+            self.assertIsNone(providers.launch_record(message))
+
+
+class TestReviewReaderEvidence(unittest.TestCase):
+    def test_only_exact_complete_successful_reader_output_counts(self):
+        import copy
+        import hashlib
+        text = "frozen packet\n"
+        result = {"file_path": "/packets/a.md", "content": text, "complete": True,
+                  "offset": 0, "sha256": "sha256:" + hashlib.sha256(text.encode()).hexdigest()}
+        payload = {"tool_name": "mcp__engine-review-reader__read_file",
+                   "tool_input": {"path": "/packets/a.md"},
+                   "tool_response": {"content": [{"type": "text", "text": json.dumps(result)}],
+                                     "isError": False}}
+        self.assertTrue(providers.scoped_reads_path(payload, "/packets/a.md"))
+        self.assertTrue(providers.scoped_read_succeeded(payload, text))
+        for key, value in (("file_path", "/other"), ("complete", False), ("offset", 1),
+                           ("sha256", "wrong"), ("content", "partial")):
+            bad = copy.deepcopy(payload)
+            bad["tool_response"]["content"][0]["text"] = json.dumps({**result, key: value})
+            self.assertFalse(providers.scoped_read_succeeded(bad, text), key)
+        bad = copy.deepcopy(payload)
+        bad["tool_response"]["isError"] = True
+        self.assertFalse(providers.scoped_read_succeeded(bad, text))
+        bad = copy.deepcopy(payload)
+        bad["tool_name"] = "mcp__unrelated__read_file"
+        self.assertFalse(providers.scoped_read_succeeded(bad, text))
+        self.assertFalse(providers.scoped_reads_path(payload, "/packets/b.md"))
+
+
+class ScopedControlReconciliation(unittest.TestCase):
+    def setUp(self):
+        self.initial = self.envelope("initial opaque")
+        self.transcript = {"child": "child", "root": "root", "name": "/root/assignment", "messages": [self.initial]}
+        self.continuation = {"sender": "root", "recipient": "child", "content": "opaque", "dispatched": True}
+        self.message = self.envelope("opaque")
+
+    @staticmethod
+    def envelope(content):
+        return {"author": "/root", "recipient": "/root/assignment", "content": [
+            {"type": "input_text", "text": "Same native header for initial and continuation"},
+            {"type": "encrypted_content", "encrypted_content": content}]}
+
+    def verified(self, continuations=()):
+        return providers.scoped_control_verified(self.transcript, root="root", child="child",
+            name="assignment", launch_digest=providers.scoped_control_digest("initial opaque"),
+            continuations=list(continuations))
+
+    def test_initial_launch_and_one_exact_continuation(self):
+        self.assertTrue(self.verified())
+        self.transcript["messages"] = [self.initial, self.message]
+        self.assertTrue(self.verified([self.continuation]))
+        self.assertFalse(self.verified())
+        self.transcript["messages"] = [self.initial]
+        self.assertFalse(self.verified([self.continuation]))
+        self.transcript["messages"] = []
+        self.assertFalse(self.verified())
+        self.transcript["messages"] = [self.message]
+        self.assertFalse(self.verified())  # arbitrary first message cannot stand in for launch
+
+    def test_duplicate_unknown_wrong_actor_and_missing_send_fail(self):
+        import copy
+        for change in (lambda m: m.update(author="/root/peer"),
+                       lambda m: m.update(recipient="/root/other"),
+                       lambda m: m.update(content=[]),
+                       lambda m: m.update(content=[{"type": "unknown", "text": "opaque"}]),
+                       lambda m: m.update(content=[*m["content"], *m["content"]])):
+            message = copy.deepcopy(self.message)
+            change(message)
+            self.transcript["messages"] = [self.initial, message]
+            self.assertFalse(self.verified([self.continuation]))
+        self.transcript["messages"] = [self.initial, self.message, self.message]
+        self.assertFalse(self.verified([self.continuation, self.continuation]))
+        self.transcript["messages"] = [self.message, self.initial]
+        self.assertFalse(self.verified([self.continuation]))
+        self.transcript["messages"] = [self.initial, self.message]
+        self.assertFalse(self.verified([{**self.continuation, "dispatched": False}]))
+        self.assertFalse(self.verified([{**self.continuation, "sender": "other"}]))
+        self.transcript["child"] = "wrong"
+        self.assertFalse(self.verified([self.continuation]))
+
+    def test_parser_refuses_duplicate_actor_metadata_and_malformed_payload(self):
+        import tempfile
+        from pathlib import Path
+        meta = {"type": "session_meta", "payload": {"id": "child", "source": {"subagent": {
+            "thread_spawn": {"parent_thread_id": "root", "agent_path": "/root/assignment"}}}}}
+        with tempfile.TemporaryDirectory() as temp:
+            path = Path(temp) / "child.jsonl"
+            for rows in ([meta, meta], [meta, {"type": "response_item", "payload": []}],
+                         [{"type": "session_meta", "payload": {"source": {"subagent": "bad"}}}]):
+                path.write_text("\n".join(json.dumps(row) for row in rows))
+                self.assertEqual(providers.scoped_transcript({"transcript_path": str(path)}, providers.CODEX), {})
+
+    def test_metadata_only_reads_bounded_first_header(self):
+        import tempfile
+        from pathlib import Path
+        meta = {"type": "session_meta", "payload": {"id": "child", "source": {"subagent": {
+            "thread_spawn": {"parent_thread_id": "root", "agent_path": "/root/assignment"}}}}}
+        with tempfile.TemporaryDirectory() as temp:
+            path = Path(temp) / "huge.jsonl"
+            path.write_text(json.dumps(meta) + "\n" + "not json\n" + ("x" * (4 * 1024 * 1024)))
+            self.assertEqual(providers.scoped_transcript({"transcript_path": str(path)}, providers.CODEX,
+                             metadata_only=True)["name"], "/root/assignment")
+            path.write_bytes(json.dumps(meta).encode() + b'\n\xff\xfe')
+            self.assertEqual(providers.scoped_transcript({"transcript_path": str(path)}, providers.CODEX,
+                             metadata_only=True)["child"], "child")
+            self.assertEqual(providers.scoped_transcript({"transcript_path": str(path)}, providers.CLAUDE,
+                             metadata_only=True), {})
+            meta['payload']['id'] = ' '
+            path.write_text(json.dumps(meta) + '\n')
+            self.assertEqual(providers.scoped_transcript({"transcript_path": str(path)}, providers.CODEX,
+                             metadata_only=True), {})
+
+    def test_metadata_only_rejects_oversized_or_malformed_header_and_full_rejects_contradiction(self):
+        import tempfile
+        from pathlib import Path
+        with tempfile.TemporaryDirectory() as temp:
+            path = Path(temp) / "bad.jsonl"
+            path.write_text("{" + "x" * (64 * 1024) + "\n")
+            self.assertEqual(providers.scoped_transcript({"transcript_path": str(path)}, providers.CODEX,
+                             metadata_only=True), {})
+            path.write_text(json.dumps({'padding': 'é' * 40000}, ensure_ascii=False) + '\n')
+            self.assertEqual(providers.scoped_transcript({"transcript_path": str(path)}, providers.CODEX,
+                             metadata_only=True), {})
+            meta = {"type": "session_meta", "payload": {"id": "child", "source": {"subagent": {
+                "thread_spawn": {"parent_thread_id": "root", "agent_path": "/root/assignment"}}}}}
+            other = {"type": "session_meta", "payload": {"id": "other", "source": {"subagent": {
+                "thread_spawn": {"parent_thread_id": "root", "agent_path": "/root/other"}}}}}
+            path.write_text("\n".join(json.dumps(x) for x in (meta, other)))
+            self.assertEqual(providers.scoped_transcript({"transcript_path": str(path)}, providers.CODEX), {})
+
+    def test_full_transcript_stream_closes_on_early_refusal(self):
+        import io
+        from pathlib import Path
+        from unittest import mock
+        stream = io.StringIO('[]\n')
+        with mock.patch.object(Path, 'open', return_value=stream):
+            self.assertEqual(providers.scoped_transcript({'transcript_path':'unused'}, providers.CODEX), {})
+        self.assertTrue(stream.closed)
+
+    def test_capacity_error_requires_exact_native_parent_call_and_result(self):
+        import tempfile
+        from pathlib import Path
+        import copy
+        args = {'task_name':'assignment', 'message':'opaque', 'agent_type':'role', 'fork_turns':'none'}
+        rows = [
+            {'type':'session_meta','payload':{'id':'root'}},
+            {'type':'response_item','payload':{'type':'function_call','name':'spawn_agent',
+                'namespace':'collaboration','call_id':'failed','arguments':json.dumps(args)}},
+            {'type':'response_item','payload':{'type':'function_call_output','call_id':'failed',
+                'output':'collab spawn failed: agent thread limit reached'}}]
+        with tempfile.TemporaryDirectory() as temp:
+            path = Path(temp)/'parent.jsonl'
+            payload = {'session_id':'root','transcript_path':str(path)}
+            def check(values):
+                path.write_text('\n'.join(json.dumps(r) for r in values)+'\n')
+                return providers.scoped_capacity_rejection_from_transcript(payload,'failed')
+            self.assertEqual(check(rows)['input'],args)
+            self.assertEqual(check(rows)['response'],rows[-1]['payload']['output'])
+            for index,key,value in ((0,'id','other'),(1,'name','send_message'),(1,'namespace','other'),
+                                    (2,'output','transport failed'),(2,'call_id','other')):
+                bad=copy.deepcopy(rows);bad[index]['payload'][key]=value
+                self.assertEqual(check(bad),{})
+            for bad in (rows[:-1], rows+[rows[-1]], [rows[0],rows[2],rows[1]], rows+[rows[1]]):
+                self.assertEqual(check(bad),{})
 
 
 if __name__ == "__main__":

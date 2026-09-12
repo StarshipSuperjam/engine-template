@@ -4,6 +4,8 @@ allowed_sections: []
 length_budget: 80
 ---
 
+<!-- Review personas declare reviewer-contract and reviewer-contract-version in frontmatter. Keep identity/version for editorial changes; bump the version for mandate changes. Structured constraints are compared independently. Exact source remains disclosure evidence, not a semantic proof. -->
+
 ## Mandate
 
 <Who this persona is and the single job it does — the one thing it is here to get right. A reviewer names the angle it reviews from; a worker names the kind of change it makes; the audit persona names what it checks. Write it as a standing identity ("You review…", "You implement…"), not a one-off task list.>

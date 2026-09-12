@@ -21,6 +21,7 @@ import json
 import os
 from pathlib import Path
 import shutil
+import shlex
 import subprocess
 import sys
 import tempfile
@@ -64,6 +65,92 @@ class _RealRepo(unittest.TestCase):
         return {"lens": lens, "packet_digest": "sha256:" + "1" * 64, "commit": tip,
                 "finding_ids": [], "code_execution": "none",
                 "reviewed_range": {"base": base, "tip": tip}, **over}
+
+
+class CumulativeOriginalReads(_RealRepo):
+    def test_read_query_reuses_only_one_calculation_and_new_queries_recheck_git(self):
+        from unittest.mock import patch
+        tip = self.commit("app.py", "reviewed")
+        with patch.object(ranges, "commits", wraps=ranges.commits) as read:
+            query = ranges.ReadQuery(self.repo)
+            self.assertEqual([tip], query.commits(self.base, tip))
+            self.assertEqual([tip], query.commits(self.base, tip))
+            self.assertEqual(1, read.call_count)
+        with patch.object(ranges, "commits", side_effect=ranges.RangeUnreadable("object disappeared")):
+            with self.assertRaises(ranges.RangeUnreadable):
+                ranges.ReadQuery(self.repo).commits(self.base, tip)
+
+    def test_four_repairs_accumulate_without_bridging_a_gap(self):
+        heads = [self.base] + [self.commit("src.py", str(n)) for n in range(6)]
+        originals = [self.receipt("security-governance", heads[n], heads[n+1]) for n in range(5)]
+        before = json.dumps(originals, sort_keys=True)
+        for count in range(1, 6):
+            result = ranges.cumulative_coverage(self.repo, originals[:count], self.base, heads[5])
+            self.assertEqual(heads[count+1:6][::-1], result["unread"])
+        self.assertEqual([heads[6]], ranges.cumulative_coverage(self.repo, originals, self.base, heads[6])["unread"])
+        self.assertEqual([heads[3]], ranges.cumulative_coverage(self.repo, originals[:2]+originals[3:], self.base, heads[5])["unread"])
+        self.assertEqual(before, json.dumps(originals, sort_keys=True))
+
+    def test_overlap_duplicates_and_order_do_not_change_exact_coverage(self):
+        a = self.commit("src.py", "a"); b = self.commit("src.py", "b"); c = self.commit("src.py", "c")
+        first = self.receipt("usability", self.base, b)
+        second = self.receipt("usability", a, c)
+        for receipts in ([first, second], [second, first, first], [second, second, first]):
+            result = ranges.cumulative_coverage(self.repo, receipts, self.base, c)
+            self.assertTrue(result["covered"])
+            self.assertEqual([c,b,a], result["read"])
+
+    def test_unreadable_question_is_not_a_zero_count(self):
+        unknown = "f" * 40
+        for base, tip in ((self.base, unknown), (unknown, unknown), (None, self.base)):
+            result = ranges.cumulative_coverage(self.repo, [], base, tip)
+            self.assertFalse(result["verified"])
+            self.assertFalse(result["covered"])
+            self.assertIsNone(result["unread"])
+            self.assertIn("cannot be measured", ranges.cumulative_report("usability", result))
+
+    def test_missing_original_range_does_not_credit_work(self):
+        a = self.commit("src.py", "a"); b = self.commit("src.py", "b")
+        narrow = self.receipt("usability", a, b)
+        missing = self.receipt("usability", "f"*40, a)
+        result = ranges.cumulative_coverage(self.repo, [missing, narrow], self.base, b)
+        self.assertEqual([a], result["unread"])
+        self.assertIn("restore", ranges.cumulative_report("usability", result))
+        good = self.receipt("usability", self.base, a)
+        self.assertTrue(ranges.cumulative_coverage(self.repo, [missing, narrow, good], self.base, b)["covered"])
+
+    def test_an_unrelated_branch_cannot_fill_the_gap(self):
+        a = self.commit("src.py", "a")
+        self.git("checkout", "-q", "-b", "other", self.base)
+        other = self.commit("other.py", "other")
+        receipt = self.receipt("usability", self.base, other)
+        self.assertEqual([a], ranges.cumulative_coverage(self.repo, [receipt], self.base, a)["unread"])
+
+    def test_spliced_matching_lens_packet_is_not_whole_deliverable_acceptance(self):
+        a = self.commit("src.py", "a"); b = self.commit("src.py", "b")
+        narrow = self.receipt("usability", a, b, packet_digest="repair", lens_packet_digest="repair-lens")
+        stage = {"base_commit":self.base,"reviewed_commit":b,"packet_digest":"deliverable",
+                 "reviewer_contracts":[{"lens":"usability","lens_packet_digest":"repair-lens"}]}
+        self.assertFalse(review.receipt_attests_scope(stage, narrow))
+        repair = {**stage,"packet_digest":"repair","reviewed_commit":a,"final_commit":b}
+        self.assertTrue(review.receipt_attests_scope(repair, narrow, "repair"))
+        # Even transplanting the packet name cannot widen its original read range.
+        self.assertFalse(review.receipt_attests_scope({**stage,"packet_digest":"repair"}, narrow))
+
+    def test_history_effectiveness_does_not_select_coverage_but_authority_does(self):
+        a = self.commit("src.py", "a")
+        original = self.receipt("usability", self.base, a, obligation_digest="approved")
+        state = {"reviews":{"deliverable":{"packet_digest":"current","receipts":[]}},"repair":None,
+                 "review_evidence_history":[{"stage":"deliverable","receipt":original,"effective":False}]}
+        contract = {"lens":"usability","obligation_digest":"approved"}
+        eligible, rejected = review.eligible_coverage_receipts(state, contract, lambda r: True)
+        self.assertEqual([original], eligible); self.assertEqual([], rejected)
+        self.assertEqual([], review.live_receipts(state))
+        self.assertTrue(ranges.cumulative_coverage(self.repo, eligible, self.base, a)["covered"])
+        for mandate, verified in (("changed", True), ("approved", False)):
+            eligible, rejected = review.eligible_coverage_receipts(state, {**contract,"obligation_digest":mandate}, lambda r: verified)
+            self.assertEqual([], eligible); self.assertTrue(rejected)
+        self.assertEqual([], review.eligible_coverage_receipts(state, {**contract,"lens":"security-governance"}, lambda r: True)[0])
 
 
 class ThePr1063Replay(_RealRepo):
@@ -161,14 +248,196 @@ class ThePr1063Replay(_RealRepo):
         self.assertIn("cannot be measured", ranges.coverage_report(self.repo, gone, self.base, reviewed))
 
 
+class TheCleanTargetMergeProof(_RealRepo):
+    """A target catch-up is exempt only when the recorded merge tree is reproducible."""
+
+    def setUp(self):
+        from test_build_coordinator import ScrubbedGitRepo
+        temporary = tempfile.TemporaryDirectory()
+        self.addCleanup(temporary.cleanup)
+        fixture = ScrubbedGitRepo(Path(temporary.name) / "repo")
+        self.repo, self.env = Path(fixture.path), fixture.env
+        self.base = self.commit("seed.txt", "seed")
+
+    def target(self, tip):
+        return {"target_repository": "owner/repo", "target_ref": "main", "target_tip": tip}
+
+    def clean_merge(self, *, before=False, after=False, edited=False):
+        self.git("checkout", "-q", "-b", "build")
+        reviewed = self.commit("src.py", "reviewed")
+        repaired = self.commit("src.py", "repaired")
+        local_before = self.commit("before.py", "unread before") if before else None
+        self.git("checkout", "-q", "main")
+        target = self.commit("upstream.py", "target work")
+        self.git("checkout", "-q", "build")
+        if edited:
+            self.git("merge", "--no-ff", "--no-commit", "main")
+            merge = self.commit("hidden.py", "edit hidden in merge")
+        else:
+            self.git("merge", "--no-ff", "--no-edit", "main")
+            merge = self.git("rev-parse", "HEAD")
+        local_after = self.commit("after.py", "unread after") if after else None
+        return reviewed, repaired, target, merge, local_before, local_after
+
+    def test_clean_target_merge_preserves_receipt_bytes_and_requires_a_proof(self):
+        reviewed, repaired, target, merge, _, _ = self.clean_merge()
+        receipt = self.receipt("usability", reviewed, repaired)
+        original = json.dumps(receipt, sort_keys=True)
+        proof = ranges.prove_base_advance(self.repo, merge, self.target(target))
+        self.assertIsNotNone(proof)
+        self.assertEqual(proof["first_parent"], repaired)
+        self.assertEqual(proof["merge_tree"], self.git("rev-parse", merge + "^{tree}"))
+        self.assertFalse(ranges.receipt_covers(self.repo, receipt, repaired, merge))
+        self.assertTrue(ranges.receipt_covers(self.repo, receipt, repaired, merge, [proof]))
+        self.assertEqual(ranges.authored_between(self.repo, repaired, merge, [proof]), [])
+        self.assertEqual(ranges.unread_authored(self.repo, receipt["reviewed_range"], repaired, merge, [proof]), [])
+        self.assertIn("already read every authored commit", ranges.coverage_report(self.repo, receipt, repaired, merge, [proof]))
+        self.assertEqual(json.dumps(receipt, sort_keys=True), original)
+
+    def test_local_authored_commits_before_and_after_merge_still_need_a_read(self):
+        reviewed, repaired, target, merge, before, after = self.clean_merge(before=True, after=True)
+        proof = ranges.prove_base_advance(self.repo, merge, self.target(target))
+        self.assertIsNotNone(proof)
+        receipt = self.receipt("usability", reviewed, repaired)
+        self.assertEqual(set(ranges.authored_between(self.repo, repaired, after, [proof])), {before, after})
+        self.assertFalse(ranges.receipt_covers(self.repo, receipt, repaired, after, [proof]))
+        report = ranges.coverage_report(self.repo, receipt, repaired, after, [proof])
+        self.assertIn(before[:12], report)
+        self.assertIn(after[:12], report)
+
+    def test_edited_merge_tree_is_not_an_automatic_target_merge(self):
+        reviewed, repaired, target, merge, _, _ = self.clean_merge(edited=True)
+        self.assertIsNone(ranges.prove_base_advance(self.repo, merge, self.target(target)))
+        self.assertFalse(ranges.receipt_covers(self.repo, self.receipt("usability", reviewed, repaired), repaired, merge))
+
+    def test_conflict_resolution_is_never_granted_clean_merge_coverage(self):
+        self.git("checkout", "-q", "-b", "build")
+        build = self.commit("seed.txt", "our resolution input")
+        self.git("checkout", "-q", "main")
+        target = self.commit("seed.txt", "their resolution input")
+        self.git("checkout", "-q", "build")
+        result = subprocess.run(["git", "-C", str(self.repo), "merge", "--no-ff", "main"],
+                                env=self.env, capture_output=True, text=True)
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn("CONFLICT", result.stdout)
+        merge = self.commit("seed.txt", "manually chosen resolution")
+        self.assertIsNone(ranges.prove_base_advance(self.repo, merge, self.target(target)))
+        self.assertTrue(ranges.authored_between(self.repo, build, merge))
+
+    def _install_untracked_merge_driver(self, pattern, resolution):
+        """A harmless reproducer: if executed, it writes only its result and a private sentinel."""
+        marker = self.repo.parent / "custom-driver-ran"
+        script = self.repo.parent / "custom-driver.sh"
+        script.write_text("#!/bin/sh\nprintf %s " + shlex.quote(resolution) + " > \"$1\"\n"
+                          "printf ran > " + shlex.quote(str(marker)) + "\n")
+        self.git("config", "merge.injected.driver", "sh " + shlex.quote(str(script)) + " %A")
+        (self.repo / ".git" / "info" / "attributes").write_text(pattern + " merge=injected\n")
+        global_config = self.repo.parent / "untrusted-global.gitconfig"
+        global_config.write_text("[merge \"injected\"]\n\tdriver = sh " + str(script) + " %A\n")
+        return marker, global_config
+
+    def test_conflict_cannot_gain_clean_proof_from_untracked_attributes_and_driver(self):
+        """SG-1: local attributes once laundered a manual resolution into automatic coverage."""
+        self.git("checkout", "-q", "-b", "build")
+        first_parent = self.commit("seed.txt", "ours")
+        self.git("checkout", "-q", "main")
+        target = self.commit("seed.txt", "theirs")
+        self.git("checkout", "-q", "build")
+        conflict = subprocess.run(["git", "-C", str(self.repo), "merge", "--no-ff", "main"],
+                                  env=self.env, capture_output=True, text=True)
+        self.assertNotEqual(conflict.returncode, 0)
+        self.assertIn("CONFLICT", conflict.stdout)
+        merged = self.commit("seed.txt", "manually chosen resolution")
+        marker, config = self._install_untracked_merge_driver("seed.txt", "manually chosen resolution\n")
+        # Establish that mutable Git inputs really reproduce the maliciously claimed automatic tree.
+        poisoned_tree = self.git("merge-tree", "--write-tree", first_parent, target).splitlines()[0]
+        self.assertEqual(poisoned_tree, self.git("rev-parse", merged + "^{tree}"))
+        self.assertTrue(marker.exists())
+        marker.unlink()
+        with mock.patch.dict(os.environ, {"GIT_CONFIG_GLOBAL": str(config), "GIT_CONFIG_SYSTEM": str(config),
+                "GIT_CONFIG_COUNT": "1", "GIT_CONFIG_KEY_0": "merge.default", "GIT_CONFIG_VALUE_0": "injected"}):
+            self.assertIsNone(ranges.prove_base_advance(self.repo, merged, self.target(target)))
+        self.assertFalse(marker.exists(), "proof verification must never execute a locally selected merge driver")
+        self.assertEqual((self.repo / ".git" / "info" / "attributes").read_text(), "seed.txt merge=injected\n")
+
+    def test_clean_merge_proof_ignores_mutable_attributes_and_environment_without_driver_execution(self):
+        self.commit("seed.txt", "one\ntwo\nthree\nfour\nfive\nsix")
+        self.git("checkout", "-q", "-b", "build")
+        self.commit("seed.txt", "ONE\ntwo\nthree\nfour\nfive\nsix")
+        self.git("checkout", "-q", "main")
+        target = self.commit("seed.txt", "one\ntwo\nthree\nfour\nfive\nSIX")
+        self.git("checkout", "-q", "build")
+        self.git("merge", "--no-ff", "--no-edit", "main")
+        merged = self.git("rev-parse", "HEAD")
+        original_proof = ranges.prove_base_advance(self.repo, merged, self.target(target))
+        self.assertIsNotNone(original_proof)
+        marker, config = self._install_untracked_merge_driver("seed.txt", "untrusted replacement\n")
+        with mock.patch.dict(os.environ, {"GIT_CONFIG_GLOBAL": str(config), "GIT_CONFIG_SYSTEM": str(config),
+                "GIT_CONFIG_COUNT": "1", "GIT_CONFIG_KEY_0": "merge.default", "GIT_CONFIG_VALUE_0": "injected"}):
+            self.assertEqual(ranges.prove_base_advance(self.repo, merged, self.target(target)), original_proof)
+        self.assertFalse(marker.exists())
+
+    def test_replacement_refs_cannot_change_a_real_merge_proof(self):
+        _, repaired, target, merged, _, _ = self.clean_merge()
+        original = ranges.prove_base_advance(self.repo, merged, self.target(target))
+        self.assertIsNotNone(original)
+        self.git("replace", merged, repaired)
+        self.assertEqual(ranges.prove_base_advance(self.repo, merged, self.target(target)), original)
+        self.assertEqual(self.git("for-each-ref", "--format=%(objectname)", "refs/replace/"), repaired)
+
+    def test_unrelated_target_missing_object_and_tampered_proof_do_not_cover(self):
+        reviewed, repaired, target, merge, _, _ = self.clean_merge()
+        self.assertIsNone(ranges.prove_base_advance(self.repo, merge, self.target(repaired)))
+        self.assertIsNone(ranges.prove_base_advance(self.repo, "f" * 40, self.target(target)))
+        proof = ranges.prove_base_advance(self.repo, merge, self.target(target))
+        receipt = self.receipt("usability", reviewed, repaired)
+        for field in ("merge_tree", "first_parent", "target_tip", "merge_commit"):
+            with self.subTest(field=field):
+                altered = dict(proof, **{field: "f" * 40})
+                self.assertFalse(ranges.receipt_covers(self.repo, receipt, repaired, merge, [altered]))
+
+    def test_octopus_merge_cannot_supply_a_two_parent_target_proof(self):
+        self.git("checkout", "-q", "-b", "build")
+        self.commit("build.py", "build")
+        self.git("checkout", "-q", "-b", "side", self.base)
+        self.commit("side.py", "side")
+        self.git("checkout", "-q", "main")
+        target = self.commit("upstream.py", "target")
+        self.git("checkout", "-q", "build")
+        self.git("merge", "--no-ff", "--no-edit", "main", "side")
+        merge = self.git("rev-parse", "HEAD")
+        self.assertEqual(len(self.git("rev-list", "--parents", "-n", "1", merge).split()), 4)
+        self.assertIsNone(ranges.prove_base_advance(self.repo, merge, self.target(target)))
+
+    def test_valid_proof_on_an_unrelated_branch_cannot_cover_this_tip(self):
+        reviewed, repaired, target, merge, _, _ = self.clean_merge()
+        proof = ranges.prove_base_advance(self.repo, merge, self.target(target))
+        self.git("checkout", "-q", "-b", "other-build", repaired)
+        unread = self.commit("other.py", "unread")
+        self.assertFalse(ranges.receipt_covers(self.repo, self.receipt("usability", reviewed, repaired),
+                                               repaired, unread, [proof]))
+
+
 class TheRoundCounter(_RealRepo):
     """The third mechanic: the operator gate fired over accounting rather than over a failing build."""
 
     def _assess(self, state: dict, head: str, judgment="scoped", lenses=("usability",), **over):
+        # Synthetic accepted descriptors isolate these real-Git counter tests from native ingress.
+        state.setdefault("findings", [])
+        descriptors = {}
+        for _, receipt in review.retained_receipts(state):
+            descriptor = {"lens":receipt["lens"],"path":"fixture/"+receipt["lens"]+".md","digest":"sha256:"+"7"*64}
+            descriptors[receipt["lens"]] = descriptor
+            receipt.setdefault("referent_digest", "sha256:"+"8"*64)
+            receipt.setdefault("lens_packet_digest", review.lens_packet_digest(receipt["referent_digest"], descriptor))
+        if descriptors:
+            state["reviews"]["deliverable"]["reviewer_contracts"] = list(descriptors.values())
         store = _Store(state)
         args = argparse.Namespace(judgment=judgment, rationale="r", lens=list(lenses) or None,
                                   guidance=None, **over)
-        with mock.patch.object(bc, "ROOT", self.repo), \
+        # This suite measures Git/counter behavior; native evidence ingress is tested separately.
+        with mock.patch.object(bc.scoped_agents, "missing_build_evidence", return_value=[]), \
+                mock.patch.object(bc, "ROOT", self.repo), \
                 mock.patch.object(bc, "_head", return_value=head), \
                 mock.patch.object(bc, "_must_run", return_value="1 file changed"), \
                 mock.patch.object(bc, "_history_was_rewritten", return_value=False), \
@@ -475,6 +744,11 @@ class TheBindingsStopAssertingWhatTheClaudeArmCannotDo(unittest.TestCase):
         reviewer does not (its depth arrives through the spawning session), a mechanical worker does."""
         for name, override in (self.bindings.get("overrides") or {}).items():
             persona = Path(self.root) / ".claude" / "agents" / f"{name}.md"
+            from selftest_support import installed_module_ids
+            from test_agent import TestShippedRosterDelegationPosture
+            if (not persona.is_file() and "qa-review" not in installed_module_ids()
+                    and name in TestShippedRosterDelegationPosture.QA_REVIEW):
+                continue
             self.assertTrue(persona.is_file(), f"{name} is overridden but has no persona file")
             frontmatter = persona.read_text(encoding="utf-8").split("---")[1]
             stamped = any(line.strip().startswith("effort:") for line in frontmatter.splitlines())
@@ -486,6 +760,8 @@ class TheBindingsStopAssertingWhatTheClaudeArmCannotDo(unittest.TestCase):
 
     def test_the_reviewer_personas_still_carry_no_effort_of_their_own(self):
         """The other half, kept explicit: the reason the reviewer overrides dropped their effort pins."""
+        from selftest_support import needs_modules
+        needs_modules(self, "qa-review")
         reviewers = [name for name in (self.bindings.get("overrides") or {}) if "-qa-review-" in name]
         self.assertTrue(reviewers, "the reviewer overrides are the subject; an empty set proves nothing")
         for name in reviewers:
@@ -647,6 +923,27 @@ class TheV1SunsetDemo(unittest.TestCase):
         import quiet_call
         import demo_v1_plan_sunset_refused as demo
         self.assertEqual(quiet_call.run(demo.main), 0)
+
+
+
+
+
+class ReviewCoverageDemo(unittest.TestCase):
+    """Permanent fate: the operator scenario and both deliberate false-positive controls."""
+
+    def test_demo_normal_and_both_faults_reach_meaningful_assertions(self):
+        import demo_review_coverage
+        import quiet_call
+        for flag in (None,"--lose-coverage","--overcredit-gap"):
+            with self.subTest(fault=flag), contextlib.redirect_stdout(io.StringIO()) as output:
+                code = quiet_call.run(demo_review_coverage.main,[flag] if flag else [],stream=output)
+            self.assertEqual(1 if flag else 0,code,output.getvalue())
+            self.assertNotIn("ERROR:",output.getvalue(),"A harness error is not a falsification")
+            if flag:
+                self.assertIn("FAIL:",output.getvalue())
+                self.assertIn("AssertionError",output.getvalue())
+            else:
+                self.assertIn("production submit preview reaches mark-ready",output.getvalue())
 
 
 if __name__ == "__main__":

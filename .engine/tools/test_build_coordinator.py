@@ -122,8 +122,89 @@ def plan_v2(objective="Ship a dependency-ordered Build", items=None, mode="seria
     }
 
 
+def observe_review_execution(library, slug, owner, lens, digest, output, root="fixture-root", purpose="review", review_contract=None, packet_content=None):
+    """Synthetic native event fixture through the real store, not acceptance bypasses."""
+    import uuid
+    import scoped_agents
+    import providers
+    packet = library.plan_dir(slug) / (uuid.uuid4().hex + ".packet.txt")
+    packet.write_text(packet_content or "Synthetic frozen reviewer obligations: " + digest)
+    store = scoped_agents.Store(library, slug)
+    role = "engine-qa-review-" + lens if owner["kind"] == "build" else "engine-design-review-" + lens
+    if purpose == "worker":
+        role = "engine-worker-builder"
+    a = store.register(owner=owner, root=root, purpose=purpose, lens=lens, role=role,
+                       packet=packet, packet_digest=digest, review_contract=review_contract)
+    child = "child-" + a["id"]
+    transcript = packet.with_suffix(".jsonl")
+    transcript.write_text(json.dumps({"type": "session_meta", "payload": {"id": child,
+        "source": {"subagent": {"thread_spawn": {"parent_thread_id": root,
+            "agent_path": "/root/" + a["id"]}}}}}) + "\n" +
+        json.dumps({"type": "response_item", "payload": {"type": "agent_message", "author": "/root",
+            "recipient": "/root/" + a["id"], "content": [{"type": "input_text", "text": "native header"},
+            {"type": "encrypted_content", "encrypted_content": "opaque initial launch"}]}}) + "\n" +
+        json.dumps({"type": "response_item", "payload": {"type": "message", "role": "assistant",
+            "phase": "final_answer", "content": [{"type": "output_text", "text": json.dumps(output)}]}}) + "\n")
+    def event(name, **fields):
+        with mock.patch.dict(os.environ, {providers.PROVIDER_ENV: "codex"}):
+            return store.observe(name, providers.normalize(name, {"session_id": root,
+                "tool_use_id": a["id"], **fields}))
+    launch = {"tool_name": "collaborationspawn_agent", "tool_input": {
+        "task_name": a["id"], "agent_type": role, "fork_turns": "none", "message": "opaque initial launch"}}
+    event("PreToolUse", **launch)
+    event("PostToolUse", **launch, tool_response={"task_name": "/root/" + a["id"]})
+    child_fields = {"agent_id": child, "agent_type": role, "agent_transcript_path": str(transcript)}
+    event("SubagentStart", **child_fields)
+    event("PostToolUse", **child_fields, tool_name="Bash", tool_input={"command": "cat " + a["packet_path"]},
+          tool_response={"exit_code": 0, "stdout": packet.read_text()})
+    event("SubagentStop", **child_fields, last_assistant_message=json.dumps(output))
+    return store, a
+
+
+def clarify_review_execution(store, assignment, root="fixture-root"):
+    """A documented successful supplement read supplies observable delivery, not a send claim."""
+    import providers
+    a = store.read()["assignments"][assignment["id"]]
+    supplement = store.clarify(a["id"], root, "The existing packet's access issue is resolved.")
+    call = {"session_id": root, "tool_use_id": "clarify-" + a["id"],
+            "tool_name": "collaborationfollowup_task", "tool_input": {
+                "target": a["child"], "message": "Read the clarification at " + supplement["path"]}}
+    with mock.patch.dict(os.environ, {providers.PROVIDER_ENV: "codex"}):
+        for _ in range(2):  # repeated hook observation must not invent a second continuation
+            assert store.observe("PreToolUse", providers.normalize("PreToolUse", call))["action"] == "proceed"
+        store.observe("PostToolUse", providers.normalize("PostToolUse", {**call, "tool_response": {"ok": True}}))
+        child = {"session_id": root, "agent_id": a["child"], "agent_type": a["role"]}
+        read = {**child, "tool_name": "Bash", "tool_use_id": "read-clarification",
+                "tool_input": {"command": "cat " + supplement["path"]},
+                "tool_response": {"exit_code": 0, "stdout": Path(supplement["path"]).read_text()}}
+        store.observe("PostToolUse", providers.normalize("PostToolUse", read))
+        transcript = next(path for path in store.path.parent.glob("*.jsonl")
+                          if '"id": "' + a["child"] + '"' in path.read_text())
+        with transcript.open("a") as handle:
+            handle.write(json.dumps({"type": "response_item", "payload": {"type": "agent_message",
+                "author": "/root", "recipient": "/root/" + a["id"], "content": [
+                    {"type": "input_text", "text": "native header"},
+                    {"type": "encrypted_content", "encrypted_content": call["tool_input"]["message"]}]}}) + "\n")
+        store.observe("SubagentStop", providers.normalize("SubagentStop", {**child,
+            "agent_transcript_path": str(transcript), "last_assistant_message": "[]"}))
+    return store.read()["assignments"][a["id"]]
+
+
+def _entry_observation_fixture(root, repository, number, pr):
+    """Admission seam for tests about other coordinator behavior; real git cases live separately."""
+    # These unrelated subjects have a complete, empty structured PR issue observation.
+    pr.setdefault("closingIssuesReferences", [])
+    return {"observed_at": "2026-09-08T00:00:00Z", "material": {
+        "repository": repository, "pr": number, "head_repository": repository,
+        "head_ref": pr.get("headRefName", "codex/fixture"), "head": pr["headRefOid"],
+        "target_repository": repository, "target_ref": pr.get("baseRefName", "main"),
+        "target_tip": pr.get("baseRefOid") or BASE}}
+
+
 class CoordinatorCase(unittest.TestCase):
     def setUp(self):
+        from selftest_support import review_fixture
+        review_fixture(self)
         self.temp = tempfile.TemporaryDirectory()
         self.addCleanup(self.temp.cleanup)
         stable = mock.patch.object(
@@ -136,6 +217,30 @@ class CoordinatorCase(unittest.TestCase):
         self.store = bc.StateStore(self.state_path)
         self.plan_path = Path(self.temp.name) / "plan.json"
         self.write_plan(plan())
+        import plan_store
+        from test_plan_store import _document
+        self.review_library = plan_store.PlanLibrary(Path(self.temp.name) / "scoped-review-fixture-plans")
+        self.review_slug = self.review_library.create(_document(plan_id=PLAN_ID))
+        library_patch = mock.patch.object(bc, "_library", return_value=self.review_library)
+        library_patch.start()
+        self.addCleanup(library_patch.stop)
+
+    def record_review(self, args, store, report=None):
+        import scoped_agents
+        state = store.read()
+        if "ownership" not in state:
+            store.mutate(lambda s: s.update(ownership={"build_id": "bld_" + "1" * 32, "generation": 1}))
+            state = store.read()
+        args.session = "fixture-root"
+        findings = bc._receipt_finding_ids(args)
+        batch = getattr(args, "findings_from_file", None)
+        entries = bc._findings_batch(batch, args.stage, args.lens) if batch else None
+        observe_review_execution(self.review_library, self.review_slug, scoped_agents.build_owner(state),
+            args.lens, args.lens_packet_digest,
+            report if report is not None else (
+            [{"severity": f["severity"], "message": f["summary"], "location": None} for f in entries]
+            if entries is not None else [{"severity": "nit", "message": fid, "location": None} for fid in findings]))
+        return bc.cmd_review_record(args, store)
 
     def write_plan(self, value):
         self.plan_path.write_text(json.dumps(value), encoding="utf-8")
@@ -145,6 +250,7 @@ class CoordinatorCase(unittest.TestCase):
         Issue that AUTHORIZED the work, which after the cutover is never where the plan lives."""
         value = plan()
         state = bc._initial_state("owner/repo", 7, BASE, PLAN_ID, SEALED, value, issue)
+        state["ownership"] = {"build_id": "bld_" + "1" * 32, "generation": 1}
         self.store.create(state)
         return state
 
@@ -167,6 +273,52 @@ class CoordinatorCase(unittest.TestCase):
         library (TestSealedPlanEntry); everything else is about what bind DOES with a sealed plan."""
         return mock.patch.object(bc, "_sealed_plan",
                                  return_value=(plan_id, sealed_digest, value or plan()))
+
+    @contextlib.contextmanager
+    def binding(self, value=None, plan_id=PLAN_ID, sealed_digest=SEALED):
+        """Isolate bind's authorization/metadata unit tests from transaction persistence.
+
+        Real library, durable transaction, and competing CLI binds are exercised separately in
+        test_build_state_store and TestFreshWorktreeBindIsIsolatedFromAPriorSubmittedBuild.
+        No production switch admits this low-level fixture store.
+        """
+        library = mock.Mock()
+        library.resolve.return_value = plan_id
+        library.read_record.return_value = {}
+        claim = {'build_id': 'bld_' + '1' * 32, 'generation': 1, 'snapshot': self.state_path}
+        def reserve(*args, **kwargs):
+            if self.store.path.exists():
+                raise bc.CoordinatorError('snapshot already exists in this unit fixture')
+            return claim
+        def finish(library, slug, identity, state, schema, **kwargs):
+            state['ownership'] = identity
+            self.store.create(state)
+            return state
+        with self.sealed(value, plan_id, sealed_digest), \
+                mock.patch.object(bc, '_library', return_value=library), \
+                mock.patch.object(build_state_store, 'reserve_build', side_effect=reserve) as reservation, \
+                mock.patch.object(build_state_store, 'finish_binding', side_effect=finish), \
+                mock.patch.object(bc.entry, 'observe_fresh', side_effect=_entry_observation_fixture), \
+                mock.patch.object(bc.entry, 'verify_frozen'), \
+                mock.patch.object(bc.entry, 'overlap_observation', return_value={
+                    "coverage": "complete", "matches": [], "errors": [], "local_digest": "fixture"}), \
+                mock.patch.object(bc.entry, 'verify_local_overlap'):
+            self.reservation = reservation
+            yield
+
+    @contextlib.contextmanager
+    def handoff_storage(self, destination):
+        """Projection/session-locator unit seam; real ownership restore lives in store tests."""
+        library = mock.Mock()
+        library.resolve.return_value = PLAN_ID
+        def restore(library, slug, value, state, schema, **kwargs):
+            state['ownership'] = {'build_id': 'bld_' + '1' * 32, 'generation': 1}
+            value['snapshot'] = str(destination.path)
+            destination.create(state)
+            return destination.read()
+        with mock.patch.object(bc, '_library', return_value=library), \
+                mock.patch.object(build_state_store, 'restore_handoff', side_effect=restore):
+            yield
 
     def integrate_all(self, value=None):
         """Mark every node of the bound plan integrated, the way `work integrate` would.
@@ -212,19 +364,18 @@ class TestPlanAndSnapshot(CoordinatorCase):
         import plan_lifecycle
         pr = {"number": 7, "state": "OPEN", "isDraft": True, "headRefOid": HEAD_A, "baseRefOid": BASE}
         out, err = io.StringIO(), io.StringIO()
-        with self.sealed(), mock.patch.object(bc, "_verify_draft", return_value=pr), \
+        with self.binding(), mock.patch.object(bc, "_verify_draft", return_value=pr), \
                 mock.patch.object(bc, "_head", return_value=HEAD_A), \
                 mock.patch.object(bc.github, "tag_coordinator_owned", return_value=True), \
-                mock.patch.object(bc, "_record_build_binding"), \
                 contextlib.redirect_stdout(out), contextlib.redirect_stderr(err):
             bc.cmd_plan_bind(self.bind_args(), self.store)
         self.assertIn(plan_lifecycle.CARRIER_RULE, err.getvalue())
         lines = [line for line in out.getvalue().splitlines() if line.strip()]
         self.assertEqual(len(lines), 1)
-        self.assertEqual(set(json.loads(lines[0])), {"plan_digest", "state"})
+        self.assertEqual(set(json.loads(lines[0])), {"plan_digest", "state", "ownership", "revision", "locator"})
 
     def test_bind_refuses_without_the_switch_and_names_the_ask(self):
-        with self.sealed(), self.assertRaises(bc.CoordinatorError) as caught:
+        with self.binding(), self.assertRaises(bc.CoordinatorError) as caught:
             bc.cmd_plan_bind(self.bind_args(operator_decided=False), self.store)
         self.assertIn("starting the Build that executes this sealed plan", str(caught.exception))
         self.assertIn("--operator-decided", str(caught.exception))
@@ -241,9 +392,40 @@ class TestPlanAndSnapshot(CoordinatorCase):
             with self.assertRaises(SystemExit), contextlib.redirect_stderr(io.StringIO()):
                 parser.parse_args(argv)
 
+    def test_first_admission_excludes_only_its_verified_source_pr_and_refuses_a_competitor(self):
+        value = plan()
+        value["intent_source"] = {"kind": "issue", "issue": 12}
+        draft = {"headRefOid": HEAD_A, "baseRefOid": BASE, "headRefName": "codex/12-work",
+                 "closingIssuesReferences": []}
+        rows = [{"number": 7, "title": "Fix #12", "body": "", "closingIssuesReferences": [], "head": {
+            "ref": "codex/12-work", "sha": HEAD_A, "repo": {"full_name": "owner/repo"}}}]
+        library = mock.Mock()
+        library.slugs.return_value = []
+        with mock.patch.object(bc.entry, "observe_fresh", side_effect=_entry_observation_fixture), \
+                mock.patch.object(bc.entry, "_open_prs", return_value=rows), \
+                mock.patch.object(bc.entry, "_git", return_value=HEAD_A + "\trefs/heads/codex/12-work"):
+            admission = bc._observe_admission(self.bind_args(), value, draft, library)
+            self.assertEqual(admission["material"]["issues"], [12])
+            self.assertEqual(admission["material"]["overlap"]["coverage"], "complete")
+            self.assertEqual(admission["material"]["overlap"]["matches"], [])
+            self.assertIsNone(admission["material"]["override"])
+            rows.append({"number": 8, "title": "Fix #12", "body": "", "closingIssuesReferences": [], "head": {
+                "ref": "claude/12-work", "sha": HEAD_B, "repo": {"full_name": "owner/repo"}}})
+            with self.assertRaisesRegex(bc.CoordinatorError, "overlapping issue work"):
+                bc._observe_admission(self.bind_args(), value, draft, library)
+
+    def test_failed_fresh_admission_never_reserves_a_build(self):
+        with self.binding(), mock.patch.object(bc, "_head", return_value=HEAD_A), \
+                mock.patch.object(bc, "_verify_draft", return_value={"headRefOid": HEAD_A}), \
+                mock.patch.object(bc.entry, "observe_fresh", side_effect=bc.CoordinatorError("stale target")), \
+                self.assertRaisesRegex(bc.CoordinatorError, "stale target"):
+            bc.cmd_plan_bind(self.bind_args(), self.store)
+        self.reservation.assert_not_called()
+        self.assertFalse(Path(self.state_path).exists())
+
     def test_bind_initializes_only_for_the_matching_draft_pr_head(self):
         pr = {"number": 7, "state": "OPEN", "isDraft": True, "headRefOid": HEAD_A, "baseRefOid": BASE}
-        with self.sealed(), mock.patch.object(bc, "_verify_draft", return_value=pr), mock.patch.object(bc, "_head", return_value=HEAD_A), mock.patch.object(bc.github, "tag_coordinator_owned", return_value=True), mock.patch.object(bc, "_record_build_binding"), contextlib.redirect_stdout(io.StringIO()):
+        with self.binding(), mock.patch.object(bc, "_verify_draft", return_value=pr), mock.patch.object(bc, "_head", return_value=HEAD_A), mock.patch.object(bc.github, "tag_coordinator_owned", return_value=True), contextlib.redirect_stdout(io.StringIO()):
             bc.cmd_plan_bind(self.bind_args(), self.store)
         self.assertEqual(self.state()["build"], {"repository": "owner/repo", "pr": 7, "base_at_bind": BASE,
                                                  "mode": "same-session", "worktree": str(bc.ROOT)})
@@ -257,27 +439,26 @@ class TestPlanAndSnapshot(CoordinatorCase):
         # A snapshot already on disk, the way a killed-and-retried Build leaves one.
         self.store.path.parent.mkdir(parents=True, exist_ok=True)
         self.store.path.write_text("{}", encoding="utf-8")
-        with self.sealed(), mock.patch.object(bc, "_verify_draft", return_value=pr), \
+        with self.binding(), mock.patch.object(bc, "_verify_draft", return_value=pr), \
                 mock.patch.object(bc, "_head", return_value=HEAD_A), \
-                mock.patch.object(bc, "_record_build_binding") as binding, \
                 contextlib.redirect_stdout(io.StringIO()):
             with self.assertRaisesRegex(bc.CoordinatorError, "already exists"):
                 bc.cmd_plan_bind(self.bind_args(pr=9), self.store)
-        binding.assert_not_called()
+        self.assertEqual(self.store.path.read_text(), '{}')
 
     def test_bind_names_the_sealed_plan_it_entered_on(self):
         pr = {"number": 7, "state": "OPEN", "isDraft": True, "headRefOid": HEAD_A, "baseRefOid": BASE}
-        with self.sealed(), mock.patch.object(bc, "_verify_draft", return_value=pr), mock.patch.object(bc, "_head", return_value=HEAD_A), mock.patch.object(bc.github, "tag_coordinator_owned", return_value=True), mock.patch.object(bc, "_record_build_binding") as binding, contextlib.redirect_stdout(io.StringIO()):
+        with self.binding(), mock.patch.object(bc, "_verify_draft", return_value=pr), mock.patch.object(bc, "_head", return_value=HEAD_A), mock.patch.object(bc.github, "tag_coordinator_owned", return_value=True), contextlib.redirect_stdout(io.StringIO()):
             bc.cmd_plan_bind(self.bind_args(), self.store)
         recorded = self.state()["plan"]
         self.assertEqual(recorded["plan_id"], PLAN_ID)
         self.assertEqual(recorded["sealed_digest"], SEALED)
         self.assertFalse(recorded["diverged_from_seal"])
         self.assertIsNone(recorded["authorizing_issue"])
-        binding.assert_called_once()
+        self.reservation.assert_called_once()
 
     def test_unattended_bind_requires_an_authorizing_issue(self):
-        with self.sealed(), self.assertRaisesRegex(bc.CoordinatorError, "durable Issue for authorization"):
+        with self.binding(), self.assertRaisesRegex(bc.CoordinatorError, "durable Issue for authorization"):
             bc.cmd_plan_bind(self.bind_args(mode="unattended"), self.store)
 
     @staticmethod
@@ -290,10 +471,10 @@ class TestPlanAndSnapshot(CoordinatorCase):
 
     def _bind_ok(self, value, **over):
         pr = {"number": 7, "state": "OPEN", "isDraft": True, "headRefOid": HEAD_A, "baseRefOid": BASE}
-        with self.sealed(value=value), mock.patch.object(bc, "_verify_draft", return_value=pr), \
+        with self.binding(value=value), mock.patch.object(bc, "_verify_draft", return_value=pr), \
                 mock.patch.object(bc, "_head", return_value=HEAD_A), \
                 mock.patch.object(bc.github, "tag_coordinator_owned", return_value=True), \
-                mock.patch.object(bc, "_record_build_binding"), contextlib.redirect_stdout(io.StringIO()):
+                contextlib.redirect_stdout(io.StringIO()):
             bc.cmd_plan_bind(self.bind_args(**over), self.store)
 
     def test_an_unattended_bind_refuses_an_issue_the_sealed_plan_does_not_name(self):
@@ -301,14 +482,14 @@ class TestPlanAndSnapshot(CoordinatorCase):
         locally the Issue and the plan are two artifacts, so an unrelated open Issue paired with an
         arbitrary sealed plan must authorize nothing — and the refusal names both numbers, because the
         operator's next move is deciding which of the two was the mistake."""
-        with self.sealed(value=self._from_issue(770, "routine")), \
+        with self.binding(value=self._from_issue(770, "routine")), \
                 self.assertRaisesRegex(bc.CoordinatorError, r"Issue #999 does not authorize this plan"):
             bc.cmd_plan_bind(self.bind_args(mode="unattended", issue=999), self.store)
 
     def test_an_unattended_bind_refuses_a_plan_that_names_no_issue_at_all(self):
         # The other half of the same hole: an Issue supplied against a plan with direct intent has
         # nothing to correspond to, so supplying it proved nothing.
-        with self.sealed(), self.assertRaisesRegex(bc.CoordinatorError, "names no authorizing Issue"):
+        with self.binding(), self.assertRaisesRegex(bc.CoordinatorError, "names no authorizing Issue"):
             bc.cmd_plan_bind(self.bind_args(mode="unattended", issue=770), self.store)
 
     def test_the_matching_issue_authorizes_an_unattended_bind_and_is_recorded(self):
@@ -321,16 +502,16 @@ class TestPlanAndSnapshot(CoordinatorCase):
         not excuse a plan that never named it, and holding a sealed plan does not excuse a missing
         Issue. Each half is refused in its own words, so a session cannot satisfy one by producing the
         other."""
-        with self.sealed(value=self._from_issue(770, "routine")), \
+        with self.binding(value=self._from_issue(770, "routine")), \
                 self.assertRaisesRegex(bc.CoordinatorError, "durable Issue for authorization"):
             bc.cmd_plan_bind(self.bind_args(mode="unattended"), self.store)     # the plan alone
-        with self.sealed(), self.assertRaisesRegex(bc.CoordinatorError, "names no authorizing Issue"):
+        with self.binding(), self.assertRaisesRegex(bc.CoordinatorError, "names no authorizing Issue"):
             bc.cmd_plan_bind(self.bind_args(mode="unattended", issue=770), self.store)   # the Issue alone
 
     def test_a_mismatched_issue_is_refused_in_an_interactive_bind_too(self):
         # --issue stays optional same-session (the operator is present), but one supplied in ANY mode
         # must still correspond: a mismatch is a mistake worth catching wherever it is made.
-        with self.sealed(value=self._from_issue(770)), \
+        with self.binding(value=self._from_issue(770)), \
                 self.assertRaisesRegex(bc.CoordinatorError, r"sealed against Issue #770"):
             bc.cmd_plan_bind(self.bind_args(issue=999), self.store)
 
@@ -342,7 +523,7 @@ class TestPlanAndSnapshot(CoordinatorCase):
         and composed into the pull request as a Closes link, so accepting it unchecked would put an
         unverified claim on the merge surface: a PR asserting it closes work nothing tied it to.
         """
-        with self.sealed(), self.assertRaises(bc.CoordinatorError) as caught:
+        with self.binding(), self.assertRaises(bc.CoordinatorError) as caught:
             bc.cmd_plan_bind(self.bind_args(issue=999), self.store)
         self.assertIn("names no Issue", str(caught.exception))
         self.assertIn("Bind without --issue", str(caught.exception))
@@ -356,15 +537,15 @@ class TestPlanAndSnapshot(CoordinatorCase):
         # — no Issue could have made this bind legal — so reporting the other would send the operator
         # hunting for the right Issue number for a Build that was never going to be unattended.
         value = plan(); value["profile"] = "trivial"
-        with self.sealed(value=value), self.assertRaisesRegex(bc.CoordinatorError, "same-session only"):
+        with self.binding(value=value), self.assertRaisesRegex(bc.CoordinatorError, "same-session only"):
             bc.cmd_plan_bind(self.bind_args(mode="unattended", issue=None), self.store)
 
     def test_bind_refuses_a_v1_payload_and_names_the_way_forward(self):
-        with self.sealed(value=plan_v1()), self.assertRaisesRegex(bc.CoordinatorError, "v1 no longer enters a Build"):
+        with self.binding(value=plan_v1()), self.assertRaisesRegex(bc.CoordinatorError, "v1 no longer enters a Build"):
             bc.cmd_plan_bind(self.bind_args(), self.store)
 
     def test_bind_rejects_a_draft_pr_at_a_different_head(self):
-        with self.sealed(), mock.patch.object(bc, "_verify_draft", return_value={"headRefOid": HEAD_B}), mock.patch.object(bc, "_head", return_value=HEAD_A), self.assertRaisesRegex(bc.CoordinatorError, "does not match"):
+        with self.binding(), mock.patch.object(bc, "_verify_draft", return_value={"headRefOid": HEAD_B}), mock.patch.object(bc, "_head", return_value=HEAD_A), self.assertRaisesRegex(bc.CoordinatorError, "does not match"):
             bc.cmd_plan_bind(self.bind_args(), self.store)
 
     def test_plan_digest_is_canonical_and_exact_content_is_not_stored(self):
@@ -488,7 +669,7 @@ class TestPlanAndSnapshot(CoordinatorCase):
 
     def test_trivial_cannot_bind_unattended(self):
         value = plan(); value["profile"] = "trivial"; self.write_plan(value)
-        with self.sealed(value=value), self.assertRaisesRegex(bc.CoordinatorError, "same-session only"):
+        with self.binding(value=value), self.assertRaisesRegex(bc.CoordinatorError, "same-session only"):
             bc.cmd_plan_bind(self.bind_args(mode="unattended", issue=11), self.store)
 
     def test_same_session_status_survives_github_loss(self):
@@ -665,158 +846,8 @@ class TestSealedPlanEntry(CoordinatorCase):
         with self.assertRaisesRegex(bc.CoordinatorError, "is not sealed"):
             bc._sealed_plan(self.document["plan_id"])
 
-    def test_binding_records_the_binding_on_the_plan_itself(self):
-        seal = self.seal_it()
-        bc._record_build_binding(self.document["plan_id"], "owner/repo", 7, seal["sealed_digest"],
-                                 seal["build_plan_digest"])
-        binding = self.library.read_record(self.slug)["build_binding"]
-        self.assertEqual(binding["pull_request"], 7)
-        self.assertEqual(binding["repository"], "owner/repo")
-        self.assertEqual(binding["sealed_digest"], seal["sealed_digest"])
-
-    def test_a_library_that_cannot_be_written_refuses_the_bind(self):
-        """The write is the interlock now, so failing to land it fails the bind — never a shrug.
-
-        This test used to assert the OPPOSITE: that the failure was disclosed on stderr and the
-        Build proceeded unbound. An unbound Build is invisible to `refuse_if_active` on the
-        supersede side, which re-asserts "no build_binding" under the plan lock — so best-effort
-        here hollowed out that guard entirely.
-        """
-        seal = self.seal_it()
-        with mock.patch.object(self.library, "update_record", side_effect=OSError("read-only")):
-            with self.assertRaises(bc.CoordinatorError) as caught:
-                bc._record_build_binding(self.document["plan_id"], "owner/repo", 7,
-                                         seal["sealed_digest"], seal["build_plan_digest"])
-        self.assertIn("could not record the Build binding", str(caught.exception))
-        self.assertIn("refuses rather than proceeding", str(caught.exception))
-
-    def test_a_crash_retry_of_the_same_bind_does_not_double_record_consent(self):
-        """A retry re-writes the marker but must not record the operator deciding twice — and it
-        says on stderr that it did not, because the record cannot tell a retry from a re-bind onto
-        the same pull request."""
-        seal = self.seal_it()
-        consent = {"gate": "bind", "at": "2026-08-29T10:00:00Z"}
-        bc._record_build_binding(self.document["plan_id"], "owner/repo", 7,
-                                 seal["sealed_digest"], seal["build_plan_digest"], dict(consent))
-        with contextlib.redirect_stderr(io.StringIO()) as err:
-            bc._record_build_binding(self.document["plan_id"], "owner/repo", 7,
-                                     seal["sealed_digest"], seal["build_plan_digest"],
-                                     {"gate": "bind", "at": "2026-08-29T10:00:07Z"})
-        record = self.library.read_record(self.slug)
-        self.assertEqual([entry["gate"] for entry in record["consent"]], ["seal", "bind"])
-        self.assertIn("already carries a bind decision", err.getvalue())
-
-    def test_a_second_bind_onto_a_new_pr_records_the_operators_decision_again(self):
-        """`state supersede` makes a second Build of the same plan a first-class act, and the
-        operator deciding again for a NEW binding is a new event. Suppression is for the identical
-        binding and nothing else."""
-        seal = self.seal_it()
-        bc._record_build_binding(self.document["plan_id"], "owner/repo", 7,
-                                 seal["sealed_digest"], seal["build_plan_digest"],
-                                 {"gate": "bind", "at": "2026-08-29T09:00:00Z"})
-        with contextlib.redirect_stderr(io.StringIO()) as err:
-            bc._record_build_binding(self.document["plan_id"], "owner/repo", 99,
-                                     seal["sealed_digest"], seal["build_plan_digest"],
-                                     {"gate": "bind", "at": "2026-08-29T17:30:00Z"})
-        entries = self.library.read_record(self.slug).get("consent") or []
-        self.assertEqual([entry["at"] for entry in entries if entry["gate"] == "bind"],
-                         ["2026-08-29T09:00:00Z", "2026-08-29T17:30:00Z"])
-        for entry in entries:
-            self.assertEqual(set(entry), {"gate", "at"})
-        self.assertEqual(err.getvalue(), "")
-
-    def test_a_bind_refuses_a_sealed_record_that_carries_no_seal_decision(self):
-        """The chain checks itself: a `seal` block with no seal decision event beside it is a record
-        the seal verb did not write, and the bind refuses before writing anything."""
-        seal = self.seal_it()
-        self.library.update_record(self.slug, lambda current: current.pop("consent", None))
-        with self.assertRaisesRegex(bc.CoordinatorError, "needs the seal gate's recorded decision"):
-            bc._record_build_binding(self.document["plan_id"], "owner/repo", 7,
-                                     seal["sealed_digest"], seal["build_plan_digest"],
-                                     {"gate": "bind", "at": "2026-08-29T10:00:00Z"})
-        record = self.library.read_record(self.slug)
-        self.assertIsNone(record.get("build_binding"))
-        self.assertNotIn("consent", record)
-
-    def test_an_adoption_records_its_own_gate_and_looks_back_to_the_seal(self):
-        """A Build continuing onto a corrected successor is recorded as `adopt`, so a reader of the
-        successor's record can tell it from a Build that started there; and like the bind it refuses
-        a sealed record that carries no seal decision."""
-        seal = self.seal_it()
-        bc._record_build_binding(self.document["plan_id"], "owner/repo", 7,
-                                 seal["sealed_digest"], seal["build_plan_digest"],
-                                 {"gate": "adopt", "at": "2026-08-29T10:00:00Z"})
-        entries = self.library.read_record(self.slug)["consent"]
-        self.assertEqual([entry["gate"] for entry in entries], ["seal", "adopt"])
-        self.library.update_record(self.slug, lambda current: current.pop("consent", None))
-        with self.assertRaisesRegex(bc.CoordinatorError, "adopt gate needs the seal gate"):
-            bc._record_build_binding(self.document["plan_id"], "owner/repo", 8,
-                                     seal["sealed_digest"], seal["build_plan_digest"],
-                                     {"gate": "adopt", "at": "2026-08-29T11:00:00Z"})
-
-    def test_the_rollback_restores_only_what_this_command_wrote(self):
-        """The rollback is the one write on its path that used to carry no precondition, and a
-        reviewer drove the consequence: a concurrent bind landing in the window was erased —
-        binding AND consent — silently. It now asserts, inside the mutator, that the record's
-        binding is still the one this command wrote, and refuses to touch anything else's."""
-        seal = self.seal_it()
-        before = list(self.library.read_record(self.slug).get("consent") or [])
-        mine = {"gate": "bind", "at": "2026-08-29T12:00:00Z"}
-        written = {"repository": "owner/repo", "pull_request": 7,
-                   "sealed_digest": seal["sealed_digest"],
-                   "build_plan_digest": seal["build_plan_digest"]}
-        bc._record_build_binding(self.document["plan_id"], "owner/repo", 7,
-                                 seal["sealed_digest"], seal["build_plan_digest"], dict(mine))
-        # The clean case: nothing moved, so the restore lands and removes only this entry.
-        bc._restore_binding(self.slug, None, before, written, dict(mine))
-        record = self.library.read_record(self.slug)
-        self.assertIsNone(record.get("build_binding"))
-        self.assertEqual(record.get("consent"), before)
-        # The raced case: another session's bind moved the record; the rollback refuses whole.
-        theirs = {"gate": "bind", "at": "2026-08-29T13:00:00Z"}
-        bc._record_build_binding(self.document["plan_id"], "owner/repo", 4242,
-                                 seal["sealed_digest"], seal["build_plan_digest"], dict(theirs))
-        with self.assertRaisesRegex(bc.CoordinatorError, "another session moved"):
-            bc._restore_binding(self.slug, None, before, written, dict(mine))
-        record = self.library.read_record(self.slug)
-        self.assertEqual(record["build_binding"]["pull_request"], 4242)
-        self.assertEqual([entry["at"] for entry in record["consent"] if entry["gate"] == "bind"],
-                         ["2026-08-29T13:00:00Z"])
-
-    def test_the_rollback_removes_one_entry_by_position_under_a_frozen_clock(self):
-        """Entries are events with whole-second moments, so a genuine decision and a retracted one
-        in the same second are EQUAL. A rollback keyed on value would erase both; keyed on position
-        it removes the one it appended and leaves the earlier, genuine one standing."""
-        seal = self.seal_it()
-        frozen = {"gate": "bind", "at": "2026-08-29T12:00:00Z"}
-        bc._record_build_binding(self.document["plan_id"], "owner/repo", 7,
-                                 seal["sealed_digest"], seal["build_plan_digest"], dict(frozen))
-        genuine = list(self.library.read_record(self.slug)["consent"])
-        # A second, distinct binding in the same second, then refused: its entry equals the first.
-        written = {"repository": "owner/repo", "pull_request": 8,
-                   "sealed_digest": seal["sealed_digest"],
-                   "build_plan_digest": seal["build_plan_digest"]}
-        bc._record_build_binding(self.document["plan_id"], "owner/repo", 8,
-                                 seal["sealed_digest"], seal["build_plan_digest"], dict(frozen))
-        self.assertEqual(len(self.library.read_record(self.slug)["consent"]), len(genuine) + 1)
-        bc._restore_binding(self.slug, None, genuine, written, dict(frozen))
-        self.assertEqual(self.library.read_record(self.slug)["consent"], genuine)
-
-    def test_a_closure_landing_in_the_bind_window_refuses_under_the_lock(self):
-        """The bind half of the supersede interlock, driven at exactly the racing write.
-
-        `_sealed_plan` checks closure on an unlocked read; a supersession landing after that check
-        used to leave a Build starting on a plan the record had just put away. The re-assertion
-        lives inside the mutator, under the same lock `refuse_if_active` runs under — this closes
-        the plan after the pre-check would have passed and drives the write directly.
-        """
-        seal = self.seal_it()
-        self._close("retired")     # the closure lands after any earlier check, before the write
-        with self.assertRaises(bc.CoordinatorError) as caught:
-            bc._record_build_binding(self.document["plan_id"], "owner/repo", 7,
-                                     seal["sealed_digest"], seal["build_plan_digest"])
-        self.assertIn("closed plan does not start a Build", str(caught.exception))
-        self.assertIsNone(self.library.read_record(self.slug).get("build_binding"))
+    # Binding/consent/rollback ownership cases now exercise reserve/finish/adopt transactions
+    # against real records in test_build_state_store.TransactionalOwnership.
 
     def test_cold_restore_is_blocked_when_the_sealed_plan_is_gone(self):
         self.seal_it()
@@ -1044,7 +1075,7 @@ class TestReviewAndFindings(CoordinatorCase):
         pkt = self.packet()
         for lens in self.DELIVERABLE_LENSES:
             with contextlib.redirect_stdout(io.StringIO()):
-                bc.cmd_review_record(self.receipt_args(pkt, lens, ["F-" + lens]), self.store)
+                self.record_review(self.receipt_args(pkt, lens, ["F-" + lens]), self.store)
         return pkt
 
     # --- the plan stage is gone from this side ----------------------------------------
@@ -1398,7 +1429,7 @@ class TestReviewAndFindings(CoordinatorCase):
         for lens in self.DELIVERABLE_LENSES:
             with contextlib.redirect_stdout(io.StringIO()):
                 bc.cmd_finding_record(argparse.Namespace(
-                    id="F-" + lens, stage="deliverable", lens=lens, severity="nit", summary="s",
+                    id="F-" + lens, stage="deliverable", lens=lens, severity="nit", summary="F-" + lens,
                     disposition="rejected", rationale="r", escalation_kind=None, blocks_this_pr_stated=False,
                     handoff_summary="s", operator_summary=None, private_reference=None), self.store)
         # Regenerate the deliverable packet against MOVED reviewer contracts, which is what supersedes
@@ -1634,8 +1665,8 @@ class TestReviewAndFindings(CoordinatorCase):
     def test_retrying_identical_packet_preserves_receipts_and_findings(self):
         packet = self.packet()
         with contextlib.redirect_stdout(io.StringIO()):
-            bc.cmd_review_record(self.receipt_args(packet, "spec-conformance", ["PI-1"]), self.store)
-            bc.cmd_finding_record(argparse.Namespace(id="PI-1", stage="deliverable", lens="spec-conformance", severity="nit", summary="Concern", disposition="rejected", rationale="Evidence disproves it.", escalation_kind=None, blocks_this_pr_stated=False, handoff_summary=None), self.store)
+            self.record_review(self.receipt_args(packet, "spec-conformance", ["PI-1"]), self.store)
+            bc.cmd_finding_record(argparse.Namespace(id="PI-1", stage="deliverable", lens="spec-conformance", severity="nit", summary="PI-1", disposition="rejected", rationale="Evidence disproves it.", escalation_kind=None, blocks_this_pr_stated=False, handoff_summary=None), self.store)
         before = self.state()
         retried = self.packet()
         after = self.state()
@@ -1658,13 +1689,13 @@ class TestReviewAndFindings(CoordinatorCase):
         args = self.receipt_args(packet, "spec-conformance", [])
         args.lens_packet_digest = "sha256:" + "f" * 64
         with self.assertRaisesRegex(bc.CoordinatorError, "attest"):
-            bc.cmd_review_record(args, self.store)
+            self.record_review(args, self.store)
 
     def test_review_receipt_inventory_drives_disposition_completeness(self):
         packet = self.packet()
         args = self.receipt_args(packet, "spec-conformance", ["PI-1"])
         with contextlib.redirect_stdout(io.StringIO()):
-            bc.cmd_review_record(args, self.store)
+            self.record_review(args, self.store)
         with mock.patch.object(bc, "_head", return_value=HEAD_A):
             result = bc._status(self.state())
         self.assertIn("finding disposition: PI-1", result["required_evidence"])
@@ -1672,14 +1703,15 @@ class TestReviewAndFindings(CoordinatorCase):
     def test_wrong_lens_disposition_does_not_satisfy_receipt(self):
         packet = self.packet()
         with contextlib.redirect_stdout(io.StringIO()):
-            bc.cmd_review_record(self.receipt_args(packet, "spec-conformance", ["PI-1"]), self.store)
+            self.record_review(self.receipt_args(packet, "spec-conformance", ["PI-1"]), self.store)
             bc.cmd_finding_record(argparse.Namespace(id="PI-1", stage="deliverable", lens="divergence-hunter", severity="nit", summary="Different finding", disposition="rejected", rationale="Not the declared finding.", escalation_kind=None, blocks_this_pr_stated=False, handoff_summary=None), self.store)
         self.assertEqual(bc._missing_findings(self.state()), ["PI-1"])
 
     def test_severity_does_not_choose_remedy_or_blocking_posture(self):
         packet = self.packet()
         with contextlib.redirect_stdout(io.StringIO()):
-            bc.cmd_review_record(self.receipt_args(packet, "spec-conformance", ["PI-1"]), self.store)
+            self.record_review(self.receipt_args(packet, "spec-conformance", ["PI-1"]), self.store,
+                report=[{"severity": "blocking", "message": "Reviewer concern", "location": None}])
             bc.cmd_finding_record(argparse.Namespace(id="PI-1", stage="deliverable", lens="spec-conformance", severity="blocking", summary="Reviewer concern", disposition="rejected", rationale="The evidence disproves it.", escalation_kind=None, blocks_this_pr_stated=False, handoff_summary=None, operator_summary="The concern was rejected because the cited evidence does not support it.", private_reference=None), self.store)
         finding = self.state()["findings"][0]
         self.assertEqual(finding["severity"], "blocking")
@@ -1719,7 +1751,7 @@ class TestReviewAndFindings(CoordinatorCase):
         args = self.receipt_args(packet, "usability", None)
         args.findings_from_file = batch
         with contextlib.redirect_stdout(io.StringIO()), contextlib.redirect_stderr(io.StringIO()):
-            bc.cmd_review_record(args, self.store)
+            self.record_review(args, self.store)
             bc.cmd_finding_record(argparse.Namespace(stage="deliverable", id=None, from_file=batch),
                                   self.store)
         receipt = next(r for r in self.state()["reviews"]["deliverable"]["receipts"]
@@ -1735,7 +1767,7 @@ class TestReviewAndFindings(CoordinatorCase):
         bad = {**good, "id": "B-2", "disposition": "accepted-fixed", "blocks_this_pr": True}
         args = self.receipt_args(packet, "usability", ["B-1", "B-2"])
         with contextlib.redirect_stdout(io.StringIO()), contextlib.redirect_stderr(io.StringIO()):
-            bc.cmd_review_record(args, self.store)
+            self.record_review(args, self.store)
         before = self.state()["findings"]
         with self.assertRaises(bc.CoordinatorError):
             bc.cmd_finding_record(argparse.Namespace(
@@ -1774,7 +1806,7 @@ class TestReviewAndFindings(CoordinatorCase):
     def test_a_receipt_records_what_its_lens_read_and_nothing_about_effort(self):
         packet = self.packet()
         with contextlib.redirect_stdout(io.StringIO()), contextlib.redirect_stderr(io.StringIO()):
-            bc.cmd_review_record(self.receipt_args(packet, "usability", []), self.store)
+            self.record_review(self.receipt_args(packet, "usability", []), self.store)
         receipt = next(r for r in self.state()["reviews"]["deliverable"]["receipts"]
                        if r["lens"] == "usability")
         self.assertFalse({k for k in receipt if "effort" in k}, "a receipt records no effort")
@@ -2037,6 +2069,34 @@ class TestValidationRepairAndStatus(CandidateInventoryFixture):
         super().setUp()
         self.seed(); self.approve("quick")
         self.integrate_all()
+        # These orchestration fixtures use nonexistent aaa/bbb commits. Isolate completed-review
+        # state here; real range AND native execution qualification are exercised below together.
+        real_commits = bc.ranges.commits
+        def fixture_commits(root, base, tip):
+            if base == tip and tip in (HEAD_A, HEAD_B, HEAD_C, HEAD_D, HEAD_E, HEAD_F):
+                return []
+            return real_commits(root, base, tip)
+        patch = mock.patch.object(bc.ranges, "commits", side_effect=fixture_commits)
+        patch.start(); self.addCleanup(patch.stop)
+        actual = bc._outstanding_repair_lenses
+        def completed(repair, *, state=None):
+            if repair and repair.get("final_commit") in (HEAD_A, HEAD_B, HEAD_C, HEAD_D, HEAD_E, HEAD_F):
+                done = {r["lens"] for r in repair.get("receipts", []) if r["commit"] == repair["final_commit"]}
+                return [lens for lens in repair.get("lenses", []) if lens not in done]
+            return actual(repair, state=state)
+        patch = mock.patch.object(bc, "_outstanding_repair_lenses", side_effect=completed)
+        patch.start(); self.addCleanup(patch.stop)
+        actual_coverage = bc._coverage_result
+        def synthetic_coverage(stage, kind, state, lens, **kwargs):
+            _, tip = bc._stage_range(stage, kind)
+            if tip in (HEAD_A, HEAD_B, HEAD_C, HEAD_D, HEAD_E, HEAD_F):
+                covered = any(r["lens"] == lens and r["commit"] == tip
+                              for _, r in bc.review.retained_receipts(state))
+                return {"verified":True,"covered":covered,"read":[tip] if covered else [],
+                        "unread":[] if covered else [tip],"unverified":[]}
+            return actual_coverage(stage, kind, state, lens, **kwargs)
+        patch = mock.patch.object(bc, "_coverage_result", side_effect=synthetic_coverage)
+        patch.start(); self.addCleanup(patch.stop)
 
     def test_validation_records_every_result_against_head(self):
         with mock.patch.object(bc, "_head", return_value=HEAD_A), mock.patch.object(bc, "_derived_drift", return_value=[]), mock.patch.object(bc, "_run_validation", side_effect=self.candidate_validation_fake()), contextlib.redirect_stdout(io.StringIO()):
@@ -2860,10 +2920,11 @@ class TestValidationRepairAndStatus(CandidateInventoryFixture):
         packet = json.loads(output.getvalue())
         with contextlib.redirect_stdout(io.StringIO()):
             contract = next(item for item in packet["reviewer_contracts"] if item["lens"] == "usability")
-            bc.cmd_review_record(argparse.Namespace(stage="repair", lens="usability",
+            self.record_review(argparse.Namespace(stage="repair", lens="usability",
                                                     packet_digest=packet["packet_digest"],
                                                     lens_packet_digest=contract["lens_packet_digest"],
-                                                    finding=["R-1"], code_execution="none"), self.store)
+                                                    finding=["R-1"], code_execution="none"), self.store,
+                report=[{"severity": "serious", "message": "Repair concern", "location": None}])
             bc.cmd_finding_record(argparse.Namespace(id="R-1", stage="repair", lens="usability", severity="serious", summary="Repair concern", disposition="accepted-fixed", rationale="Directly fixed.", escalation_kind=None, blocks_this_pr_stated=False, handoff_summary=None), self.store)
         self.assertEqual(bc._missing_findings(self.state()), [])
         self.assertEqual(self.state()["reviews"]["deliverable"]["reviewed_commit"], HEAD_B)
@@ -3671,7 +3732,8 @@ class TestPreflightHandoffAndSubmission(CoordinatorCase):
                 mock.patch.object(bc.github, "pr_state", return_value=pr), \
                 mock.patch.object(bc, "_head", return_value=HEAD_A), \
                 mock.patch.object(bc, "_sealed_plan", return_value=(PLAN_ID, SEALED, plan())):
-            bc.cmd_handoff_restore(argparse.Namespace(input=str(path), repository="owner/repo", pr=7), restored)
+            with self.handoff_storage(restored):
+                bc.cmd_handoff_restore(argparse.Namespace(input=str(path), repository="owner/repo", pr=7), restored)
         self.assertEqual(restored.read()["findings"][0]["severity"], "blocking")
         self.assertEqual(restored.read()["validation"]["results"][0]["log_digest"], digest)
 
@@ -3716,7 +3778,8 @@ class TestPreflightHandoffAndSubmission(CoordinatorCase):
                 mock.patch.object(bc.github, "pr_state", return_value=pr), \
                 mock.patch.object(bc, "_head", return_value=HEAD_A), \
                 mock.patch.object(bc, "_sealed_plan", return_value=(PLAN_ID, SEALED, plan())):
-            bc.cmd_handoff_restore(argparse.Namespace(input=str(path), repository="owner/repo", pr=7), restored)
+            with self.handoff_storage(restored):
+                bc.cmd_handoff_restore(argparse.Namespace(input=str(path), repository="owner/repo", pr=7), restored)
         # A successful restore means the state passed build-state validation; the field is dropped to None.
         self.assertIsNone(restored.read()["findings"][0]["private_reference"])
 
@@ -3736,7 +3799,8 @@ class TestPreflightHandoffAndSubmission(CoordinatorCase):
                 mock.patch.object(bc.github, "pr_state", return_value=pr), \
                 mock.patch.object(bc, "_head", return_value=HEAD_A), \
                 mock.patch.object(bc, "_sealed_plan", return_value=(PLAN_ID, SEALED, plan())):
-            bc.cmd_handoff_restore(argparse.Namespace(input=str(path), repository="owner/repo", pr=7), restored)
+            with self.handoff_storage(restored):
+                bc.cmd_handoff_restore(argparse.Namespace(input=str(path), repository="owner/repo", pr=7), restored)
         self.assertIsNone(restored.read()["findings"][0]["private_reference"])
 
     def test_handoff_schema_forbids_private_reference(self):
@@ -4437,11 +4501,10 @@ class TestPlanV2Ingest(CoordinatorCase):
         self.write_plan(value)
         pr = {"number": 7, "state": "OPEN", "isDraft": True, "headRefOid": HEAD_A, "baseRefOid": BASE,
               "body": ""}
-        with self.sealed(value=value), \
+        with self.binding(value=value), \
                 mock.patch.object(bc, "_verify_draft", return_value=pr), \
                 mock.patch.object(bc, "_head", return_value=HEAD_A), \
                 mock.patch.object(bc.github, "tag_coordinator_owned", return_value=True), \
-                mock.patch.object(bc, "_record_build_binding"), \
                 contextlib.redirect_stdout(io.StringIO()):
             bc.cmd_plan_bind(self.bind_args(issue=issue), self.store)
 
@@ -4492,7 +4555,7 @@ class TestPlanV2Ingest(CoordinatorCase):
         # The home-repo carve-out and the in-flight Issue exemption are both gone: v1 is unreachable at
         # entry, full stop. What replaces the carve-out is a refusal that names the way forward.
         self.write_plan(plan_v1())
-        with self.sealed(value=plan_v1()), self.assertRaisesRegex(bc.CoordinatorError, "v1 no longer enters a Build"):
+        with self.binding(value=plan_v1()), self.assertRaisesRegex(bc.CoordinatorError, "v1 no longer enters a Build"):
             bc.cmd_plan_bind(self.bind_args(), self.store)
 
 
@@ -4626,9 +4689,11 @@ class TestV2CompletionGate(CoordinatorCase):
         claim = bc.work.new_claim("1" * 32, HEAD_A, "/tmp/wt", [], {"executor_class": "builder",
                                  "provider": "claude", "model": "sonnet", "effort": "medium", "inline": False})
         item = next(i for i in self.v2["work_items"] if i["id"] == "shared")
-        payload = {"outcome": "returned", "base_sha": HEAD_A, "artifact_ref": HEAD_A,
+        claim["result_contract"] = bc.work.result_contracts.resolve("worker-result.v1")
+        payload = {"outcome": "returned", "artifact_ref": HEAD_A,
                    "evidence": {"changed_paths": [".engine/tools/shared.py"],
-                                "verification_results": ["focused tests green"]}}
+                                "verification_results": [{"command": "focused", "outcome": "passed", "detail": "green"}],
+                                "assumptions": [], "unresolved_concerns": []}}
         def stage_returned_attempt(state):
             nw = state["work"].setdefault("shared", bc.work.empty_node())
             nw["attempt_count"] = 1
@@ -4952,9 +5017,8 @@ class TestCoordinatorOwnedTag(CoordinatorCase):
 
     def _bind(self):
         pr = {"number": 7, "state": "OPEN", "isDraft": True, "headRefOid": HEAD_A, "baseRefOid": BASE}
-        with self.sealed(), mock.patch.object(bc, "_verify_draft", return_value=pr), \
+        with self.binding(), mock.patch.object(bc, "_verify_draft", return_value=pr), \
                 mock.patch.object(bc, "_head", return_value=HEAD_A), \
-                mock.patch.object(bc, "_record_build_binding"), \
                 contextlib.redirect_stdout(io.StringIO()), contextlib.redirect_stderr(io.StringIO()) as err:
             bc.cmd_plan_bind(self.bind_args(), self.store)
         return err.getvalue()
@@ -5017,9 +5081,8 @@ class TestSessionBindingLocator(CoordinatorCase):
 
     def _bind(self, pr_number=7):
         pr = {"number": pr_number, "state": "OPEN", "isDraft": True, "headRefOid": HEAD_A, "baseRefOid": BASE}
-        with self.sealed(), mock.patch.object(bc, "_verify_draft", return_value=pr), \
+        with self.binding(), mock.patch.object(bc, "_verify_draft", return_value=pr), \
                 mock.patch.object(bc, "_head", return_value=HEAD_A), \
-                mock.patch.object(bc, "_record_build_binding"), \
                 mock.patch.object(bc.github, "tag_coordinator_owned", return_value=True), \
                 contextlib.redirect_stdout(io.StringIO()):
             bc.cmd_plan_bind(self.bind_args(pr=pr_number), self.store)
@@ -5125,7 +5188,8 @@ class TestSessionBindingLocator(CoordinatorCase):
                 mock.patch.object(bc.github, "pr_state", return_value=pr), \
                 mock.patch.object(bc, "_head", return_value=HEAD_A), \
                 mock.patch.object(bc, "_sealed_plan", return_value=(PLAN_ID, SEALED, plan())):
-            bc.cmd_handoff_restore(argparse.Namespace(input=str(path), repository="owner/repo", pr=7), restored)
+            with self.handoff_storage(restored):
+                bc.cmd_handoff_restore(argparse.Namespace(input=str(path), repository="owner/repo", pr=7), restored)
         binding = json.loads(self._locator_path().read_text())
         bc.core.validate(binding, bc.SESSION_BINDING_SCHEMA_V1)
         self.assertEqual(binding["plan_ref"], PLAN_ID)
@@ -5146,7 +5210,8 @@ class TestSessionBindingLocator(CoordinatorCase):
                 mock.patch.object(bc.core, "write_session_binding_locator",
                                   side_effect=OSError("disk full")), \
                 contextlib.redirect_stderr(io.StringIO()) as err:
-            bc.cmd_handoff_restore(argparse.Namespace(input=str(path), repository="owner/repo", pr=7), restored)
+            with self.handoff_storage(restored):
+                bc.cmd_handoff_restore(argparse.Namespace(input=str(path), repository="owner/repo", pr=7), restored)
         # Restore still succeeded despite the locator write failing.
         self.assertEqual(restored.read()["plan"]["plan_id"], PLAN_ID)
         self.assertIn("session-binding locator", err.getvalue())
@@ -5181,7 +5246,7 @@ class TestEvidenceDurability(CoordinatorCase):
         pkt = json.loads(out.getvalue())
         for item in pkt["reviewer_contracts"]:
             with contextlib.redirect_stdout(io.StringIO()):
-                bc.cmd_review_record(self.receipt_args(pkt, item["lens"], []), self.store)
+                self.record_review(self.receipt_args(pkt, item["lens"], []), self.store)
         return pkt
 
     def receipt_args(self, packet, lens, findings):
@@ -5206,7 +5271,7 @@ class TestEvidenceDurability(CoordinatorCase):
         pkt = json.loads(out.getvalue())
         for item in pkt["reviewer_contracts"]:
             with contextlib.redirect_stdout(io.StringIO()):
-                bc.cmd_review_record(self.receipt_args(pkt, item["lens"], []), self.store)
+                self.record_review(self.receipt_args(pkt, item["lens"], []), self.store)
 
     def _repair_packet(self, lenses, final=HEAD_B, reviewed=HEAD_A):
         self.store.mutate(lambda s: s.update({
@@ -5235,7 +5300,7 @@ class TestEvidenceDurability(CoordinatorCase):
         self._deliverable_reviewed()
         pkt = self._repair_packet(["usability"])
         with contextlib.redirect_stdout(io.StringIO()):
-            bc.cmd_review_record(self.receipt_args(pkt, "usability", ["R-1"]), self.store)
+            self.record_review(self.receipt_args(pkt, "usability", ["R-1"]), self.store, report=[{"severity": "serious", "message": "Repair concern", "location": None}])
         # regenerate the repair packet for a DIFFERENT lens: the spliced receipt survives in the
         # deliverable stage carrying the old packet digest, and still demands R-1.
         self._repair_packet(["spec-conformance"], final=HEAD_B)
@@ -5254,7 +5319,7 @@ class TestEvidenceDurability(CoordinatorCase):
         self._deliverable_reviewed()
         pkt = self._repair_packet(["usability"])
         with contextlib.redirect_stdout(io.StringIO()):
-            bc.cmd_review_record(self.receipt_args(pkt, "usability", ["R-2"]), self.store)
+            self.record_review(self.receipt_args(pkt, "usability", ["R-2"]), self.store, report=[{"severity": "nit", "message": "Minor.", "location": None}])
         with mock.patch.object(bc, "_head", return_value=HEAD_C), \
                 mock.patch.object(bc, "_must_run", return_value="1 file changed"), \
                 mock.patch.object(repair_divergence, "classify",
@@ -5278,7 +5343,7 @@ class TestEvidenceDurability(CoordinatorCase):
         self._deliverable_reviewed()
         pkt = self._repair_packet(["usability"])
         with contextlib.redirect_stdout(io.StringIO()):
-            bc.cmd_review_record(self.receipt_args(pkt, "usability", ["R-3"]), self.store)
+            self.record_review(self.receipt_args(pkt, "usability", ["R-3"]), self.store, report=[{"severity": "blocking", "message": "Serious.", "location": None}])
             bc.cmd_finding_record(argparse.Namespace(
                 id="R-3", stage="repair", lens="usability", severity="blocking", summary="Serious.",
                 disposition="accepted-fixed", rationale="Fixed.", escalation_kind=None,
@@ -5748,7 +5813,7 @@ class TestEvidenceDurability(CoordinatorCase):
         self._deliverable_reviewed()
         pkt = self._repair_packet(["usability"])
         with contextlib.redirect_stdout(io.StringIO()):
-            bc.cmd_review_record(self.receipt_args(pkt, "usability", ["R-8"]), self.store)
+            self.record_review(self.receipt_args(pkt, "usability", ["R-8"]), self.store, report=[{"severity": "blocking", "message": "Earlier concern", "location": None}])
             bc.cmd_finding_record(argparse.Namespace(
                 id="R-8", stage="repair", lens="usability", severity="blocking", summary="Earlier concern",
                 disposition="accepted-fixed", rationale="Fixed.", escalation_kind=None,
@@ -5835,7 +5900,8 @@ class TestUnconditionalResumeVerification(CoordinatorCase):
         # Every `state` subcommand that exists is in it, and each is a subparser that really exists.
         state_parser = bc.parser()._subparsers._group_actions[0].choices["state"]
         declared = set(state_parser._subparsers._group_actions[0].choices)
-        self.assertEqual(declared, set(bc._SNAPSHOTLESS_STATE_SUBCOMMANDS))
+        self.assertEqual(declared, set(bc._SNAPSHOTLESS_STATE_SUBCOMMANDS) | {"continue"})
+        self.assertNotIn("continue", bc._SNAPSHOTLESS_STATE_SUBCOMMANDS)
         # And the polarity holds for one that does not exist yet.
         self.assertNotIn("rebuild", bc._SNAPSHOTLESS_STATE_SUBCOMMANDS)
         self.assertTrue(bc._mutates(argparse.Namespace(command="state", state_command="rebuild")))
@@ -5993,6 +6059,63 @@ class TestPostCompactionRegrounding(CoordinatorCase):
             decision = bc.reground_handler({"source": "compact"})
         text = decision["context"]
         self.assertIn("No Build is bound to this worktree", text)
+
+    def test_mismatched_hook_worktree_never_resolves_a_build(self):
+        with mock.patch.object(bc, "_library") as library:
+            decision = bc.reground_handler({"source": "compact", "cwd": "/another-worktree",
+                                            "session_id": "exact-hook-session"})
+        library.assert_not_called()
+        self.assertIn("No Build pointer is assumed", decision["context"])
+
+    def test_mismatched_snapshot_is_disclosed_without_mutation(self):
+        path = self.seeded_snapshot()
+        self.store.mutate(lambda s: s["build"].update(worktree="/another-worktree"))
+        before = path.read_bytes()
+        with self.resolve_to([("a-slug", path)]):
+            decision = bc.reground_handler({"source": "compact", "cwd": str(bc.ROOT)})
+        self.assertIn("different worktree", decision["context"])
+        self.assertEqual(path.read_bytes(), before)
+
+    def test_nested_cwd_resolves_its_worktree_but_a_nested_repository_does_not(self):
+        root = Path(self.temp.name) / "project with spaces"
+        nested = root / "src/deeper"
+        nested.mkdir(parents=True)
+        env = {k: v for k, v in os.environ.items() if not k.startswith("GIT_")}
+        subprocess.run(["git", "init", "-q", str(root)], env=env, check=True,
+                       capture_output=True)
+        path = self.seeded_snapshot()
+        self.store.mutate(lambda s: s["build"].update(worktree=str(root)))
+        with mock.patch.object(bc, "ROOT", root):
+            before = path.read_bytes()
+            with self.resolve_to([("a-slug", path)]):
+                decision = bc.reground_handler({"source": "compact", "cwd": str(nested)})
+            self.assertIn(PLAN_ID, decision["context"])
+            self.assertIn("CX-01", decision["context"])
+            self.assertEqual(path.read_bytes(), before)
+            outside = Path(self.temp.name) / "outside"
+            outside.mkdir()
+            link = root / "escape"
+            link.symlink_to(outside, target_is_directory=True)
+            for cwd in (link, root / "missing"):
+                with mock.patch.object(bc, "_library") as library:
+                    decision = bc.reground_handler({"source": "compact", "cwd": str(cwd)})
+                library.assert_not_called()
+                self.assertIn("No Build pointer is assumed", decision["context"])
+            subprocess.run(["git", "init", "-q", str(nested)], env=env, check=True,
+                           capture_output=True)
+            with mock.patch.object(bc, "_library") as library, \
+                 mock.patch.dict(os.environ, {"GIT_DIR": str(root / ".git"),
+                                              "GIT_WORK_TREE": str(root)}):
+                decision = bc.reground_handler({"source": "compact", "cwd": str(nested)})
+            library.assert_not_called()
+            self.assertIn("No Build pointer is assumed", decision["context"])
+            linked = root / "linked-worktree"
+            linked.mkdir()
+            (linked / ".git").write_text("gitdir: /another-worktree/.git\n")
+            with mock.patch.object(bc, "_library") as library:
+                decision = bc.reground_handler({"source": "compact", "cwd": str(linked)})
+            library.assert_not_called()
+            self.assertIn("No Build pointer is assumed", decision["context"])
 
     def test_several_bound_builds_disclose_the_ambiguity_and_assume_nothing(self):
         with self.resolve_to([("slug-one", Path("/a")), ("slug-two", Path("/b"))]):
@@ -6152,10 +6275,20 @@ class TestFreshWorktreeBindIsIsolatedFromAPriorSubmittedBuild(unittest.TestCase)
     def _seed_plan_record(self, title, plan_id):
         """Land just the plan record — the folder + record.json that make the plan resolvable — with
         NO snapshot, so the coordinator's own bind path is the thing that mints the snapshot."""
+        from test_plan_store import _document
+        import plan_contract
         slug = plan_store.slug_for(title, plan_id)
-        plan_store.ensure_dir(self.lib.plan_dir(slug), within=self.lib.root)
-        (self.lib.plan_dir(slug) / "record.json").write_text(
-            json.dumps({"plan_id": plan_id}), encoding="utf-8")
+        if slug in self.lib.slugs():
+            return slug
+        document = _document(title=title, plan_id=plan_id, build_plan=plan())
+        slug = self.lib.create(document)
+        record = self.lib.read_record(slug)
+        seal = {'revision': 1, 'reviewed_digest': record['current']['plan_digest'],
+                'sealed_digest': record['current']['plan_digest'],
+                'build_plan_digest': plan_contract.build_plan_digest(document),
+                'at': '2026-09-08T00:00:00Z', 'delta_judgment': 'none'}
+        self.lib.update_record(slug, lambda r: r.update(seal=seal,
+            consent=[{'gate': 'seal', 'at': seal['at']}]))
         return slug
 
     def _bind_snapshot(self, title, plan_id, worktree, **over):
@@ -6180,11 +6313,14 @@ class TestFreshWorktreeBindIsIsolatedFromAPriorSubmittedBuild(unittest.TestCase)
                                   pr=pr, issue=None, operator_decided=True)
         with mock.patch.object(bc, "ROOT", worktree), \
                 mock.patch.object(bc, "_library", return_value=self.lib), \
-                mock.patch.object(bc, "_sealed_plan", return_value=(plan_id, SEALED, plan())), \
                 mock.patch.object(bc, "_verify_draft", return_value=draft), \
+                mock.patch.object(bc.entry, "observe_fresh", side_effect=_entry_observation_fixture), \
+                mock.patch.object(bc.entry, "verify_frozen"), \
+                mock.patch.object(bc.entry, "overlap_observation", return_value={
+                    "coverage": "complete", "matches": [], "errors": [], "local_digest": "fixture"}), \
+                mock.patch.object(bc.entry, "verify_local_overlap"), \
                 mock.patch.object(bc, "_head", return_value=HEAD_A), \
                 mock.patch.object(bc.github, "tag_coordinator_owned", return_value=True), \
-                mock.patch.object(bc, "_record_build_binding"), \
                 mock.patch.object(bc, "_record_session_binding"), \
                 mock.patch.object(build_state_store, "supersede",
                                   side_effect=AssertionError("a fresh bind must not supersede")), \
@@ -6244,7 +6380,7 @@ class TestFreshWorktreeBindIsIsolatedFromAPriorSubmittedBuild(unittest.TestCase)
         wt_first = self.tmp / "wt-first"
         slug, path = self._coordinator_bind("the only plan", "pln_0123456789ab", wt_first, pr=77)
         before = path.read_bytes()
-        with self.assertRaisesRegex(bc.CoordinatorError, "already bound"):
+        with self.assertRaisesRegex(bc.CoordinatorError, "different Build claim"):
             self._coordinator_bind("the only plan", "pln_0123456789ab", self.tmp / "wt-second", pr=78)
         # The refusal left the first snapshot byte-for-byte intact and still the plan's one binding.
         self.assertEqual(path.read_bytes(), before)
@@ -6382,6 +6518,568 @@ class ScrubbedGitRepo:
         self.git("add", "-A")
         self.git("commit", "-q", "-m", message)
         return self.git("rev-parse", "HEAD")
+
+
+class TestCleanTargetMergeReceiptRetention(CoordinatorCase):
+    """#1218: a validated automatic target merge retains a completed repair's receipts."""
+
+    def setUp(self):
+        super().setUp()
+        self.repo = ScrubbedGitRepo(Path(self.temp.name) / "merge-checkout")
+        self.base = self.repo.commit_file("seed.py", "seed\n", "base")
+        self.repo.git("checkout", "-q", "-b", "codex/build")
+        self.reviewed = self.repo.commit_file("src.py", "deliverable\n", "deliverable")
+        self.repaired = self.repo.commit_file("src.py", "repair\n", "repair")
+        patched = mock.patch.object(bc, "ROOT", Path(self.repo.path))
+        patched.start(); self.addCleanup(patched.stop)
+        self.seed()
+        def bind(state):
+            state["build"].update(base_at_bind=self.base, worktree=str(Path(self.repo.path).resolve()))
+            state["plan"]["bound_head"] = self.reviewed
+            state["reviews"]["deliverable"].update(reviewed_commit=self.reviewed, base_commit=self.base)
+        self.store.mutate(bind)
+        self.assess("scoped", ["usability", "spec-conformance"])
+        self.receipts = [{"lens": lens, "packet_digest": "sha256:" + "1" * 64, "commit": self.repaired,
+            "finding_ids": [], "code_execution": "none",
+            "reviewed_range": {"base": self.reviewed, "tip": self.repaired}}
+            for lens in ("usability", "spec-conformance")]
+        # Real accepted companion observations; only the native runtime event transport is synthetic.
+        import scoped_agents
+        referent = "sha256:" + "2"*64
+        descriptors = [{"lens":r["lens"],"path":"fixture/"+r["lens"]+".md","digest":"sha256:"+"3"*64}
+                       for r in self.receipts]
+        contracts = bc.review.lens_packets(referent, descriptors)
+        for receipt, contract in zip(self.receipts, contracts):
+            receipt.update(referent_digest=referent, lens_packet_digest=contract["lens_packet_digest"])
+        def accepted_shape(state):
+            state["ownership"] = {"build_id":"bld_"+"1"*32,"generation":1}
+            state["repair"].update(receipts=self.receipts, reviewer_contracts=contracts)
+            state["reviews"]["deliverable"]["reviewer_contracts"] = contracts
+        self.store.mutate(accepted_shape)
+        state = self.state()
+        for receipt in self.receipts:
+            observe_review_execution(self.review_library, self.review_slug, scoped_agents.build_owner(state),
+                receipt["lens"], receipt["lens_packet_digest"], [])
+            scoped_agents.accept_build(self.review_library, state, receipt, "fixture-root", supplied_reports={receipt["lens"]:[]})
+        self.repo.git("checkout", "-q", "main")
+        self.target = self.repo.commit_file("upstream.py", "target work\n", "target advance")
+        self.repo.git("checkout", "-q", "codex/build")
+        self.repo.git("merge", "--no-ff", "--no-edit", "main")
+        self.merged = self.repo.git("rev-parse", "HEAD")
+
+    def assess(self, judgment="none", lenses=None):
+        args = argparse.Namespace(judgment=judgment, rationale="Only a verified target catch-up changed the tree",
+                                  lens=lenses, guidance=None)
+        # No accept_receipt_loss argument: receipt preservation must be earned by the proof.
+        with contextlib.redirect_stdout(io.StringIO()), contextlib.redirect_stderr(io.StringIO()):
+            bc.cmd_repair_assess(args, self.store)
+
+    @contextlib.contextmanager
+    def verified_target(self):
+        observation = {"observed_at": "2026-09-09T00:00:00Z", "material": {
+            "target_repository": "owner/repo", "target_ref": "main", "target_tip": self.target}}
+        with mock.patch.object(bc.github, "pr_state", return_value={"number": 7}), \
+                mock.patch.object(bc.entry, "observe_fresh", return_value=observation):
+            yield
+
+    def candidate(self, head, passed=True):
+        self.store.mutate(lambda state: state.update(validation={"commit": head, "results": [
+            {"id": "candidate", "commit": head, "passed": passed, "summary": "focused candidate validation"}]}))
+
+    def test_green_merged_head_retains_receipts_and_does_not_spend_another_panel(self):
+        self.candidate(self.merged)
+        before = self.state()
+        original_receipts = json.dumps(before["repair"]["receipts"], sort_keys=True)
+        with self.verified_target():
+            self.assess()
+        after = self.state()
+        self.assertEqual(json.dumps(after["repair"]["receipts"], sort_keys=True), original_receipts)
+        self.assertEqual(len(after["repair_rounds"]), len(before["repair_rounds"]))
+        self.assertEqual(sum(bc._round_counted(row) for row in after["repair_rounds"]),
+                         sum(bc._round_counted(row) for row in before["repair_rounds"]))
+        self.assertEqual(after["repair"]["base_advances"], after["base_advances"])
+        self.assertEqual(after["base_advances"][0]["validated_head"], self.merged)
+        self.assertEqual(after["base_advances"][0]["target_tip"], self.target)
+        disclosure = "\n".join(bc._base_advance_lines(after))
+        self.assertIn(self.merged, disclosure)
+        self.assertIn(self.target, disclosure)
+        self.assertIn("without restamping receipts or read ranges", disclosure)
+
+    def test_stale_or_failed_candidate_never_grants_merge_receipt_preservation(self):
+        for head, passed in ((self.repaired, True), (self.merged, False)):
+            self.candidate(head, passed)
+            before = self.store.path.read_bytes()
+            with self.subTest(head=head, passed=passed), self.verified_target(), \
+                    self.assertRaisesRegex(bc.CoordinatorError, "actual merged HEAD"):
+                self.assess()
+            self.assertEqual(self.store.path.read_bytes(), before)
+
+    def test_unavailable_target_observation_cannot_silently_drop_prior_receipts(self):
+        self.candidate(self.merged)
+        before = self.store.path.read_bytes()
+        with mock.patch.object(bc.github, "pr_state", side_effect=bc.CoordinatorError("offline")), \
+                self.assertRaisesRegex(bc.CoordinatorError, "would discard.*receipt"):
+            self.assess()
+        self.assertEqual(self.store.path.read_bytes(), before)
+
+
+class TestPreparedUnreviewedRewrite(unittest.TestCase):
+    """N1: real rebase provenance, evidence preservation and ordinary resume after recovery.
+
+    A schema-valid owned snapshot isolates recovery from the ownership transaction tests. Git facts,
+    fetch, reflog and contribution comparison are real; only remote service identity is substituted.
+    """
+
+    def setUp(self):
+        self.tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(self.tmp.cleanup)
+        self.repo = ScrubbedGitRepo(Path(self.tmp.name) / "checkout")
+        self.base = self.repo.commit_file(".engine/tools/shared.py", "base\n", "base")
+        remote = str(Path(self.tmp.name) / "origin.git")
+        self.repo.git("clone", "--bare", self.repo.path, remote)
+        self.repo.git("remote", "add", "origin", remote)
+        self.repo.git("checkout", "-q", "-b", "codex/recovery")
+        self.shared = self.repo.commit_file(".engine/tools/shared.py", "build\n", "shared work")
+        self.source = self.repo.commit_file(".engine/tools/adapter.py", "adapter\n", "adapter work")
+        self.plan = plan_v2()
+        self.plan_path = Path(self.tmp.name) / "plan.json"
+        self.plan_path.write_text(json.dumps(self.plan), encoding="utf-8")
+        patch = mock.patch.object(bc, "ROOT", Path(self.repo.path))
+        patch.start()
+        self.addCleanup(patch.stop)
+        state = bc._initial_state("owner/repo", 7, self.base, PLAN_ID, SEALED, self.plan, None)
+        state["ownership"] = {"build_id": "bld_" + "1" * 32, "generation": 1}
+        state["build"]["worktree"] = str(Path(self.repo.path).resolve())
+        state["plan"]["bound_head"] = self.source
+        state["approval"] = {"plan_digest": bc._digest(self.plan), "spec_digest": None, "depth": "thorough"}
+        for index, (item, commit, claim_base) in enumerate([
+                ("shared", self.shared, self.base), ("adapter", self.source, self.shared)]):
+            receipt = bc._compute_receipt(self.repo.path, self.plan, state, item,
+                                          claim_base, commit, "worker-commit")
+            state["work"][item] = {**bc.work.empty_node(), "attempt_count": 1,
+                "integration": {"attempt_id": str(index + 1) * 32, "commit": commit,
+                                "focused_verification": "original focused check", "receipt": receipt}}
+        state["progress"]["completed"] = [{"id": "shared", "commit": self.shared},
+                                             {"id": "adapter", "commit": self.source}]
+        state["validation"] = {"commit": self.source, "results": [
+            {"id": "ci", "commit": self.source, "passed": True, "summary": "original validation"}]}
+        self.store = bc.StateStore(str(Path(self.tmp.name) / "state.json"))
+        self.store.create(state)
+        self.original = self.store.read()
+
+    def _advance_target(self, conflict=False):
+        self.repo.git("checkout", "-q", "main")
+        self.target = self.repo.commit_file(
+            ".engine/tools/shared.py" if conflict else "upstream.txt",
+            "upstream\n", "upstream advance")
+        self.repo.git("push", "-q", "origin", "main")
+        self.repo.git("checkout", "-q", "codex/recovery")
+
+    def _reconcile(self, prepare=False, cancel=False):
+        args = argparse.Namespace(plan=str(self.plan_path), command="reconcile",
+                                  prepare=prepare, cancel_preparation=cancel)
+        with mock.patch.object(bc, "_verify_draft", return_value={
+                "baseRefName": "main", "headRefName": "codex/recovery", "headRefOid": self.source}), \
+                mock.patch.object(bc.repo_identity, "origin_slug", return_value="owner/repo"), \
+                contextlib.redirect_stdout(io.StringIO()) as out:
+            bc.verify_resume(self.store, args)
+            bc.cmd_reconcile(args, self.store)
+        return out.getvalue()
+
+    def _assert_refused_without_mutation(self, needle):
+        before = self.store.read()
+        with self.assertRaisesRegex(bc.CoordinatorError, needle):
+            self._reconcile()
+        self.assertEqual(self.store.read(), before)
+
+    def test_clean_prepared_rebase_preserves_original_evidence_and_resumes(self):
+        self._advance_target()
+        self._reconcile(prepare=True)
+        preparation = self.store.read()["rewrite_preparation"]
+        self.assertEqual(preparation["source_head"], self.source)
+        self.assertEqual(preparation["target_tip"], self.target)
+        refs = self.repo.git("for-each-ref", "--format=%(objectname)", "refs/engine/build-recovery/")
+        self.assertEqual(refs, self.source)
+        self.repo.git("rebase", "origin/main")
+        rewritten = self.repo.git("rev-parse", "HEAD")
+        with self.assertRaises(bc.CoordinatorError):
+            bc.verify_resume(self.store, argparse.Namespace(command="checkpoint"))
+        self._reconcile()
+        state = self.store.read()
+        self.assertEqual(state["plan"]["bound_head"], rewritten)
+        self.assertEqual(state["reviews"], self.original["reviews"])
+        self.assertEqual(state["work"], self.original["work"])
+        self.assertEqual(state["progress"], self.original["progress"])
+        self.assertIsNone(state["validation"])
+        self.assertNotIn("rewrite_preparation", state)
+        event = state["rewrite_recoveries"][-1]
+        self.assertEqual(event["divergent_paths"], [])
+        self.assertEqual(event["prior_work"], self.original["work"])
+        self.assertEqual(event["prior_progress"], self.original["progress"])
+        self.assertEqual(event["invalidated_nodes"], [])
+        bc.verify_resume(self.store, argparse.Namespace(command="checkpoint"))
+        self.repo.git("cat-file", "-e", self.source + "^{commit}")
+        before = self.store.read()
+        self._reconcile()
+        self.assertEqual(self.store.read(), before)
+        bc._verify_recovered_progress(state, rewritten)
+        for corruption in ("ownership", "missing_source", "false_divergence"):
+            corrupted = json.loads(json.dumps(state))
+            event = corrupted["rewrite_recoveries"][-1]
+            if corruption == "ownership":
+                event["preparation"]["identity"]["ownership"]["generation"] += 1
+            elif corruption == "missing_source":
+                event["preparation"]["source_base"] = "f" * 40
+            else:
+                event["divergent_paths"] = ["invented.py"]
+            with self.subTest(corruption=corruption), self.assertRaises(bc.CoordinatorError):
+                bc._verify_recovered_progress(corrupted, rewritten)
+
+    def test_conflict_resolution_invalidates_node_and_dependent_preserving_history(self):
+        self._advance_target(conflict=True)
+        self._reconcile(prepare=True)
+        result = subprocess.run(["git", "-C", self.repo.path, "rebase", "origin/main"],
+                                env=self.repo.env, text=True, capture_output=True)
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn("CONFLICT", result.stdout)
+        self.repo.write(".engine/tools/shared.py", "resolved contribution\n")
+        self.repo.git("add", ".engine/tools/shared.py")
+        self.repo.git("-c", "core.editor=true", "rebase", "--continue")
+        self._reconcile()
+        state = self.store.read()
+        event = state["rewrite_recoveries"][-1]
+        self.assertEqual(event["divergent_paths"], [".engine/tools/shared.py"])
+        self.assertEqual(event["invalidated_nodes"], ["adapter", "shared"])
+        self.assertEqual(event["prior_work"], self.original["work"])
+        self.assertEqual(event["prior_progress"], self.original["progress"])
+        self.assertEqual(state["progress"]["completed"], [])
+        for node in ("shared", "adapter"):
+            self.assertIsNone(state["work"][node]["integration"])
+            self.assertEqual(state["work"][node]["attempt_count"], 1)
+            self.assertIsNotNone(state["work"][node]["latest_failure"])
+        self.assertEqual(state["reviews"], self.original["reviews"])
+        self.assertIsNone(state["validation"])
+        self.assertEqual(self.repo.git("show", self.source + ":.engine/tools/shared.py"), "build")
+        bc.verify_resume(self.store, argparse.Namespace(command="checkpoint"))
+        rewritten = self.repo.git("rev-parse", "HEAD")
+        def integrate(node, attempt=None):
+            args = argparse.Namespace(plan=str(self.plan_path), item=node, recovery=True,
+                attempt=attempt or self.original["work"][node]["integration"]["attempt_id"],
+                commit=rewritten, verification_input="focused checks repeated after conflict resolution")
+            with contextlib.redirect_stdout(io.StringIO()):
+                bc.cmd_work_integrate(args, self.store)
+        before = self.store.read()
+        with self.assertRaisesRegex(bc.CoordinatorError, "reverify affected nodes"):
+            self._reconcile(prepare=True)
+        self.assertEqual(self.store.read(), before)
+        with self.assertRaisesRegex(bc.CoordinatorError, "dependencies first"):
+            integrate("adapter")
+        self.assertEqual(self.store.read(), before)
+        with self.assertRaisesRegex(bc.CoordinatorError, "original attempt"):
+            integrate("shared", "9" * 32)
+        self.assertEqual(self.store.read(), before)
+        integrate("shared")
+        integrate("adapter")
+        recovered = self.store.read()
+        self.assertEqual(recovered["progress"], self.original["progress"])
+        for node in ("shared", "adapter"):
+            integration = recovered["work"][node]["integration"]
+            original = self.original["work"][node]["integration"]
+            self.assertEqual(integration["receipt"], original["receipt"])
+            self.assertEqual(integration["commit"], original["commit"])
+            self.assertEqual(integration["recovery_verification"], {
+                "recovery_id": event["preparation"]["id"], "commit": rewritten})
+        self.assertEqual(recovered["rewrite_recoveries"][-1]["prior_work"], self.original["work"])
+        bc._verify_recovered_progress(recovered, rewritten)
+
+    def test_divergent_recovery_preserves_unaffected_node_through_canonical_handoff(self):
+        """SC-L1-6-001: one changed node must not retire unrelated completed work."""
+        from test_plan_store import _document
+        import plan_contract
+        self.plan["work_items"].append(_work_item_v2("unaffected", []))
+        self.plan_path.write_text(json.dumps(self.plan), encoding="utf-8")
+        previous = self.source
+        self.source = self.repo.commit_file(".engine/tools/unaffected.py", "untouched contribution\n", "independent work")
+        initial = self.store.read()
+        receipt = bc._compute_receipt(self.repo.path, self.plan, initial, "unaffected", previous,
+                                      self.source, "worker-commit")
+        initial["work"]["unaffected"] = {**bc.work.empty_node(), "attempt_count": 1,
+            "integration": {"attempt_id": "3" * 32, "commit": self.source,
+                            "focused_verification": "independent original verification", "receipt": receipt}}
+        initial["progress"]["completed"].append({"id": "unaffected", "commit": self.source})
+        initial["plan"].update(digest=bc._digest(self.plan), bound_head=self.source)
+        initial["approval"]["plan_digest"] = bc._digest(self.plan)
+        library = plan_store.PlanLibrary(Path(self.tmp.name) / "independent-plans")
+        doc = _document(build_plan=self.plan)
+        slug = library.create(doc)
+        record = library.read_record(slug)
+        seal = {"revision": 1, "reviewed_digest": record["current"]["plan_digest"],
+                "sealed_digest": record["current"]["plan_digest"],
+                "build_plan_digest": plan_contract.build_plan_digest(doc),
+                "at": "2026-09-08T00:00:00Z", "delta_judgment": "none"}
+        library.update_record(slug, lambda r: r.update(seal=seal,
+            consent=[{"gate": "seal", "at": seal["at"]}]))
+        initial.pop("ownership")
+        initial["plan"]["sealed_digest"] = seal["sealed_digest"]
+        claim = build_state_store.reserve_build(library, slug, initial,
+            consent={"gate": "bind", "at": seal["at"]})
+        identity = build_state_store.claim_identity(claim)
+        build_state_store.finish_binding(library, slug, identity, initial, bc._state_schema_for)
+        self.store = build_state_store.ClaimedBuildStore(library, slug, bc._state_schema_for, identity=identity)
+        original = self.store.read()
+        self._advance_target(conflict=True)
+        self._reconcile(prepare=True)
+        conflict = subprocess.run(["git", "-C", self.repo.path, "rebase", "origin/main"],
+                                 env=self.repo.env, text=True, capture_output=True)
+        self.assertNotEqual(conflict.returncode, 0)
+        self.assertIn("CONFLICT", conflict.stdout)
+        self.repo.write(".engine/tools/shared.py", "resolved shared contribution\n")
+        self.repo.git("add", ".engine/tools/shared.py")
+        self.repo.git("-c", "core.editor=true", "rebase", "--continue")
+        reconcile_output = self._reconcile()
+        rewritten = self.repo.git("rev-parse", "HEAD")
+        recovered = self.store.read()
+        self.assertEqual(recovered["rewrite_recoveries"][-1]["invalidated_nodes"], ["adapter", "shared"])
+        self.assertEqual(recovered["work"]["unaffected"], original["work"]["unaffected"])
+        self.assertEqual(recovered["progress"]["completed"], [{"id": "unaffected", "commit": self.source}])
+        bc._verify_recovered_progress(recovered, rewritten)
+        def cold_status():
+            cold = build_state_store.ClaimedBuildStore(library, slug, bc._state_schema_for, identity=identity)
+            with contextlib.redirect_stdout(io.StringIO()) as out:
+                bc.cmd_status(argparse.Namespace(plan=str(self.plan_path), json=True), cold)
+            return json.loads(out.getvalue())["work"]["nodes"]
+        pending = cold_status()
+        for node in ("shared", "adapter"):
+            instruction = pending[node]["recovery"]
+            self.assertEqual(instruction["attempt_id"], original["work"][node]["integration"]["attempt_id"])
+            self.assertEqual(instruction["commit"], rewritten)
+            self.assertEqual(instruction["depends_on"], ["shared"] if node == "adapter" else [])
+            self.assertIn(instruction["attempt_id"], instruction["command"])
+            self.assertIn("--recovery", instruction["command"])
+            self.assertIn(instruction["command"], reconcile_output)
+        self.assertIsNone(pending["unaffected"]["recovery"])
+        with contextlib.redirect_stdout(io.StringIO()) as human:
+            bc.cmd_status(argparse.Namespace(plan=str(self.plan_path), json=False), self.store)
+        for node in ("shared", "adapter"):
+            self.assertIn(pending[node]["recovery"]["command"], human.getvalue())
+        for node in ("shared", "adapter"):
+            self.assertIsNone(recovered["work"][node]["integration"])
+            args = argparse.Namespace(plan=str(self.plan_path), item=node, recovery=True,
+                attempt=original["work"][node]["integration"]["attempt_id"], commit=rewritten,
+                verification_input="fresh verification after resolving shared conflict")
+            with contextlib.redirect_stdout(io.StringIO()):
+                bc.cmd_work_integrate(args, self.store)
+            refreshed = cold_status()
+            self.assertIsNone(refreshed[node]["recovery"])
+            self.assertIsNone(refreshed["unaffected"]["recovery"])
+            if node == "shared":
+                self.assertEqual(refreshed["adapter"]["recovery"], pending["adapter"]["recovery"])
+            else:
+                self.assertIsNone(refreshed["shared"]["recovery"])
+        after_verification = self.store.read()
+        for node in ("shared", "adapter", "unaffected"):
+            self.assertEqual(after_verification["work"][node]["integration"]["receipt"],
+                             original["work"][node]["integration"]["receipt"])
+        self.assertEqual(after_verification["reviews"], original["reviews"])
+        self.assertEqual(after_verification["rewrite_recoveries"][-1]["prior_work"], original["work"])
+        bc.verify_resume(self.store, argparse.Namespace(command="approve"))
+        with contextlib.redirect_stdout(io.StringIO()), contextlib.redirect_stderr(io.StringIO()):
+            bc.cmd_approve(argparse.Namespace(plan=str(self.plan_path), depth="thorough"), self.store)
+        output = Path(self.tmp.name) / "independent-handoff.json"
+        with mock.patch.object(bc, "_library", return_value=library), \
+                mock.patch.object(bc.repo_identity, "origin_slug", return_value="owner/repo"), \
+                mock.patch.object(bc.github, "pr_state", return_value={
+                    "number": 7, "state": "OPEN", "headRefOid": rewritten}), \
+                contextlib.redirect_stdout(io.StringIO()):
+            bc.cmd_handoff_export(argparse.Namespace(output=str(output)), self.store)
+            bc.cmd_handoff_restore(argparse.Namespace(input=str(output)), self.store)
+        final = self.store.read()
+        self.assertEqual(final["ownership"], identity)
+        self.assertEqual(final["work"]["unaffected"]["integration"]["receipt"], receipt)
+        self.assertEqual({p["id"] for p in final["progress"]["completed"]}, {"shared", "adapter", "unaffected"})
+        bc._verify_recovered_progress(final, rewritten)
+
+    def test_unprepared_rebase_refuses(self):
+        self._advance_target()
+        self.repo.git("fetch", "origin")
+        self.repo.git("rebase", "origin/main")
+        rescued_tip = self.repo.git("rev-parse", "HEAD")
+        before_snapshot = self.store.path.read_bytes()
+        before_refs = self.repo.git("show-ref")
+        before_reflog = self.repo.git("reflog", "show", "codex/recovery")
+        with self.assertRaisesRegex(bc.CoordinatorError, "no prepared rewrite") as caught:
+            self._reconcile()
+        message = str(caught.exception)
+        rescue_branch = "codex/recovery-rescue-" + rescued_tip[:12]
+        for instruction in ("git branch " + rescue_branch + " HEAD", "git reflog show codex/recovery",
+                            "git reset --keep <verified-pre-rewrite-tip>", "exact force-with-lease",
+                            "reconcile --prepare", "backup", "manual recovery steps"):
+            self.assertIn(instruction, message)
+        self.assertEqual(self.store.path.read_bytes(), before_snapshot)
+        self.assertEqual(self.repo.git("show-ref"), before_refs)
+        self.assertEqual(self.repo.git("reflog", "show", "codex/recovery"), before_reflog)
+        # Execute the offered recovery only in this disposable repo, using the fixture's known source.
+        self.repo.git("branch", rescue_branch, "HEAD")
+        self.assertIn(self.source, self.repo.git("reflog", "show", "--format=%H", "codex/recovery"))
+        self.repo.git("cat-file", "-e", self.source + "^{commit}")
+        self.repo.git("reset", "--keep", self.source)
+        self._reconcile(prepare=True)
+        self.repo.git("rebase", "origin/main")
+        self._reconcile()
+        self.assertEqual(self.repo.git("rev-parse", rescue_branch), rescued_tip)
+        self.assertEqual(self.store.read()["work"], self.original["work"])
+        bc.verify_resume(self.store, argparse.Namespace(command="checkpoint"))
+
+    def test_prepared_unrelated_reset_refuses(self):
+        self._advance_target()
+        self._reconcile(prepare=True)
+        self.repo.git("reset", "--hard", "origin/main")
+        self._assert_refused_without_mutation("not the completed rebase")
+
+    def test_prepared_same_base_amend_refuses(self):
+        self._advance_target()
+        self._reconcile(prepare=True)
+        self.repo.git("commit", "--amend", "-q", "-m", "amended in place")
+        self._assert_refused_without_mutation("not the completed rebase")
+
+    def test_rebase_onto_a_different_target_tip_refuses(self):
+        self._advance_target()
+        self._reconcile(prepare=True)
+        self.repo.git("checkout", "-q", "main")
+        newer = self.repo.commit_file("later.txt", "later\n", "later target")
+        self.repo.git("checkout", "-q", "codex/recovery")
+        self.repo.git("rebase", newer)
+        self._assert_refused_without_mutation("not the completed rebase")
+
+    def test_preparation_refuses_outstanding_work_claim(self):
+        def claim(state):
+            node = state["work"]["adapter"]
+            node["integration"] = None
+            node["claim"] = bc.work.new_claim("3" * 32, self.source, self.repo.path, [],
+                {"executor_class": "builder", "provider": "claude", "model": "sonnet",
+                 "effort": "medium", "inline": False})
+        self.store.mutate(claim)
+        before = self.store.read()
+        with self.assertRaisesRegex(bc.CoordinatorError, "outstanding work claims"):
+            self._reconcile(prepare=True)
+        self.assertEqual(self.store.read(), before)
+
+    def test_two_clean_rebases_preserve_chain_then_plan_revision_uses_current_head(self):
+        for index in range(2):
+            self.repo.git("checkout", "-q", "main")
+            self.repo.commit_file(f"upstream-{index}.txt", f"advance {index}\n", f"advance {index}")
+            self.repo.git("push", "-q", "origin", "main")
+            self.repo.git("checkout", "-q", "codex/recovery")
+            self.source = self.repo.git("rev-parse", "HEAD")
+            self._reconcile(prepare=True)
+            self.repo.git("rebase", "origin/main")
+            self._reconcile()
+            bc._verify_recovered_progress(self.store.read(), self.repo.git("rev-parse", "HEAD"))
+        state = self.store.read()
+        self.assertEqual(len(state["rewrite_recoveries"]), 2)
+        self.assertEqual(state["progress"], self.original["progress"])
+        self.assertEqual(state["work"], self.original["work"])
+        head = self.repo.git("rev-parse", "HEAD")
+        revised = plan_v2(objective="Ship the revised dependency-ordered Build")
+        self.store.mutate(lambda current: bc._reset_after_revision(current, revised))
+        self.assertEqual(self.store.read()["plan"]["bound_head"], head)
+        bc.verify_resume(self.store, argparse.Namespace(command="checkpoint"))
+
+    def test_clean_recovery_round_trips_through_canonical_handoff_authority(self):
+        from test_plan_store import _document
+        import plan_contract
+        library = plan_store.PlanLibrary(Path(self.tmp.name) / "plans")
+        doc = _document(build_plan=self.plan)
+        slug = library.create(doc)
+        record = library.read_record(slug)
+        seal = {"revision": 1, "reviewed_digest": record["current"]["plan_digest"],
+                "sealed_digest": record["current"]["plan_digest"],
+                "build_plan_digest": plan_contract.build_plan_digest(doc),
+                "at": "2026-09-08T00:00:00Z", "delta_judgment": "none"}
+        library.update_record(slug, lambda r: r.update(seal=seal,
+            consent=[{"gate": "seal", "at": seal["at"]}]))
+        initial = self.store.read()
+        initial.pop("ownership")
+        initial["plan"]["sealed_digest"] = seal["sealed_digest"]
+        claim = build_state_store.reserve_build(library, slug, initial,
+            consent={"gate": "bind", "at": seal["at"]})
+        identity = build_state_store.claim_identity(claim)
+        build_state_store.finish_binding(library, slug, identity, initial, bc._state_schema_for)
+        self.store = build_state_store.ClaimedBuildStore(library, slug, bc._state_schema_for,
+                                                       identity=identity)
+        self._advance_target()
+        self._reconcile(prepare=True)
+        self.repo.git("rebase", "origin/main")
+        self._reconcile()
+        before = self.store.read()
+        head = self.repo.git("rev-parse", "HEAD")
+        output = Path(self.tmp.name) / "handoff.json"
+        with mock.patch.object(bc, "_library", return_value=library), \
+                mock.patch.object(bc.repo_identity, "origin_slug", return_value="owner/repo"), \
+                mock.patch.object(bc.github, "pr_state", return_value={
+                    "number": 7, "state": "OPEN", "headRefOid": head}), \
+                contextlib.redirect_stdout(io.StringIO()):
+            bc.cmd_handoff_export(argparse.Namespace(output=str(output)), self.store)
+            exported = json.loads(output.read_text())
+            self.assertNotIn("rewrite_recoveries", exported)
+            self.assertEqual(exported["snapshot"], str(self.store.path))
+            bc.cmd_handoff_restore(argparse.Namespace(input=str(output)), self.store)
+        after = self.store.read()
+        self.assertEqual(after["ownership"], identity)
+        self.assertEqual(after["revision"], before["revision"] + 1)
+        self.assertEqual(after["rewrite_recoveries"], before["rewrite_recoveries"])
+        self.assertEqual(after["progress"], before["progress"])
+        for node in ("shared", "adapter"):
+            self.assertEqual(after["work"][node]["integration"]["receipt"],
+                             before["work"][node]["integration"]["receipt"])
+        bc.verify_resume(self.store, argparse.Namespace(command="checkpoint"))
+
+    def test_failed_preparation_and_apply_preserve_git_and_retry_without_lost_evidence(self):
+        self._advance_target()
+        before = self.store.read()
+        with mock.patch.object(self.store, "mutate", side_effect=OSError("injected persistence failure")):
+            with self.assertRaisesRegex(OSError, "injected persistence failure"):
+                self._reconcile(prepare=True)
+        self.assertEqual(self.store.read(), before)
+        self.assertEqual(self.repo.git("rev-parse", "HEAD"), self.source)
+        self.assertEqual(self.repo.git("for-each-ref", "--format=%(objectname)",
+                                      "refs/engine/build-recovery/"), self.source)
+        self._reconcile(prepare=True)
+        prepared = self.store.read()
+        self.assertEqual(prepared["rewrite_preparation"]["source_head"], self.source)
+        self.repo.git("rebase", "origin/main")
+        rewritten = self.repo.git("rev-parse", "HEAD")
+        with mock.patch.object(self.store, "mutate", side_effect=OSError("injected persistence failure")):
+            with self.assertRaisesRegex(OSError, "injected persistence failure"):
+                self._reconcile()
+        self.assertEqual(self.store.read(), prepared)
+        self.assertEqual(self.repo.git("rev-parse", "HEAD"), rewritten)
+        self._reconcile()
+        self.assertEqual(self.store.read()["plan"]["bound_head"], rewritten)
+        self.assertEqual(self.store.read()["work"], self.original["work"])
+        bc.verify_resume(self.store, argparse.Namespace(command="checkpoint"))
+
+    def test_intervening_revision_requires_cancelling_pending_preparation_before_a_new_one(self):
+        self._advance_target()
+        self._reconcile(prepare=True)
+        self.store.mutate(lambda state: state["progress"].update(current_item="shared"))
+        pending = self.store.read()
+        with self.assertRaisesRegex(bc.CoordinatorError, "cancel|revision|pending"):
+            self._reconcile(prepare=True)
+        self.assertEqual(self.store.read(), pending)
+        self._reconcile(cancel=True)
+        self.assertNotIn("rewrite_preparation", self.store.read())
+        self._reconcile(prepare=True)
+        prepared = self.store.read()
+        self.assertEqual(prepared["rewrite_preparation"]["prepared_revision"], prepared["revision"])
+
+    def test_cancel_preparation_retains_original_git_ref(self):
+        self._advance_target()
+        self._reconcile(prepare=True)
+        self._reconcile(cancel=True)
+        self.assertNotIn("rewrite_preparation", self.store.read())
+        self.assertEqual(self.repo.git("for-each-ref", "--format=%(objectname)",
+                                       "refs/engine/build-recovery/"), self.source)
 
 
 class TestReceiptGitFacts(unittest.TestCase):
@@ -6599,19 +7297,23 @@ class EnforcementCase(unittest.TestCase):
                  "model": "inherit" if inline else "sonnet",
                  "effort": "inherit" if inline else "medium", "inline": inline}
         item_def = bc.work.node_item(self.plan, item)
-        payload = {"outcome": "returned", "base_sha": base,
+        payload = {"outcome": "returned",
                    "evidence": {"changed_paths": changed or [item_def["paths"][0]],
-                                "verification_results": ["ok"]}}
+                                "verification_results": [{"command": "fixture-check", "outcome": "passed", "detail": "ok"}],
+                                "assumptions": [], "unresolved_concerns": []}}
         if artifact_ref:
             payload["artifact_ref"] = artifact_ref
-        if artifact_digest:
-            payload["artifact_digest"] = artifact_digest
 
         def change(state):
             nw = state["work"].setdefault(item, bc.work.empty_node())
             nw["attempt_count"] = 1
             nw["claim"] = bc.work.new_claim("1" * 32, base, "/tmp/wt", [], route)
-            nw["latest_result"] = bc.work.bind_result(nw, item_def, "1" * 32, base, payload)
+            nw["claim"]["result_contract"] = bc.work.result_contracts.resolve("worker-result.v1")
+            nw["latest_result"] = bc.work.bind_result(nw, item_def, "1" * 32, base, payload,
+                                                     observed_digest=artifact_digest if inline else None)
+            if artifact_digest and not inline:
+                # Deliberately corrupt trusted metadata to exercise integration's independent check.
+                nw["latest_result"]["artifact_digest"] = artifact_digest
         self.store.mutate(change)
         return "1" * 32
 
@@ -6784,10 +7486,12 @@ class EnforcementCase(unittest.TestCase):
             nw["claim"] = bc.work.new_claim("1" * 32, self.base, "/tmp/wt", [],
                 {"executor_class": "builder", "provider": "claude", "model": "sonnet",
                  "effort": "medium", "inline": False})
+            nw["claim"]["result_contract"] = bc.work.result_contracts.resolve("worker-result.v1")
             nw["latest_result"] = bc.work.bind_result(nw, item_def, "1" * 32, self.base,
-                {"outcome": "returned", "base_sha": self.base, "artifact_ref": commit,
+                {"outcome": "returned", "artifact_ref": commit,
                  "evidence": {"changed_paths": [".engine/tools/shared.py"],
-                              "verification_results": ["ok"],
+                              "verification_results": [{"command": "fixture", "outcome": "passed", "detail": "ok"}],
+                              "assumptions": [],
                               "unresolved_concerns": ["scope_boundary looks tight for this node"]}})
         self.store.mutate(change)
         out = self._integrate("shared", "1" * 32, commit)
@@ -6884,7 +7588,7 @@ class TheCoverageBulletNamesTheLensesThatRecordedReceipts(CoordinatorCase):
                                          lens_packet_digest=contract["lens_packet_digest"], finding=[],
                                          findings_from_file=None, code_execution="none")
             with contextlib.redirect_stdout(io.StringIO()):
-                bc.cmd_review_record(receipt, self.store)
+                self.record_review(receipt, self.store)
         state = self.state()
         claim = _good_claim()
         claim["review"]["finding_summaries"] = []
@@ -6958,6 +7662,742 @@ class TheRetiredReviewEffortFieldsLeaveOnRead(CoordinatorCase):
         stage = loaded["reviews"]["deliverable"]
         self.assertFalse({k for k in stage if "effort" in k})
         self.assertFalse({k for k in stage["receipts"][0] if "effort" in k})
+
+
+
+
+
+class TestFrozenBuildContracts(CoordinatorCase):
+    DELIVERABLE_LENSES = TestReviewAndFindings.DELIVERABLE_LENSES
+    packet = TestReviewAndFindings.packet
+    receipt_args = TestReviewAndFindings.receipt_args
+
+    def setUp(self):
+        super().setUp()
+        import reviewer_contracts
+        self.seed(); self.approve('thorough'); self.integrate_all()
+        record = self.review_library.read_record(self.review_slug)
+        self.frozen = reviewer_contracts.capture(bc.ROOT,
+            {'plan_id':PLAN_ID,'revision':1,'plan_digest':record['current']['plan_digest']},
+            'thorough', ['architecture','feasibility','product-intent','risk-governance'],
+            self.DELIVERABLE_LENSES, instructions='Read the complete approved plan and change.')
+        self.store.mutate(lambda s:s.update(review_contract=self.frozen,review_contract_format=1,
+            validation={'commit':HEAD_A,'results':[{'id':'self-test','commit':HEAD_A,'passed':True,'summary':'green'}]}))
+
+    def record_frozen(self, packet, lens, report=None):
+        import scoped_agents
+        state = self.store.read()
+        args = self.receipt_args(packet,lens,[])
+        args.session = 'fixture-root'
+        if report is not None:
+            source = Path(self.temp.name)/'review-report.json';source.write_text(json.dumps(report))
+            args.report = str(source)
+        observe_review_execution(self.review_library,self.review_slug,scoped_agents.build_owner(state),
+            lens,args.lens_packet_digest,report or [],review_contract=bc.reviewer_contracts.effective_build(state),packet_content=json.dumps(packet))
+        with contextlib.redirect_stdout(io.StringIO()):
+            bc.cmd_review_record(args,self.store)
+
+    def test_frozen_contract_can_compose_its_first_pr_body(self):
+        import build_coordinator_contract as bcc
+        from test_build_coordinator_contract import _good_claim
+        state = self.state()
+        claim = _good_claim()
+        claim["review"]["finding_summaries"] = []
+        record = self.review_library.read_record(self.review_slug)
+        with mock.patch.object(bc, "_sealed_plan_record", return_value=(record, None)), \
+                mock.patch.object(bc, "_run", return_value=types.SimpleNamespace(
+                    returncode=129, stdout="", stderr="fatal: not a git repository")):
+            evidence = bc._assemble_evidence(state, bc._plan(str(self.plan_path)), claim, HEAD_A,
+                                             {"body": "", "isDraft": True})
+        body = bcc.compose(claim, evidence)
+        self.assertIn(bc._review_lineage_marker(state), body)
+
+    def test_status_measures_each_lens_scope_once_per_read(self):
+        from collections import Counter
+        self.packet()
+        with mock.patch.object(bc, "_coverage_result", wraps=bc._coverage_result) as measure:
+            bc._status(self.state())
+        counts = Counter((call.args[1], call.args[3]) for call in measure.call_args_list)
+        self.assertEqual(set(self.DELIVERABLE_LENSES), {lens for _, lens in counts})
+        self.assertTrue(all(count == 1 for count in counts.values()), counts)
+
+    def test_companion_batch_reads_once_and_next_call_refuses_deleted_evidence(self):
+        import scoped_agents
+        packet = self.packet()
+        for lens in self.DELIVERABLE_LENSES:
+            self.record_frozen(packet, lens)
+        state = self.state()
+        receipts = state["reviews"]["deliverable"]["receipts"]
+        original_read = scoped_agents.Store.read
+        with mock.patch.object(scoped_agents.Store, "read", autospec=True, side_effect=original_read) as read:
+            self.assertEqual([], scoped_agents.missing_build_evidence(self.review_library, state, receipts))
+            self.assertEqual(1, read.call_count)
+        companion = scoped_agents.Store(self.review_library, self.review_slug)
+        companion.path.unlink()
+        self.assertEqual(sorted(self.DELIVERABLE_LENSES),
+            scoped_agents.missing_build_evidence(self.review_library, state, receipts))
+
+    def test_companion_batch_refuses_changed_evidence_within_the_same_calculation(self):
+        import scoped_agents
+        packet = self.packet()
+        for lens in self.DELIVERABLE_LENSES:
+            self.record_frozen(packet, lens)
+        state = self.state()
+        receipts = state["reviews"]["deliverable"]["receipts"]
+        companion = scoped_agents.Store(self.review_library, self.review_slug)
+        original = companion.path.read_bytes()
+        owner = scoped_agents.build_owner(state)
+        for change in ("replace", "damage", "delete"):
+            with self.subTest(change=change):
+                companion.path.write_bytes(original)
+                observations = {}
+                self.assertTrue(companion.receipt_verified(receipts[0], owner, _observations=observations))
+                if change == "replace":
+                    data = json.loads(original)
+                    data["acceptances"] = {}
+                    companion.path.write_text(json.dumps(data))
+                elif change == "damage":
+                    companion.path.write_text("{")
+                else:
+                    companion.path.unlink()
+                self.assertFalse(companion.receipt_verified(receipts[1], owner, _observations=observations))
+
+    def test_rerecording_legacy_execution_recovers_composition_without_rewriting_history(self):
+        import copy
+        from test_build_coordinator_contract import TestPreviewEvidence
+        packet = self.packet()
+        self.record_frozen(packet, "usability")
+        # Load an old-format current receipt; native transport is a labelled fixture as elsewhere here.
+        self.store.mutate(lambda s: s["reviews"]["deliverable"]["receipts"][0].pop("code_execution"))
+        original = copy.deepcopy(self.state()["reviews"]["deliverable"]["receipts"][0])
+        assembler = TestPreviewEvidence()
+        with self.assertRaisesRegex(bc.CoordinatorError, "re-recorded"):
+            assembler._assemble(bc, self.state())
+        self.store.mutate(lambda s: s["validation"].update(commit=HEAD_B))
+        fresh_packet = self.packet(head=HEAD_B)
+        self.record_frozen(fresh_packet, "usability")
+        recovered = self.state()
+        evidence = assembler._assemble(bc, recovered)
+        self.assertIn("execution is unknown", evidence["code_execution_line"])
+        self.assertNotIn("no reviewer executed", evidence["code_execution_line"])
+        self.assertTrue(any(entry["receipt"] == original
+                            for entry in recovered["review_evidence_history"]))
+        self.assertEqual("none", recovered["reviews"]["deliverable"]["receipts"][0]["code_execution"])
+        import build_coordinator_contract as bcc
+        from test_build_coordinator_contract import _good_claim
+        self.assertIn("execution is unknown", bcc.compose(_good_claim(), evidence))
+
+    def test_bound_packet_keeps_approved_roster_when_installation_list_changes(self):
+        packet = self.packet(roster=[])
+        self.assertEqual(set(self.DELIVERABLE_LENSES),set(packet['required_lenses']))
+        self.assertEqual(self.frozen,packet['review_contract'])
+        self.assertEqual(1,packet['approval_authority']['owner']['generation'])
+
+    def _real_original_and_repair(self, *, adopt=False, frozen=True, full_panel=False):
+        from test_review_economy import _RealRepo
+        repo = _RealRepo(); repo.setUp(); self.addCleanup(repo.doCleanups)
+        if not frozen:
+            self.store.mutate(lambda s: (s.pop("review_contract"), s.pop("review_contract_format")))
+        original_head = repo.commit("src.py", "original")
+        repair_head = repo.commit("src.py", "repair")
+        lens = "technical-integrity"
+        def green(s, head):
+            s["validation"] = {"commit":head,"results":[{"id":"self-test","commit":head,"passed":True,"summary":"green"}]}
+        # Packet contracts use the Engine fixture; range arithmetic uses these actual Git objects.
+        cumulative = bc.ranges.cumulative_coverage
+        query_type = bc.ranges.ReadQuery
+        with mock.patch(__name__ + ".BASE", repo.base), contextlib.ExitStack() as stack:
+            stack.enter_context(mock.patch.object(bc.ranges, "ReadQuery", side_effect=lambda root: query_type(repo.repo)))
+            stack.enter_context(mock.patch.object(bc.ranges, "cumulative_coverage",
+                side_effect=lambda root, *args, **kw: cumulative(repo.repo, *args, **kw)))
+            self.store.mutate(lambda s: green(s, original_head))
+            original_packet = self.packet(head=original_head)
+            with mock.patch.object(bc, "_head", return_value=original_head):
+                self.record_frozen(original_packet, lens)
+                if full_panel:
+                    for other in self.DELIVERABLE_LENSES:
+                        if other != lens:
+                            self.record_frozen(original_packet, other)
+            original = self.state()["reviews"]["deliverable"]["receipts"][0]
+            if adopt:
+                root = Path(bc.scoped_agents.__file__).resolve().parents[2]
+                persona = root / ".claude/agents/engine-qa-review-technical-integrity.md"
+                persona.write_text(persona.read_text().replace("reviewer-contract-version: 1", "reviewer-contract-version: 2"))
+                stack.enter_context(mock.patch.object(bc, "ROOT", root))
+                preview = bc._build_contract_preview(self.state(), "adopt")
+                path = Path(self.temp.name) / "adopt-repair-obligation.json"
+                path.write_text(json.dumps(preview))
+                with contextlib.redirect_stdout(io.StringIO()):
+                    bc.cmd_build_contract_apply(argparse.Namespace(plan=str(self.plan_path), input=str(path),
+                        reason="Fixture explicitly adopts the changed mandate", operator_decided=True), self.store)
+            def repair(s):
+                green(s, repair_head)
+                s["repair"] = {"reviewed_commit":original_head,"final_commit":repair_head,
+                    "base_commit":repo.base,"summary":"repair","judgment":"scoped","rationale":"Changed logic",
+                    "lenses":[lens],"packet_digest":None,"receipts":[]}
+                s["repair_rounds"].append({"reviewed_commit":original_head,"final_commit":repair_head,
+                    "judgment":"scoped","lenses":[lens],"counted":False})
+            self.store.mutate(repair)
+            packet = self.packet(stage="repair", head=repair_head)
+            with mock.patch.object(bc, "_head", return_value=repair_head):
+                self.record_frozen(packet, lens)
+        return repo, original_head, repair_head, original
+
+    def test_proportional_repair_keeps_unaffected_lenses_on_their_original_packet(self):
+        repo,first,head,_ = self._real_original_and_repair(full_panel=True)
+        state = self.state(); delivery = state["reviews"]["deliverable"]
+        with mock.patch.object(bc,"ROOT",repo.repo):
+            self.assertEqual([],bc._missing_receipts(delivery,state=state))
+            self.assertEqual([],bc._outstanding_repair_lenses(state["repair"],state=state))
+            untouched = bc._coverage_result(delivery,"deliverable",state,"usability")
+            self.assertEqual([first],untouched["read"])
+            self.assertIn("proportional repair",untouched["scope_note"])
+            repaired = bc._coverage_result(delivery,"deliverable",state,"technical-integrity")
+            self.assertEqual([head,first],repaired["read"])
+            state["review_evidence_history"] = []
+            self.assertEqual(["technical-integrity"],bc._missing_receipts(delivery,state=state))
+
+    def test_production_cumulative_coverage_requires_original_evidence_despite_spliced_identity(self):
+        repo, original_head, head, original = self._real_original_and_repair()
+        state = self.state(); delivery = state["reviews"]["deliverable"]
+        self.assertEqual(head, delivery["reviewed_commit"])
+        lens = "technical-integrity"
+        with mock.patch.object(bc, "ROOT", repo.repo):
+            result = bc._coverage_result(delivery, "deliverable", state, lens)
+            self.assertTrue(result["covered"]); self.assertEqual([], result["unread"])
+            self.assertNotIn(lens, bc._missing_receipts(delivery, state=state))
+            self.assertEqual([], bc._outstanding_repair_lenses(state["repair"], state=state))
+            # Keep the narrow receipt AND copied matching lens contract, but lose the original read.
+            state["review_evidence_history"] = []
+            result = bc._coverage_result(delivery, "deliverable", state, lens)
+            self.assertFalse(result["covered"]); self.assertEqual([original_head], result["unread"])
+            self.assertIn(lens, bc._missing_receipts(delivery, state=state))
+            self.assertEqual([], bc._outstanding_repair_lenses(state["repair"], state=state))
+        self.assertEqual(original, self.state()["review_evidence_history"][0]["receipt"])
+
+    def test_changed_obligation_reviewed_only_over_repair_leaves_prefix_unread(self):
+        repo, first, head, original = self._real_original_and_repair(adopt=True)
+        state = self.state(); delivery = state["reviews"]["deliverable"]
+        self.assertNotEqual(original["obligation_digest"], delivery["receipts"][0]["obligation_digest"])
+        with mock.patch.object(bc, "ROOT", repo.repo):
+            result = bc._coverage_result(delivery, "deliverable", state, "technical-integrity")
+            self.assertFalse(result["covered"]); self.assertEqual([first], result["unread"])
+            self.assertIn("technical-integrity", bc._missing_receipts(delivery, state=state))
+            self.assertEqual([], bc._outstanding_repair_lenses(state["repair"], state=state))
+
+    def test_pre_envelope_cumulative_coverage_uses_original_descriptor_without_adoption(self):
+        repo, first, head, original = self._real_original_and_repair(frozen=False)
+        state = self.state(); delivery = state["reviews"]["deliverable"]
+        self.assertNotIn("review_contract", state)
+        with mock.patch.object(bc, "ROOT", repo.repo):
+            self.assertTrue(bc._coverage_result(delivery, "deliverable", state, "technical-integrity")["covered"])
+            descriptor = next(c for c in delivery["reviewer_contracts"] if c["lens"] == "technical-integrity")
+            descriptor["digest"] = "sha256:" + "9"*64
+            result = bc._coverage_result(delivery, "deliverable", state, "technical-integrity")
+            self.assertFalse(result["covered"]); self.assertEqual([head, first], result["unread"])
+
+    def test_cumulative_originals_cross_only_reverified_identical_reconcile(self):
+        repo,first,head,_ = self._real_original_and_repair()
+        repo.git("checkout","-q","-b","target",repo.base)
+        target = repo.commit("upstream.py","upstream")
+        repo.git("checkout","-q","main"); repo.git("rebase","target")
+        rewritten = repo.git("rev-parse","HEAD")
+        state = self.state(); delivery = state["reviews"]["deliverable"]
+        delivery.update(base_commit=target,reviewed_commit=rewritten)
+        state["reconciles"] = [{"base_before":repo.base,"from_commit":head,
+            "base_after":target,"to_commit":rewritten,"contribution_identical":True}]
+        with mock.patch.object(bc,"ROOT",repo.repo):
+            self.assertTrue(bc._coverage_result(delivery,"deliverable",state,"technical-integrity")["covered"])
+            # The stored positive flag cannot excuse changed contribution.
+            altered = repo.commit("src.py","unreviewed behavior")
+            delivery["reviewed_commit"] = altered
+            state["reconciles"][0]["to_commit"] = altered
+            self.assertFalse(bc._coverage_result(delivery,"deliverable",state,"technical-integrity")["covered"])
+
+    def test_deleted_companion_cannot_supply_cumulative_coverage(self):
+        import scoped_agents
+        repo, first, head, original = self._real_original_and_repair()
+        state = self.state(); delivery = state["reviews"]["deliverable"]
+        companion = scoped_agents.Store(self.review_library, self.review_slug)
+        data = companion.read()
+        del data["acceptances"][scoped_agents.receipt_key(original)]
+        companion.write_locked(data)
+        with mock.patch.object(bc, "ROOT", repo.repo):
+            result = bc._coverage_result(delivery, "deliverable", state, "technical-integrity")
+            self.assertEqual([first], result["unread"])
+            self.assertFalse(result["covered"])
+            self.assertIn("original accepted execution evidence is unavailable", result["unverified"])
+
+    def test_reconciled_prefix_combines_with_later_accepted_read_and_repeated_rebase(self):
+        repo,first,old,_ = self._real_original_and_repair(full_panel=True)
+        repo.git("checkout","-q","-b","target",repo.base)
+        target = repo.commit("upstream.py","first target advance")
+        repo.git("checkout","-q","main"); repo.git("rebase","target")
+        rewritten = repo.git("rev-parse","HEAD")
+        def reconcile(s, before, source, after, dest):
+            s["reconciles"].append({"base_before":before,"from_commit":source,"base_after":after,
+                "to_commit":dest,"contribution_identical":True,"divergent_paths":[],
+                "unmeasurable":None,"anchored_to":dest})
+            s["reviews"]["deliverable"].update(base_commit=after,reviewed_commit=dest)
+        self.store.mutate(lambda s:reconcile(s,repo.base,old,target,rewritten))
+        late = repo.commit("source-after-rebase.py","new authored repair")
+        state = self.state(); question = dict(state["reviews"]["deliverable"],reviewed_commit=late)
+        with mock.patch.object(bc,"ROOT",repo.repo):
+            for lens in self.DELIVERABLE_LENSES:
+                self.assertEqual([late],bc._coverage_result(question,"deliverable",state,lens)["unread"],lens)
+        def repair(s):
+            s["validation"] = {"commit":late,"results":[{"id":"self-test","commit":late,"passed":True,"summary":"fixture green"}]}
+            s["repair"] = {"reviewed_commit":rewritten,"final_commit":late,"base_commit":target,
+                "summary":"new repair","judgment":"scoped","rationale":"Changed logic",
+                "lenses":["technical-integrity"],"packet_digest":None,"receipts":[]}
+            s["repair_rounds"].append({"reviewed_commit":rewritten,"final_commit":late,
+                "judgment":"scoped","lenses":["technical-integrity"],"counted":False})
+        self.store.mutate(repair)
+        cumulative = bc.ranges.cumulative_coverage
+        query_type = bc.ranges.ReadQuery
+        with mock.patch.object(bc.ranges, "ReadQuery", side_effect=lambda root: query_type(repo.repo)), \
+                mock.patch(__name__+".BASE",target), mock.patch.object(bc,"_head",return_value=late), \
+                mock.patch.object(bc.ranges,"cumulative_coverage",side_effect=lambda root,*a,**k:cumulative(repo.repo,*a,**k)):
+            packet = self.packet(stage="repair",head=late); self.record_frozen(packet,"technical-integrity")
+        with mock.patch.object(bc,"ROOT",repo.repo):
+            state = self.state()
+            self.assertEqual([],bc._missing_receipts(state["reviews"]["deliverable"],state=state))
+        repo.git("checkout","-q","target"); second_target = repo.commit("second-upstream.py","second advance")
+        repo.git("checkout","-q","main"); repo.git("rebase","target")
+        second_head = repo.git("rev-parse","HEAD")
+        self.store.mutate(lambda s:reconcile(s,target,late,second_target,second_head))
+        with mock.patch.object(bc,"ROOT",repo.repo):
+            state = self.state(); delivery = state["reviews"]["deliverable"]
+            self.assertEqual([],bc._missing_receipts(delivery,state=state))
+            newest = repo.commit("latest.py","unread tail")
+            question = dict(delivery,reviewed_commit=newest)
+            for lens in self.DELIVERABLE_LENSES:
+                self.assertEqual([newest],bc._coverage_result(question,"deliverable",state,lens)["unread"],lens)
+            state["reconciles"][0]["from_commit"] = first
+            self.assertFalse(bc._coverage_result(delivery,"deliverable",state,"technical-integrity")["covered"])
+
+    def _assert_public_missing_prefix(self, repo, first, head):
+        cumulative = bc.ranges.cumulative_coverage
+        query_type = bc.ranges.ReadQuery
+        out = io.StringIO()
+        with mock.patch.object(bc.ranges, "ReadQuery", side_effect=lambda root: query_type(repo.repo)), \
+                mock.patch.object(bc.ranges, "cumulative_coverage",
+                side_effect=lambda root,*a,**k: cumulative(repo.repo,*a,**k)), \
+                mock.patch.object(bc,"_head",return_value=head), \
+                mock.patch.object(bc,"_base",return_value=repo.base), \
+                mock.patch.object(bc,"_history_was_rewritten",return_value=False), \
+                contextlib.redirect_stdout(out):
+            bc.cmd_status(argparse.Namespace(plan=str(self.plan_path),json=True),self.store)
+            status = json.loads(out.getvalue())
+            missing = [e for e in status["required_evidence"] if e.startswith("deliverable-review receipt: technical-integrity")]
+            self.assertEqual(1,len(missing)); self.assertIn(first[:12],missing[0])
+            # Observe the exact dispatch boundary; no native agent is launched by this fixture.
+            with mock.patch.object(bc.scoped_agents,"prepare_packets",return_value={}) as dispatch:
+                bc._packet(argparse.Namespace(stage="deliverable",plan=str(self.plan_path),
+                    impact=None,session="fixture-root"),self.store)
+            self.assertIn("technical-integrity",dispatch.call_args.args[5])
+            self.store.mutate(lambda s:s.update(pr_contract={"commit":head,
+                "body_digest":bc._digest(b"body"),"complete":True}))
+            pr = {"number":7,"state":"OPEN","headRefOid":head,"body":"body",
+                "mergeable":"MERGEABLE","baseRefOid":repo.base,"isDraft":True}
+            with mock.patch.object(bc.github,"pr_state",return_value=pr), \
+                    mock.patch.object(bc,"_run",return_value=types.SimpleNamespace(returncode=0,stdout="",stderr="")):
+                with self.assertRaisesRegex(bc.CoordinatorError,"deliverable-review receipt: technical-integrity"):
+                    bc.cmd_submit_preview(argparse.Namespace(plan=str(self.plan_path)),self.store)
+
+    def test_public_commands_reject_missing_original_prefix(self):
+        repo,first,head,_ = self._real_original_and_repair()
+        self.store.mutate(lambda s:s.update(review_evidence_history=[]))
+        self._assert_public_missing_prefix(repo,first,head)
+
+    def test_public_commands_reject_new_obligation_with_only_repair_read(self):
+        repo,first,head,_ = self._real_original_and_repair(adopt=True)
+        self._assert_public_missing_prefix(repo,first,head)
+
+    def test_legacy_late_original_disposition_and_repeated_report_ids_remain_distinct(self):
+        self.store.mutate(lambda s:(s.pop("review_contract"),s.pop("review_contract_format")))
+        report = [{"severity":"blocking","message":"Unresolved defect","location":None}]
+        packet = self.packet(); self.record_frozen(packet,"technical-integrity",report)
+        original = self.state()["reviews"]["deliverable"]["receipts"][0]
+        self.store.mutate(lambda s:s["validation"].update(commit=HEAD_B,
+            results=[{"id":"self-test","commit":HEAD_B,"passed":True,"summary":"green"}]))
+        packet = self.packet(head=HEAD_B)
+        with mock.patch.object(bc,"_head",return_value=HEAD_B):
+            self.record_frozen(packet,"technical-integrity",report)
+        newer = self.state()["reviews"]["deliverable"]["receipts"][0]
+        self.assertNotEqual(original["finding_ids"],newer["finding_ids"])
+        self.assertEqual(set(original["finding_ids"]+newer["finding_ids"]),set(bc.review.missing_findings(self.state())))
+        args = bc.parser().parse_args(["finding","record","--id",original["finding_ids"][0],
+            "--stage","deliverable","--lens","technical-integrity","--severity","blocking",
+            "--summary","Unresolved defect","--disposition","accepted-fixed",
+            "--rationale","Verified the original defect's repair","--does-not-block-this-pr",
+            "--operator-summary","The original blocking defect was fixed and verified."])
+        with contextlib.redirect_stdout(io.StringIO()):
+            bc.cmd_finding_record(args,self.store)
+        self.assertEqual(newer["finding_ids"],bc.review.missing_findings(self.state()))
+        self.assertEqual(original,self.state()["review_evidence_history"][0]["receipt"])
+
+    def _four_repairs_retain_originals(self, frozen):
+        if not frozen:
+            self.store.mutate(lambda s: (s.pop("review_contract"), s.pop("review_contract_format")))
+        lens = "technical-integrity"
+        packet = self.packet()
+        originals = []
+        def accept(packet, head):
+            with mock.patch.object(bc, "_head", return_value=head), contextlib.redirect_stdout(io.StringIO()):
+                if frozen:
+                    self.record_frozen(packet, lens)
+                else:
+                    self.record_review(self.receipt_args(packet, lens, []), self.store)
+            originals.append(self.state()["reviews"]["deliverable"]["receipts"][0])
+        accept(packet, HEAD_A)
+        prior = HEAD_A
+        for head in (HEAD_B, HEAD_C, HEAD_D, HEAD_E):
+            self.store.mutate(lambda s: s.update(
+                validation={"commit":head,"results":[{"id":"self-test","commit":head,"passed":True,"summary":"green"}]},
+                repair={"reviewed_commit":prior,"final_commit":head,"base_commit":BASE,
+                        "summary":"one repair","judgment":"scoped","rationale":"Changed logic",
+                        "lenses":[lens],"packet_digest":None,"receipts":[]}))
+            packet = self.packet(stage="repair", head=head)
+            accept(packet, head)
+            retained = bc.review.retained_receipts(self.state())
+            for index, original in enumerate(originals):
+                self.assertIn(("deliverable" if index == 0 else "repair", original), retained)
+            # A second refresh/reload cannot overwrite ranges or duplicate history.
+            self.packet(head=head)
+            first_history = self.store.read()["review_evidence_history"]
+            self.packet(head=head)
+            state = self.store.read()
+            self.assertEqual(first_history, state["review_evidence_history"])
+            self.assertEqual(len(first_history), len({json.dumps(e["receipt"], sort_keys=True) for e in first_history}))
+            for original in originals:
+                self.assertIn(original, [r for _, r in bc.review.retained_receipts(state)])
+            prior = head
+
+    def test_four_repair_rounds_preserve_frozen_originals(self):
+        self._four_repairs_retain_originals(True)
+
+    def test_four_repair_rounds_preserve_pre_envelope_originals(self):
+        self._four_repairs_retain_originals(False)
+
+    def test_clean_same_mandate_replacement_keeps_undispositioned_findings(self):
+        packet = self.packet()
+        self.record_frozen(packet, 'technical-integrity', [
+            {'severity': 'blocking', 'message': 'Original unresolved defect', 'location': None}])
+        old = self.state()['reviews']['deliverable']['receipts'][0]
+        self.assertEqual(old['finding_ids'], bc.review.missing_findings(self.state()))
+        self.store.mutate(lambda s: s['validation'].update(commit=HEAD_B,
+            results=[{'id':'self-test','commit':HEAD_B,'passed':True,'summary':'green'}]))
+        newer = self.packet(head=HEAD_B)
+        with mock.patch.object(bc, '_head', return_value=HEAD_B):
+            self.record_frozen(newer, 'technical-integrity')
+        state = self.state()
+        self.assertEqual(old['finding_ids'], bc.review.missing_findings(state))
+        self.assertEqual(old, state['review_evidence_history'][0]['receipt'])
+        self.assertTrue(state['review_evidence_history'][0]['effective'])
+
+    def test_mixed_build_renewal_owes_only_the_selected_changed_lens(self):
+        packet = self.packet()
+        for lens in self.DELIVERABLE_LENSES:
+            self.record_frozen(packet, lens)
+        original = self.state()['reviews']['deliverable']['receipts']
+        root = Path(bc.scoped_agents.__file__).resolve().parents[2]
+        for lens in ('technical-integrity', 'usability'):
+            path = root / f'.claude/agents/engine-qa-review-{lens}.md'
+            path.write_text(path.read_text().replace('reviewer-contract-version: 1', 'reviewer-contract-version: 2'))
+        output = Path(self.temp.name) / 'mixed-build.json'
+        args = bc.parser().parse_args(['review','contract-preview','--plan',str(self.plan_path),
+            '--action','adopt','--adopt-lens','pre-submission-review:technical-integrity','--output',str(output)])
+        with mock.patch.object(bc, 'ROOT', root), contextlib.redirect_stdout(io.StringIO()):
+            bc.cmd_build_contract_preview(args, self.store)
+            apply = argparse.Namespace(plan=str(self.plan_path), input=str(output),
+                reason='Adopt integrity and retain usability', operator_decided=True)
+            bc.cmd_build_contract_apply(apply, self.store)
+            state = self.state()
+            self.assertEqual([], bc._build_review_drift(state))
+            self.assertEqual(['technical-integrity'], [d['lens'] for d in state['review_contract_renewals'][0]['delta']])
+            self.assertEqual(original, state['reviews']['deliverable']['receipts'])
+            self.assertIn('pre-submission-review/usability — retain', bc._drift_line(state, HEAD_A))
+            self.assertIn('pre-submission-review/technical-integrity — adopt', bc._drift_line(state, HEAD_A))
+            self.packet()
+            state = self.state()
+            with mock.patch.object(bc.ranges, 'cumulative_coverage', side_effect=lambda *a, **k: {"verified":True,"covered":True,"read":[],"unread":[],"unverified":[]}):
+                self.assertEqual(['technical-integrity'], bc._missing_receipts(state['reviews']['deliverable'], state=state))
+            bc.cmd_build_contract_apply(apply, self.store)
+            self.assertEqual(state, self.state())
+
+    def test_clean_replacement_cannot_supersede_a_still_blocking_disposition(self):
+        packet = self.packet()
+        self.record_frozen(packet, 'technical-integrity', [
+            {'severity':'blocking','message':'Original unresolved defect','location':None}])
+        finding_id = self.state()['reviews']['deliverable']['receipts'][0]['finding_ids'][0]
+        args = bc.parser().parse_args(['finding','record','--id',finding_id,'--stage','deliverable',
+            '--lens','technical-integrity','--severity','blocking','--summary','Original unresolved defect',
+            '--disposition','partially-accepted','--rationale','The unresolved portion still needs repair',
+            '--blocks-this-pr'])
+        with contextlib.redirect_stdout(io.StringIO()):
+            bc.cmd_finding_record(args, self.store)
+        original = self.state()['findings'][0]
+        self.store.mutate(lambda s: s['validation'].update(commit=HEAD_B,
+            results=[{'id':'self-test','commit':HEAD_B,'passed':True,'summary':'green'}]))
+        newer = self.packet(head=HEAD_B)
+        with mock.patch.object(bc, '_head', return_value=HEAD_B):
+            self.record_frozen(newer, 'technical-integrity')
+        state = self.state()
+        self.assertEqual(original, state['findings'][0])
+        self.assertTrue(bc.review.blocks_submission(bc.review.live_findings(state)[0]))
+        self.assertTrue(state['review_evidence_history'][0]['effective'])
+
+    def test_editorial_provenance_reaches_status_and_composed_pr_without_private_text(self):
+        root = Path(bc.scoped_agents.__file__).resolve().parents[2]
+        path = root / '.claude/agents/engine-qa-review-technical-integrity.md'
+        original = self.state()['review_contract']
+        old_hash = next(p['source']['digest'] for p in original['panels']['pre-submission-review']
+                        if p['lens'] == 'technical-integrity')
+        path.write_text(path.read_text() + '\nPRIVATE-EDITORIAL-WITNESS\n')
+        new_hash = bc._digest(path.read_bytes())
+        with mock.patch.object(bc, 'ROOT', root), mock.patch.object(bc, '_head', return_value=HEAD_A):
+            state = self.state()
+            status = bc._status(state, bc._plan(str(self.plan_path)))
+            disclosure = bc._drift_line(state, HEAD_A)
+            self.assertEqual([], bc._build_review_drift(state))
+        for text in ('\n'.join(status['warnings']), disclosure):
+            self.assertIn(old_hash, text)
+            self.assertIn(new_hash, text)
+            self.assertNotIn(str(root), text)
+            self.assertNotIn('PRIVATE-EDITORIAL-WITNESS', text)
+        self.assertEqual(original, self.state()['review_contract'])
+
+    def test_editorial_regeneration_preserves_receipt_and_findings(self):
+        packet = self.packet()
+        self.record_frozen(packet,'technical-integrity')
+        original = self.store.read()['reviews']['deliverable']['receipts']
+        self.assertEqual(1,len(original))
+        # Incidental installed file metadata is no longer an approved requirement.
+        changed = self.packet(roster=[{'lens':lens,'path':'moved/'+lens+'.md','digest':'sha256:'+'0'*64}
+                                     for lens in self.DELIVERABLE_LENSES])
+        state = self.store.read()
+        self.assertEqual(packet['packet_digest'],changed['packet_digest'])
+        self.assertEqual(original,state['reviews']['deliverable']['receipts'])
+        self.assertNotIn('technical-integrity',bc._missing_receipts(state['reviews']['deliverable']))
+
+    def test_model_renewal_applies_without_changing_the_sealed_plan_panel(self):
+        import scoped_agents
+        root = Path(scoped_agents.__file__).resolve().parents[2]
+        path = root / '.engine/policies/model-bindings.json'
+        policy = json.loads(path.read_text())
+        policy['providers']['codex']['tiers']['judgment']['model'] = 'new-judgment-model'
+        path.write_text(json.dumps(policy))
+        with mock.patch.object(bc, 'ROOT', root):
+            preview = bc._build_contract_preview(self.store.read(), 'adopt')
+            self.assertEqual({'divergence-hunter', 'security-governance'}, {d['lens'] for d in preview['delta']})
+            self.assertTrue(all(d['role'] == 'pre-submission-review' for d in preview['delta']))
+            source = Path(self.temp.name) / 'model-renewal.json'
+            source.write_text(json.dumps(preview))
+            args = argparse.Namespace(plan=str(self.plan_path), input=str(source), reason='Adopt the changed QA model', operator_decided=True)
+            with contextlib.redirect_stdout(io.StringIO()):
+                bc.cmd_build_contract_apply(args, self.store)
+            current = bc.reviewer_contracts.effective_build(self.store.read())
+            self.assertEqual([p['semantic'] for p in self.frozen['panels']['plan-review']],
+                             [p['semantic'] for p in current['panels']['plan-review']])
+            self.assertEqual(self.frozen, self.store.read()['review_contract'])
+            self.assertEqual([], bc._build_review_drift(self.store.read()))
+
+    def test_renewal_requires_current_owner_and_preserves_original_contract(self):
+        with mock.patch.object(bc,'_installed',return_value=bc.review.installed(bc.ROOT)):
+            preview = bc._build_contract_preview(self.store.read(),'retain')
+            output = Path(self.temp.name)/'renewal.json';output.write_text(json.dumps(preview))
+            args = argparse.Namespace(plan=str(self.plan_path),input=str(output),reason='Retain reviewed mandate',operator_decided=False)
+            with self.assertRaises(bc.CoordinatorError):
+                bc.cmd_build_contract_apply(args,self.store)
+            args.operator_decided = True
+            with contextlib.redirect_stdout(io.StringIO()):
+                bc.cmd_build_contract_apply(args,self.store)
+            state = self.store.read()
+            self.assertEqual(self.frozen,state['review_contract'])
+            self.assertEqual(1,len(state['review_contract_renewals']))
+            with contextlib.redirect_stdout(io.StringIO()):
+                bc.cmd_build_contract_apply(args,self.store)
+            self.assertEqual(state,self.store.read())
+            preview['build_owner']['generation'] += 1;output.write_text(json.dumps(preview))
+            with self.assertRaises(bc.CoordinatorError):
+                bc.cmd_build_contract_apply(args,self.store)
+
+    def test_adopted_mandate_requires_only_changed_lens_and_refreshes_disclosure(self):
+        import copy
+        packet = self.packet()
+        for lens in self.DELIVERABLE_LENSES:
+            self.record_frozen(packet,lens)
+        original = copy.deepcopy(self.store.read()['reviews']['deliverable']['receipts'])
+        available = bc.reviewer_contracts.discover(bc.ROOT)
+        changed = next(p for p in available if p['lens']=='technical-integrity')
+        changed['semantic']['mandate']['version'] += 1
+        changed['semantic_digest'] = bc._digest(changed['semantic'])
+        changed['source']['instructions'] = changed['source']['instructions'].replace('reviewer-contract-version: 1','reviewer-contract-version: 2')
+        changed['source']['digest'] = bc._digest(changed['source']['instructions'].encode())
+        def discover(root, role=None):
+            return [p for p in available if role is None or p['semantic']['role']==role]
+        with mock.patch.object(bc.reviewer_contracts,'discover',side_effect=discover):
+            preview = bc._build_contract_preview(self.store.read(),'adopt')
+            self.assertEqual(['technical-integrity'],[d['lens'] for d in preview['delta']])
+            source = Path(self.temp.name)/'adopt.json';source.write_text(json.dumps(preview))
+            with contextlib.redirect_stdout(io.StringIO()):
+                bc.cmd_build_contract_apply(argparse.Namespace(plan=str(self.plan_path),input=str(source),reason='Adopt changed integrity mandate',operator_decided=True),self.store)
+            current = self.packet()
+            state = self.store.read()
+            self.assertEqual(original,state['reviews']['deliverable']['receipts'])
+            with mock.patch.object(bc.ranges,'receipt_covers',return_value=True):
+                self.assertEqual(['technical-integrity'],bc._missing_receipts(state['reviews']['deliverable']))
+            self.record_frozen(current,'technical-integrity',[{'severity':'serious','message':'New mandate found a gap','location':None}])
+            state = self.store.read()
+            self.assertEqual(1,len(state['review_evidence_history']))
+            self.assertEqual(next(r for r in original if r['lens']=='technical-integrity'),state['review_evidence_history'][0]['receipt'])
+            self.assertTrue(state['review_evidence_history'][0]['effective'])
+            self.assertEqual(1,len(bc.review.missing_findings(state)))
+            marker = bc._review_lineage_marker(state)
+            state['pr_contract']={'commit':HEAD_A,'body_digest':'sha256:'+'1'*64,'complete':True,'review_lineage_digest':bc._review_lineage_digest(state)}
+            self.assertTrue(bc._review_contract_current(state))
+            state['findings'].append({'id':'changed-disposition'})
+            self.assertFalse(bc._review_contract_current(state))
+            self.assertNotEqual(marker,bc._review_lineage_marker(state))
+
+
+
+
+
+class TestCumulativeReviewScenario(unittest.TestCase):
+    """Permanent real-Git witness shared with demo_review_coverage; service boundaries are fixtures."""
+
+    def test_four_repairs_merge_gap_and_later_edit_use_production_readiness(self):
+        self._scenario(alternating=False)
+
+    def test_alternating_repair_lenses_preserve_only_their_assigned_scopes(self):
+        self._scenario(alternating=True)
+
+    def _scenario(self, *, alternating):
+        import copy
+        from test_review_economy import _RealRepo
+        fixture = TestFrozenBuildContracts(); fixture.setUp(); self.addCleanup(fixture.doCleanups)
+        repo = _RealRepo(); repo.setUp(); self.addCleanup(repo.doCleanups)
+        repo.git("checkout","-q","-b","codex/scenario")
+        source_root = bc.ROOT
+        run = bc._run
+        drift = bc.reviewer_contracts.unresolved_drift
+        provenance = bc.reviewer_contracts.source_provenance
+        lens = "technical-integrity"
+        heads = [repo.commit("source.py","initial deliverable")]
+        original_receipts = []
+        findings = []
+        def candidate(head):
+            fixture.store.mutate(lambda s:s.update(validation={"commit":head,"results":[
+                {"id":"fixture-candidate","commit":head,"passed":True,"summary":"Synthetic CI boundary"}]}))
+        def accept(packet, report):
+            fixture.record_frozen(packet,lens,report)
+            receipt = fixture.state()["reviews"]["deliverable"]["receipts"][-1]
+            original_receipts.append(copy.deepcopy(receipt))
+            if report:
+                fid = receipt["finding_ids"][0]; findings.append(fid)
+                self.assertIn(fid,bc.review.missing_findings(fixture.state()))
+                args = bc.parser().parse_args(["finding","record","--id",fid,"--stage",packet["stage"],
+                    "--lens",lens,"--severity","serious","--summary",report[0]["message"],
+                    "--disposition","accepted-fixed","--rationale","Fixture repair verified",
+                    "--does-not-block-this-pr"])
+                bc.cmd_finding_record(args,fixture.store)
+            return receipt
+        def assess(judgment):
+            bc.cmd_repair_assess(argparse.Namespace(judgment=judgment,lens=[lens] if judgment=="scoped" else None,
+                rationale="Scoped logic repair" if judgment=="scoped" else "Verified automatic target merge only",
+                guidance=None),fixture.store)
+        with mock.patch.object(bc,"ROOT",repo.repo), mock.patch(__name__+".BASE",repo.base), \
+                mock.patch.object(bc,"_run",side_effect=lambda argv,**kw:run(argv,cwd=kw.pop("cwd",repo.repo),**kw)), \
+                mock.patch.object(bc,"_base",return_value=repo.base), \
+                mock.patch.object(bc.reviewer_contracts,"unresolved_drift",side_effect=lambda c,r,d:drift(c,source_root,d)), \
+                mock.patch.object(bc.reviewer_contracts,"source_provenance",side_effect=lambda c,r:provenance(c,source_root)), \
+                contextlib.redirect_stdout(io.StringIO()), contextlib.redirect_stderr(io.StringIO()):
+            candidate(heads[0]); packet = fixture.packet(head=heads[0])
+            accept(packet,[{"severity":"serious","message":"Initial defect","location":None}])
+            for other in fixture.DELIVERABLE_LENSES:
+                if other != lens: fixture.record_frozen(packet,other)
+            for n in range(1,5):
+                if alternating:
+                    lens = "technical-integrity" if n % 2 else "usability"
+                heads.append(repo.commit("source.py",f"repair {n}")); candidate(heads[-1]); assess("scoped")
+                packet = fixture.packet(stage="repair",head=heads[-1])
+                accept(packet,[{"severity":"serious","message":"Later defect","location":None}] if n==2 else [])
+                state = fixture.state()
+                reads = bc._coverage_result(state["reviews"]["deliverable"],"deliverable",state,lens)
+                self.assertTrue(reads["covered"],f"coverage lost after repair {n}: {reads}")
+                expected = heads[::-1] if not alternating else [heads[i] for i in range(n,0,-2)]+heads[:1]
+                self.assertEqual(expected,reads["read"])
+                self.assertEqual([],bc._missing_receipts(state["reviews"]["deliverable"],state=state))
+                retained = [r for _,r in bc.review.retained_receipts(state)]
+                for original in original_receipts: self.assertIn(original,retained)
+                self.assertEqual([],bc.review.missing_findings(state))
+            # Refresh/retry the completed repair packet: actual dispatch receives an empty lens set.
+            for _ in range(2):
+                with mock.patch.object(bc.scoped_agents,"prepare_packets",wraps=bc.scoped_agents.prepare_packets) as dispatch:
+                    bc._packet(argparse.Namespace(stage="repair",plan=str(fixture.plan_path),impact=None,
+                        session="fixture-root"),fixture.store)
+                self.assertEqual({},dispatch.call_args.args[5])
+            repo.git("checkout","-q","main"); target = repo.commit("upstream.py","independent upstream")
+            repo.git("checkout","-q","codex/scenario"); repo.git("merge","--no-ff","--no-edit","main")
+            merged = repo.git("rev-parse","HEAD"); candidate(merged)
+            observation = {"observed_at":"2026-09-11T00:00:00Z","material":{
+                "target_repository":"owner/repo","target_ref":"main","target_tip":target}}
+            with mock.patch.object(bc.github,"pr_state",return_value={"number":7}), \
+                    mock.patch.object(bc.entry,"observe_fresh",return_value=observation): assess("none")
+            self.assertEqual(4,len(fixture.state()["repair_rounds"]))
+            self.assertEqual(1,len(fixture.state()["base_advances"]))
+            # Synthetic CI/preflight/GitHub state isolates the real review-readiness gate.
+            def external_proofs(s):
+                digest = "sha256:"+"1"*64
+                s["validation"] = {"candidate":{"commit":merged,"merge_base":target,
+                    "protocol_digest":digest,"argv_digests":{"ci":digest},"inventory_digest":digest,"run_record":None,
+                    "results":[{"id":"fixture-ci","commit":merged,"passed":True,"summary":"Synthetic CI"}]},
+                    "final":{"commit":merged,"source":"ci-import","run_id":1,"tree":repo.git("rev-parse","HEAD^{tree}"),"context":"engine-ci"}}
+                s["pr_contract"] = {"commit":merged,"complete":True,"body_digest":bc._digest(b"body"),
+                    "review_lineage_digest":bc._review_lineage_digest(s)}
+                s["preflights"] = [{"id":p["id"],"commit":merged,"passed":True,"summary":"Synthetic external preflight"}
+                    for p in bc._protocol()["preflights"] if p["required"]]
+            fixture.store.mutate(external_proofs)
+            pr = {"number":7,"state":"OPEN","headRefOid":merged,"baseRefOid":target,"body":"body",
+                "mergeable":"MERGEABLE","isDraft":True,"statusCheckRollup":[{
+                    "name":"engine-ci","status":"COMPLETED","conclusion":"SUCCESS"}]}
+            with mock.patch.object(bc.github,"pr_state",return_value=pr):
+                preview = bc._submit_preview(fixture.store,str(fixture.plan_path))
+                self.assertEqual("mark-ready",preview["action"])
+                before = fixture.state(); history = copy.deepcopy(before["review_evidence_history"])
+                for original in original_receipts:
+                    self.assertIn(original,[r for _,r in bc.review.retained_receipts(before)])
+                self.assertTrue(set(findings).issubset({f["id"] for f in before["findings"]}))
+                # A nearby missing middle read must fail actual submission, never bridge its endpoints.
+                def remove_middle(s):
+                    s["review_evidence_history"] = [e for e in history if e["receipt"]["commit"]!=heads[2]]
+                    # Keep the synthetic external contract current so coverage is the deciding gate.
+                    s["pr_contract"]["review_lineage_digest"] = bc._review_lineage_digest(s)
+                fixture.store.mutate(remove_middle)
+                with self.assertRaisesRegex(bc.CoordinatorError,f"deliverable-review receipt: {lens}"):
+                    bc._submit_preview(fixture.store,str(fixture.plan_path))
+                fixture.store.mutate(lambda s:s.update(review_evidence_history=history))
+            late = repo.commit("source.py","later authored change")
+            state = fixture.state(); question = dict(state["reviews"]["deliverable"],reviewed_commit=late)
+            # Re-prove the clean merge for this new question; the imported target work remains exempt.
+            question["base_advances"] = state["base_advances"]
+            result = bc._coverage_result(question,"deliverable",state,lens)
+            self.assertEqual([late],result["unread"])
+            self.assertFalse(result["covered"])
+            self.assertNotEqual("ready",bc._status(state)["phase"])
+            candidate(late); assess("scoped")
+            with mock.patch(__name__+".BASE",target):
+                packet = fixture.packet(stage="repair",head=late)
+                accept(packet,[])
+            state = fixture.state()
+            self.assertEqual([],bc._missing_receipts(state["reviews"]["deliverable"],state=state),
+                "A scoped repair after a proven target merge must not ask unaffected original lenses again")
+        print("Initial panel + four repairs: exact cumulative reads retained; originals and findings survive.")
+        print("Completed repair refresh/retry: zero reviewer assignments. Clean target merge: production submit preview reaches mark-ready.")
+        print("Missing middle read blocks submission; later authored change leaves exactly one unread commit.")
+        print("Reviewing that later change preserves the unaffected original panel after the base advances.")
 
 
 if __name__ == "__main__":

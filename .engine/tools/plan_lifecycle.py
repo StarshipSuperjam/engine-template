@@ -45,6 +45,11 @@ trail stays in the plan record, where `plan show` lists it; it is not published 
 """
 from __future__ import annotations
 
+import copy
+import json
+from pathlib import Path
+
+import result_contracts
 import build_coordinator_core as core
 import plan_store
 
@@ -122,8 +127,8 @@ def frozen_reason(record: dict, artifact: str, *, finding_id: str | None = None)
     if sealed:
         return sealed
     review = record.get("plan_review") or {}
-    findings = review.get("findings", [])
-    dispositioned = [f for f in findings if f.get("disposition")]
+    all_findings = findings(record)
+    dispositioned = [f for f in all_findings if f.get("disposition")]
 
     if artifact == "approval":
         if review:
@@ -143,9 +148,9 @@ def frozen_reason(record: dict, artifact: str, *, finding_id: str | None = None)
         return None
 
     if artifact == "finding":
-        match = [f for f in findings if f["id"] == finding_id]
+        match = [f for f in all_findings if f["id"] == finding_id]
         if not match:
-            known = ", ".join(f["id"] for f in findings) or "none"
+            known = ", ".join(f["id"] for f in all_findings) or "none"
             raise PlanLifecycleError(f"no finding {finding_id!r} in this review; it holds: {known}")
         if match[0].get("disposition"):
             return (f"{finding_id} was dispositioned as {match[0]['disposition']}, and that judgment was "
@@ -234,14 +239,11 @@ def translate_findings(raw, *, lenses: list) -> list:
     the end of a panel it had just paid for.
 
     So the mapping is made explicit and mechanical: `message` becomes the summary, `location` is
-    rendered to the record's string form (it is the most useful part of a finding and the record
-    now has a field for it), the lens is the ONE lens being recorded — a persona finding cannot
+    preserved exactly as the producer object or null, the lens is the ONE lens being recorded — a persona finding cannot
     carry a lens it never states — and the id is minted from that lens plus its position. A mixed
     or unrecognised batch is refused naming BOTH contracts and the mapping, rather than reported
     as a schema error about a field the author never chose.
     """
-    if raw is None:
-        return []
     if not isinstance(raw, list):
         raise PlanLifecycleError("findings must be a JSON array")
     if not raw:
@@ -269,7 +271,10 @@ def translate_findings(raw, *, lenses: list) -> list:
             "the lens is the one lens being recorded, and the id is minted as <LENS>-<n>. Fix the "
             "batch so every entry is one shape, or record each lens's findings in its own call.")
     if shapes == {"record"}:
-        return [dict(entry) for entry in raw]
+        schema = Path(__file__).resolve().parents[1] / "schemas/plan-record.v1.json"
+        for entry in raw:
+            core.validate_part(entry, schema, "#/$defs/finding", "plan-review finding", local_refs=True)
+        return copy.deepcopy(raw)
 
     if len(lenses) != 1:
         raise PlanLifecycleError(
@@ -277,41 +282,32 @@ def translate_findings(raw, *, lenses: list) -> list:
             f"only be recorded for ONE lens at a time — this call names {len(lenses)}: "
             + ", ".join(lenses) + ". Record each lens's findings with its own --lens, or convert the "
             "batch to the record shape, which states each finding's lens outright.")
-    lens = lenses[0]
-    prefix = "".join(word[0] for word in lens.replace("_", "-").split("-") if word).upper() or "F"
-    translated = []
-    for index, entry in enumerate(raw, start=1):
-        translated.append({
-            "id": f"{prefix}-{index}",
-            "lens": lens,
-            "severity": entry["severity"],
-            "summary": entry["message"],
-            "location": _render_location(entry["location"]),
-        })
-    return translated
+    try:
+        binding = result_contracts.resolve("plan-review-finding.v1", role="plan-review")
+        report = result_contracts.ingest(json.dumps(raw), binding, role="plan-review")
+        return result_contracts.compile_review(
+            report, lens=lenses[0], contract="plan-review-finding.v1")["findings"]
+    except result_contracts.Rejection as exc:
+        raise PlanLifecycleError(str(exc)) from exc
 
 
-def _render_location(location):
-    """Render a persona-shaped location to the record's string form.
+def reviews(record):
+    """Original and explicitly authorized supplements; never discard superseded findings."""
+    return ([record["plan_review"]] if record.get("plan_review") else []) + [
+        entry["review"] for entry in record.get("supplemental_reviews", [])]
 
-    Handles the three location forms from plan-review-finding.v1:
-    - Object with line: renders as 'file:line'
-    - Object without line or with null line: renders as the file path
-    - Null location: renders as 'the plan as a whole'
-    - String location: passes through unchanged
-    """
-    whole = "the plan as a whole"
-    if location is None:
-        return whole
-    if isinstance(location, str):
-        # A non-empty string passes through; a blank one names nothing and renders as the whole.
-        return location if location.strip() else whole
-    if isinstance(location, dict):
-        file_path = location.get("file")
-        if not file_path:
-            return whole
-        line = location.get("line")
-        if line is not None:
-            return f"{file_path}:{line}"
-        return file_path
-    return location
+
+def findings(record):
+    return [finding for review in reviews(record) for finding in review.get("findings", [])]
+
+
+def review_lineage_digest(record):
+    return core.digest({"reviews": reviews(record),
+                        "renewals": record.get("review_contract_renewals", []), "adoptions": record.get("review_contract_adoptions", [])})
+
+
+def presentation_current(record):
+    shown = record.get("findings_presented") or {}
+    if (record.get("approval") or {}).get("review_contract") or record.get("supplemental_reviews"):
+        return shown.get("lineage_digest") == review_lineage_digest(record)
+    return not shown or shown.get("packet_digest") == (record.get("plan_review") or {}).get("packet_digest")

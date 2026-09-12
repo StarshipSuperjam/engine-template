@@ -214,10 +214,8 @@ def gh_token() -> str | None:
     """A GitHub token for the live reads: the environment first (CI), else the operator's own logged-in
     `gh` CLI (so a logged-in laptop gets the REAL protected-branch + findings reads). None when neither
     is available — the live reads then degrade, never error."""
-    env = os.environ.get("GITHUB_TOKEN")
-    if env:
-        return env
-    return _run(["gh", "auth", "token"])
+    import github_client
+    return github_client.auth_token(run=_run)
 
 
 def gh_unreachable_note() -> str:
@@ -1589,8 +1587,9 @@ def hooks_health_line() -> "str | None":
         return None
     return ("**I can't see the engine's automatic hooks having run recently in this project.** If "
             "this session just started and this line is here, the hooks are not running — on Codex "
-            "that usually means they're waiting for your approval (run /hooks, or in the Desktop "
-            "app open the Hooks screen under Settings, and approve the engine's hooks) or your "
+            "that can mean individual hook approval is pending (the verified approval browser is "
+            "/hooks in the Codex CLI; do not assume Desktop exposes a Hooks settings screen). "
+            "Project trust alone is insufficient; verify an actual hook event after approval. Or your "
             "Codex build predates hook support (hooks arrived in 2026 "
             "builds, around v0.114); on Claude Code it usually means the project's hooks aren't "
             "approved yet. Until they run, the parts that ride them are off: session grounding, "
@@ -2022,6 +2021,7 @@ def gather_signals(session_id: str | None = None, payload: dict | None = None) -
         # silent on later sessions; ordinary status collection remains a read-only snapshot for every other caller.
         "automatic_checkout": automatic_checkout,
         "qualification_notices": qualification_notices,
+        "issue_triage": (payload or {}).get("_issue_triage"),
         # the off-main Stage-1 signal (StarshipSuperjam/engine-template#342): the top-level checkout is parked on a non-default branch (offline,
         # gentle, collapse-eligible), or None. behind_origin above is its online Stage-2 escalation.
         "off_main": off_main,
@@ -3739,6 +3739,8 @@ def _envelope_from_signals(s: dict, session_id: str | None, *, use_ledger: bool)
         "standing_directives": standing_directives,
         "pointers": pointers,
     }
+    if isinstance(s.get('issue_triage'), dict):
+        envelope['issue_triage'] = s['issue_triage']
     session_relay.validate(envelope)
     return envelope
 
@@ -3877,16 +3879,13 @@ def assemble_pack(session_id: str | None = None, *, use_ledger: bool = False, pa
                "alarm above still relays every session; routine status (milestone, what's next, what shipped, "
                "the backlog) is pull-only now. " + EXPLICIT_STATUS_PULL_TRIGGER)
     if providers.detect(payload) == providers.CODEX:
-        # DISCLOSED, not fixed here (StarshipSuperjam/engine-template#1187 provider-adapters node): Claude's session-economy spend gate
-        # (.engine/tools/session_economy.py, .engine/policies/session-economy.md) is a wired PreToolUse hook —
-        # a subagent naming an expensive model, or a self-scheduling wakeup call, is mechanically refused before
-        # it runs. Codex has NO such tool-layer enforcement (session_economy.py is not registered in
-        # .codex/hooks.json's PreToolUse list) — nothing here blocks either spend. So the guidance rides the
-        # envelope instead of the gate: hold the same two rules yourself, by discipline, since Codex will not.
-        out.append("5. (Codex-only, no mechanical gate here — hold this by discipline) Session economy: run "
-                   "a search/planning subagent on a cheap model only (the mechanical tier's, or `sonnet` — "
-                   "never a strong model for delegated search/plan work), and never invoke a self-scheduling "
-                   "wakeup action from inside a session.")
+        # The qualified explorer spawn is enforced; unsupported roles and wakeup surfaces still
+        # need discipline. Model choices remain owned by the central provider bindings.
+        out.append("5. (Codex-only) Session economy: a recognized explorer launch must name a cheap model "
+                   "from the provider bindings; the PreToolUse gate refuses a strong or missing model. "
+                   "Unknown launch shapes remain unclassified and allowed. Other search/planning work "
+                   "and self-scheduling wakeup actions remain discipline-only on this provider: keep "
+                   "delegated search cheap and never invoke a self-scheduling wakeup action.")
     out.append("")
     # POINT-OF-USE DEFERRAL + typed cutover: boot used to carry describe_explore_scope()'s ~1,900-char prose
     # lecture on the write gate here, and then a compact typed-contract restatement. Both are now redundant with
@@ -5060,6 +5059,19 @@ def handler(payload: dict) -> dict:
         pass
     # use_ledger=True: this is the real SessionStart path, so apply the collapse (an unchanged
     # standing alarm relays terse) via the deterministic ledger. fail-toward-full lives inside decide().
+    # Read-only GitHub discovery supplies disposable, task-subordinate context. No raw issue text
+    # enters the trusted relay, and a child agent never enrolls the parent's queue.
+    if session_id and not payload.get('agent_id'):
+        try:
+            import issue_triage
+            repo, token = repo_slug(), gh_token()
+            if not repo or not token:
+                raise issue_triage.TriageError('GitHub unavailable')
+            payload['_issue_triage'] = issue_triage.start_session(
+                telemetry.GitHubIssues(repo, token), session_id, issue_triage.load_config())
+        except Exception:
+            payload['_issue_triage'] = {'state': 'unavailable', 'pending_count': 0,
+                                        'selected_issue': None}
     pack = assemble_pack(session_id, use_ledger=True, payload=payload)
     return hooks.inject(pack) if pack else hooks.proceed()
 

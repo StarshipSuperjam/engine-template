@@ -9,15 +9,12 @@
 # this construction repo the behaviour is proven by `issue_conformance_ci.py demo` (a recorded fake
 # event), not end-to-end. The first live firing on a deployed repo is its end-to-end confirmation.
 #
-# KNOWN RESIDUAL (honest). The trigger is `[opened, edited]` — the control-plane design's shape. An
-# `engine` label added in a SEPARATE step AFTER creation fires a `labeled` event this trigger does not
-# watch, so such an Issue is caught only on its next body edit; cold sessions apply `--label engine` AT
-# create (caught on `opened`) and the in-session gate is the first line.
+# Adding engine explicitly opts an issue into the contract, including human submissions.
 name: engine-issue-conformance
 
 on:
   issues:
-    types: [opened, edited]
+    types: [opened, edited, labeled]
 
 permissions:
   contents: read   # for the checkout (to materialize the engine tool-runtime)

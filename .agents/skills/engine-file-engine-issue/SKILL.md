@@ -7,4 +7,16 @@ description: Help the operator file a well-formed Engine Issue for this project.
 
 ## Steps
 
-1. Resolve and show the target repository first, then help the operator compose and file a well-formed Engine Issue through the Engine's issue helper (`.engine/tools/issue_author.py`), which applies the `engine` label by construction. Confirm before filing.
+1. Resolve and show the target repository first, then help the operator compose and file a well-formed Engine Issue through the Engine's issue helper (`.engine/tools/issue_author.py`), which applies the `engine` label by construction. Preview the structured request. File when the operator has authorized it; do not ask again for an already authorized submission.
+
+2. Use the helper's complete create operation, not a rendered body passed to `gh issue create`. Existing `engine-issue-input.v1` requests remain accepted; the explicit `issue-submission-input.v1` envelope selects `engine` or `product`. Its schema is `.engine/schemas/issue-submission-input.v1.json`.
+
+   An Engine request needs the assessed core fields, for example:
+   ```json
+   {"schema_version":"issue-submission-input.v1","scope":"engine","request":{"submission_id":"engine-routing-001","assessment":{"state":"pending","unknown":"Remedy not established.","next_action":"Inspect the failure."},"repository":"OWNER/REPO","kind":"Fix","title":"Short title","what_this_is":"What happened.","whats_next":"What to do next."}}
+   ```
+   Choose a fresh stable `submission_id` once and retain it for uncertain recovery. A product request has ordinary fields and no Engine marker:
+   ```json
+   {"schema_version":"issue-submission-input.v1","scope":"product","request":{"repository":"OWNER/REPO","title":"Short title","body":"Details.","labels":["bug"]}}
+   ```
+3. New Engine creation requires explicit journal activation; read `.engine/operations/issue-recovery.md`. Missing credentials or activation is an actionable refusal. Never recover by bypassing the helper, changing the label or minting a new identity after an uncertain send.

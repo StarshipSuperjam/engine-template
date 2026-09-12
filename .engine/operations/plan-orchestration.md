@@ -1,16 +1,13 @@
 ---
 title: Plan orchestration — the judgment upstream of a Build
 ---
-
 ## Purpose
-
 Every Build begins as a plan authored, reviewed and sealed through the Project Manager. That tool owns the
 sequence — it shows the one next move, names what still blocks a seal, and refuses an out-of-order move while
 naming the way forward. What it cannot supply is judgment: whether the issue in front of you is the real
 problem, what a good fix would even look like, and when to stop and ask the operator rather than push on.
 This runbook is that half. Enter it when agreed work needs to become a plan a later Build can pick up, or
 when a plan already on the shelf is being picked back up.
-
 ## Steps
 
 ### 1. Ground yourself before you have an opinion
@@ -130,6 +127,7 @@ Restating its order here would only give you a second answer, free to drift from
 - **The Build is downstream and owns itself.** Binding the sealed plan belongs to [Build kickoff](build-kickoff.md);
   everything after it, to the phase runbooks [Build orchestration](build-orchestration.md) names.
 
+Approval freezes both reviewer panels. Editorial drift preserves credit; semantic changes use explicit per-lens retain/adopt renewal, with supplemental findings joining disposition and presentation. Historical adoption is a separate decision and never manufactures fresh execution. See [Executable persona result contracts](../docs/result-contracts.md) for renewal, historical recovery, ingress and demonstrations.
 ## Done when
 
 The operator has discussed the shape, seen the drafted plan and had the chance to revise it, chosen its
@@ -150,3 +148,5 @@ Two ways this goes wrong, both observed:
 
 Both are the same failure: treating the lifecycle as a sequence to complete rather than a conversation to
 have. The mechanics cannot catch it — a rushed plan and a considered one reach the seal by identical moves.
+
+Before any scoped agent dispatch or review acceptance, follow [Scoped native agents](scoped-agent-orchestration.md). Prepare an immutable assignment packet, use a fresh context for each new assignment, and permit recorded same-assignment clarification. Missing observed execution cannot earn independent review coverage.

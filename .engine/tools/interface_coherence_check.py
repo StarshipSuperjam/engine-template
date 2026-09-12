@@ -89,10 +89,10 @@ def present_impls(fixture_dir: str | None = None) -> dict:
     return {}
 
 
-def emit(findings: list) -> int:
-    """Write the finding.v1 array to stdout and return 0 — a successful evaluation, whatever it found."""
-    print(json.dumps(findings))
-    return 0
+emit = validate.emit
+USAGE = ("Usage: interface_coherence_check.py [-h|--help] [demo]\n\n"
+         "Checks declared interfaces, emitting a finding.v1 JSON array. "
+         "Environment: ENGINE_RULE_TIER, ENGINE_INTERFACE_FIXTURE_DIR.")
 
 
 def _demo() -> int:
@@ -143,7 +143,7 @@ def _demo() -> int:
     return 0
 
 
-def main(argv: list) -> int:
+def _main(argv: list) -> int:
     if argv and argv[0] == "demo":
         return _demo()
     tier = os.environ.get("ENGINE_RULE_TIER", "hard")
@@ -154,6 +154,10 @@ def main(argv: list) -> int:
     findings = validate.interface_resolution_findings(
         engine_interfaces(), present_impls(fixture_dir), present_handles(), tier, _MESSAGE)
     return emit(findings)
+
+
+def main(argv: list) -> int:
+    return validate.cli_main(argv, usage=USAGE, run=_main)
 
 
 if __name__ == "__main__":

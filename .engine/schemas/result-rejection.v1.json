@@ -1,0 +1,15 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "Bounded rejection of a model result",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema_version", "category", "rule", "path", "contract", "detail"],
+  "properties": {
+    "schema_version": {"const": "result-rejection.v1"},
+    "category": {"enum": ["syntax", "schema", "semantic", "stale-attempt", "authority"]},
+    "rule": {"type": "string", "minLength": 1, "maxLength": 128},
+    "path": {"type": "string", "maxLength": 256},
+    "contract": {"type": ["string", "null"], "maxLength": 128},
+    "detail": {"type": "string", "maxLength": 256}
+  }
+}

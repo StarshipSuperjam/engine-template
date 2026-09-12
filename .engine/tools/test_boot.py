@@ -1692,9 +1692,9 @@ class TestMcpAvailabilitySurfacing(unittest.TestCase):
             self.assertIn(needle, doc)
 
     def test_codex_pack_carries_session_economy_guidance_claude_does_not(self):
-        # StarshipSuperjam/engine-template#1187: Claude relies on its wired PreToolUse gate (session_economy.py); Codex has no
-        # tool-layer enforcement for the same two rules (not registered in .codex/hooks.json), so the guidance
-        # must ride the Codex envelope instead — and must NOT appear on Claude, which already has the mechanism.
+        # Codex guidance distinguishes its qualified explorer gate from unsupported surfaces;
+        # it must not claim either that no gate exists or that every economy rule is enforced.
+        # Claude retains its existing briefing without this provider-specific explanation.
         patchers = _offline()
         try:
             with mock.patch.object(boot.providers, "detect", return_value=boot.providers.CODEX):
@@ -1707,7 +1707,9 @@ class TestMcpAvailabilitySurfacing(unittest.TestCase):
         self.assertIn("Session economy", codex_pack)
         self.assertIn("cheap model", codex_pack)
         self.assertIn("self-scheduling wakeup", codex_pack)
-        self.assertIn("no mechanical gate here", codex_pack)
+        self.assertIn("PreToolUse gate refuses a strong or missing model", codex_pack)
+        self.assertIn("Unknown launch shapes remain unclassified and allowed", codex_pack)
+        self.assertIn("remain discipline-only", codex_pack)
         self.assertNotIn("Session economy", claude_pack)
 
     def test_provider_parity_envelope_identical_only_frame_handles_differ(self):
@@ -2360,6 +2362,8 @@ class TestGovernanceAlarms(unittest.TestCase):
         try:
             with mock.patch.object(boot, "protected_branch_signal", return_value=gate), \
                  mock.patch.object(boot, "open_findings", return_value=(count, register, low, rows)), \
+                 mock.patch.object(boot, "open_operator_count", return_value=(0, "")), \
+                 mock.patch.object(boot.license_health, "detect_foreign_license", return_value=None), \
                  mock.patch.object(boot.hooks, "HOOK_OUTPUT_CAP", 10**6), \
                  mock.patch.object(boot, "read_state",
                                    return_value=({"schema_version": 1, "standing_situation": {},
@@ -7389,15 +7393,16 @@ class TestHooksHealthLineTrustPaths(unittest.TestCase):
     screen — not just the CLI one (StarshipSuperjam/engine-template#805). The rule test in test_codex_trust_surfaces enforces the
     both-paths invariant across every surface; this pins the wording at the source boot owns."""
 
-    def test_line_names_both_the_cli_and_the_desktop_hooks_screen(self):
+    def test_line_names_cli_approval_without_inventing_a_desktop_screen(self):
         # Force the line: it is produced only when NO recent live-session marker is found.
         with mock.patch.object(boot.providers, "read_live_session", return_value=None):
             line = boot.hooks_health_line()
         self.assertIsNotNone(line, "with no live-session marker the health line must render")
         self.assertIn("/hooks", line, "the CLI approval path must be named")
         self.assertIn("Desktop", line, "the Desktop app must be named")
-        self.assertIn("Hooks screen under Settings", line,
-                      "the Desktop Hooks screen must be named so a Desktop operator can approve too")
+        self.assertNotIn("Hooks screen under Settings", line)
+        self.assertIn("do not assume Desktop", line)
+        self.assertIn("actual hook event", line)
 
     def test_line_is_silent_when_a_fresh_marker_exists(self):
         with mock.patch.object(boot.providers, "read_live_session", return_value={"ts": "now"}):
@@ -7453,6 +7458,25 @@ class TestPreviouslySubmittedAdvisoryReachesBothSurfaces(unittest.TestCase):
             {"submission": "ready", "pr_ref": "#1259", "plan_selector": self.SLUG}))
         self.assertIn(shared, self._boot_task_binding("ready"))
         self.assertIn(shared, self._reground("ready"))
+
+
+
+
+class TestIssueTriageEnvelope(unittest.TestCase):
+    def test_selected_obligation_is_in_typed_envelope_and_inert_render(self):
+        patchers = _offline()
+        try:
+            signals = _signals(issue_triage={'state':'available','pending_count':4,'selected_issue':1119})
+            envelope = boot._envelope_from_signals(signals, 'triage-envelope-test', use_ledger=False)
+        finally:
+            for patcher in patchers:
+                patcher.stop()
+        self.assertEqual(envelope['issue_triage']['selected_issue'], 1119)
+        rendered = boot.session_relay.render(envelope)
+        self.assertIn('Next candidate when triage is authorized: #1119', rendered)
+        self.assertIn('Continue the current operator request', rendered)
+        self.assertNotIn('turn-close check', rendered)
+        self.assertIn('Pending records remain outstanding until explicitly handled', rendered)
 
 
 if __name__ == "__main__":

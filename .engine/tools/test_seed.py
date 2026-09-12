@@ -16,6 +16,7 @@ import re
 import sys
 import tempfile
 import unittest
+from unittest import mock
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import selftest_support  # noqa: E402  (the suite's single-homed guard helpers, #940)
@@ -902,6 +903,94 @@ class TestWeakeningDerivedSet(unittest.TestCase):
             expected.append(".engine/tools/dependency_discipline/pinning.py")
         for p in expected:
             self.assertIn(p, derived, p)
+
+    def test_explicit_inventory_closes_dependencies_once_and_rejects_bad_declarations(self):
+        # The pure seam gives the inventory a small graph proof without reading
+        # the repository's live rules.  A shared dependency and a cycle are both
+        # visited once; an exclusion has a recorded reason but is not guarded.
+        with tempfile.TemporaryDirectory() as d:
+            tools = os.path.join(d, ".engine", "tools")
+            os.makedirs(tools)
+            for name in ("root.py", "other.py", "gate.py", "shared.py", "utility.py"):
+                with open(os.path.join(tools, name), "w", encoding="utf-8") as fh:
+                    fh.write("# fixture\n")
+            paths = {name: ".engine/tools/" + name for name in
+                     ("root.py", "other.py", "gate.py", "shared.py", "utility.py")}
+            inventory = {
+                paths["root.py"]: {"dependencies": (paths["gate.py"], paths["shared.py"]),
+                                   "exclusions": {paths["utility.py"]: "ordinary reporting helper"}},
+                paths["other.py"]: {"dependencies": (paths["shared.py"],), "exclusions": {}},
+                paths["gate.py"]: {"dependencies": (paths["shared.py"],), "exclusions": {}},
+                paths["shared.py"]: {"dependencies": (paths["gate.py"],), "exclusions": {}},
+            }
+            roots = {"root": paths["root.py"], "optional": paths["other.py"]}
+            got = weakening_guard._derive_enforcement_coverage(
+                {"root": paths["root.py"]}, tools, inventory, roots)
+            self.assertEqual(got, {paths["root.py"], paths["gate.py"], paths["shared.py"]})
+            self.assertNotIn(paths["utility.py"], got)
+            bad = {paths["root.py"]: {"dependencies": (".engine/tools/../escape.py",), "exclusions": {}}}
+            self.assertIsNone(weakening_guard._derive_enforcement_coverage(
+                {"root": paths["root.py"]}, tools, bad, roots))
+
+    def test_enforcement_inventory_fails_closed_on_missing_conflicting_or_unsafe_inputs(self):
+        with tempfile.TemporaryDirectory() as d:
+            tools = os.path.join(d, ".engine", "tools")
+            os.makedirs(tools)
+            root, gate = ".engine/tools/root.py", ".engine/tools/gate.py"
+            for name in ("root.py", "gate.py"):
+                with open(os.path.join(tools, name), "w", encoding="utf-8") as fh:
+                    fh.write("# gate fixture\n")
+            inventory = {root: {"dependencies": [gate], "exclusions": {}},
+                         gate: {"dependencies": [], "exclusions": {}}}
+            roots = {"fixture": root}
+            def coverage(inv, active=None, expected=None):
+                return weakening_guard._derive_enforcement_coverage(
+                    roots if active is None else active, tools, inv,
+                    roots if expected is None else expected)
+            self.assertEqual(coverage(inventory), {root, gate})
+            cases = []
+            missing = json.loads(json.dumps(inventory)); del missing[gate]; cases.append(missing)
+            for bad in (".engine/tools/./gate.py", ".engine/tools/../gate.py", "/tmp/gate.py",
+                        ".engine/tools//gate.py", ".engine/tools/gate.sh", ".engine/tools/..\\gate.py"):
+                changed = json.loads(json.dumps(inventory))
+                changed[root]["dependencies"] = [bad]; cases.append(changed)
+            duplicate = json.loads(json.dumps(inventory)); duplicate[root]["dependencies"] *= 2
+            cases.append(duplicate)
+            conflict = json.loads(json.dumps(inventory)); conflict[root]["exclusions"][gate] = "conflict"
+            cases.append(conflict)
+            blank = json.loads(json.dumps(inventory)); blank[root]["exclusions"][".engine/tools/x.py"] = " "
+            cases.append(blank)
+            for bad in cases:
+                with self.subTest(inventory=bad):
+                    self.assertIsNone(coverage(bad))
+            self.assertIsNone(coverage(inventory, active={"unknown": root}))
+            self.assertIsNone(coverage(inventory, active={"fixture": gate}))
+            os.unlink(os.path.join(tools, "gate.py"))
+            self.assertIsNone(coverage(inventory))
+            # Dormant roots still have valid declarations, but need no installed files.
+            self.assertEqual(coverage(inventory, active={}), set())
+            outside = os.path.join(d, "outside.py")
+            with open(outside, "w", encoding="utf-8") as fh:
+                fh.write("# outside the trusted tool tree\n")
+            os.symlink(outside, os.path.join(tools, "gate.py"))
+            self.assertIsNone(coverage(inventory))
+
+    def test_hard_rule_with_missing_script_never_disappears_from_discovery(self):
+        with tempfile.TemporaryDirectory() as d:
+            for script in (None, "", 7):
+                _write_check_json(os.path.join(d, "broken.json"),
+                                  {"id": "engine/check/broken", "kind": "custom/script", "tier": "hard",
+                                   "params": {"script": script}})
+                self.assertIsNone(weakening_guard._derive_check_scripts(d))
+
+    def test_live_enforcement_libraries_and_ordinary_utilities_are_distinct(self):
+        derived = weakening_guard._derive_check_scripts()
+        self.assertIsNotNone(derived)
+        for path in ("audit_digest.py", "module_catalog.py", "build_protocol.py", "local_references.py"):
+            self.assertIn(".engine/tools/" + path, derived)
+        for path in ("boot.py", "engine_status.py", "memory/compact.py"):
+            self.assertNotIn(".engine/tools/" + path, derived)
+
 
 
 class TestEnforcementHookGuardCoverage(unittest.TestCase):
@@ -2198,7 +2287,8 @@ class TestWeakeningReHome(unittest.TestCase):
     _AUTO = object()  # sentinel: derive expected from len(files) unless overridden
 
     def _main_json(self, event, files, expected=_AUTO, base_home=None, base_tier=None,
-                   base_product_build_target=None, head_ack=False, head_sha="headsha0"):
+                   base_product_build_target=None, head_ack=False, head_sha="headsha0",
+                   base_check_dir=None):
         """Drive main() with the network seams stubbed: the complete changed-file list, the authoritative
         changed_files count, the BASE manifest's recorded home (`base_home`, default None = no home
         recorded, so a home in the diff reads as a first recording), the BASE manifest's recorded identity
@@ -2225,6 +2315,7 @@ class TestWeakeningReHome(unittest.TestCase):
         orig_tier = weakening_guard._read_base_tier
         orig_target = weakening_guard._read_base_product_build_target
         orig_ack = weakening_guard._head_ack_success
+        orig_check_dir = weakening_guard._BASE_CHECK_DIR
         buf = io.StringIO()
         with tempfile.TemporaryDirectory() as d:
             ep = os.path.join(d, "event.json")
@@ -2237,6 +2328,8 @@ class TestWeakeningReHome(unittest.TestCase):
             weakening_guard._read_base_home = lambda: base_home
             weakening_guard._read_base_tier = lambda: base_tier
             weakening_guard._read_base_product_build_target = lambda: base_product_build_target
+            if base_check_dir is not None:
+                weakening_guard._BASE_CHECK_DIR = base_check_dir
             self._ack_calls = 0  # a clean/soft-only PR must never reach the head-ack read
             _outer = self
             if head_ack == "error":
@@ -2260,6 +2353,7 @@ class TestWeakeningReHome(unittest.TestCase):
                 weakening_guard._read_base_tier = orig_tier
                 weakening_guard._read_base_product_build_target = orig_target
                 weakening_guard._head_ack_success = orig_ack
+                weakening_guard._BASE_CHECK_DIR = orig_check_dir
         return rc, json.loads(buf.getvalue())
 
     def test_no_weakening_is_empty_and_exit_zero(self):
@@ -2281,6 +2375,98 @@ class TestWeakeningReHome(unittest.TestCase):
         self.assertIn("GUARDRAIL DISCLOSURE", out[0]["message"])
         self.assertIn("validate.py", out[0]["message"])
         self.assertIn("does not block", out[0]["message"])
+
+    def test_real_audit_digest_modification_is_disclosed_without_ack_lookup(self):
+        # audit_digest is a declared enforcement library of an active hard rule.  A normal edit is
+        # review-visible but keeps the established soft tier; it must not consult acknowledgement state.
+        rc, out = self._main_json(
+            {"pull_request": {"number": 1, "labels": []}},
+            [{"filename": ".engine/tools/audit_digest.py", "status": "modified"}], head_ack="error")
+        self.assertEqual(rc, 0)
+        self.assertEqual(len(out), 1)
+        self.assertEqual(out[0]["severity"], "soft")
+        self.assertIn("GUARDRAIL DISCLOSURE", out[0]["message"])
+        self.assertIn("audit_digest.py", out[0]["message"])
+        self.assertEqual(self._ack_calls, 0)
+
+    def test_real_audit_digest_removal_and_both_rename_directions_are_hard(self):
+        # A guarded library cannot be deleted or moved away from its old identity without the existing
+        # hard acknowledgement, whether it is the rename's old or new side.
+        cases = [
+            [{"filename": ".engine/tools/audit_digest.py", "status": "removed"}],
+            [{"filename": ".engine/tools/audit_digest.py", "previous_filename": ".engine/tools/x.py",
+              "status": "renamed"}],
+            [{"filename": ".engine/tools/x.py", "previous_filename": ".engine/tools/audit_digest.py",
+              "status": "renamed"}],
+        ]
+        for files in cases:
+            with self.subTest(files=files):
+                _rc, out = self._main_json({"pull_request": {"number": 1, "labels": []}}, files)
+                self.assertEqual(len(out), 1)
+                self.assertEqual(out[0]["severity"], "hard")
+                self.assertIn("guardrail-ack", out[0]["message"])
+
+    def test_base_rule_removal_cannot_hide_audit_library_and_env_cannot_repoint_base(self):
+        # The PR's deleted declaration is diff data only.  The default trusted base remains authoritative,
+        # and an environment value never participates in selecting it.
+        saved = os.environ.get("ENGINE_ENFORCEMENT_FILES_ROOT")
+        os.environ["ENGINE_ENFORCEMENT_FILES_ROOT"] = tempfile.gettempdir()
+        try:
+            _rc, out = self._main_json(
+                {"pull_request": {"number": 1, "labels": []}},
+                [{"filename": ".engine/check/audit-digest-fingerprint.json", "status": "removed"},
+                 {"filename": ".engine/tools/audit_digest.py", "status": "modified"}])
+        finally:
+            if saved is None:
+                os.environ.pop("ENGINE_ENFORCEMENT_FILES_ROOT", None)
+            else:
+                os.environ["ENGINE_ENFORCEMENT_FILES_ROOT"] = saved
+        self.assertTrue(any(f["severity"] == "hard" for f in out), out)
+        self.assertTrue(any("audit_digest.py" in f["message"] for f in out), out)
+
+    def test_trusted_base_miniature_keeps_a_deleted_rule_and_hostile_library_as_data(self):
+        # This is deliberately a separate base checkout seam: the PR's removed registry/rule is
+        # represented only as changed-file metadata.  Its old declaration and library body are read as
+        # data from the trusted base; neither can be selected by environment or executed by discovery.
+        with tempfile.TemporaryDirectory() as root:
+            check_dir = os.path.join(root, ".engine", "check")
+            tools_dir = os.path.join(root, ".engine", "tools")
+            os.makedirs(check_dir)
+            os.makedirs(tools_dir)
+            marker = os.path.join(root, "executed")
+            with open(os.path.join(check_dir, "audit.json"), "w", encoding="utf-8") as fh:
+                json.dump({"id": "engine/check/audit", "kind": "custom/script", "tier": "hard",
+                           "params": {"script": ".engine/tools/root.py"}}, fh)
+            with open(os.path.join(tools_dir, "root.py"), "w", encoding="utf-8") as fh:
+                fh.write("import audit_digest\n")
+            with open(os.path.join(tools_dir, "audit_digest.py"), "w", encoding="utf-8") as fh:
+                fh.write(f"open({marker!r}, 'w').write('executed')\n")
+            # The literal declarations are patched only for this miniature trusted base.  Real
+            # declaration-closure derivation follows root.py's declared dependency into audit_digest.py;
+            # it reads declaration data and never executes the library.
+            with mock.patch.object(weakening_guard, "_HARD_SCRIPT_ROOTS",
+                                   {"engine/check/audit": ".engine/tools/root.py"}), \
+                 mock.patch.object(weakening_guard, "ENFORCEMENT_SOURCE_INVENTORY", {
+                     ".engine/tools/root.py": {"dependencies": (".engine/tools/audit_digest.py",),
+                                                "exclusions": {}},
+                     ".engine/tools/audit_digest.py": {"dependencies": (), "exclusions": {}},
+                 }), \
+                 mock.patch.object(weakening_guard, "ENFORCEMENT_DYNAMIC_LOADERS", {}), \
+                 mock.patch.object(weakening_guard, "_BASE_CHECK_DIR", check_dir):
+                self.assertTrue(weakening_guard.is_guardrail(
+                    ".engine/tools/audit_digest.py",
+                    instance_guards=(frozenset(), ())),
+                                "the default base-check-dir derivation must retain the trusted declaration")
+                self.assertFalse(os.path.exists(marker), "guard derivation must never execute the base library")
+                _rc, out = self._main_json(
+                    {"pull_request": {"number": 1, "labels": []}},
+                     [{"filename": ".engine/check/audit.json", "status": "removed"},
+                     {"filename": ".engine/tools/weakening_guard.py", "status": "modified",
+                      "patch": '@@\n-    "engine/check/audit": ".engine/tools/root.py",\n'},
+                     {"filename": ".engine/tools/audit_digest.py", "status": "modified"}],
+                    base_check_dir=check_dir)
+        self.assertTrue(any(f["severity"] == "soft" and "audit_digest.py" in f["message"] for f in out), out)
+        self.assertTrue(any(f["severity"] == "hard" for f in out), out)
 
     def test_unacked_hard_floor_edit_is_one_hard_with_ack_guidance(self):
         # a hard-floor member (the suite declarations — a global killswitch) still blocks pending the ack.
@@ -3213,12 +3399,69 @@ class TestHeadAckRead(unittest.TestCase):
             weakening_guard._latest_engine_ack_state("o/r", "HEAD", "t")
 
     def test_retry_polls_when_asked_then_gives_up(self):
-        orig_sleep = weakening_guard.time.sleep
-        weakening_guard.time.sleep = lambda *_: None  # don't actually wait
-        self.addCleanup(lambda: setattr(weakening_guard.time, "sleep", orig_sleep))
         calls = self._fake_pages({self._P1: ([], None)})  # persistently absent
-        self.assertFalse(weakening_guard._head_ack_success("o/r", "HEAD", "t", retry=True))
-        self.assertEqual(len(calls), weakening_guard._ACK_POLL_TRIES)  # polled the full budget
+        with mock.patch.object(weakening_guard.time, "sleep") as sleep:
+            self.assertFalse(weakening_guard._head_ack_success("o/r", "HEAD", "t", retry=True))
+        self.assertEqual(len(calls), 3)
+        self.assertEqual(sleep.call_args_list, [mock.call(30), mock.call(30)])
+
+    def test_delayed_success_on_each_poll_and_after_the_window(self):
+        for arrival, expected, reads in ((0, True, [0]), (20, True, [0, 30]),
+                                          (38, True, [0, 30, 60]), (61, False, [0, 30, 60])):
+            with self.subTest(arrival=arrival):
+                clock, observed = [0], []
+
+                def sleep(seconds):
+                    clock[0] += seconds
+
+                def page(url, token, **kwargs):
+                    self.assertEqual(url, self._P1)  # never poll a different commit or the rollup
+                    observed.append(clock[0])
+                    status = [{"context": "engine-ack", "state": "success", "creator": self._BOT}]
+                    return (status if clock[0] >= arrival else []), None
+
+                with mock.patch.object(weakening_guard, "get_page", side_effect=page), \
+                        mock.patch.object(weakening_guard.time, "sleep", side_effect=sleep):
+                    self.assertEqual(weakening_guard._head_ack_success("o/r", "HEAD", "t", retry=True), expected)
+                self.assertEqual(observed, reads)
+
+    def test_explicit_states_and_read_errors_do_not_wait(self):
+        for state in ("success", "failure", "pending", "error"):
+            with self.subTest(state=state):
+                statuses = [{"context": "engine-ack", "state": state, "creator": self._BOT},
+                            {"context": "engine-ack", "state": "success", "creator": self._BOT}]
+                with mock.patch.object(weakening_guard, "get_page", return_value=(statuses, None)) as page, \
+                        mock.patch.object(weakening_guard.time, "sleep") as sleep:
+                    self.assertEqual(weakening_guard._resolve_ack("o/r", "HEAD", "t", True),
+                                     "fresh" if state == "success" else "stale")
+                self.assertEqual(page.call_count, 1)
+                sleep.assert_not_called()
+        with mock.patch.object(weakening_guard, "get_page", side_effect=OSError("unavailable")), \
+                mock.patch.object(weakening_guard.time, "sleep") as sleep:
+            self.assertEqual(weakening_guard._resolve_ack("o/r", "HEAD", "t", True), "error")
+        sleep.assert_not_called()
+
+    def test_untrusted_or_other_head_success_never_clears_polling(self):
+        for untrusted in (False, True):
+            with self.subTest(untrusted=untrusted):
+                def page(url, token, **kwargs):
+                    self.assertEqual(url, self._P1)
+                    statuses = [{"context": "engine-ack", "state": "success",
+                                 "creator": {"login": "untrusted"}}] if untrusted else []
+                    return statuses, None
+                with mock.patch.object(weakening_guard, "get_page", side_effect=page) as reader, \
+                        mock.patch.object(weakening_guard.time, "sleep") as sleep:
+                    self.assertFalse(weakening_guard._head_ack_success("o/r", "HEAD", "t", retry=True))
+                self.assertEqual(reader.call_count, 3)
+                self.assertEqual(sleep.call_count, 2)
+
+    def test_no_label_or_missing_head_never_waits(self):
+        with mock.patch.object(weakening_guard, "get_page", return_value=([], None)) as reader, \
+                mock.patch.object(weakening_guard.time, "sleep") as sleep:
+            self.assertEqual(weakening_guard._resolve_ack("o/r", "HEAD", "t", False), "absent")
+            self.assertEqual(weakening_guard._resolve_ack("o/r", "", "t", True), "nohead")
+        self.assertEqual(reader.call_count, 1)
+        sleep.assert_not_called()
 
 
 class TestAckTrustedCreatorInvariant(unittest.TestCase):
@@ -3334,8 +3577,30 @@ class TestMetadataSuiteClassification(unittest.TestCase):
     unchanged. Get this roster wrong in the shrinking direction and a pull request whose body was edited to
     strip a required section goes green on a proof that never saw the edit."""
 
-    def _classification(self):
+    # Exact omissions, never inferred from missing rules: a newly classified optional check must
+    # fail the declined projection until its owner is deliberately declared here (#1054).
+    _OPTIONAL_CHECK_OWNERS = {
+        "engine/check/dependency-pinning": "dependency-discipline",
+        "engine/check/dependency-review": "dependency-discipline",
+        "engine/check/migration-rollback": "migration-discipline",
+        "engine/check/product-adr-form": "product-design",
+        "engine/check/product-design-form": "product-design",
+        "engine/check/product-lock-integrity": "product-design",
+        "engine/check/product-spec-coverage": "product-design",
+        "engine/check/product-spec-form": "product-design",
+        "engine/check/product-spec-matrix": "product-design",
+    }
+
+    def _raw_classification(self):
         return validate.load_json(CLASSIFICATION_PATH)["classification"]
+
+    def _classification(self):
+        installed = selftest_support.installed_module_ids()
+        present = {rule["id"] for rule in validate.load_rules()}
+        return {rid: kind for rid, kind in self._raw_classification().items()
+                if not (rid in self._OPTIONAL_CHECK_OWNERS
+                        and self._OPTIONAL_CHECK_OWNERS[rid] not in installed
+                        and rid not in present)}
 
     def _ci_rules(self):
         return {r["id"]: r for r in validate.load_rules() if "CI" in r.get("suites", [])}
@@ -3347,7 +3612,24 @@ class TestMetadataSuiteClassification(unittest.TestCase):
         self.assertEqual(sorted(self._classification()), sorted(self._ci_rules()))
 
     def test_classification_values_are_closed(self):
-        self.assertLessEqual(set(self._classification().values()), {"metadata", "code"})
+        # Check the whole authored inventory, including declarations omitted in this deployment.
+        self.assertLessEqual(set(self._raw_classification().values()), {"metadata", "code"})
+
+    def test_optional_omissions_match_their_declared_owners(self):
+        installed = selftest_support.installed_module_ids()
+        raw = self._raw_classification()
+        for rid, owner in self._OPTIONAL_CHECK_OWNERS.items():
+            with self.subTest(rule=rid, owner=owner):
+                self.assertIn(rid, raw, "an omission declaration outlived its classification")
+                if selftest_support.CONSTRUCTION:
+                    self.assertIn(owner, installed, "unknown omission owner in the home inventory")
+                if owner not in installed:
+                    continue
+                manifest = validate.load_json(os.path.join(
+                    validate.ENGINE_DIR, "modules", owner, "manifest.json"))
+                self.assertIn(manifest["status"], {"optional", "default-on"})
+                self.assertIn("." + rid + ".json", manifest.get("provides", {}).get("check", []),
+                              "the declared optional module does not own this check")
 
     def test_metadata_rules_join_the_metadata_suite_and_keep_ci(self):
         # Keeping CI is load-bearing: the generated assurance catalogue filters on the literal "CI", so
@@ -3425,6 +3707,81 @@ class TestMetadataSuiteClassification(unittest.TestCase):
         for rule in validate.load_rules():
             if "CI-metadata" in rule.get("suites", []):
                 self.assertIn("CI", rule.get("suites", []))
+
+
+class TestClassificationOmissionControls(unittest.TestCase):
+    """Run the real classification assertions on deliberately broken inventories, in every shape."""
+
+    @contextlib.contextmanager
+    def _fixture(self, raw, rules=(), installed=(), owners=None, manifest=None):
+        case = TestMetadataSuiteClassification()
+        if owners is not None:
+            case._OPTIONAL_CHECK_OWNERS = owners
+        with mock.patch.object(case, "_raw_classification", return_value=raw), \
+                mock.patch.object(validate, "load_rules", return_value=list(rules)), \
+                mock.patch.object(selftest_support, "installed_module_ids", return_value=set(installed)), \
+                mock.patch.object(selftest_support, "CONSTRUCTION", False), \
+                mock.patch.object(validate, "load_json", return_value=manifest):
+            yield case
+
+    def test_declared_absence_passes_only_when_owner_is_absent(self):
+        rid = "engine/check/dependency-review"
+        with self._fixture({rid: "metadata"}) as case:
+            case.test_every_ci_rule_is_classified_exactly_once()
+            case.test_metadata_rules_join_the_metadata_suite_and_keep_ci()
+        with self._fixture({rid: "metadata"}, installed={"dependency-discipline"}) as case:
+            with self.assertRaises(AssertionError):
+                case.test_every_ci_rule_is_classified_exactly_once()
+
+    def test_unknown_and_required_missing_rules_still_fail(self):
+        for rid in ("engine/check/not-a-rule", "engine/check/protection"):
+            with self.subTest(rule=rid), self._fixture({rid: "code"}) as case:
+                with self.assertRaises(AssertionError):
+                    case.test_every_ci_rule_is_classified_exactly_once()
+
+    def test_new_optional_check_requires_an_explicit_omission_declaration(self):
+        rid = "engine/check/new-optional-rule"
+        with self._fixture({rid: "code"}) as case:
+            with self.assertRaises(AssertionError):
+                case.test_every_ci_rule_is_classified_exactly_once()
+        with self._fixture({rid: "code"}, owners={rid: "synthetic-optional"}) as case:
+            case.test_every_ci_rule_is_classified_exactly_once()
+
+    def test_a_present_rule_is_not_excused_even_when_its_owner_is_absent(self):
+        rid = "engine/check/dependency-review"
+        # A present rule that lost CI membership must not become a legitimate omission.
+        with self._fixture({rid: "metadata"}, [{"id": rid, "suites": []}]) as case:
+            with self.assertRaises(AssertionError):
+                case.test_every_ci_rule_is_classified_exactly_once()
+        with self._fixture({rid: "metadata"}, [{"id": rid, "suites": ["CI"]}]) as case:
+            with self.assertRaises(AssertionError):
+                case.test_metadata_rules_join_the_metadata_suite_and_keep_ci()
+
+    def test_a_new_present_rule_requires_classification(self):
+        with self._fixture({}, [{"id": "new", "suites": ["CI"]}]) as case:
+            with self.assertRaises(AssertionError):
+                case.test_every_ci_rule_is_classified_exactly_once()
+
+    def test_invalid_value_in_an_omitted_classification_still_fails(self):
+        with self._fixture({"engine/check/dependency-review": "typo"}) as case:
+            with self.assertRaises(AssertionError):
+                case.test_classification_values_are_closed()
+
+    def test_wrong_required_or_obsolete_owner_declarations_fail(self):
+        rid = "engine/check/dependency-review"
+        for raw, status, provided in (({rid: "metadata"}, "optional", []),
+                                     ({rid: "metadata"}, "required", ["." + rid + ".json"]),
+                                     ({}, "optional", ["." + rid + ".json"])):
+            with self.subTest(raw=raw, status=status, provided=provided), self._fixture(
+                    raw, installed={"declared"}, owners={rid: "declared"},
+                    manifest={"status": status, "provides": {"check": provided}}) as case:
+                # subTest stores failures on a running TestCase, so use its real runner and verdict.
+                case._testMethodName = "test_optional_omissions_match_their_declared_owners"
+                result = unittest.TestResult()
+                case.run(result)
+                self.assertFalse(result.wasSuccessful())
+                self.assertTrue(result.failures)
+                self.assertFalse(result.errors)
 
 
 class TestReuseGateIsGuarded(unittest.TestCase):

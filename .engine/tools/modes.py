@@ -369,7 +369,8 @@ def describe_explore_scope() -> str:
         "How your Explore stance works (for you — don't relay this; it's your own session's wiring, "
         "not a status update for the operator). WITHOUT entering Build you may: read files; run tests "
         "and other read-only commands; search the codebase; spawn subagents; write Claude Code's plan "
-        "file; log GitHub issues (`gh issue create`); and keep memory in its right places. You may "
+        "file; log GitHub issues through the helper for trusted targets (`gh issue create` remains "
+        "available for external unlabelled issues); and keep memory in its right places. You may "
         "NOT, until the operator tells you to build: edit or write any files beyond those, create a "
         "branch, commit, or open a pull request — so don't switch to Build just to log an issue or "
         "note something to memory. Your harness's auto-memory notebook "
@@ -381,11 +382,10 @@ def describe_explore_scope() -> str:
         "`.engine/memory/` by hand (Write/Edit, or a shell redirect `>`/`>>`/`tee`) — its CLI is the "
         "only safe door. The block is by tool, not by file: the file-editing tools (anywhere but that "
         "notebook) plus the branch/commit/pull-request verbs are denied; any other command-line tool "
-        "still runs. One carve-out: an Issue about the engine's own health takes `--label engine` at "
-        "creation (the literal string, never `engine-domain`), and its body is authored through the "
-        "issue helper (`.engine/tools/issue_author.py` — render_engine_issue_body); a non-conforming "
-        "`engine`-labelled `gh issue create` is rerouted back to that helper. Any other Issue needs no "
-        "label from you — the engine derives the native `Kind:`-prefix label. (The gate is a strong "
+        "still runs subject to issue routing. The issue helper applies the `engine` label and authors "
+        "the body for Engine scope (`.engine/tools/issue_author.py` — preview/create). Recognized trusted-repository "
+        "creates reroute there regardless of label, with explicit Engine/product scope. Engine creates "
+        "require recovery activation; product requests retain ordinary fields. (The gate is a strong "
         "default, not a wall; nothing reaches main without the operator's own merge — which you never "
         "perform yourself, in any stance.)"
     )
@@ -891,20 +891,21 @@ def handler(payload: dict) -> dict:
     # The engine-Issue reroute — fires in Explore AND Build (the channel rule is unconditional), so it is
     # checked before the stance short-circuit. issue_gate holds the matcher; here we wrap its reason. It now
     # reroutes EVERY direct engine-labelled creation (Bash/API/connector) to the helper's create CLI.
-    reroute = issue_gate.reroute_reason(tool_name, tool_input)
+    cwd = payload.get("cwd") if isinstance(payload, dict) else None
+    reroute = issue_gate.reroute_reason(tool_name, tool_input, cwd=cwd)
     if reroute is not None:
         return hooks.decide("deny", reroute)
+    limitation = issue_gate.classification_limitation(tool_name, tool_input, cwd=cwd)
     # The protected-merge nudge — also STANCE-INDEPENDENT (the session never merges the protected branch in
     # any stance; that is the operator's consent act), so likewise checked before the stance short-circuit.
     if is_merge_action(tool_name, tool_input):
         return hooks.decide("deny", _MERGE_DENIAL)
     session_id = payload.get("session_id") if isinstance(payload, dict) else None
     if current_stance(session_id) != EXPLORE:
-        return hooks.proceed()                       # Build / Routine permit the write
+        return hooks.inject(limitation) if limitation else hooks.proceed()
     permission_mode = payload.get("permission_mode") if isinstance(payload, dict) else None
     import providers  # lazy: keep modes importable stand-alone in tests that stub the seam
     provider = providers.detect(payload)
-    cwd = payload.get("cwd") if isinstance(payload, dict) else None
     if is_building_action(tool_name, tool_input) \
             and not is_plan_artifact(tool_name, tool_input, permission_mode, cwd, provider) \
             and not is_harness_memory_write(tool_name, tool_input, cwd, provider):
@@ -917,8 +918,10 @@ def handler(payload: dict) -> dict:
             reason = _plan_mode_denial(cwd)
         else:
             reason = _DENIAL
+        if limitation:
+            reason += "\n\n" + limitation
         return hooks.decide("deny", reason)
-    return hooks.proceed()      # reads, tests, greps, an unlabelled/conforming gh issue, subagents, the plan file
+    return hooks.inject(limitation) if limitation else hooks.proceed()
 
 
 # ---- the native-plan intake adapters ------------------------------------------
@@ -1328,10 +1331,10 @@ def _demo(_argv: list) -> int:
 
     print("The Explore write-gate — what it decides for each action (this runs the real gate, not a "
           "mock-up):\n")
-    print(f"In EXPLORE (stance={current_stance(sid)}): building actions denied, everything else allowed:")
+    print(f"In EXPLORE (stance={current_stance(sid)}): building and direct in-scope issue creates denied; other actions shown below:")
     for label, tool, cmd in [("edit a file", "Edit", ""), ("write a file", "Write", ""),
                              ("commit", "Bash", "git commit -m wip"), ("open a PR", "Bash", "gh pr create"),
-                             ("run a test", "Bash", "pytest -q"), ("log an issue", "Bash", "gh issue create -t x"),
+                             ("run a test", "Bash", "pytest -q"), ("direct trusted issue creation", "Bash", "gh issue create -t x"),
                              ("read a file", "Read", "")]:
         print(f"  {label:42} {tool:5} -> {_decision_line(gate(tool, cmd))}")
 

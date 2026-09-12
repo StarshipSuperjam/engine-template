@@ -13,6 +13,9 @@
     ],
     "codex-agent": [
       ".codex/agents/engine-audit.toml"
+    ],
+    "workflow": [
+      ".github/workflows/audit-prep.yml"
     ]
   },
   "wires": [],

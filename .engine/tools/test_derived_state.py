@@ -343,12 +343,20 @@ class TestNonEngineOutputResolution(unittest.TestCase):
 class TestRegenerate(unittest.TestCase):
     def test_a_generator_failure_is_surfaced_per_member_never_swallowed(self):
         graph = ".engine/knowledge/graph.json"
+        assurance = os.path.join(ds.validate.ROOT, ".engine/docs/ci-assurance.md")
+        with open(assurance, "rb") as handle:
+            before = handle.read()
+        successful = []
 
         def boom(root, primary_target):
             raise RuntimeError("generator exploded")
 
         def fake_resolve(member):
-            return boom if member.path == graph else _real_resolve(member)
+            if member.path == graph:
+                return boom
+            def noop(root, primary_target):
+                successful.append(member.path)
+            return noop
 
         with mock.patch.object(ds, "_resolve_generate", side_effect=fake_resolve):
             results = {r.path: r for r in ds.regenerate()}
@@ -356,6 +364,9 @@ class TestRegenerate(unittest.TestCase):
         self.assertEqual(results[graph].status, "failed")
         self.assertIsNotNone(results[graph].error)
         self.assertIn("generator exploded", results[graph].error)
+        self.assertIn(".engine/self-map.md", successful)
+        with open(assurance, "rb") as handle:
+            self.assertEqual(handle.read(), before, "a failed-generator fixture must not dirty live sources")
         self.assertIn(results[".engine/self-map.md"].status, ("regenerated", "unchanged"))
 
     def test_a_raise_resolving_a_dynamic_members_outputs_is_per_member_failed_not_a_crash(self):
@@ -435,6 +446,9 @@ class TestRegenerate(unittest.TestCase):
             with open(primary_target, "a") as fh:
                 fh.write("\n<!-- drift -->\n")
 
+        target = os.path.join(ds.validate.ROOT, self_map)
+        with open(target, "rb") as handle:
+            original = handle.read()
         try:
             with mock.patch.object(ds, "_resolve_generate",
                                    side_effect=lambda m: mutate if m.path == self_map else _real_resolve(m)):
@@ -442,9 +456,9 @@ class TestRegenerate(unittest.TestCase):
             self.assertEqual(r.status, "regenerated")
             self.assertTrue(r.changed)
         finally:
-            # restore the file the mutate test dirtied (E7 regenerates for real; keep the tree clean here)
-            import self_map as sm
-            sm.generate(path=os.path.join(ds.validate.ROOT, self_map))
+            # Restore the exact input, including legitimately stale bytes in a projection fixture.
+            with open(target, "wb") as handle:
+                handle.write(original)
 
     def test_absent_targets_are_skipped_not_fabricated(self):
         # On a minimal tree nothing is fabricated: the file/tree members whose outputs are absent skip,

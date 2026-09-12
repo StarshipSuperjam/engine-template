@@ -118,10 +118,10 @@ def vocabulary_findings(expected: set, sites: list, tier: str, message: str = _M
     return findings
 
 
-def emit(findings: list) -> int:
-    """Write the finding.v1 array to stdout and return 0 — a successful evaluation, whatever it found."""
-    print(json.dumps(findings))
-    return 0
+emit = validate.emit
+USAGE = ("Usage: knowledge_vocabulary_check.py [-h|--help] [demo]\n\n"
+         "Checks knowledge vocabulary declarations and emits a finding.v1 JSON array. "
+         "Environment: ENGINE_RULE_TIER, ENGINE_CATALOG_PATH.")
 
 
 def _demo() -> int:
@@ -159,7 +159,7 @@ def _demo() -> int:
     return 0
 
 
-def main(argv: list) -> int:
+def _main(argv: list) -> int:
     if argv and argv[0] == "demo":
         return _demo()
     tier = os.environ.get("ENGINE_RULE_TIER", "hard")
@@ -168,6 +168,10 @@ def main(argv: list) -> int:
     # gate is witnessed biting a real bad input (StarshipSuperjam/engine-template#286). The vocabulary sites still read the real files.
     catalog = validate.load_json(validate.env_override_path("ENGINE_CATALOG_PATH") or validate.CATALOG_PATH)
     return emit(vocabulary_findings(expected_vocabulary(catalog), collect_sites(), tier))
+
+
+def main(argv: list) -> int:
+    return validate.cli_main(argv, usage=USAGE, run=_main)
 
 
 if __name__ == "__main__":

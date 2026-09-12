@@ -208,6 +208,39 @@ def render_plan(document: dict, record: dict) -> str:
     add(f"- **Last revised**: {document['revised_at']}")
     add(f"- **Plan digest**: `{record['current']['plan_digest']}`")
     add(f"- **Build payload digest**: `{record['current']['build_plan_digest']}`")
+    if (record.get("approval") or {}).get("review_contract") or record.get("review_contract_adoptions"):
+        import reviewer_contracts
+        contract = reviewer_contracts.effective(record)
+        disclosure = reviewer_contracts.historical_disclosure(record)
+        if disclosure:
+            add("- **Historical review adoption**: " + disclosure)
+        add(f"- **Effective review contract**: `{contract['digest']}`")
+        for role, panel in contract["panels"].items():
+            label = "Plan review" if role == "plan-review" else "Build review"
+            add(f"- **{label} required**: " + (", ".join(p["lens"] for p in panel) or "none"))
+            for persona in panel:
+                add(f"- **Retained reviewer source**: {role}/{persona['lens']} — `{persona['source']['digest']}`")
+        add('- **Current source comparison**: `show` reports editorial changes against these retained identities; the approved packet remains unchanged.')
+        add("- **Reviewer effort**: harness-controlled; no promised floor")
+        for decision in record.get("review_contract_renewals", []):
+            add(f"- **Contract renewal**: {decision['action']} at {decision['at']} — {decision['reason']}")
+            for choice in decision.get('lens_actions', []):
+                add(f"- **Lens decision**: {choice['role']}/{choice['lens']} — {choice['action']}")
+    elif record.get("approval"):
+        add("- **Review contract**: historical approval; no approval-time envelope was recorded")
+    for supplement in record.get("supplemental_reviews", []):
+        add(f"- **Supplemental review**: renewal `{supplement['renewal_digest']}`")
+        for finding in supplement["review"].get("findings", []):
+            add(f"  - {finding['id']} ({finding['severity']}): {finding['summary']} — "
+                + finding.get("disposition", "undispositioned") + ": " + finding.get("rationale", ""))
+    claim = (record.get('build_lease') or {}).get('current')
+    if claim:
+        add(f"- **Build ownership**: `{claim['build_id']}` · generation {claim['generation']} "
+            f"· {claim['state']} · {claim['repository']}#{claim['pull_request']}")
+        if claim['state'] != 'active':
+            verb = 'successor adoption' if claim.get('transfer') else 'transaction'
+            add(f'- **Recovery**: retry the original {verb} with the same identity, revision and inputs. '
+                'Use `state where` for its recovery address. A fresh bind cannot replace it.')
     if imported:
         add("- **Build payload**: none yet — imported verbatim and not decomposed")
     else:

@@ -60,17 +60,17 @@ def _fold_in_the_review_fix(document: dict) -> dict:
 
 
 REVIEW_FINDINGS = [
-    {"id": "ARCH-B1", "lens": "architecture", "severity": "blocking",
+    {"id": "ARCH-B1", "lens": "architecture", "severity": "blocking", "location": None,
      "summary": "The plan cites the former one-copy rule as precedent for a gitignored plan library, but that rule "
                 "states no store may make a gitignored derivative the only copy — it forbids the design "
                 "rather than authorizing it."},
-    {"id": "RISK-B1", "lens": "risk-governance", "severity": "blocking",
+    {"id": "RISK-B1", "lens": "risk-governance", "severity": "blocking", "location": None,
      "summary": "The store holds raw operator intent and would be created unignored, one `git add -A` "
                 "away from being committed."},
-    {"id": "FEAS-S1", "lens": "feasibility", "severity": "serious",
+    {"id": "FEAS-S1", "lens": "feasibility", "severity": "serious", "location": None,
      "summary": "Reusing write_private_path would leave the durability obligation unmet: it uses a plain "
                 "os.fsync, which is not a barrier on Darwin."},
-    {"id": "PROD-N1", "lens": "product-intent", "severity": "nit",
+    {"id": "PROD-N1", "lens": "product-intent", "severity": "nit", "location": None,
      "summary": "`list` should say plainly that nothing on the shelf is current by default."},
 ]
 
@@ -86,6 +86,8 @@ DISPOSITIONS = {
 
 class _Dogfood(unittest.TestCase):
     def setUp(self):
+        from selftest_support import review_fixture
+        review_fixture(self)
         self._tmp = tempfile.TemporaryDirectory()
         self.root = Path(self._tmp.name) / "plans"
         self.lib = plan_store.PlanLibrary(self.root)
@@ -95,8 +97,7 @@ class _Dogfood(unittest.TestCase):
         """The digest of the packet the coordinator would really cut for this plan's head."""
         import project_manager
         import plan_projection
-        return project_manager.core.digest(
-            plan_projection.render_plan(self.lib.head(slug), self.lib.read_record(slug)).encode("utf-8"))
+        return project_manager.review_packet(self.lib, slug)[1]
 
 
 class TheSeededPlanIsReal(_Dogfood):
@@ -167,14 +168,22 @@ class TheFullDistance(_Dogfood):
         # One cold panel, four lenses, against the approved revision — carrying the findings the real
         # review actually raised.
         findings_file = Path(self._tmp.name) / "findings.json"
-        findings_file.write_text(json.dumps(REVIEW_FINDINGS), encoding="utf-8")
+        findings_file.write_text(json.dumps(sorted(REVIEW_FINDINGS, key=lambda f: f["lens"])), encoding="utf-8")
+        import scoped_agents
+        from test_project_manager import observe_review_execution
+        owner = scoped_agents.plan_owner(self.lib.read_record(slug))
+        digest = self._packet_digest(slug)
+        for lens in ("architecture", "feasibility", "product-intent", "risk-governance"):
+            output = [{"severity": f["severity"], "message": f["summary"], "location": f["location"]}
+                      for f in REVIEW_FINDINGS if f["lens"] == lens]
+            observe_review_execution(self.lib, slug, owner, lens, digest, output)
         _run(library + ["review", "record", slug,
                         "--lens", "architecture", "--lens", "feasibility",
                         "--lens", "product-intent", "--lens", "risk-governance",
                         # The receipt names the PACKET it read, and `review record` now re-renders and
                         # compares — the plan digest is a different thing and no longer stands in for it.
                         "--packet-digest", self._packet_digest(slug),
-                        "--findings", str(findings_file)])
+                        "--findings", str(findings_file), "--controller-findings", "--session", "fixture-root"])
         return slug, document
 
     def _dispose_all(self, slug):
