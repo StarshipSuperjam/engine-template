@@ -1605,6 +1605,9 @@
   ".engine/tools/demo_release_terminal.py": [
    "core"
   ],
+  ".engine/tools/demo_repair_completion.py": [
+   "core"
+  ],
   ".engine/tools/demo_repo_behavior.py": [
    "core"
   ],

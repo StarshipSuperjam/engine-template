@@ -479,5 +479,75 @@ class TestObservedExecutionIngress(CoordinatorCase):
         self.assertEqual(companion.read()["acceptances"], {})
 
 
+
+
+class TestAcceptedFixedOwnCommit(unittest.TestCase):
+    def state(self, *, archived=False):
+        r = {'lens': 'technical-integrity', 'packet_digest': 'packet',
+             'lens_packet_digest': 'lens-packet', 'commit': HEAD_A, 'finding_ids': ['F1']}
+        f = {'id': 'F1', 'stage': 'deliverable', 'lens': r['lens'],
+             'packet_digest': r['packet_digest'], 'lens_packet_digest': r['lens_packet_digest'],
+             'commit': HEAD_A, 'disposition': 'accepted-fixed'}
+        return {'reviews': {'deliverable': {'packet_digest': 'packet',
+                     'receipts': [] if archived else [r]}}, 'repair': None,
+                'review_evidence_history': [{'stage': 'deliverable', 'receipt': r,
+                                             'effective': False}] if archived else [], 'findings': [f]}
+
+    def test_own_original_survives_archival_and_newer_packet(self):
+        for archived in (False, True):
+            with self.subTest(archived=archived):
+                s = self.state(archived=archived)
+                self.assertIn('original review commit', review.accepted_fixed_holds(s, HEAD_A)[0])
+                self.assertEqual(review.accepted_fixed_holds(s, BASE), [])
+                s['reviews']['deliverable']['reviewed_commit'] = BASE
+                self.assertIn('F1', review.accepted_fixed_holds(s, HEAD_A)[0])
+
+    def test_unknown_and_ambiguous_owners_do_not_guess(self):
+        s = self.state()
+        r = s['reviews']['deliverable']['receipts'][0]
+        s['review_evidence_history'] = [{'stage': 'deliverable', 'receipt': dict(r, finding_ids=['F1', 'F2'])}]
+        self.assertIn('unverified', review.accepted_fixed_holds(s, BASE)[0])
+        s['reviews']['deliverable']['receipts'] = []
+        s['review_evidence_history'] = []
+        self.assertIn('unverified', review.accepted_fixed_holds(s, BASE)[0])
+
+    def test_each_finding_uses_its_own_original_and_verified_execution(self):
+        s = self.state(archived=True)
+        first = s['findings'][0]
+        receipt = dict(s['review_evidence_history'][0]['receipt'], commit=BASE, finding_ids=['F2'])
+        s['repair'] = {'receipts': [receipt]}
+        s['findings'].append(dict(first, id='F2', stage='repair', commit=BASE))
+        holds = review.accepted_fixed_holds(s, BASE)
+        self.assertEqual(len(holds), 1)
+        self.assertIn('F2', holds[0])
+        self.assertIn('unverified', review.accepted_fixed_holds(s, HEAD_A,
+            verified=lambda r: r['commit'] != HEAD_A)[0])
+
+    def test_settled_alternatives_and_superseded_are_not_false_fix_holds(self):
+        for disposition in ('rejected', 'accepted-tracked', 'escalated'):
+            s = self.state(); s['findings'][0]['disposition'] = disposition
+            self.assertEqual(review.accepted_fixed_holds(s, HEAD_A), [])
+        s = self.state(); s['findings'][0]['superseded'] = True
+        self.assertEqual(review.accepted_fixed_holds(s, HEAD_A), [])
+
+
+class TestDirectVerificationBindings(unittest.TestCase):
+    def test_no_binding_or_fresh_read_failure_can_turn_into_credit(self):
+        s = {'build': {'pr': 1}, 'plan': {'digest': 'plan'}}
+        with mock.patch.object(review.reviewer_contracts, 'effective_build', return_value=None):
+            d = {'authority_digest': review.direct_verification_identity(s),
+                 'divergence_digest': 'diff', 'rationale': 'verified the fix',
+                 'verification_refs': ['candidate validation and regression test']}
+            self.assertEqual(review.direct_verification_errors(s, d, divergence_digest='diff'), [])
+            self.assertTrue(review.direct_verification_errors(s, d, divergence_digest='other'))
+            self.assertEqual(review.direct_verification_errors(s, d, divergence_digest='diff',
+                read_scope_errors=['original receipt missing']), ['original receipt missing'])
+            s['build']['pr'] = 2
+            self.assertTrue(review.direct_verification_errors(s, d, divergence_digest='diff'))
+            d['verification_refs'] = [' ']
+            self.assertIn('direct verification needs concrete verification references',
+                          review.direct_verification_errors(s, d, divergence_digest='diff'))
+
+
 if __name__ == "__main__":
     unittest.main()

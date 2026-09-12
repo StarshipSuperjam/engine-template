@@ -8294,8 +8294,12 @@ class TestCumulativeReviewScenario(unittest.TestCase):
         original_receipts = []
         findings = []
         def candidate(head):
-            fixture.store.mutate(lambda s:s.update(validation={"commit":head,"results":[
-                {"id":"fixture-candidate","commit":head,"passed":True,"summary":"Synthetic CI boundary"}]}))
+            digest = "sha256:"+"1"*64
+            fixture.store.mutate(lambda s:s.update(validation={"candidate":{
+                "commit":head,"merge_base":repo.base,"protocol_digest":digest,
+                "argv_digests":{"ci":digest},"inventory_digest":digest,"run_record":None,"results":[
+                {"id":"fixture-candidate","commit":head,"passed":True,"summary":"Synthetic CI boundary"}]},
+                "final":None}))
         def accept(packet, report):
             fixture.record_frozen(packet,lens,report)
             receipt = fixture.state()["reviews"]["deliverable"]["receipts"][-1]
@@ -8312,7 +8316,7 @@ class TestCumulativeReviewScenario(unittest.TestCase):
         def assess(judgment):
             bc.cmd_repair_assess(argparse.Namespace(judgment=judgment,lens=[lens] if judgment=="scoped" else None,
                 rationale="Scoped logic repair" if judgment=="scoped" else "Verified automatic target merge only",
-                guidance=None),fixture.store)
+                verification_ref=["fixture candidate validation and verified automatic merge"], guidance=None),fixture.store)
         with mock.patch.object(bc,"ROOT",repo.repo), mock.patch(__name__+".BASE",repo.base), \
                 mock.patch.object(bc,"_run",side_effect=lambda argv,**kw:run(argv,cwd=kw.pop("cwd",repo.repo),**kw)), \
                 mock.patch.object(bc,"_base",return_value=repo.base), \
@@ -8355,10 +8359,7 @@ class TestCumulativeReviewScenario(unittest.TestCase):
             self.assertEqual(1,len(fixture.state()["base_advances"]))
             # Synthetic CI/preflight/GitHub state isolates the real review-readiness gate.
             def external_proofs(s):
-                digest = "sha256:"+"1"*64
-                s["validation"] = {"candidate":{"commit":merged,"merge_base":target,
-                    "protocol_digest":digest,"argv_digests":{"ci":digest},"inventory_digest":digest,"run_record":None,
-                    "results":[{"id":"fixture-ci","commit":merged,"passed":True,"summary":"Synthetic CI"}]},
+                s["validation"] = {"candidate":bc._split_validation(s)["candidate"],
                     "final":{"commit":merged,"source":"ci-import","run_id":1,"tree":repo.git("rev-parse","HEAD^{tree}"),"context":"engine-ci"}}
                 s["pr_contract"] = {"commit":merged,"complete":True,"body_digest":bc._digest(b"body"),
                     "review_lineage_digest":bc._review_lineage_digest(s)}
@@ -8403,6 +8404,258 @@ class TestCumulativeReviewScenario(unittest.TestCase):
         print("Completed repair refresh/retry: zero reviewer assignments. Clean target merge: production submit preview reaches mark-ready.")
         print("Missing middle read blocks submission; later authored change leaves exactly one unread commit.")
         print("Reviewing that later change preserves the unaffected original panel after the base advances.")
+
+
+class TestRepairCompletionScenario(unittest.TestCase):
+    """Real Git and production ingress/readiness; native/CI/GitHub are explicit fixtures."""
+    def test_legacy_removing_last_direct_decision_requires_fresh_disclosure(self):
+        from test_review_economy import _RealRepo
+        fixture = TestReviewAndFindings(); fixture.setUp(); self.addCleanup(fixture.doCleanups)
+        repo = _RealRepo(); repo.setUp(); self.addCleanup(repo.doCleanups)
+        repo.git('checkout', '-q', '-b', 'codex/legacy-completion')
+        run, roster = bc._run, bc._installed()
+        head = repo.commit('source.py', 'reviewed work')
+        pr = {'number':7, 'state':'OPEN', 'headRefOid':head, 'baseRefOid':repo.base,
+              'body':'', 'mergeable':'MERGEABLE', 'isDraft':True, 'statusCheckRollup':[
+              {'name':'engine-ci','status':'COMPLETED','conclusion':'SUCCESS'}]}
+        def external_candidate():
+            digest = 'sha256:'+'1'*64
+            fixture.store.mutate(lambda s:s.update(validation={
+                'candidate':{'commit':head,'merge_base':repo.base,'protocol_digest':digest,
+                    'argv_digests':{'ci':digest},'inventory_digest':digest,'run_record':None,
+                    'results':[{'id':'fixture-ci','commit':head,'passed':True,'summary':'Synthetic CI'}]},
+                'final':{'commit':head,'source':'ci-import','run_id':1,
+                    'tree':repo.git('rev-parse','HEAD^{tree}'),'context':'engine-ci'}}))
+            pr['headRefOid'] = head
+        def refresh_body():
+            state = fixture.state()
+            pr['body'] = '\n'.join([bc._drift_line(state,head), *bc._repair_round_lines(state),
+                *bc._round_guidance_lines(state), *bc._base_advance_lines(state)])
+        def preflight():
+            bc.cmd_preflight(argparse.Namespace(pr_body=None,json=False),fixture.store)
+        def native_run(argv, **kw):
+            if argv[0]=='git': return run(argv,cwd=kw.pop('cwd',repo.repo),**kw)
+            return subprocess.CompletedProcess(argv,0,'Synthetic external check','')
+        with mock.patch.object(bc,'ROOT',repo.repo), mock.patch(__name__+'.BASE',repo.base), \
+                mock.patch.object(bc,'_installed',return_value=roster), \
+                mock.patch.object(bc,'_run',side_effect=native_run), \
+                mock.patch.object(bc,'_base',return_value=repo.base), \
+                mock.patch.object(bc.github,'pr_state',return_value=pr), \
+                mock.patch.object(bc,'_verify_draft',return_value=pr), \
+                mock.patch.object(bc,'_pr_contract',return_value=(True,'Synthetic structural body check')), \
+                mock.patch.object(bc,'_hard_check_declarations',return_value=[]), \
+                mock.patch.object(bc,'_write_json_artifact',return_value=('fixture','sha256:'+'2'*64)), \
+                contextlib.redirect_stdout(io.StringIO()), contextlib.redirect_stderr(io.StringIO()):
+            self.assertIsNone(bc.reviewer_contracts.effective_build(fixture.state()))
+            external_candidate(); packet = fixture.packet(head=head,roster=roster)
+            for lens in fixture.DELIVERABLE_LENSES:
+                fixture.record_review(fixture.receipt_args(packet,lens,[]),fixture.store)
+            head = repo.commit('source.py','verified repair'); external_candidate()
+            assess = bc.parser().parse_args(['repair','assess','--judgment','none',
+                '--rationale','Verified repair','--verification-ref','fixture regression'])
+            bc.cmd_repair_assess(assess,fixture.store)
+            refresh_body(); preflight()
+            self.assertEqual('mark-ready',bc._submit_preview(fixture.store,str(fixture.plan_path))['action'])
+            loss = bc.parser().parse_args(['repair','assess','--judgment','none',
+                '--rationale','Explicit historical loss recovery','--accept-receipt-loss'])
+            bc.cmd_repair_assess(loss,fixture.store)
+            self.assertEqual([],bc._terminal_decisions(fixture.state()))
+            self.assertFalse(bc._review_contract_current(fixture.state()))
+            with self.assertRaises(bc.CoordinatorError):
+                bc._submit_preview(fixture.store,str(fixture.plan_path))
+            for _ in range(2):
+                with self.assertRaisesRegex(bc.CoordinatorError,'preflight'): preflight()
+                self.assertTrue(fixture.state()['pr_contract'].get('review_lineage_digest'))
+            refresh_body()
+            self.assertIn(bc._review_lineage_marker(fixture.state()),pr['body'])
+            self.assertNotIn('Direct verification `',pr['body'])
+            preflight()
+            self.assertEqual('mark-ready',bc._submit_preview(fixture.store,str(fixture.plan_path))['action'])
+
+    def test_fix_then_none_retains_evidence_and_refuses_stale_disclosure(self):
+        import copy
+        from test_review_economy import _RealRepo
+        fixture = TestFrozenBuildContracts(); fixture.setUp(); self.addCleanup(fixture.doCleanups)
+        repo = _RealRepo(); repo.setUp(); self.addCleanup(repo.doCleanups)
+        repo.git('checkout', '-q', '-b', 'codex/completion')
+        source_root, run = bc.ROOT, bc._run
+        drift, provenance = bc.reviewer_contracts.unresolved_drift, bc.reviewer_contracts.source_provenance
+        head = repo.commit('source.py', 'initial defect')
+        pr = {'number':7, 'state':'OPEN', 'headRefOid':head, 'baseRefOid':repo.base,
+              'body':'', 'mergeable':'MERGEABLE', 'isDraft':True, 'statusCheckRollup':[
+              {'name':'engine-ci','status':'COMPLETED','conclusion':'SUCCESS'}]}
+        def external_candidate():
+            digest = 'sha256:'+'1'*64
+            fixture.store.mutate(lambda s:s.update(validation={
+                'candidate':{'commit':head,'merge_base':repo.base,'protocol_digest':digest,
+                    'argv_digests':{'ci':digest},'inventory_digest':digest,'run_record':None,
+                    'results':[{'id':'fixture-ci','commit':head,'passed':True,'summary':'Synthetic CI'}]},
+                'final':{'commit':head,'source':'ci-import','run_id':1,
+                    'tree':repo.git('rev-parse','HEAD^{tree}'),'context':'engine-ci'}}))
+            pr['headRefOid'] = head
+        def body():
+            state = fixture.state()
+            return '\n'.join([bc._review_lineage_marker(state), *bc._repair_round_lines(state),
+                *bc._round_guidance_lines(state), *bc._base_advance_lines(state),
+                *bc._direct_verification_lines(state)])
+        def preflight():
+            bc.cmd_preflight(argparse.Namespace(pr_body=None,json=False), fixture.store)
+        def native_run(argv, **kw):
+            if argv[0] == 'git': return run(argv,cwd=kw.pop('cwd',repo.repo),**kw)
+            return subprocess.CompletedProcess(argv,0,'Synthetic external check','')
+        with mock.patch.object(bc,'ROOT',repo.repo), mock.patch(__name__+'.BASE',repo.base), \
+                mock.patch.object(bc,'_run',side_effect=native_run), \
+                mock.patch.object(bc,'_base',return_value=repo.base), \
+                mock.patch.object(bc.reviewer_contracts,'unresolved_drift',side_effect=lambda c,r,d:drift(c,source_root,d)), \
+                mock.patch.object(bc.reviewer_contracts,'source_provenance',side_effect=lambda c,r:provenance(c,source_root)), \
+                mock.patch.object(bc.github,'pr_state',return_value=pr), \
+                mock.patch.object(bc,'_verify_draft',return_value=pr), \
+                mock.patch.object(bc,'_pr_contract',return_value=(True,'Synthetic structural body check')), \
+                mock.patch.object(bc,'_hard_check_declarations',return_value=[]), \
+                mock.patch.object(bc,'_write_json_artifact',return_value=('fixture','sha256:'+'2'*64)), \
+                contextlib.redirect_stdout(io.StringIO()), contextlib.redirect_stderr(io.StringIO()):
+            external_candidate(); packet = fixture.packet(head=head)
+            for lens in fixture.DELIVERABLE_LENSES:
+                report = [{'severity':'serious','message':'Correct the initial defect','location':None}] if lens=='technical-integrity' else []
+                fixture.record_frozen(packet,lens,report)
+            receipt = next(r for r in fixture.state()['reviews']['deliverable']['receipts'] if r['finding_ids'])
+            fid = receipt['finding_ids'][0]
+            args = bc.parser().parse_args(['finding','record','--id',fid,'--stage','deliverable',
+                '--lens','technical-integrity','--severity','serious','--summary','Correct the initial defect',
+                '--disposition','accepted-fixed','--rationale','Fixture repair check','--does-not-block-this-pr'])
+            bc.cmd_finding_record(args,fixture.store)
+            pr['body']=body(); preflight()
+            with self.assertRaisesRegex(bc.CoordinatorError,'original review commit'):
+                bc._submit_preview(fixture.store,str(fixture.plan_path))
+            head = repo.commit('source.py','fixed initial defect'); external_candidate()
+            full = bc.parser().parse_args(['repair','assess','--judgment','full',
+                                           '--rationale','Independent check of the repair'])
+            bc.cmd_repair_assess(full,fixture.store)
+            repair_packet = fixture.packet(stage='repair',head=head)
+            unfinished = fixture.state()
+            premature = bc.parser().parse_args(['repair','assess','--judgment','none',
+                '--rationale','Attempt to end an unfinished panel','--verification-ref','candidate'])
+            with self.assertRaisesRegex(bc.CoordinatorError, 'original assigned read'):
+                bc.cmd_repair_assess(premature,fixture.store)
+            self.assertEqual(unfinished,fixture.state(), 'An unfinished panel cannot be absorbed')
+            for lens in fixture.DELIVERABLE_LENSES:
+                report = [{'severity':'serious','message':'Repair round defect','location':None}] if lens=='technical-integrity' else []
+                fixture.record_frozen(repair_packet,lens,report)
+            repair_receipt = next(r for r in fixture.state()['repair']['receipts'] if r['finding_ids'])
+            fixed = bc.parser().parse_args(['finding','record','--id',repair_receipt['finding_ids'][0],
+                '--stage','repair','--lens','technical-integrity','--severity','serious',
+                '--summary','Repair round defect','--disposition','accepted-fixed',
+                '--rationale','Fixture verification','--does-not-block-this-pr'])
+            bc.cmd_finding_record(fixed,fixture.store)
+            with self.assertRaisesRegex(bc.CoordinatorError, 'original review commit'):
+                bc._make_direct_verification(fixture.state(), head, head, 'Checked repair', ['regression'])
+            originals = copy.deepcopy(bc.review.retained_receipts(fixture.state()))
+            head = repo.commit('source.py','fixed the finding from the repair panel'); external_candidate()
+            pr['body']=body(); preflight()  # exact HEAD, before the terminal decision
+            assess = bc.parser().parse_args(['repair','assess','--judgment','none',
+                '--rationale','  Verified narrow repair \n','--verification-ref','fixture regression and candidate run'])
+            before_decision = fixture.state()
+            for refs in (None, [], [' ']):
+                invalid = copy.copy(assess); invalid.verification_ref = refs
+                with self.assertRaisesRegex(bc.CoordinatorError, 'verification-ref'):
+                    bc.cmd_repair_assess(invalid,fixture.store)
+                self.assertEqual(before_decision, fixture.state(), 'Refused decisions must be atomic')
+            bc.cmd_repair_assess(assess,fixture.store)
+            self.assertEqual(originals,bc.review.retained_receipts(fixture.state()))
+            self.assertFalse(bc._review_contract_current(fixture.state()))
+            with self.assertRaises(bc.CoordinatorError):
+                bc._submit_preview(fixture.store,str(fixture.plan_path))
+            with self.assertRaisesRegex(bc.CoordinatorError,'preflight'):
+                preflight()  # old PR body must not become current simply through another preflight
+            pr['body']=body(); preflight()
+            self.assertEqual('mark-ready',bc._submit_preview(fixture.store,str(fixture.plan_path))['action'])
+            decision = copy.deepcopy(fixture.state()['repair']['direct_verification'])
+            self.assertEqual('Verified narrow repair', decision['rationale'])
+            self.assertEqual(decision['rationale'], fixture.state()['repair']['rationale'])
+            disclosure = bc._drift_line(fixture.state(), head)
+            self.assertIn('Retained independently reviewed scopes:', disclosure)
+            self.assertIn('was directly verified', disclosure)
+            self.assertNotIn(f"reviewed `{decision['from_commit'][:12]}`, submitted", disclosure)
+            lineage = bc._review_lineage_digest(fixture.state())
+            bc.cmd_repair_assess(assess,fixture.store)
+            self.assertEqual(decision,fixture.state()['repair']['direct_verification'])
+            self.assertEqual(lineage,bc._review_lineage_digest(fixture.state()))
+            self.assertEqual('mark-ready',bc._submit_preview(fixture.store,str(fixture.plan_path))['action'])
+            assess.rationale = 'Verified narrow repair with clarified explanation'
+            bc.cmd_repair_assess(assess,fixture.store)
+            self.assertFalse(bc._review_contract_current(fixture.state()))
+            with self.assertRaises(bc.CoordinatorError): preflight()
+            pr['body']=body(); preflight()
+            self.assertEqual('mark-ready',bc._submit_preview(fixture.store,str(fixture.plan_path))['action'])
+            assess.verification_ref = ['additional concrete regression evidence']
+            bc.cmd_repair_assess(assess,fixture.store)
+            self.assertFalse(bc._review_contract_current(fixture.state()))
+            with self.assertRaises(bc.CoordinatorError): preflight()
+            pr['body']=body(); preflight()
+            saved = copy.deepcopy(fixture.state())
+            companion = bc.scoped_agents.Store(fixture.review_library, fixture.review_slug).path
+            companion_bytes = companion.read_bytes()
+            try:
+                companion.unlink()
+                with self.assertRaises(bc.CoordinatorError):
+                    bc._submit_preview(fixture.store,str(fixture.plan_path))
+                with self.assertRaisesRegex(bc.CoordinatorError, 'ownership is unverified'):
+                    bc.cmd_repair_assess(assess,fixture.store)
+            finally:
+                companion.write_bytes(companion_bytes)
+            self.assertEqual('mark-ready',bc._submit_preview(fixture.store,str(fixture.plan_path))['action'])
+            # New candidate evidence at the same commit requires a fresh decision.
+            def replace_candidate(s):
+                s['validation']['candidate']['results'][0]['summary'] = 'A later candidate run'
+            fixture.store.mutate(replace_candidate)
+            with self.assertRaisesRegex(bc.CoordinatorError, 'current candidate evidence'):
+                bc._submit_preview(fixture.store,str(fixture.plan_path))
+            fixture.store.mutate(lambda s:s.update(validation=saved['validation']))
+            def lose_original(s):
+                s['review_evidence_history'] = [e for e in s['review_evidence_history']
+                    if e['receipt']['commit'] != receipt['commit']]
+            fixture.store.mutate(lose_original)
+            required = bc._status(fixture.state())['required_evidence']
+            self.assertTrue(any('original' in item or 'deliverable-review receipt' in item for item in required), required)
+            with self.assertRaises(bc.CoordinatorError):
+                bc._submit_preview(fixture.store,str(fixture.plan_path))
+            fixture.store.mutate(lambda s:s.update(review_evidence_history=saved['review_evidence_history']))
+            previous_decision = copy.deepcopy(fixture.state()['repair']['direct_verification'])
+            round_count = len(fixture.state()['repair_rounds'])
+            head = repo.commit('.engine/knowledge/graph.json','{}'); external_candidate()
+            pr['body']=body(); preflight()
+            with self.assertRaises(bc.CoordinatorError):
+                bc._submit_preview(fixture.store,str(fixture.plan_path))
+            bc.cmd_repair_assess(assess,fixture.store)
+            generated = fixture.state()['repair']['direct_verification']
+            self.assertEqual(previous_decision['from_commit'],generated['from_commit'])
+            self.assertEqual(head,generated['to_commit'])
+            self.assertEqual(round_count,len(fixture.state()['repair_rounds']))
+            pr['body']=body(); preflight()
+            self.assertEqual('mark-ready',bc._submit_preview(fixture.store,str(fixture.plan_path))['action'])
+            first_terminal_head = head
+            head = repo.commit('source.py','later authored edit'); external_candidate()
+            pr['body']=body(); preflight()
+            with self.assertRaises(bc.CoordinatorError):
+                bc._submit_preview(fixture.store,str(fixture.plan_path))
+            bc.cmd_repair_assess(assess,fixture.store)
+            second = fixture.state()['repair']['direct_verification']
+            self.assertEqual(first_terminal_head, second['from_commit'])
+            self.assertEqual(head, second['to_commit'])
+            pr['body']=body(); preflight()
+            self.assertEqual('mark-ready',bc._submit_preview(fixture.store,str(fixture.plan_path))['action'])
+            self.assertEqual(originals,bc.review.retained_receipts(fixture.state()))
+            rounds = copy.deepcopy(fixture.state()['repair_rounds'])
+            fixture.store.mutate(lambda s:s.update(repair_rounds=[r for r in rounds
+                if not (r.get('direct_verification') and r['final_commit']==first_terminal_head)]))
+            pr['body']=body(); preflight()
+            with self.assertRaises(bc.CoordinatorError):
+                bc._submit_preview(fixture.store,str(fixture.plan_path))
+            fixture.store.mutate(lambda s:s.update(repair_rounds=rounds))
+            pr['body']=body(); preflight()
+            self.assertEqual('mark-ready',bc._submit_preview(fixture.store,str(fixture.plan_path))['action'])
+        print('Unchanged accepted-fixed refused; landed fix finishes by direct verification with original receipts retained.')
+        print('Same-HEAD stale PR disclosure refused; refreshed disclosure permits submit preview; later edits require judgment.')
 
 
 if __name__ == "__main__":
