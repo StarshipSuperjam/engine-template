@@ -6642,7 +6642,7 @@
       },
       "slug": "test-performance",
       "source": {
-        "fingerprint": "sha256:1f2eb5218e4352ffb9c54f104da025cb739605df4086fbb18814ea88e0853d58",
+        "fingerprint": "sha256:90a65dd45ab68b795685c751d2b762836ed3df74b3c59d1218041eb643f604d9",
         "path": ".engine/operations/test-performance.md"
       },
       "status": "active",
@@ -7994,7 +7994,7 @@
       },
       "slug": "selftest-results.v1",
       "source": {
-        "fingerprint": "sha256:1f2d491fda716a2bd7625a95c7a296bac4090f2197636d1666fe21c87eb33983",
+        "fingerprint": "sha256:a921f8e9fd029a698656754aa7c7d9a3e65b77efdb349081cac98d4bf5abaf39",
         "path": ".engine/schemas/selftest-results.v1.json"
       },
       "status": "active",
@@ -15934,7 +15934,7 @@
       },
       "slug": "selftest",
       "source": {
-        "fingerprint": "sha256:3d1bb6d0198b5f6747e24095e5b73dbc3e4a05560cfd62e57d76378a160ec1e5",
+        "fingerprint": "sha256:beb8879c2fd319b175ce664287d29a249632c5200f65ec0e279ec667f7ae772d",
         "path": ".engine/tools/selftest.py"
       },
       "status": "active",
@@ -15978,7 +15978,7 @@
       },
       "slug": "selftest_results",
       "source": {
-        "fingerprint": "sha256:7a830e814ef3b20405d6e91ab9aee52f3b3ec3c82f4d4444c2047922a2564d7a",
+        "fingerprint": "sha256:5cc916f059d8a89dbab6dbb6ea76eacb5f3cd3e9c258d66d407c09978761a466",
         "path": ".engine/tools/selftest_results.py"
       },
       "status": "active",
@@ -21645,7 +21645,7 @@
       },
       "slug": "test_selftest_results",
       "source": {
-        "fingerprint": "sha256:38446ea8755c07ac275301701ba5260c0e1971e33fe228db13cf3668756ad1f6",
+        "fingerprint": "sha256:340c5757c84f468a7afec4ca65fc4f03be5b6dff91a15fce6eb0d4d26116e8a6",
         "path": ".engine/tools/test_selftest_results.py"
       },
       "status": "active",
