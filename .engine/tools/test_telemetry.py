@@ -47,6 +47,591 @@ def rec(sid, severity="persistent-but-benign", message="A check keeps reporting 
     return {"source_id": sid, "severity": severity, "message": message, "location": location}
 
 
+
+class ReaderHealthEvidence(unittest.TestCase):
+    def test_process_deadline_terminates_a_stalled_health_pass(self):
+        from pathlib import Path
+        with tempfile.TemporaryDirectory() as directory:
+            script = Path(directory) / "telemetry.py"
+            script.write_text("import time\ndef _reader_health_process(*args):\n time.sleep(5)\n")
+            output = io.StringIO()
+            with mock.patch.object(telemetry, "__file__", str(script)), mock.patch.object(
+                    telemetry, "READER_HEALTH_BUDGET", .1), contextlib.redirect_stdout(output):
+                start = time.monotonic()
+                self.assertEqual(telemetry._reader_health_cli([directory]), 1)
+            self.assertLess(time.monotonic() - start, 1)
+            self.assertIn('"unverified": true', output.getvalue())
+
+    def setUp(self):
+        import subprocess
+        from pathlib import Path
+        self.tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(self.tmp.cleanup)
+        self.root = Path(self.tmp.name) / "clone"
+        self.root.mkdir()
+        self.git = lambda *args: subprocess.run(["git", "-C", str(self.root), *args],
+            check=True, capture_output=True, text=True).stdout.strip()
+        self.git("init")
+        self.git("remote", "add", "origin", "https://github.com/you/proj.git")
+        self.git("-c", "user.name=Fixture", "-c", "user.email=fixture@example.com", "commit", "--allow-empty", "-m", "fixture")
+        self.sibling = Path(self.tmp.name) / "nonstandard-codex-tree"
+        self.git("worktree", "add", "--detach", str(self.sibling))
+        self.store = telemetry.ReaderHealthStore(self.root)
+        self.other = telemetry.ReaderHealthStore(self.sibling)
+        self.identity = {"records": {"plan": "digest"}}
+
+    def test_worktrees_share_scope_but_independent_clones_do_not(self):
+        import subprocess
+        from pathlib import Path
+        self.store.observe("scoped-reader", "failing", self.identity)
+        self.other.observe("scoped-reader", "healthy", self.identity,
+                           verification=self.other.begin_verification())
+        snapshot = self.store.snapshot()
+        self.assertEqual(snapshot["scope"], self.other.snapshot()["scope"])
+        self.assertEqual({r["state"] for r in snapshot["readers"].values()}, {"failing", "healthy"})
+        clone = Path(self.tmp.name) / "second-clone"
+        subprocess.run(["git", "clone", str(self.root), str(clone)], check=True, capture_output=True)
+        independent = telemetry.ReaderHealthStore(clone)
+        independent.observe("scoped-reader", "healthy", self.identity,
+                            verification=independent.begin_verification())
+        self.assertNotEqual(snapshot["scope"], independent.snapshot()["scope"])
+        shutil.copyfile(self.store.path, independent.path)
+        with self.assertRaises(telemetry.ReaderHealthUnavailable):
+            independent.snapshot()
+
+    def test_contended_success_is_pending_and_cannot_clear_failure(self):
+        self.store.observe("scoped-reader", "failing", self.identity)
+        with self.store.lock():
+            start = time.monotonic()
+            self.assertFalse(self.store.observe("scoped-reader", "healthy", self.identity))
+            self.assertLess(time.monotonic() - start, .3)
+        snapshot = self.store.snapshot()
+        self.assertEqual(next(iter(snapshot["readers"].values()))["state"], "failing")
+        self.assertEqual(list(self.store.pending.glob("*.json")), [])
+
+    def test_missing_inputs_and_corrupt_or_missing_state_refuse_health(self):
+        self.store.observe("scoped-reader", "failing", self.identity)
+        self.store.observe("scoped-reader", "healthy", {"records": {}})
+        self.assertEqual(next(iter(self.store.snapshot()["readers"].values()))["state"], "failing")
+        self.store.path.write_text("{")
+        with self.assertRaises(ValueError):
+            self.store.snapshot()
+        self.store.path.unlink()
+        with self.assertRaises(telemetry.ReaderHealthUnavailable):
+            self.store.observe("scoped-reader", "healthy", self.identity)
+
+    def test_retirement_requires_deregistration_exact_generation_and_reason(self):
+        self.other.observe("scoped-reader", "failing", self.identity)
+        record = next(iter(self.store.snapshot()["readers"].values()))
+        reader = record["reader"]
+        preview = self.store.retirement(reader, "scoped-reader")
+        with self.assertRaises(telemetry.ReaderHealthUnavailable):
+            self.store.retirement(reader, "scoped-reader", expected=preview, reason="operator retired", confirm=True)
+        self.git("worktree", "remove", "--force", str(self.sibling))  # disposable fixture only
+        self.store.observe("boot-assembly", "unknown", {})
+        with self.assertRaises(telemetry.ReaderHealthUnavailable):
+            self.store.retirement(reader, "scoped-reader", expected=preview, reason="stale", confirm=True)
+        preview = self.store.retirement(reader, "scoped-reader")
+        self.store.retirement(reader, "scoped-reader", expected=preview, reason="operator retired", confirm=True)
+        state = self.store.snapshot()
+        self.assertTrue(state["readers"][reader + "/scoped-reader"]["retired"])
+        self.assertEqual(len(state["retirements"]), 1)
+        self.git("worktree", "add", "--detach", str(self.sibling))
+        self.other.observe("scoped-reader", "failing", self.identity)
+        self.assertFalse(self.store.snapshot()["readers"][reader + "/scoped-reader"]["retired"])
+
+    def test_interrupted_write_does_not_replace_previous_evidence(self):
+        self.store.observe("scoped-reader", "failing", self.identity)
+        original = self.store.path.read_bytes()
+        with mock.patch("build_coordinator_core.atomic_write", side_effect=OSError("interrupted")):
+            with self.assertRaises(OSError):
+                self.store.observe("scoped-reader", "healthy", self.identity)
+        self.assertEqual(self.store.path.read_bytes(), original)
+
+    def test_completed_success_cannot_overwrite_a_newer_failure(self):
+        token = self.store.begin_verification()
+        self.store.observe("scoped-reader", "failing", self.identity)
+        self.store.observe("scoped-reader", "healthy", self.identity, verification=token)
+        self.assertEqual(next(iter(self.store.snapshot()["readers"].values()))["state"], "failing")
+        fresh = self.store.begin_verification()
+        self.store.observe("scoped-reader", "healthy", self.identity, verification=fresh)
+        self.assertEqual(next(iter(self.store.snapshot()["readers"].values()))["state"], "healthy")
+
+    def test_unknown_observation_keeps_unresolved_failure(self):
+        self.store.observe("scoped-reader", "failing", self.identity)
+        self.store.observe("scoped-reader", "unknown", {})
+        self.assertEqual(next(iter(self.store.snapshot()["readers"].values()))["state"], "failing")
+
+    def test_retirement_confirm_requires_reason_before_touching_store(self):
+        errors = io.StringIO()
+        with mock.patch.object(telemetry, "ReaderHealthStore") as store, contextlib.redirect_stderr(errors):
+            with self.assertRaises(SystemExit) as result:
+                telemetry._reader_retirement_cli(["reader", "scoped-reader", "--confirm", "--preview", "/missing"])
+        self.assertEqual(result.exception.code, 2)
+        store.assert_not_called()
+        self.assertIn("--reason", errors.getvalue())
+
+
+
+class ReaderHealthRecovery(ReaderHealthEvidence):
+    def setUp(self):
+        super().setUp()
+        import plan_store
+        import scoped_agents
+        from pathlib import Path
+        self.library = plan_store.PlanLibrary(self.root / "library")
+        slug = "test-plan--a1b2c3"
+        self.library.plan_dir(slug).mkdir(parents=True)
+        self.library._record_path(slug).write_text("{}")
+        self.record_path = self.library.plan_dir(slug) / scoped_agents.FILENAME
+        self.record_path.write_text(json.dumps(scoped_agents.Store(self.library, slug).read()))
+        env = mock.patch.dict(os.environ, {plan_store.ENV_DIR: str(self.library.root)})
+        env.start()
+        self.addCleanup(env.stop)
+        for root in (self.root, self.sibling):
+            (root / ".engine/tools").mkdir(parents=True)
+            for name in ("scoped_agents.py", "plan_store.py", "build_coordinator_core.py"):
+                shutil.copyfile(Path(telemetry.__file__).parent / name, root / ".engine/tools" / name)
+            shutil.copytree(Path(telemetry.__file__).parent.parent / "schemas", root / ".engine/schemas")
+        self.fake = FakeGH()
+        self.client = gh(self.fake)
+
+    def healthy(self, root):
+        self.assertTrue(telemetry.verify_scoped_reader_health(root=root, library=self.library))
+
+    def reconcile(self, root=None, **kw):
+        return telemetry.reconcile_reader_health(self.client, root or self.root, **kw)
+
+    def test_real_reader_lifecycle_sibling_cannot_clear_then_verified_recovery_closes(self):
+        identity = telemetry.reader_health_identity(self.sibling, "scoped-reader")
+        self.other.observe("scoped-reader", "failing", identity)
+        result = self.reconcile()
+        self.assertEqual(result["opened_or_updated"], 1, result)
+        self.assertEqual(self.fake.open_count(), 1)
+        self.healthy(self.root)
+        self.assertEqual(self.reconcile()["closed"], 0)
+        self.assertEqual(self.fake.open_count(), 1)
+        self.healthy(self.sibling)
+        result = self.reconcile()
+        self.assertEqual(result["closed"], 1, result)
+        self.assertEqual(self.fake.open_count(), 0)
+        body = self.fake.issues[1]["body"]
+        self.assertIn("independent clones", body)
+        self.assertNotIn(str(self.root), body)
+        self.assertNotIn("assignments", body)
+
+    def test_manual_verdict_stays_nonzero_after_successful_failure_publication(self):
+        self.other.observe("scoped-reader", "failing", telemetry.reader_health_identity(self.sibling, "scoped-reader"))
+        failing = self.reconcile()
+        self.assertEqual(failing["opened_or_updated"], 1)
+        self.assertTrue(failing["unverified"])
+        self.assertEqual(self.fake.open_count(), 1)
+        self.healthy(self.sibling)
+        recovered = self.reconcile()
+        self.assertEqual(recovered["closed"], 1)
+        self.assertFalse(recovered["unverified"])
+        for result, expected in ((failing, 1), (recovered, 0)):
+            with mock.patch.object(telemetry.subprocess, "run", return_value=mock.Mock(
+                    stdout=json.dumps(result))), contextlib.redirect_stdout(io.StringIO()):
+                self.assertEqual(telemetry._reader_health_cli([str(self.root)]), expected)
+
+    def test_historical_reader_fails_sibling_cannot_clear_and_updated_reader_recovers(self):
+        import subprocess
+        import scoped_agents
+        import build_coordinator_core as core
+        from pathlib import Path
+        from selftest_support import review_fixture
+        from reader_health_history_fixture import historical, current_assignment
+        review_fixture(self)
+        packet = self.root / "fixture-packet.md"
+        packet.write_text("Immutable fixture obligations")
+        slug = next(iter(self.library.slugs()))
+        writer = scoped_agents.Store(self.library, slug)
+        current_assignment(writer, packet)
+        original = writer.path.read_bytes()
+        schema = self.root / ".engine/schemas/scoped-agent-evidence.v1.json"
+        current = schema.read_bytes()
+        schema.write_text(json.dumps(historical("SCOPED")))
+        self.git("add", ".engine")
+        self.git("-c", "user.name=Fixture", "-c", "user.email=fixture@example.com", "commit", "-m", "historical reader schema")
+        old = self.git("rev-parse", "HEAD")
+        schema.write_bytes(current)
+        self.git("add", ".engine")
+        self.git("-c", "user.name=Fixture", "-c", "user.email=fixture@example.com", "commit", "-m", "current reader schema")
+        self.git("update-ref", "refs/remotes/origin/main", "HEAD")
+        shutil.rmtree(self.sibling / ".engine")  # disposable fixture only
+        def checkout(ref):
+            subprocess.run(["git", "-C", str(self.sibling), "checkout", "--detach", ref],
+                           check=True, capture_output=True)
+        checkout(old)
+        observe = telemetry.observe_reader_health
+        errors = io.StringIO()
+        def local_observation(producer, state, **kwargs):
+            return observe(producer, state, root=self.sibling, **kwargs)
+        with mock.patch.object(scoped_agents, "__file__", str(self.sibling / ".engine/tools/scoped_agents.py")), \
+                mock.patch.object(telemetry, "observe_reader_health", side_effect=local_observation), \
+                contextlib.redirect_stderr(errors):
+            scoped_agents.handler("PreToolUse", {"session_id": "fixture-session"}, self.library)
+        self.assertIn("older than the shared record", errors.getvalue())
+        self.assertEqual(self.reconcile()["opened_or_updated"], 1)
+        self.healthy(self.root)
+        self.assertEqual(self.reconcile()["closed"], 0)
+        checkout("refs/remotes/origin/main")
+        with mock.patch.object(scoped_agents, "__file__", str(self.sibling / ".engine/tools/scoped_agents.py")):
+            self.healthy(self.sibling)
+        self.assertEqual(self.reconcile()["closed"], 1)
+        self.assertEqual(self.fake.open_count(), 0)
+        self.assertEqual(writer.path.read_bytes(), original)
+
+    def test_changed_inputs_missing_record_and_network_outage_never_close(self):
+        self.other.observe("scoped-reader", "failing", telemetry.reader_health_identity(self.sibling, "scoped-reader"))
+        self.reconcile()
+        self.healthy(self.sibling)
+        self.record_path.write_text("{")
+        self.assertEqual(self.reconcile()["closed"], 0)
+        self.record_path.unlink()
+        self.assertEqual(self.reconcile()["closed"], 0)
+        self.fake.fail_read = 503
+        self.assertTrue(self.reconcile()["unverified"])
+        self.assertEqual(self.fake.open_count(), 1)
+
+    def test_failure_between_remote_read_and_close_keeps_incident_open(self):
+        identity = telemetry.reader_health_identity(self.sibling, "scoped-reader")
+        self.other.observe("scoped-reader", "failing", identity)
+        self.reconcile()
+        self.healthy(self.sibling)
+        original = self.client._transport
+        def racing(method, path, body):
+            result = original(method, path, body)
+            if method == "PATCH" and "body" in (body or {}):
+                self.other.observe("scoped-reader", "failing", identity)
+            return result
+        self.client._transport = racing
+        self.assertEqual(self.reconcile()["closed"], 0)
+        self.assertEqual(self.fake.open_count(), 1)
+        self.assertNotIn("Verified recovery", self.fake.issues[1]["body"])
+
+    def test_remote_evidence_change_with_same_source_refuses_closure(self):
+        self.other.observe("scoped-reader", "failing", telemetry.reader_health_identity(self.sibling, "scoped-reader"))
+        self.reconcile()
+        self.healthy(self.sibling)
+        original = self.client._transport
+        reads = []
+        def racing(method, path, body):
+            if method == "GET" and path.endswith("/issues/1"):
+                reads.append(path)
+                if len(reads) == 2:
+                    self.fake.issues[1]["body"] += "\nNew incident evidence from another writer."
+            return original(method, path, body)
+        self.client._transport = racing
+        result = self.reconcile()
+        self.assertTrue(result["unverified"])
+        self.assertEqual(result["closed"], 0)
+        self.assertEqual(self.fake.open_count(), 1)
+        self.assertIn("New incident evidence", self.fake.issues[1]["body"])
+
+    def test_unknown_after_failure_still_promotes_unresolved_incident(self):
+        self.other.observe("scoped-reader", "failing", {})
+        self.other.observe("scoped-reader", "unknown", {})
+        self.assertEqual(self.reconcile()["opened_or_updated"], 1)
+        self.assertEqual(self.fake.open_count(), 1)
+
+    def test_failure_between_verification_and_success_persistence_wins(self):
+        original = telemetry.observe_reader_health
+        def late_failure(producer, state, **kwargs):
+            if state == "healthy":
+                self.other.observe(producer, "failing", kwargs["identity"])
+            return original(producer, state, **kwargs)
+        with mock.patch.object(telemetry, "observe_reader_health", side_effect=late_failure):
+            self.healthy(self.sibling)
+        self.assertEqual(self.reconcile()["opened_or_updated"], 1)
+        self.assertEqual(self.fake.open_count(), 1)
+
+    def test_successful_slow_transport_exhausts_total_budget_without_closure(self):
+        self.other.observe("scoped-reader", "failing", telemetry.reader_health_identity(self.sibling, "scoped-reader"))
+        self.reconcile()
+        self.healthy(self.sibling)
+        original = self.client._transport
+        def slow(method, path, body):
+            time.sleep(.06)
+            return original(method, path, body)
+        self.client._transport = slow
+        result = self.reconcile(deadline=time.monotonic() + .05)
+        self.assertTrue(result["unverified"])
+        self.assertEqual(result["closed"], 0)
+        self.assertEqual(self.fake.open_count(), 1)
+
+    def test_two_clones_targeting_same_repository_cannot_close_each_others_incident(self):
+        import subprocess
+        from pathlib import Path
+        self.other.observe("scoped-reader", "failing", telemetry.reader_health_identity(self.sibling, "scoped-reader"))
+        self.reconcile()
+        clone = Path(self.tmp.name) / "independent"
+        subprocess.run(["git", "clone", str(self.root), str(clone)], check=True, capture_output=True)
+        independent = telemetry.ReaderHealthStore(clone)
+        independent.observe("scoped-reader", "failing", {})
+        subprocess.run(["git", "-C", str(clone), "remote", "set-url", "origin",
+                        "https://github.com/you/proj.git"], check=True, capture_output=True)
+        self.assertEqual(self.reconcile(root=clone)["opened_or_updated"], 1)
+        self.assertEqual(self.fake.open_count(), 2)
+        self.healthy(self.sibling)
+        self.assertEqual(self.reconcile()["closed"], 1)
+        self.assertEqual(self.fake.open_count(), 1)
+        self.assertIn(independent.snapshot()["scope"], self.fake.issues[2]["body"])
+
+    def test_recurrence_during_close_is_reopened_and_never_reported_as_closed(self):
+        identity = telemetry.reader_health_identity(self.sibling, "scoped-reader")
+        self.other.observe("scoped-reader", "failing", identity)
+        self.reconcile()
+        self.healthy(self.sibling)
+        original = self.client._transport
+        def racing(method, path, body):
+            response = original(method, path, body)
+            if method == "PATCH" and (body or {}).get("state") == "closed":
+                self.other.observe("scoped-reader", "failing", identity)
+            return response
+        self.client._transport = racing
+        self.assertEqual(self.reconcile()["closed"], 0)
+        self.assertEqual(self.fake.open_count(), 1)
+
+    def test_success_response_without_closed_readback_is_unverified(self):
+        self.other.observe("scoped-reader", "failing", telemetry.reader_health_identity(self.sibling, "scoped-reader"))
+        self.reconcile()
+        self.healthy(self.sibling)
+        original = self.client._transport
+        def lost(method, path, body):
+            if method == "PATCH" and (body or {}).get("state") == "closed":
+                return 200, {"state": "closed"}
+            return original(method, path, body)
+        self.client._transport = lost
+        result = self.reconcile()
+        self.assertEqual(result["closed"], 0)
+        self.assertTrue(result["unverified"])
+        self.assertEqual(self.fake.open_count(), 1)
+
+    def test_dependency_bytes_in_actual_search_path_invalidate_success(self):
+        from pathlib import Path
+        site = self.root / "runtime-site-packages"
+        dependency = site / "jsonschema/__init__.py"
+        dependency.parent.mkdir(parents=True)
+        dependency.write_text("VERSION = 1\n")
+        execution = {"interpreter": sys.executable, "producer": str(Path(telemetry.__file__).resolve()),
+                     "sites": [str(site)]}
+        initial = telemetry.reader_health_identity(self.root, "scoped-reader", execution=execution)
+        self.store.observe("scoped-reader", "healthy", initial,
+                           verification=self.store.begin_verification())
+        dependency.write_text("VERSION = 2\n")
+        self.assertNotEqual(initial, telemetry.reader_health_identity(self.root, "scoped-reader", execution=execution))
+        self.assertEqual(telemetry._reader_recovery_state(self.store, self.store.snapshot(),
+            "scoped-reader", time.monotonic() + 10), "unknown")
+        dependency.unlink()
+        self.assertNotEqual(initial, telemetry.reader_health_identity(self.root, "scoped-reader", execution=execution))
+
+    def test_wrong_repository_or_missing_origin_makes_no_remote_calls(self):
+        self.other.observe("scoped-reader", "failing", telemetry.reader_health_identity(self.sibling, "scoped-reader"))
+        self.git("remote", "set-url", "origin", "https://github.com/other/project.git")
+        self.assertTrue(self.reconcile()["unverified"])
+        self.assertEqual(self.fake.calls, [])
+        self.git("remote", "remove", "origin")
+        self.assertTrue(self.reconcile()["unverified"])
+        self.assertEqual(self.fake.calls, [])
+
+    def test_boot_activation_cannot_supply_health_for_another_repository(self):
+        with mock.patch.object(telemetry, "accepted_health_execution_identity",
+                               return_value={"repository": "other/project"}):
+            with self.assertRaises(telemetry.ReaderHealthUnavailable):
+                telemetry.reader_health_identity(self.root, "boot-assembly")
+
+    def test_replacing_registered_directory_with_independent_clone_invalidates_success(self):
+        import subprocess
+        from pathlib import Path
+        self.other.observe("scoped-reader", "failing", telemetry.reader_health_identity(self.sibling, "scoped-reader"))
+        self.reconcile()
+        self.healthy(self.sibling)
+        saved = Path(self.tmp.name) / "saved-engine"
+        shutil.copytree(self.sibling / ".engine", saved)
+        shutil.rmtree(self.sibling)  # disposable worktree; leave Git's stale registration intact
+        subprocess.run(["git", "clone", str(self.root), str(self.sibling)], check=True, capture_output=True)
+        subprocess.run(["git", "-C", str(self.sibling), "remote", "set-url", "origin",
+                        "https://github.com/you/proj.git"], check=True, capture_output=True)
+        shutil.copytree(saved, self.sibling / ".engine")
+        self.assertEqual(self.reconcile()["closed"], 0)
+        self.assertEqual(self.fake.open_count(), 1)
+
+
+    def test_expired_success_requires_an_actual_fresh_read(self):
+        self.other.observe("scoped-reader", "failing", telemetry.reader_health_identity(self.sibling, "scoped-reader"))
+        self.reconcile()
+        with mock.patch.object(telemetry.moment, "utc_now", return_value="2000-01-01T00:00:00Z"):
+            self.healthy(self.sibling)
+        self.assertEqual(self.reconcile()["closed"], 0)
+        self.assertEqual(self.fake.open_count(), 1)
+        self.healthy(self.sibling)
+        self.assertEqual(self.reconcile()["closed"], 1)
+
+    def test_unknown_health_version_never_resets_or_closes(self):
+        self.other.observe("scoped-reader", "failing", telemetry.reader_health_identity(self.sibling, "scoped-reader"))
+        self.reconcile()
+        value = json.loads(self.store.path.read_text())
+        value["schema_version"] = "reader-health.v999"
+        original = json.dumps(value)
+        self.store.path.write_text(original)
+        self.fake.calls.clear()
+        self.assertTrue(self.reconcile()["unverified"])
+        self.assertEqual(self.fake.calls, [])
+        self.assertEqual(self.store.path.read_text(), original)
+        self.assertEqual(self.fake.open_count(), 1)
+
+    def test_slow_successful_pagination_consumes_one_total_budget(self):
+        self.other.observe("scoped-reader", "failing", telemetry.reader_health_identity(self.sibling, "scoped-reader"))
+        self.reconcile()
+        self.healthy(self.sibling)
+        original = self.client._transport
+        pages = []
+        clock = [time.monotonic()]
+        def paginated(method, path, body):
+            if method == "GET" and "/issues?" in path:
+                pages.append(path)
+                # Advance the transport's clock deterministically: local CPU load
+                # must not decide how many successful pages this scenario reaches.
+                clock[0] += .08
+                if len(pages) == 1:
+                    return 200, [self.fake.issues[1]] + [dict(number=n, title="Other", body="") for n in range(100, 199)]
+                if len(pages) == 2:
+                    return 200, [dict(number=n, title="Other", body="") for n in range(200, 300)]
+                return 200, []
+            return original(method, path, body)
+        self.client._transport = paginated
+        with mock.patch.object(telemetry.time, "monotonic", side_effect=lambda: clock[0]):
+            result = self.reconcile(deadline=clock[0] + .23)
+        self.assertEqual(len(pages), 3)
+        self.assertTrue(result["unverified"])
+        self.assertEqual(result["closed"], 0)
+        self.assertEqual(self.fake.open_count(), 1)
+
+    def legacy_incident(self, producer="scoped-reader"):
+        import hooks
+        stamp = "2026-09-12T12:00:00Z"
+        source = (hooks._fail_open_source_id("PreToolUse", "crash") if producer == "scoped-reader"
+                  else "boot/envelope-assembly-failed")
+        self.other.observe(producer, "failing", telemetry.reader_health_identity(self.sibling, "scoped-reader"))
+        row = next(iter(self.store.snapshot()["readers"].values()))
+        self.assertTrue(telemetry.promote_finding(self.client, rec(source, "trust-critical"), stamp))
+        diagnostic = self.sibling / ".engine/telemetry/.cache/hook-crash-debug.log"
+        diagnostic.parent.mkdir(parents=True, exist_ok=True)
+        event = "PreToolUse" if producer == "scoped-reader" else "SessionStart-envelope-assembly"
+        diagnostic.write_text(stamp + " " + event + " handler crash: PlanStoreError: unsupported schema @ plan_store.py:100\n")
+        return row["reader"], stamp, diagnostic
+
+    def test_attributed_legacy_incident_enrolls_then_actual_recovery_closes_it(self):
+        reader, stamp, diagnostic = self.legacy_incident()
+        self.fake.issues[1]["body"] += "\nMaintainer context must remain.\n"
+        self.fake.calls.clear()
+        preview = telemetry.reader_incident_enrollment(self.client, self.root, 1, reader, "scoped-reader", stamp)
+        self.assertEqual(self.fake.writes(), [])
+        result = telemetry.reader_incident_enrollment(self.client, self.root, 1, reader, "scoped-reader", stamp,
+            expected=preview, confirm=True, reason="Operator verified original incident attribution to this clone and reader")
+        self.assertFalse(result["closed"])
+        self.assertEqual(self.fake.open_count(), 1)
+        body = self.fake.issues[1]["body"]
+        self.assertIn("Maintainer context must remain", body)
+        self.assertNotIn(str(self.sibling), body)
+        self.assertNotIn("unsupported schema", body)
+        self.healthy(self.sibling)
+        self.assertEqual(self.reconcile()["closed"], 1)
+        self.assertIn("engine-reader-enrollment", self.fake.issues[1]["body"])
+
+    def test_legacy_enrollment_after_recovery_still_requires_current_verification(self):
+        reader, stamp, diagnostic = self.legacy_incident()
+        self.healthy(self.sibling)
+        preview = telemetry.reader_incident_enrollment(self.client, self.root, 1, reader, "scoped-reader", stamp)
+        result = telemetry.reader_incident_enrollment(self.client, self.root, 1, reader, "scoped-reader", stamp,
+            expected=preview, confirm=True, reason="Operator verified retained original incident attribution")
+        self.assertFalse(result["closed"])
+        self.assertEqual(self.fake.open_count(), 1)
+        self.record_path.write_text(self.record_path.read_text() + " ")
+        self.assertTrue(self.reconcile()["unverified"])
+        self.assertEqual(self.fake.open_count(), 1)
+        self.healthy(self.sibling)
+        self.assertEqual(self.reconcile()["closed"], 1)
+        self.assertIn("engine-reader-enrollment", self.fake.issues[1]["body"])
+
+    def test_legacy_enrollment_revokes_success_before_an_unrecorded_crash(self):
+        with mock.patch.object(telemetry.moment, "utc_now", return_value="2026-09-12T11:59:59Z"):
+            self.healthy(self.sibling)
+        in_flight = self.other.begin_verification()
+        # The original diagnostic and remote alert survive, but its local failure
+        # observation was lost. The retained success alone would still be fresh.
+        with mock.patch.object(self.other, "observe"):
+            reader, stamp, diagnostic = self.legacy_incident()
+        with mock.patch.object(telemetry.moment, "utc_now", return_value="2026-09-12T12:00:01Z"):
+            self.assertEqual(telemetry._reader_recovery_state(self.store, self.store.snapshot(),
+                "scoped-reader", time.monotonic() + 10), "healthy")
+            preview = telemetry.reader_incident_enrollment(self.client, self.root, 1, reader, "scoped-reader", stamp)
+            telemetry.reader_incident_enrollment(self.client, self.root, 1, reader, "scoped-reader", stamp,
+                expected=preview, confirm=True, reason="Operator verified retained original attribution")
+            self.other.observe("scoped-reader", "healthy",
+                telemetry.reader_health_identity(self.sibling, "scoped-reader"), verification=in_flight)
+            self.assertEqual(self.store.snapshot()["readers"][reader + "/scoped-reader"]["state"], "unknown")
+            self.assertTrue(self.reconcile()["unverified"])
+            self.assertEqual(self.fake.open_count(), 1)
+            self.healthy(self.sibling)
+            self.assertEqual(self.reconcile()["closed"], 1)
+
+    def test_failed_enrollment_verification_boundary_makes_no_remote_write(self):
+        reader, stamp, diagnostic = self.legacy_incident()
+        self.healthy(self.sibling)
+        preview = telemetry.reader_incident_enrollment(self.client, self.root, 1, reader, "scoped-reader", stamp)
+        self.fake.calls.clear()
+        with mock.patch.object(telemetry.ReaderHealthStore, "_write", side_effect=OSError("disk unavailable")):
+            with self.assertRaises(OSError):
+                telemetry.reader_incident_enrollment(self.client, self.root, 1, reader, "scoped-reader", stamp,
+                    expected=preview, confirm=True, reason="Operator verified original attribution")
+        self.assertEqual(self.fake.writes(), [])
+        self.assertEqual(self.fake.open_count(), 1)
+
+    def test_legacy_enrollment_refuses_changed_original_evidence_without_writes(self):
+        reader, stamp, diagnostic = self.legacy_incident()
+        preview = telemetry.reader_incident_enrollment(self.client, self.root, 1, reader, "scoped-reader", stamp)
+        original = diagnostic.read_text()
+        original_body = self.fake.issues[1]["body"]
+        for change in ("diagnostic", "body", "generation"):
+            with self.subTest(change=change):
+                diagnostic.write_text(original)
+                self.fake.issues[1]["body"] = original_body
+                if change == "diagnostic":
+                    diagnostic.write_text(original.replace("unsupported schema", "different failure"))
+                elif change == "body":
+                    self.fake.issues[1]["body"] += "\nChanged evidence."
+                else:
+                    self.other.observe("scoped-reader", "failing", {})
+                self.fake.calls.clear()
+                with self.assertRaises(telemetry.ReaderHealthUnavailable):
+                    telemetry.reader_incident_enrollment(self.client, self.root, 1, reader, "scoped-reader", stamp,
+                        expected=preview, confirm=True, reason="Operator confirmed")
+                self.assertEqual(self.fake.writes(), [])
+        self.assertEqual(self.fake.open_count(), 1)
+
+    def test_legacy_ambiguity_and_unrelated_issues_never_enroll(self):
+        reader, stamp, diagnostic = self.legacy_incident()
+        original = self.fake.issues[1]["body"]
+        for body in (original.replace("last reconfirmed " + stamp, "last reconfirmed 2026-09-12T13:00:00Z"),
+                     original.replace("hooks/fail-open/PreToolUse/crash", "hooks/fail-open/Stop/crash")):
+            self.fake.issues[1]["body"] = body
+            self.fake.calls.clear()
+            with self.assertRaises(telemetry.ReaderHealthUnavailable):
+                telemetry.reader_incident_enrollment(self.client, self.root, 1, reader, "scoped-reader", stamp)
+            self.assertEqual(self.fake.writes(), [])
+
+    def test_original_boot_assembly_observation_can_be_attributed_without_closing(self):
+        reader, stamp, diagnostic = self.legacy_incident("boot-assembly")
+        preview = telemetry.reader_incident_enrollment(self.client, self.root, 1, reader, "boot-assembly", stamp)
+        result = telemetry.reader_incident_enrollment(self.client, self.root, 1, reader, "boot-assembly", stamp,
+            expected=preview, confirm=True, reason="Operator verified original boot attribution")
+        self.assertFalse(result["closed"])
+        self.assertEqual(self.fake.open_count(), 1)
+
+
 class FakeGH:
     """In-memory GitHub for the transport seam. Records every call; serves labels + issues; can be
     told to fail issue reads with a given status. The harness under test is the REAL GitHubIssues +
@@ -136,7 +721,7 @@ def setUpModule():
     global _producer_fixtures
     store_type = issue_recovery.GitStore
     def store(client, activation):
-        return client._transport.__self__.recovery_store
+        return client.recovery_store or client._transport.__self__.recovery_store
     _producer_fixtures = [patch('issue_author.resolve_issue_repositories', return_value=['you/proj', 'you/your-project', 'o/r', 'ambient/repo']),
                           patch('issue_recovery.load_activation', return_value={'repository_id': 42, 'genesis': '0' * 40}),
                           patch('issue_recovery.GitStore', side_effect=store)]
@@ -1227,7 +1812,7 @@ class TestFailureContracts(unittest.TestCase):
             self.assertTrue(callable(getattr(telemetry, handler_name)), (verb, handler_name))
         # The classification the issue's acceptance asks for, by name.
         self.assertEqual(telemetry.FAIL_OPEN_COMMANDS, {"run", "run-ambient", "drain-inbox", "refresh"})
-        self.assertEqual(telemetry.VERDICT_COMMANDS, {"demo", "engine-issues", "never-fired"})
+        self.assertEqual(telemetry.VERDICT_COMMANDS, {"demo", "engine-issues", "never-fired", "retire-reader", "reconcile-readers", "enroll-reader-incident"})
 
     def test_a_collection_command_still_fails_open(self):
         with mock.patch.object(telemetry, "_refresh_cli", _raise):

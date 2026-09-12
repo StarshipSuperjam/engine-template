@@ -1,0 +1,163 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "Reader health observations; no approval or execution credit",
+  "type": "object",
+  "additionalProperties": false,
+  "properties": {
+    "schema_version": {
+      "const": "reader-health.v1"
+    },
+    "binding": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "common": {
+          "type": "string",
+          "minLength": 1
+        },
+        "device": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "inode": {
+          "type": "integer",
+          "minimum": 0
+        }
+      },
+      "required": [
+        "common",
+        "device",
+        "inode"
+      ]
+    },
+    "scope": {
+      "type": "string",
+      "pattern": "^[0-9a-f]{32}$"
+    },
+    "generation": {
+      "type": "integer",
+      "minimum": 0
+    },
+    "readers": {
+      "type": "object",
+      "maxProperties": 1024,
+      "additionalProperties": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "reader": {
+            "type": "string",
+            "pattern": "^[0-9a-f]{64}$"
+          },
+          "root": {
+            "type": "string",
+            "minLength": 1
+          },
+          "producer": {
+            "enum": [
+              "scoped-reader",
+              "boot-assembly"
+            ]
+          },
+          "state": {
+            "enum": [
+              "healthy",
+              "failing",
+              "unknown"
+            ]
+          },
+          "identity": {
+            "type": "object"
+          },
+          "observed": {
+            "type": "string",
+            "minLength": 1
+          },
+          "generation": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "retired": {
+            "type": "boolean"
+          },
+          "required_inputs": {
+            "type": "array",
+            "maxItems": 512,
+            "uniqueItems": true,
+            "items": {
+              "type": "string"
+            }
+          }
+        },
+        "required": [
+          "reader",
+          "root",
+          "producer",
+          "state",
+          "identity",
+          "observed",
+          "generation",
+          "retired",
+          "required_inputs"
+        ]
+      }
+    },
+    "retirements": {
+      "type": "array",
+      "maxItems": 2048,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "scope": {
+            "type": "string",
+            "pattern": "^[0-9a-f]{32}$"
+          },
+          "reader": {
+            "type": "string",
+            "minLength": 1
+          },
+          "producer": {
+            "enum": [
+              "scoped-reader",
+              "boot-assembly"
+            ]
+          },
+          "generation": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "reader_generation": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "reason": {
+            "type": "string",
+            "minLength": 1
+          },
+          "recorded": {
+            "type": "string",
+            "minLength": 1
+          }
+        },
+        "required": [
+          "scope",
+          "reader",
+          "producer",
+          "generation",
+          "reader_generation",
+          "reason",
+          "recorded"
+        ]
+      }
+    }
+  },
+  "required": [
+    "schema_version",
+    "binding",
+    "scope",
+    "generation",
+    "readers",
+    "retirements"
+  ]
+}

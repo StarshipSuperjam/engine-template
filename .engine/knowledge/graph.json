@@ -1134,6 +1134,7 @@
           "doc:ci-assurance",
           "doc:getting-started",
           "doc:product-design",
+          "doc:reader-health-recovery",
           "doc:result-contracts"
         ]
       },
@@ -1166,6 +1167,7 @@
           "doc:ci-assurance",
           "doc:getting-started",
           "doc:product-design",
+          "doc:reader-health-recovery",
           "doc:result-contracts"
         ]
       },
@@ -5296,6 +5298,26 @@
       "type": "doc"
     },
     {
+      "id": "doc:reader-health-recovery",
+      "name": ".engine/docs/reader-health-recovery.md",
+      "owner": "core",
+      "predicates": {
+        "governed_by": [
+          "schema:doc.v1"
+        ],
+        "provided_by": [
+          "module:core"
+        ]
+      },
+      "slug": "reader-health-recovery",
+      "source": {
+        "fingerprint": "sha256:482cbb5f339a17fbf0c0c8097864fb4f670d87aa309cda977c58bbdc1d6fd42f",
+        "path": ".engine/docs/reader-health-recovery.md"
+      },
+      "status": "active",
+      "type": "doc"
+    },
+    {
       "id": "doc:result-contracts",
       "name": ".engine/docs/result-contracts.md",
       "owner": "core",
@@ -5511,7 +5533,7 @@
       },
       "slug": "core",
       "source": {
-        "fingerprint": "sha256:da41328b2442e5027f4785e7f6c9344dba5acb20d3adb1a110f90700d3c3c721",
+        "fingerprint": "sha256:4615b8b502620ea08de57d2779c95273804f2826e52ada714f9290c9c908240a",
         "path": ".engine/modules/core/manifest.json"
       },
       "status": "required",
@@ -7916,6 +7938,23 @@
       "type": "schema"
     },
     {
+      "id": "schema:reader-health.v1",
+      "name": ".engine/schemas/reader-health.v1.json",
+      "owner": "core",
+      "predicates": {
+        "provided_by": [
+          "module:core"
+        ]
+      },
+      "slug": "reader-health.v1",
+      "source": {
+        "fingerprint": "sha256:ad7e61182d77d390ccd3f9d92766a939da05d509086b5b938b3be5cb8cdfc405",
+        "path": ".engine/schemas/reader-health.v1.json"
+      },
+      "status": "active",
+      "type": "schema"
+    },
+    {
       "id": "schema:result-rejection.v1",
       "name": ".engine/schemas/result-rejection.v1.json",
       "owner": "core",
@@ -9744,7 +9783,7 @@
       },
       "slug": "boot",
       "source": {
-        "fingerprint": "sha256:1c6fb88bf6444b2780c3423fa7c1d9838380b48fb24df1a65c5410aefdf4084b",
+        "fingerprint": "sha256:303bfbaa98150156609e07d4e9391187b258214fe5e75585a4616a42b494f181",
         "path": ".engine/tools/boot.py"
       },
       "status": "active",
@@ -14711,7 +14750,7 @@
       },
       "slug": "plan_program",
       "source": {
-        "fingerprint": "sha256:7f459ee0b9304440880ecb019a69cc28692052d82583d8ddb7ebbe348906ded4",
+        "fingerprint": "sha256:a7f73c3c1f927dadcf36768c1a3d54a97ddd5ff1368b2921027ad8b887c1c006",
         "path": ".engine/tools/plan_program.py"
       },
       "status": "active",
@@ -14764,7 +14803,7 @@
       },
       "slug": "plan_store",
       "source": {
-        "fingerprint": "sha256:6f3c22adaa909beaa5eee06319618adfe2bad48aee40611a12ac2c2f323cb546",
+        "fingerprint": "sha256:a876daff4322ab56b582d261fed770577d478740b17c197875bf1fdebb356844",
         "path": ".engine/tools/plan_store.py"
       },
       "status": "active",
@@ -15136,6 +15175,31 @@
       },
       "status": "active",
       "summary": "Run a callable with its stdout captured — the test-support helper that keeps a demo walkthrough",
+      "type": "tool"
+    },
+    {
+      "entrypoint": "library",
+      "guarded": false,
+      "id": "tool:reader_health_history_fixture",
+      "name": ".engine/tools/reader_health_history_fixture.py",
+      "owner": "core",
+      "predicates": {
+        "imports": [
+          "tool:build_coordinator_core",
+          "tool:reviewer_contracts",
+          "tool:scoped_agents"
+        ],
+        "provided_by": [
+          "module:core"
+        ]
+      },
+      "slug": "reader_health_history_fixture",
+      "source": {
+        "fingerprint": "sha256:ab00efbf3f02ed260a7a0164d71459824a24fde7f6acf97ed15713b2907acf5c",
+        "path": ".engine/tools/reader_health_history_fixture.py"
+      },
+      "status": "active",
+      "summary": "Frozen historical schemas for reader recovery regressions; never runtime policy.",
       "type": "tool"
     },
     {
@@ -15834,6 +15898,7 @@
           "tool:providers",
           "tool:result_contracts",
           "tool:reviewer_contracts",
+          "tool:telemetry",
           "tool:validate"
         ],
         "provided_by": [
@@ -15842,7 +15907,7 @@
       },
       "slug": "scoped_agents",
       "source": {
-        "fingerprint": "sha256:e8ce1adf4acd09f9d1829093dad5e97c15f480a9a1361fd2007decb8eda5783d",
+        "fingerprint": "sha256:906e817ba0f0471efc8925dfe4560be161184339a52bcaf1b8ad4627acc6fc3a",
         "path": ".engine/tools/scoped_agents.py"
       },
       "status": "active",
@@ -16482,16 +16547,22 @@
       "owner": "core",
       "predicates": {
         "imports": [
+          "tool:accepted_hook_dispatch",
           "tool:boot",
+          "tool:build_coordinator_core",
           "tool:capture",
           "tool:github_client",
+          "tool:hooks",
           "tool:issue_author",
           "tool:issue_recovery",
           "tool:issue_recovery_store",
           "tool:issue_triage",
           "tool:moment",
           "tool:mutation_authority",
+          "tool:plan_store",
+          "tool:providers",
           "tool:repo_identity",
+          "tool:scoped_agents",
           "tool:standing_situation",
           "tool:validate"
         ],
@@ -16501,7 +16572,7 @@
       },
       "slug": "telemetry",
       "source": {
-        "fingerprint": "sha256:7ad9d35023de2b55c281d9a9ebbbfcafe7583eea41bee1b7ca8dc659c77ac6ee",
+        "fingerprint": "sha256:80ff9487327c2ac643f68e2a1f8ec1ca9016ed6e79a7e03a69d1c186b9392fbb",
         "path": ".engine/tools/telemetry.py"
       },
       "status": "active",
@@ -16887,7 +16958,7 @@
       },
       "slug": "test_boot",
       "source": {
-        "fingerprint": "sha256:46127aa8d39c87f6e86ef46b398cf18f6c2fa9fbffd1d374a2c67df924f6deaa",
+        "fingerprint": "sha256:af987f0d62044006cdaa56d4fed634223c6ee33fc8cd87ea9fb61d238615483e",
         "path": ".engine/tools/test_boot.py"
       },
       "status": "active",
@@ -18593,13 +18664,14 @@
           "tool:qualification_health",
           "tool:selftest_support",
           "tool:telemetry",
+          "tool:test_boot",
           "tool:validate",
           "tool:wiring"
         ]
       },
       "slug": "test_hooks",
       "source": {
-        "fingerprint": "sha256:6ffbe55a285f4330f834b691e15acb05cb59f957517c01110ca5ee7b11df56ba",
+        "fingerprint": "sha256:e7fa398606d512ecef02def38b01fa0c0b914a57a517f3c73d7f679251503ec2",
         "path": ".engine/tools/test_hooks.py"
       },
       "status": "active",
@@ -19682,7 +19754,7 @@
       },
       "slug": "test_modules",
       "source": {
-        "fingerprint": "sha256:4245ae72a815421f2f3db94708d91bb29be78c253cbb16e4342826e3fc5cd1df",
+        "fingerprint": "sha256:d7b378ef70893c7bd7090f6740553ddf075deb9a3db8ae19d63c39479c2fdd72",
         "path": ".engine/tools/test_modules.py"
       },
       "status": "active",
@@ -20192,17 +20264,19 @@
         ],
         "tests": [
           "tool:build_coordinator",
+          "tool:build_coordinator_core",
           "tool:plan_program",
           "tool:plan_store",
           "tool:program_manager",
           "tool:project_manager",
+          "tool:reader_health_history_fixture",
           "tool:selftest_support",
           "tool:test_plan_store"
         ]
       },
       "slug": "test_plan_program",
       "source": {
-        "fingerprint": "sha256:258749c453124c8efbc32cb98a1c7e2a5c9f38c3a9793dafb7e25d7d2a737d06",
+        "fingerprint": "sha256:a2d54c01618662301704a58b51e2a5b23ace55129f13d9a5904ecd48bc7d0e33",
         "path": ".engine/tools/test_plan_program.py"
       },
       "status": "active",
@@ -21356,15 +21430,17 @@
           "tool:build_coordinator_core",
           "tool:plan_store",
           "tool:providers",
+          "tool:reader_health_history_fixture",
           "tool:result_contracts",
           "tool:scoped_agents",
           "tool:selftest_support",
+          "tool:telemetry",
           "tool:test_plan_store"
         ]
       },
       "slug": "test_scoped_agents",
       "source": {
-        "fingerprint": "sha256:d7709a3c5226c9db65c364947397ca7f661a67aa6e05568b60bd0c6787e2f27c",
+        "fingerprint": "sha256:76521cb7902757d911f9151cdd92ea95717b5333609c8379118c9adecca234d7",
         "path": ".engine/tools/test_scoped_agents.py"
       },
       "status": "active",
@@ -22142,12 +22218,18 @@
         ],
         "tests": [
           "tool:boot",
+          "tool:build_coordinator_core",
           "tool:capture",
           "tool:checkout_health",
           "tool:github_client",
+          "tool:hooks",
           "tool:issue_author",
           "tool:issue_recovery",
           "tool:issue_triage",
+          "tool:plan_store",
+          "tool:reader_health_history_fixture",
+          "tool:scoped_agents",
+          "tool:selftest_support",
           "tool:standing_situation",
           "tool:telemetry",
           "tool:validate"
@@ -22155,7 +22237,7 @@
       },
       "slug": "test_telemetry",
       "source": {
-        "fingerprint": "sha256:c75dc4781b952a65f6691aa1f3f412336c02fdf6873e0abc0c0f7d6ec51528b3",
+        "fingerprint": "sha256:5270fbeeb7662a988863c3296812d18fd17e12a86e7829bd6fb76175032e0b10",
         "path": ".engine/tools/test_telemetry.py"
       },
       "status": "active",
@@ -22925,7 +23007,7 @@
       },
       "slug": "weakening_guard",
       "source": {
-        "fingerprint": "sha256:26fa48cbd7759d5f0a1b381b75fb0564f0420f1c1e6bba0b51ecf6ecd713f47c",
+        "fingerprint": "sha256:2c391ba54f3ab8f5b8d7f3723e591982f37edba864da1195225403325f98fd08",
         "path": ".engine/tools/weakening_guard.py"
       },
       "status": "active",

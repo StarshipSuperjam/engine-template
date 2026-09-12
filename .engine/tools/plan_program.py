@@ -531,7 +531,7 @@ class ProgramLibrary:
 
     def read(self, slug: str) -> dict:
         record = core.json_file(self._record_path(slug))
-        core.validate(record, PROGRAM_SCHEMA)
+        plan_store.validate_shared_record(record, PROGRAM_SCHEMA)
         return record
 
     def _write(self, slug: str, record: dict) -> None:
