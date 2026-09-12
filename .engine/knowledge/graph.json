@@ -5249,7 +5249,7 @@
       },
       "slug": "ci-assurance",
       "source": {
-        "fingerprint": "sha256:497e7f91e71e15eddd9105973d815930a310f30c061a36a1072238c4aae592dd",
+        "fingerprint": "sha256:ac3ceb3456e96a8849b3af62459204f2ed98922661eca295629dce2bc0ecb659",
         "path": ".engine/docs/ci-assurance.md"
       },
       "status": "active",
@@ -15079,6 +15079,31 @@
       "type": "tool"
     },
     {
+      "entrypoint": "library",
+      "guarded": false,
+      "id": "tool:reader_health_history_fixture",
+      "name": ".engine/tools/reader_health_history_fixture.py",
+      "owner": "core",
+      "predicates": {
+        "imports": [
+          "tool:build_coordinator_core",
+          "tool:reviewer_contracts",
+          "tool:scoped_agents"
+        ],
+        "provided_by": [
+          "module:core"
+        ]
+      },
+      "slug": "reader_health_history_fixture",
+      "source": {
+        "fingerprint": "sha256:ab00efbf3f02ed260a7a0164d71459824a24fde7f6acf97ed15713b2907acf5c",
+        "path": ".engine/tools/reader_health_history_fixture.py"
+      },
+      "status": "active",
+      "summary": "Frozen historical schemas for reader recovery regressions; never runtime policy.",
+      "type": "tool"
+    },
+    {
       "entrypoint": "cli",
       "guarded": false,
       "id": "tool:recall",
@@ -20097,14 +20122,14 @@
           "tool:plan_store",
           "tool:program_manager",
           "tool:project_manager",
+          "tool:reader_health_history_fixture",
           "tool:selftest_support",
-          "tool:test_plan_store",
-          "tool:test_reader_health_history"
+          "tool:test_plan_store"
         ]
       },
       "slug": "test_plan_program",
       "source": {
-        "fingerprint": "sha256:fa923b9783b85d3bcf99950d8c8369d6ba291f3e6f00636b40760545826025ac",
+        "fingerprint": "sha256:a2d54c01618662301704a58b51e2a5b23ace55129f13d9a5904ecd48bc7d0e33",
         "path": ".engine/tools/test_plan_program.py"
       },
       "status": "active",
@@ -20476,31 +20501,6 @@
       },
       "status": "active",
       "summary": "Tests for quiet_call, plus the durability guard that keeps the demo-output flood from returning.",
-      "type": "tool"
-    },
-    {
-      "entrypoint": "test",
-      "guarded": false,
-      "id": "tool:test_reader_health_history",
-      "name": ".engine/tools/test_reader_health_history.py",
-      "owner": "core",
-      "predicates": {
-        "provided_by": [
-          "module:core"
-        ],
-        "tests": [
-          "tool:build_coordinator_core",
-          "tool:reviewer_contracts",
-          "tool:scoped_agents"
-        ]
-      },
-      "slug": "test_reader_health_history",
-      "source": {
-        "fingerprint": "sha256:ab00efbf3f02ed260a7a0164d71459824a24fde7f6acf97ed15713b2907acf5c",
-        "path": ".engine/tools/test_reader_health_history.py"
-      },
-      "status": "active",
-      "summary": "Frozen historical schemas for reader recovery regressions; never runtime policy.",
       "type": "tool"
     },
     {
@@ -21282,17 +21282,17 @@
           "tool:build_coordinator_core",
           "tool:plan_store",
           "tool:providers",
+          "tool:reader_health_history_fixture",
           "tool:result_contracts",
           "tool:scoped_agents",
           "tool:selftest_support",
           "tool:telemetry",
-          "tool:test_plan_store",
-          "tool:test_reader_health_history"
+          "tool:test_plan_store"
         ]
       },
       "slug": "test_scoped_agents",
       "source": {
-        "fingerprint": "sha256:a99f3fad0ee3a19a2995bce8751c7794916139353238292eb291ae4ea39dcc38",
+        "fingerprint": "sha256:76521cb7902757d911f9151cdd92ea95717b5333609c8379118c9adecca234d7",
         "path": ".engine/tools/test_scoped_agents.py"
       },
       "status": "active",
@@ -22031,17 +22031,17 @@
           "tool:issue_recovery",
           "tool:issue_triage",
           "tool:plan_store",
+          "tool:reader_health_history_fixture",
           "tool:scoped_agents",
           "tool:selftest_support",
           "tool:standing_situation",
           "tool:telemetry",
-          "tool:test_reader_health_history",
           "tool:validate"
         ]
       },
       "slug": "test_telemetry",
       "source": {
-        "fingerprint": "sha256:8a2a553590f0a5c0e998c2e1c6f4e2ce39d996ef046c600aa44354007a4ee2fb",
+        "fingerprint": "sha256:73c53cb32f80d2810f775de853398e2407f00c37cce7b8058b1aeea37ae334b6",
         "path": ".engine/tools/test_telemetry.py"
       },
       "status": "active",

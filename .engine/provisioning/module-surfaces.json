@@ -2181,6 +2181,9 @@
   ".engine/tools/quiet_call.py": [
    "core"
   ],
+  ".engine/tools/reader_health_history_fixture.py": [
+   "core"
+  ],
   ".engine/tools/release_cut.py": [
    "core"
   ],
@@ -2671,9 +2674,6 @@
    "core"
   ],
   ".engine/tools/test_quiet_call.py": [
-   "core"
-  ],
-  ".engine/tools/test_reader_health_history.py": [
    "core"
   ],
   ".engine/tools/test_release_cut.py": [
