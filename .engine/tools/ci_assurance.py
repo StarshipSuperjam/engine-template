@@ -185,6 +185,26 @@ def discover_test_modules(root: str, steps: list[dict]) -> list[dict]:
         if step["kind"] != "run":
             continue
         for line in str(step["command"]).splitlines():
+            if "tools/selftest.py" in line:
+                tokens = shlex.split(line)
+                prefix = ["uv", "run", "--directory", ".engine", "--frozen", "--", "python", "tools/selftest.py"]
+                if tokens[:len(prefix)] != prefix:
+                    raise ValueError("full selftest launcher must use the explicit pinned runtime")
+                args = tokens[len(prefix):]
+                options = {}
+                allowed = {"--start-dir", "--pattern", "--results-path", "--performance-path"}
+                if len(args) % 2:
+                    raise ValueError("ambiguous full selftest launcher arguments")
+                for flag, value in zip(args[::2], args[1::2]):
+                    if flag not in allowed or flag in options or not value or value.startswith("--"):
+                        raise ValueError("unsupported or duplicate full selftest launcher option")
+                    options[flag] = value
+                if set(options) != allowed or options["--start-dir"] != "tools" or options["--pattern"] != "test_*.py":
+                    raise ValueError("full selftest launcher must name complete discovery and both artifacts")
+                if options["--results-path"] == options["--performance-path"]:
+                    raise ValueError("selftest artifact paths must differ")
+                discoveries.append((options["--start-dir"], options["--pattern"]))
+                continue
             if "unittest discover" not in line:
                 continue
             tokens = shlex.split(line)

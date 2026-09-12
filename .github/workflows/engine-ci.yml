@@ -138,7 +138,29 @@ jobs:
           GITHUB_PATH: ${{ runner.temp }}/decoy-github-path
           GITHUB_STATE: ${{ runner.temp }}/decoy-github-state
           GITHUB_STEP_SUMMARY: ${{ runner.temp }}/decoy-github-step-summary
-        run: uv run --directory .engine --frozen -- python -m unittest discover -s tools -p 'test_*.py' -b
+        run: uv run --directory .engine --frozen -- python tools/selftest.py --start-dir tools --pattern 'test_*.py' --results-path "$RUNNER_TEMP/selftest-results.json" --performance-path "$RUNNER_TEMP/selftest-performance.json"
+      - name: Publish observed self-test summary
+        if: always() && steps.gate.outputs.mode == 'full'
+        continue-on-error: true
+        run: uv run --directory .engine --frozen -- python tools/selftest_performance.py publish --results "$RUNNER_TEMP/selftest-results.json" --performance "$RUNNER_TEMP/selftest-performance.json"
+      - name: Upload test outcomes
+        if: always() && steps.gate.outputs.mode == 'full'
+        continue-on-error: true
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: engine-selftest-results-${{ github.run_id }}-${{ github.run_attempt }}
+          path: ${{ runner.temp }}/selftest-results.json
+          retention-days: 30
+          if-no-files-found: warn
+      - name: Upload test timing
+        if: always() && steps.gate.outputs.mode == 'full'
+        continue-on-error: true
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: engine-selftest-performance-${{ github.run_id }}-${{ github.run_attempt }}
+          path: ${{ runner.temp }}/selftest-performance.json
+          retention-days: 30
+          if-no-files-found: warn
       - name: Run the seed validator alone (project-only change set)
         # The project-only arm: the FULL validator CI suite, and nothing else. It is a separate step rather
         # than a second condition on the validator step above because the terminal assertion reads each arm's
@@ -165,7 +187,8 @@ jobs:
           ENGINE_CI_MODE: ${{ steps.gate.outputs.mode }}
         run: uv run --directory .engine --frozen -- python tools/ci_gatekeeper.py emit-receipt --out "$RUNNER_TEMP/receipt.json"
       - name: Upload the receipt
-        # The ONLY upload in this workflow, and a reuse run never reaches it. Artifact presence separates a
+        # The ONLY merge-receipt upload; separate per-attempt observations carry no merge authority.
+        # A reuse run never reaches any upload. The exact receipt artifact name separates a
         # run that left a receipt from a reuse run of the same workflow — run metadata reports the event but
         # not the action, so it cannot make that distinction itself — and the receipt's mode separates a full
         # run from a project-only one; the reuse route accepts only the former.

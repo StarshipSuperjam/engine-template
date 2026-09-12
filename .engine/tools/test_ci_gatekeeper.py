@@ -400,6 +400,16 @@ class CandidateSelection(unittest.TestCase):
                                             expected_tree=TREE, transport=t)
         self.assertFalse(found)
 
+    def test_performance_artifacts_cannot_impersonate_the_merge_receipt(self):
+        artifacts=[{"id":5,"name":"engine-selftest-results-900-1","expired":False},
+                   {"id":6,"name":"engine-selftest-performance-900-1","expired":False}]
+        t=transport_for([run_record()],{900:artifacts})
+        with mock.patch.object(gk,"download_artifact") as download:
+            found,_=gk.find_reusable_receipt(repo=REPO,token="t",pr_number=PR,head_sha=HEAD,
+                                            expected_tree=TREE,transport=t)
+        self.assertFalse(found)
+        download.assert_not_called()
+
 
 class ReceiptVerification(unittest.TestCase):
     """One negative fixture per rejection reason. Every one must refuse, never pass."""
@@ -788,7 +798,8 @@ class WorkflowShape(unittest.TestCase):
         self.assertNotIn("unittest", project["run"])
         self.assertEqual(project["env"], validator["env"])
         # The whole job runs exactly one unittest discovery, on the full arm.
-        runners = [key for key, step in self.steps.items() if "unittest" in str(step.get("run", ""))]
+        runners = [key for key, step in self.steps.items() if "unittest" in str(step.get("run", ""))
+                   or "tools/selftest.py" in str(step.get("run", ""))]
         self.assertEqual(runners, ["selftests"])
 
     def test_the_receipt_takes_its_mode_from_the_gate_and_never_runs_on_reuse(self):
@@ -798,7 +809,25 @@ class WorkflowShape(unittest.TestCase):
             self.assertIn("steps.gate.outputs.mode != 'reuse'", step["if"])
         self.assertEqual(upload["with"]["name"], gk.RECEIPT_ARTIFACT_NAME)
         uploads = [key for key, step in self.steps.items() if "upload-artifact" in str(step.get("uses", ""))]
-        self.assertEqual(uploads, ["Upload the receipt"])
+        self.assertEqual(uploads, ["Upload test outcomes", "Upload test timing", "Upload the receipt"])
+        for key,prefix in [("Upload test outcomes","engine-selftest-results"),
+                           ("Upload test timing","engine-selftest-performance")]:
+            step=self.steps[key]
+            self.assertEqual(step['if'],"always() && steps.gate.outputs.mode == 'full'")
+            self.assertEqual(step['with']['name'],prefix+'-${{ github.run_id }}-${{ github.run_attempt }}')
+            self.assertEqual(step['with']['retention-days'],30)
+            self.assertNotIn('overwrite',step['with'])
+        self.assertTrue(upload['with']['overwrite'])
+
+    def test_incomplete_selftest_cannot_reach_a_receipt_through_publication(self):
+        self.assertFalse(self.steps['selftests'].get('continue-on-error',False))
+        for key in ['Write the receipt','Upload the receipt']:
+            self.assertNotIn('always()',self._condition(key))
+            self.assertNotIn('failure()',self._condition(key))
+        summary=self.steps['Publish observed self-test summary']
+        self.assertEqual(summary['if'],"always() && steps.gate.outputs.mode == 'full'")
+        self.assertNotIn('id',summary)
+        self.assertNotIn('ENGINE_CI_MODE',summary.get('env',{}))
 
     def test_every_arms_substantive_steps_precede_the_receipt(self):
         # The receipt attests by construction only if a failure in its arm skips it: a substantive step
