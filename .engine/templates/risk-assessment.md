@@ -32,4 +32,4 @@ You choose how careful this should be; the recommendation above is the default. 
 
 ## Your call
 
-<The consent ask in plain words: go ahead at the recommended level, pick a different one, or install a review pack first. Nothing starts until the operator approves.>
+<If the operator has not decided, ask in plain words: go ahead at the recommended level, pick a different one, or install a review pack first. If their current instruction already approves the presented plan at a depth, record it and continue; do not repeat the ask. Changed material scope still needs their decision before dependent work.>

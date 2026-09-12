@@ -105,8 +105,8 @@ class _Ceremony(unittest.TestCase):
     def covering(self, depth="standard"):
         return project_manager.required_lenses(depth, project_manager.installed_lenses())
 
-    def reviewed(self, *findings, depth="standard", lenses=None):
-        slug = self.approved(depth)
+    def reviewed(self, *findings, depth="standard", lenses=None, **over):
+        slug = self.approved(depth, **over)
         argv = ["review", "record", slug, "--packet-digest", self.packet_digest(slug)]
         for lens in (lenses if lenses is not None else self.covering(depth)):
             argv += ["--lens", lens]
@@ -533,6 +533,24 @@ class D10TheOrphanedApprovalWedgeHasAnInCliRepair(_Ceremony):
 class ConsentGates(_Ceremony):
     """The silent thirty-two-minute ceremony of 2026-08-25, reproduced and refused."""
 
+    def test_historical_presentation_decision_survives_continuation(self):
+        # Before context-efficiency C1, the same flow required three operator
+        # decisions: approve, acknowledge findings, seal. Presentation itself
+        # conveys no new authority. Keep this historical event intact on upgrade.
+        slug = self.reviewed()
+        self.run_command("present-findings", slug, "--operator-decided")
+        historical = {"gate": "findings-presented", "at": "2026-09-11T12:00:00Z"}
+        def retain_legacy(current):
+            current["consent"] = [c for c in current["consent"]
+                                  if c["gate"] != "findings-presented"] + [historical]
+        self.lib.update_record(slug, retain_legacy)
+        self.assertEqual(self.run_command("seal", slug, "--operator-decided")[0], 0)
+        record = self.lib.read_record(slug)
+        self.assertIn(historical, record["consent"])
+        self.assertIsNone(plan_lifecycle.missing_prior_consent(record, "bind"))
+        self.assertIsNone(plan_lifecycle.missing_prior_consent(record, "adopt"))
+        self.assert_admission_and_adoption(slug, historical=historical)
+
     def test_approve_refuses_without_the_operator_s_recorded_decision(self):
         # The refusal is the GATE's, not argparse's: it says what the operator is being asked, and
         # a parser that exited first would leave that sentence unreachable.
@@ -545,15 +563,14 @@ class ConsentGates(_Ceremony):
         self.assertIn("--operator-decided", err)
         self.assertIsNone(self.lib.read_record(slug)["approval"])
 
-    def test_every_plan_side_gate_refuses_without_the_switch(self):
+    def test_presentation_needs_no_decision_but_seal_still_does(self):
         slug = self.reviewed(self.finding())
         self.run_command("finding", "dispose", slug, "--id", "ARCH-1",
                          "--disposition", "rejected", "--rationale", "No.",
                          "--does-not-block-this-pr")
         code, _, err = self.run_command("present-findings", slug)
-        self.assertEqual(code, 2)
-        self.assertIn("being shown the panel's outcome", err)
-        self.run_command("present-findings", slug, "--operator-decided")
+        self.assertEqual(code, 0, err)
+        self.assertEqual([c["gate"] for c in self.lib.read_record(slug)["consent"]], ["approve"])
         code, _, err = self.run_command("seal", slug)
         self.assertEqual(code, 2)
         self.assertIn("sealing this plan, which is terminal", err)
@@ -595,12 +612,12 @@ class ConsentGates(_Ceremony):
         self.assertNotIn("decision:", out)
         record = self.lib.read_record(slug)
         self.assertEqual([c["gate"] for c in record["consent"]],
-                         ["approve", "findings-presented", "seal"])
+                         ["approve", "seal"])
         for entry in record["consent"]:
             self.assertEqual(set(entry), {"gate", "at"})
         lines = plan_lifecycle.consent_lines(record)
         self.assertEqual([line.split(" at ")[0] for line in lines],
-                         ["approve", "findings-presented", "seal"])
+                         ["approve", "seal"])
         # The presentation has a subject: the review it showed, not only that something was shown.
         shown = record["findings_presented"]
         self.assertEqual(shown["packet_digest"], record["plan_review"]["packet_digest"])
@@ -660,8 +677,91 @@ class ConsentGates(_Ceremony):
             current.pop("findings_presented", None)
             current.pop("review_contract_format", None)
             current["approval"].pop("review_contract", None)
+            current["consent"].append({"gate": "findings-presented", "at": "2026-09-01T00:00:00Z"})
         self.lib.update_record(slug, historical)
         self.assertEqual(project_manager.seal_refusals(self.lib, slug), [])
+        self.assertEqual(self.run_command("seal", slug, "--operator-decided")[0], 0)
+
+    def test_repeated_presentation_adds_no_consent_and_resume_moves_to_seal(self):
+        slug = self.reviewed()
+        before = self.lib.read_record(slug)["consent"]
+        for switches in ((), ("--operator-decided",), ()):
+            self.assertEqual(self.run_command("present-findings", slug, *switches)[0], 0)
+            self.assertEqual(self.lib.read_record(slug)["consent"], before)
+            self.assertEqual(project_manager.seal_refusals(self.lib, slug), [])
+        out = self.run_command("resume", slug)[1]
+        self.assertIn("seal the plan", out)
+        self.assertNotIn("present-findings", out)
+
+    def test_notification_only_plan_reserves_and_retries_with_real_seal_consent(self):
+        slug = self.reviewed()
+        self.assertEqual(self.run_command("present-findings", slug)[0], 0)
+        self.assertEqual(self.run_command("seal", slug, "--operator-decided")[0], 0)
+        self.assert_admission_and_adoption(slug)
+
+    def assert_admission_and_adoption(self, slug, historical=None):
+        import build_state_store
+        from test_build_state_store import _state, SCHEMA
+        record = self.lib.read_record(slug)
+        seal = record["seal"]
+        state = _state(worktree=str(self.tmp / "build"))
+        state["plan"].update(plan_id=record["plan_id"], sealed_digest=seal["sealed_digest"],
+                             digest=seal["build_plan_digest"])
+        consent = {"gate": "bind", "at": seal["at"]}
+        actual_consent = record["consent"]
+        self.lib.update_record(slug, lambda r: r.update(
+            consent=[c for c in actual_consent if c["gate"] != "seal"]))
+        with self.assertRaisesRegex(build_state_store.BuildStateError, "needs the seal gate"):
+            build_state_store.reserve_build(self.lib, slug, state, consent=consent)
+        self.assertFalse(self.lib.read_record(slug).get("build_lease"))
+        self.lib.update_record(slug, lambda r: r.update(consent=actual_consent))
+        first = build_state_store.reserve_build(self.lib, slug, state, consent=consent)
+        again = build_state_store.reserve_build(self.lib, slug, state, consent=consent)
+        self.assertEqual(first, again)
+        self.assertEqual(self.lib.read_record(slug)["consent"], actual_consent + [consent])
+        identity = build_state_store.claim_identity(first)
+        build_state_store.finish_binding(self.lib, slug, identity, state, SCHEMA)
+
+        successor = self.reviewed(plan_id="pln_fedcba987654", title="Reviewed successor")
+        self.assertEqual(self.run_command("present-findings", successor)[0], 0)
+        if historical:
+            self.lib.update_record(successor, lambda r: r["consent"].append(historical))
+        self.assertEqual(self.run_command("seal", successor, "--operator-decided")[0], 0)
+        target = self.lib.read_record(successor)
+        target_consent = target["consent"]
+        self.lib.update_record(successor, lambda r: r.update(
+            intake={"provenance": "reviewed successor fixture", "predecessors": [record["plan_id"]]},
+            consent=[c for c in target_consent if c["gate"] != "seal"]))
+        def change(current):
+            current["plan"].update(plan_id=target["plan_id"],
+                sealed_digest=target["seal"]["sealed_digest"], digest=target["seal"]["build_plan_digest"])
+        adoption = {"gate": "adopt", "at": target["seal"]["at"]}
+        def adopt():
+            return build_state_store.adopt_build(self.lib, slug, successor, identity, 1,
+                                                 SCHEMA, change=change, consent=adoption)
+        with self.assertRaisesRegex(build_state_store.BuildStateError, "needs the seal gate"):
+            adopt()
+        self.assertFalse(self.lib.read_record(successor).get("build_lease"))
+        self.lib.update_record(successor, lambda r: r.update(consent=target_consent))
+        adopted = adopt()
+        self.assertEqual(adopt(), adopted)
+        self.assertEqual(adopted["ownership"], {"build_id": first["build_id"], "generation": 2})
+        self.assertEqual(self.lib.read_record(successor)["consent"], target_consent + [adoption])
+
+    def test_notification_does_not_make_changed_findings_current(self):
+        slug = self.reviewed(self.finding())
+        self.run_command("finding", "dispose", slug, "--id", "ARCH-1",
+                         "--disposition", "rejected", "--rationale", "Answered.",
+                         "--does-not-block-this-pr")
+        self.assertEqual(self.run_command("present-findings", slug)[0], 0)
+        self.run_command("finding", "dispose", slug, "--id", "ARCH-1",
+                         "--disposition", "accepted-tracked", "--rationale", "Changed outcome.",
+                         "--does-not-block-this-pr")
+        code, _, err = self.run_command("seal", slug, "--operator-decided")
+        self.assertEqual(code, 1)
+        self.assertIn("lineage has changed", err)
+        self.assertEqual(self.run_command("present-findings", slug)[0], 0)
+        self.assertEqual(self.run_command("seal", slug)[0], 2)
         self.assertEqual(self.run_command("seal", slug, "--operator-decided")[0], 0)
 
     def test_the_adopt_gate_is_its_own_act(self):
