@@ -6642,7 +6642,7 @@
       },
       "slug": "test-performance",
       "source": {
-        "fingerprint": "sha256:1a60468c3acd7d723b7dfaa1dac30cb6e4c529f0a6939e0a8fdf83afa32c08c6",
+        "fingerprint": "sha256:0a7f1a03dddded8e12935917cf6ecdaa02e4dbca34e05cfad299f64465bf21fe",
         "path": ".engine/operations/test-performance.md"
       },
       "status": "active",
@@ -15979,7 +15979,7 @@
       },
       "slug": "selftest_results",
       "source": {
-        "fingerprint": "sha256:d3008185fe432cd3dea5b7dfc9ef1b626ed6a7f2154cecb680291d24358986e9",
+        "fingerprint": "sha256:67c9aa969ec1e89ddeb01ac2b993740b32175ec7c3e90021eec83064337d4bd0",
         "path": ".engine/tools/selftest_results.py"
       },
       "status": "active",
@@ -21646,7 +21646,7 @@
       },
       "slug": "test_selftest_results",
       "source": {
-        "fingerprint": "sha256:6b4a3837a681e5c3ece7688e5431193c5df7f9edc4033e7c7ba328d27108680e",
+        "fingerprint": "sha256:dc0cdea2678643d7beca9f7de17220f0c740268b140bb456ce0c6ce0bf40afb3",
         "path": ".engine/tools/test_selftest_results.py"
       },
       "status": "active",
