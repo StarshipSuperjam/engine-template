@@ -28,7 +28,7 @@ It does **not** establish exhaustive correctness, every possible failure mode, P
 | CI rules re-run on a metadata-only event (reuse) | 6 |
 | Dedicated hard custom-check proofs | 45 |
 | Disclosed proof exceptions | 3 |
-| Discovered self-test modules | 229 |
+| Discovered self-test modules | 231 |
 
 ### When it runs
 
