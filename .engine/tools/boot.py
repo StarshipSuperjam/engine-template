@@ -3802,7 +3802,11 @@ def assemble_pack(session_id: str | None = None, *, use_ledger: bool = False, pa
         envelope = _envelope_from_signals(s, session_id, use_ledger=use_ledger)
         rendered_envelope = session_relay.render(envelope)
         has_alarm = bool(envelope["action_forcing_alarms"])
+        if use_ledger:
+            telemetry.observe_reader_health("boot-assembly", "healthy")
     except Exception as exc:  # noqa: BLE001 — SessionStart is fail-open; never inject a partial/corrupt render
+        if use_ledger:
+            telemetry.observe_reader_health("boot-assembly", "failing")
         # The typed envelope could not be built — but a governance alarm must NEVER be silently dropped, and
         # this is the exact path where the dashboard's departure makes the envelope the sole every-session
         # carrier. So re-derive the must-relay set straight from `must_push(s)` and render its FULL lines under

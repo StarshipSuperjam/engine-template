@@ -35,6 +35,11 @@ Operator demo (faked GitHub, real logic — no real Issues, no token):
 from __future__ import annotations
 
 import json
+import hashlib
+import contextlib
+from pathlib import Path
+import secrets
+import subprocess
 import math
 import os
 import re
@@ -156,6 +161,311 @@ DEFAULT_CACHE_PATH = os.path.join(validate.ROOT, ".engine", "telemetry", ".cache
 # promote_finding), so the detail BEHIND that finding lives beside telemetry's other gitignored cache —
 # never committed, never operator-visible. hooks appends to it; telemetry owns the path.
 HOOK_CRASH_DEBUG_PATH = os.path.join(validate.ROOT, ".engine", "telemetry", ".cache", "hook-crash-debug.log")
+
+# Positive health is distinct from absence of an emitted finding. These two producers
+# own explicit recovery; generic hook crashes and the capture lifecycle are unchanged.
+READER_HEALTH_VERSION = "reader-health.v1"
+READER_HEALTH_PRODUCERS = frozenset({"scoped-reader", "boot-assembly"})
+READER_HEALTH_BUDGET = 10.0
+READER_HEALTH_LOCK_BUDGET = 0.05
+
+
+class ReaderHealthUnavailable(ValueError):
+    """Unknown health never earns automatic clearance."""
+
+
+def _health_digest(value):
+    return hashlib.sha256(json.dumps(value, sort_keys=True, separators=(",", ":")).encode()).hexdigest()
+
+
+def _health_git(root, *args, deadline=None):
+    remaining = min(1.0, deadline - time.monotonic()) if deadline is not None else 1.0
+    if remaining <= 0:
+        raise ReaderHealthUnavailable("health observation budget exhausted")
+    return subprocess.run(["git", "-C", str(root), *args], check=True,
+                          capture_output=True, text=True, timeout=remaining).stdout.strip()
+
+
+def _health_topology(root, deadline=None):
+    """Git's inventory includes Codex, Claude and nonstandard registered worktrees."""
+    common = Path(_health_git(root, "rev-parse", "--path-format=absolute", "--git-common-dir", deadline=deadline)).resolve()
+    raw = _health_git(root, "worktree", "list", "--porcelain", "-z", deadline=deadline)
+    roots = [str(Path(part[9:]).resolve()) for part in raw.split("\0") if part.startswith("worktree ")]
+    if not roots or len(roots) > 512:
+        raise ReaderHealthUnavailable("registered reader inventory is incomplete or too large")
+    return common, roots
+
+
+class ReaderHealthStore:
+    """One local observation scope, shared by worktrees and never by independent clones.
+
+    The private binding detects a copied/moved cache. Unknown versions, missing state
+    after initialization and unreadable pending observations refuse clearance. No path
+    or record content from this store is published to GitHub.
+    """
+    def __init__(self, root, *, deadline=None):
+        self.root = str(Path(root).resolve())
+        self.common, self.roots = _health_topology(root, deadline)
+        self.directory = Path(self.roots[0]) / ".engine/telemetry/.cache/reader-health"
+        self.path = self.directory / "state.json"
+        self.lock_path = self.directory / "state.lock"
+        self.pending = self.directory / "pending"
+        info = self.common.stat()
+        self.binding = {"common": str(self.common), "device": info.st_dev, "inode": info.st_ino}
+
+    @contextlib.contextmanager
+    def lock(self, deadline=None):
+        import fcntl
+        self.directory.mkdir(parents=True, exist_ok=True, mode=0o700)
+        until = time.monotonic() + READER_HEALTH_LOCK_BUDGET
+        if deadline is not None:
+            until = min(until, deadline)
+        with self.lock_path.open("a") as handle:
+            while True:
+                try:
+                    fcntl.flock(handle.fileno(), fcntl.LOCK_EX | fcntl.LOCK_NB)
+                    break
+                except BlockingIOError:
+                    if time.monotonic() >= until:
+                        raise ReaderHealthUnavailable("health observation lock is busy")
+                    time.sleep(min(0.005, max(0, until - time.monotonic())))
+            try:
+                yield
+            finally:
+                fcntl.flock(handle.fileno(), fcntl.LOCK_UN)
+
+    @staticmethod
+    def _json(path):
+        if path.is_symlink() or path.stat().st_size > 1048576:
+            raise ReaderHealthUnavailable("unsafe or oversized health record")
+        return json.loads(path.read_text())
+
+    def _read(self, *, create=False):
+        if not self.path.exists():
+            if not create or (self.directory / "initialized").exists():
+                raise ReaderHealthUnavailable("health evidence is missing")
+            value = {"schema_version": READER_HEALTH_VERSION, "binding": self.binding,
+                     "scope": secrets.token_hex(16), "generation": 0, "readers": {}, "retirements": []}
+        else:
+            value = self._json(self.path)
+        from build_coordinator_core import validate as validate_schema
+        validate_schema(value, Path(__file__).resolve().parents[1] / "schemas/reader-health.v1.json")
+        if value["binding"] != self.binding:
+            raise ReaderHealthUnavailable("health scope was copied or moved; recovery is unknown")
+        return value
+
+    def _write(self, value):
+        from build_coordinator_core import atomic_write, validate as validate_schema
+        validate_schema(value, Path(__file__).resolve().parents[1] / "schemas/reader-health.v1.json")
+        text = json.dumps(value, sort_keys=True)
+        if len(text.encode()) > 1048576:
+            raise ReaderHealthUnavailable("health store reached its bounded capacity")
+        atomic_write(self.path, text, durable=True, mode=0o600)
+        atomic_write(self.directory / "initialized", value["scope"], durable=True, mode=0o600)
+
+    def _merge(self, value, observation, *, pending=False):
+        required = {"reader", "root", "producer", "state", "identity", "observed"}
+        if set(observation) != required or observation["producer"] not in READER_HEALTH_PRODUCERS:
+            raise ReaderHealthUnavailable("unknown pending health observation")
+        key = observation["reader"] + "/" + observation["producer"]
+        previous = value["readers"].get(key)
+        # A delayed observation has no trustworthy execution order. It may retain
+        # failure/uncertainty but can never overwrite a failure with success.
+        observation = dict(observation)
+        required_inputs = sorted(set(previous.get("required_inputs", []) if previous else []) |
+                                 set(observation["identity"].get("records", {})))
+        if pending:
+            observation["state"] = "failing" if observation["state"] == "failing" or (
+                previous and previous["state"] == "failing") else "unknown"
+        if previous and observation["state"] == "healthy":
+            if not set(required_inputs) <= set(observation["identity"].get("records", {})):
+                observation["state"] = "unknown"
+        value["generation"] += 1
+        value["readers"][key] = {**observation, "generation": value["generation"], "retired": False,
+                                  "required_inputs": required_inputs}
+
+    def _drain(self, value):
+        files = sorted(self.pending.glob("*.json")) if self.pending.exists() else []
+        if len(files) > 256:
+            raise ReaderHealthUnavailable("pending health evidence exceeds its bound")
+        for path in files:
+            self._merge(value, self._json(path), pending=True)
+        # Commit before removing pending observations; duplicate replay is harmless.
+        if files:
+            self._write(value)
+            for path in files:
+                path.unlink()
+
+    def snapshot(self, deadline=None):
+        with self.lock(deadline):
+            value = self._read()
+            self._drain(value)
+            return value
+
+    def observe(self, producer, state, identity):
+        if producer not in READER_HEALTH_PRODUCERS or state not in {"healthy", "failing", "unknown"}:
+            raise ReaderHealthUnavailable("unsupported health observation")
+        reader = _health_digest({"scope_binding": self.binding, "root": self.root})
+        observation = {"reader": reader, "root": self.root, "producer": producer,
+                       "state": state, "identity": identity, "observed": moment.utc_now()}
+        try:
+            with self.lock():
+                value = self._read(create=True)
+                self._drain(value)
+                self._merge(value, observation)
+                self._write(value)
+            return True
+        except ReaderHealthUnavailable as exc:
+            if str(exc) != "health observation lock is busy":
+                raise
+            # Deterministic slots bound the queue without an unbounded directory race.
+            self.pending.mkdir(parents=True, exist_ok=True, mode=0o700)
+            raw = json.dumps(observation).encode()
+            if len(raw) > 16384:
+                raise ReaderHealthUnavailable("pending observation is too large")
+            for slot in range(256):
+                path = self.pending / (str(slot) + ".json")
+                try:
+                    with path.open("xb") as out:
+                        os.chmod(path, 0o600)
+                        out.write(raw)
+                        out.flush()
+                        os.fsync(out.fileno())
+                    return False  # durable pending, not a committed healthy observation
+                except FileExistsError:
+                    continue
+            raise ReaderHealthUnavailable("pending health evidence is full")
+
+    def retirement(self, reader, producer, *, expected=None, reason=None, confirm=False):
+        _, registered = _health_topology(self.root)
+        with self.lock():
+            value = self._read()
+            self._drain(value)
+            key = reader + "/" + producer
+            record = value["readers"].get(key)
+            if record is None:
+                raise ReaderHealthUnavailable("unknown reader")
+            preview = {"scope": value["scope"], "reader": reader, "producer": producer,
+                       "generation": value["generation"], "reader_generation": record["generation"]}
+            if not confirm:
+                return preview
+            if expected != preview or not isinstance(reason, str) or not reason.strip():
+                raise ReaderHealthUnavailable("retirement needs the current preview and a reason")
+            if record["root"] in registered:
+                raise ReaderHealthUnavailable("a registered reader cannot be retired")
+            value["generation"] += 1
+            record["retired"] = True
+            record["generation"] = value["generation"]
+            value["retirements"].append({**preview, "reason": reason, "recorded": moment.utc_now()})
+            self._write(value)
+            return preview
+
+
+def reader_health_identity(root, producer, *, deadline=None, execution=None):
+    """Fingerprint actual inputs; a format pass is never review execution credit."""
+    root = str(Path(root).resolve())
+    execution = execution or {"interpreter": sys.executable, "prefix": sys.prefix,
+                              "producer": str(Path(__file__).resolve())}
+    runtime_files = [Path(execution["interpreter"]), Path(execution["producer"])]
+    runtime_files += sorted(Path(execution["prefix"]).glob("lib/python*/site-packages/*.dist-info/METADATA"))
+    if len(runtime_files) > 256:
+        raise ReaderHealthUnavailable("runtime inventory exceeds its bound")
+    runtime = {}
+    for path in runtime_files:
+        if deadline is not None and time.monotonic() >= deadline:
+            raise ReaderHealthUnavailable("runtime inventory budget exhausted")
+        if path.stat().st_size > 16777216:
+            raise ReaderHealthUnavailable("runtime input exceeds its bound")
+        runtime[str(path)] = hashlib.sha256(path.read_bytes()).hexdigest()
+    runtime = {"execution": execution, "runtime_digest": _health_digest(runtime)}
+    if producer == "boot-assembly":
+        import accepted_hook_dispatch
+        activation = accepted_hook_dispatch.health_execution_identity(root, execution["producer"])
+        return {"activation": activation, **runtime}
+    import plan_store
+    library = plan_store.PlanLibrary(plan_store.library_root(cwd=root))
+    records = {}
+    for slug in library.slugs():
+        if deadline is not None and time.monotonic() >= deadline:
+            raise ReaderHealthUnavailable("reader inventory budget exhausted")
+        # Use the producer's single filename owner; no guessed companion path.
+        import scoped_agents
+        path = library.plan_dir(slug) / scoped_agents.FILENAME
+        if path.exists():
+            if path.is_symlink() or path.stat().st_size > 1048576:
+                raise ReaderHealthUnavailable("unreadable shared reader input")
+            records[slug] = hashlib.sha256(path.read_bytes()).hexdigest()
+    if not records or len(records) > 512:
+        raise ReaderHealthUnavailable("no complete shared reader inputs")
+    files = ["tools/scoped_agents.py", "tools/plan_store.py", "tools/build_coordinator_core.py"]
+    files += [str(p.relative_to(Path(root) / ".engine")) for p in sorted((Path(root) / ".engine/schemas").glob("*.json"))]
+    code = {rel: hashlib.sha256((Path(root) / ".engine" / rel).read_bytes()).hexdigest() for rel in files}
+    return {"head": _health_git(root, "rev-parse", "HEAD", deadline=deadline), "code": _health_digest(code),
+            "records": records, **runtime}
+
+
+def verify_scoped_reader_health(*, root=None, library=None):
+    """Validate a stable inventory with the running reader before issuing success."""
+    if "unittest" in sys.modules and root is None:
+        return False
+    root = root or os.environ.get("ENGINE_PROJECT_ROOT") or validate.ROOT
+    try:
+        import plan_store
+        import scoped_agents
+        library = library or plan_store.PlanLibrary(plan_store.library_root(cwd=root))
+        before = reader_health_identity(root, "scoped-reader")
+        for slug in before["records"]:
+            scoped_agents.Store(library, slug).read()
+        after = reader_health_identity(root, "scoped-reader")
+        if before != after:
+            raise ReaderHealthUnavailable("shared inputs changed while being checked")
+        return observe_reader_health("scoped-reader", "healthy", root=root, identity=after)
+    except Exception:
+        return observe_reader_health("scoped-reader", "unknown", root=root, identity={})
+
+
+def observe_reader_health(producer, state, *, root=None, identity=None):
+    """Production emit-only seam: no network, no tests writing to the real store."""
+    if "unittest" in sys.modules and root is None:
+        return False
+    root = root or os.environ.get("ENGINE_PROJECT_ROOT") or validate.ROOT
+    try:
+        store = ReaderHealthStore(root)
+        if identity is None:
+            try:
+                identity = reader_health_identity(root, producer)
+            except Exception:
+                identity = {}
+                if state == "healthy":
+                    state = "unknown"
+        if producer == "boot-assembly" and state == "healthy":
+            context = json.loads(os.environ.get("ENGINE_ACCEPTED_HOOK_CONTEXT", "{}"))
+            if context.get("activation") != identity.get("activation"):
+                state = "unknown"
+        store.observe(producer, state, identity)
+        return True  # includes durable pending; pending success is never closure evidence
+    except Exception:  # a lost observation is surfaced, never a false healthy result
+        print("Engine reader health could not be recorded; automatic recovery remains unverified.", file=sys.stderr)
+        return False
+
+
+def _reader_retirement_cli(argv):
+    import argparse
+    parser = argparse.ArgumentParser(description="Preview or confirm retirement of one deregistered reader.")
+    parser.add_argument("reader")
+    parser.add_argument("producer", choices=sorted(READER_HEALTH_PRODUCERS))
+    parser.add_argument("--root", default=validate.ROOT)
+    parser.add_argument("--confirm", action="store_true")
+    parser.add_argument("--preview", help="JSON file containing the exact preview being approved")
+    parser.add_argument("--reason")
+    args = parser.parse_args(argv)
+    if args.confirm and not args.preview:
+        parser.error("confirmation requires --preview and --reason")
+    expected = ReaderHealthStore._json(Path(args.preview)) if args.preview else None
+    result = ReaderHealthStore(args.root).retirement(args.reader, args.producer,
+        expected=expected, reason=args.reason, confirm=args.confirm)
+    print(json.dumps(result, sort_keys=True))
+    return 0
 
 
 class DegradedReadError(Exception):
@@ -2510,6 +2820,7 @@ def _run_drain_locked(argv: list) -> int:
 #     the audit-prep workflow already writes an honest in-band marker when a feed step fails.
 # The two sets partition the table (test-pinned), so a new verb cannot be added without being classified.
 COMMANDS = {
+    "retire-reader": "_reader_retirement_cli",
     "run": "_run_cli",
     "run-ambient": "_run_ambient_locked",
     "drain-inbox": "_run_drain_locked",
@@ -2519,7 +2830,7 @@ COMMANDS = {
     "never-fired": "_never_fired_cli",
 }
 FAIL_OPEN_COMMANDS = frozenset({"run", "run-ambient", "drain-inbox", "refresh"})
-VERDICT_COMMANDS = frozenset({"demo", "engine-issues", "never-fired"})
+VERDICT_COMMANDS = frozenset({"demo", "engine-issues", "never-fired", "retire-reader"})
 
 _USAGE = ("usage: telemetry.py {run|run-ambient|drain-inbox|demo|refresh|engine-issues|"
           "never-fired}   (`run` is the live CI-health triage the scheduled audit-prep workflow drives; "

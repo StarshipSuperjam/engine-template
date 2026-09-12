@@ -47,6 +47,92 @@ def rec(sid, severity="persistent-but-benign", message="A check keeps reporting 
     return {"source_id": sid, "severity": severity, "message": message, "location": location}
 
 
+
+class ReaderHealthEvidence(unittest.TestCase):
+    def setUp(self):
+        import subprocess
+        from pathlib import Path
+        self.tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(self.tmp.cleanup)
+        self.root = Path(self.tmp.name) / "clone"
+        self.root.mkdir()
+        self.git = lambda *args: subprocess.run(["git", "-C", str(self.root), *args],
+            check=True, capture_output=True, text=True).stdout.strip()
+        self.git("init")
+        self.git("-c", "user.name=Fixture", "-c", "user.email=fixture@example.com", "commit", "--allow-empty", "-m", "fixture")
+        self.sibling = Path(self.tmp.name) / "nonstandard-codex-tree"
+        self.git("worktree", "add", "--detach", str(self.sibling))
+        self.store = telemetry.ReaderHealthStore(self.root)
+        self.other = telemetry.ReaderHealthStore(self.sibling)
+        self.identity = {"records": {"plan": "digest"}}
+
+    def test_worktrees_share_scope_but_independent_clones_do_not(self):
+        import subprocess
+        from pathlib import Path
+        self.store.observe("scoped-reader", "failing", self.identity)
+        self.other.observe("scoped-reader", "healthy", self.identity)
+        snapshot = self.store.snapshot()
+        self.assertEqual(snapshot["scope"], self.other.snapshot()["scope"])
+        self.assertEqual({r["state"] for r in snapshot["readers"].values()}, {"failing", "healthy"})
+        clone = Path(self.tmp.name) / "second-clone"
+        subprocess.run(["git", "clone", str(self.root), str(clone)], check=True, capture_output=True)
+        independent = telemetry.ReaderHealthStore(clone)
+        independent.observe("scoped-reader", "healthy", self.identity)
+        self.assertNotEqual(snapshot["scope"], independent.snapshot()["scope"])
+        shutil.copyfile(self.store.path, independent.path)
+        with self.assertRaises(telemetry.ReaderHealthUnavailable):
+            independent.snapshot()
+
+    def test_contended_success_is_pending_and_cannot_clear_failure(self):
+        self.store.observe("scoped-reader", "failing", self.identity)
+        with self.store.lock():
+            start = time.monotonic()
+            self.assertFalse(self.store.observe("scoped-reader", "healthy", self.identity))
+            self.assertLess(time.monotonic() - start, .3)
+        snapshot = self.store.snapshot()
+        self.assertEqual(next(iter(snapshot["readers"].values()))["state"], "failing")
+        self.assertEqual(list(self.store.pending.glob("*.json")), [])
+
+    def test_missing_inputs_and_corrupt_or_missing_state_refuse_health(self):
+        self.store.observe("scoped-reader", "failing", self.identity)
+        self.store.observe("scoped-reader", "healthy", {"records": {}})
+        self.assertEqual(next(iter(self.store.snapshot()["readers"].values()))["state"], "unknown")
+        self.store.path.write_text("{")
+        with self.assertRaises(ValueError):
+            self.store.snapshot()
+        self.store.path.unlink()
+        with self.assertRaises(telemetry.ReaderHealthUnavailable):
+            self.store.observe("scoped-reader", "healthy", self.identity)
+
+    def test_retirement_requires_deregistration_exact_generation_and_reason(self):
+        self.other.observe("scoped-reader", "failing", self.identity)
+        record = next(iter(self.store.snapshot()["readers"].values()))
+        reader = record["reader"]
+        preview = self.store.retirement(reader, "scoped-reader")
+        with self.assertRaises(telemetry.ReaderHealthUnavailable):
+            self.store.retirement(reader, "scoped-reader", expected=preview, reason="operator retired", confirm=True)
+        self.git("worktree", "remove", str(self.sibling))
+        self.store.observe("boot-assembly", "unknown", {})
+        with self.assertRaises(telemetry.ReaderHealthUnavailable):
+            self.store.retirement(reader, "scoped-reader", expected=preview, reason="stale", confirm=True)
+        preview = self.store.retirement(reader, "scoped-reader")
+        self.store.retirement(reader, "scoped-reader", expected=preview, reason="operator retired", confirm=True)
+        state = self.store.snapshot()
+        self.assertTrue(state["readers"][reader + "/scoped-reader"]["retired"])
+        self.assertEqual(len(state["retirements"]), 1)
+        self.git("worktree", "add", "--detach", str(self.sibling))
+        self.other.observe("scoped-reader", "failing", self.identity)
+        self.assertFalse(self.store.snapshot()["readers"][reader + "/scoped-reader"]["retired"])
+
+    def test_interrupted_write_does_not_replace_previous_evidence(self):
+        self.store.observe("scoped-reader", "failing", self.identity)
+        original = self.store.path.read_bytes()
+        with mock.patch("build_coordinator_core.atomic_write", side_effect=OSError("interrupted")):
+            with self.assertRaises(OSError):
+                self.store.observe("scoped-reader", "healthy", self.identity)
+        self.assertEqual(self.store.path.read_bytes(), original)
+
+
 class FakeGH:
     """In-memory GitHub for the transport seam. Records every call; serves labels + issues; can be
     told to fail issue reads with a given status. The harness under test is the REAL GitHubIssues +
@@ -1227,7 +1313,7 @@ class TestFailureContracts(unittest.TestCase):
             self.assertTrue(callable(getattr(telemetry, handler_name)), (verb, handler_name))
         # The classification the issue's acceptance asks for, by name.
         self.assertEqual(telemetry.FAIL_OPEN_COMMANDS, {"run", "run-ambient", "drain-inbox", "refresh"})
-        self.assertEqual(telemetry.VERDICT_COMMANDS, {"demo", "engine-issues", "never-fired"})
+        self.assertEqual(telemetry.VERDICT_COMMANDS, {"demo", "engine-issues", "never-fired", "retire-reader"})
 
     def test_a_collection_command_still_fails_open(self):
         with mock.patch.object(telemetry, "_refresh_cli", _raise):
