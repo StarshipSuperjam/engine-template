@@ -6480,7 +6480,7 @@
       },
       "slug": "plan-orchestration",
       "source": {
-        "fingerprint": "sha256:d6caa48f0aed716dce9179fff7dbcb86d24ef36bc2c707ad87938bd8067dbb38",
+        "fingerprint": "sha256:8d9ba61f8d922dc5c714d16c75ee5a1dc9eabc31452b095802304aeba4728bbb",
         "path": ".engine/operations/plan-orchestration.md"
       },
       "status": "active",

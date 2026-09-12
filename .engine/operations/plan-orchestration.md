@@ -144,16 +144,8 @@ the change to make is also a finished outcome: nothing is authored, and the oper
 
 ## Notes
 
-Two ways this goes wrong, both observed:
-
-- **Guidance parroted instead of exercised.** A session asked what to do next answered "the next step is
-  preview" — repeatedly, correctly, and uselessly. The tool's mechanics were never the missing piece; the
-  reasoning about the issue was.
-- **A depth ask with no plan behind it.** A session offered a depth-approval menu with no plan context beside
-  it — no impacts, no surfaces, no care recommendation — its open questions still unanswered and no invitation
-  to revise. Every gate was technically offered and none of them was a stop.
-
-Both are the same failure: treating the lifecycle as a sequence to complete rather than a conversation to
-have. The mechanics cannot catch it — a rushed plan and a considered one reach the seal by identical moves.
+Exercise judgment rather than reciting the tool's next verb or offering approval without a presented plan.
+Both failures have occurred here. Mechanical completion cannot establish that the design was considered:
+explain the impacts, resolve real questions, and preserve the operator's opportunity to redirect the work.
 
 Before any scoped agent dispatch or review acceptance, follow [Scoped native agents](scoped-agent-orchestration.md). Prepare an immutable assignment packet, use a fresh context for each new assignment, and permit recorded same-assignment clarification. Missing observed execution cannot earn independent review coverage.
