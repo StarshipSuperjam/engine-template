@@ -1132,7 +1132,8 @@ def ensure_activation_ambient(root: str) -> tuple[dict | None, list[str]]:
             f"{before['commit'][:12]}). That is the code now allowed to write to memory.")
     # Reachability is measured LAST, in its own budget: whether the commit we just kept/advanced to still
     # sits on GitHub's default branch. A 'lost' result appends its own operator notice and arms the write
-    # hold; 'unconfirmed'/'reachable' stay quiet here. It can never hold up session start — it never raises.
+    # hold; 'unconfirmed' appends a calm notice and never holds; 'reachable' stays quiet. It can never hold
+    # up session start — it never raises.
     try:
         measure_reachability(_top(root), record, notices=notices)
     except Exception:  # noqa: BLE001 — defense in depth; measure_reachability already swallows its own faults
@@ -1238,8 +1239,9 @@ def _record_reachability(root: str, activation: dict, state: str) -> None:
       * a mark owned by a NEWER generation (higher epoch) is never walked back by an older measurement;
       * ``reachable`` clears the mark (the write hold, if any, is lifted);
       * ``lost`` is written, overwriting anything of this-or-older generation;
-      * ``unconfirmed`` is a no-op — it neither creates a hold nor lifts a confirmed ``lost`` (a later
-        timeout can never quietly undo a confirmed loss), and a missing mark already reads as not-lost.
+      * ``unconfirmed`` is written for disclosure only — it never creates a hold — and never over a
+        confirmed ``lost`` of this same generation, so a later timeout can never quietly undo a confirmed
+        loss.
     """
     path = _reachability_path(root)
     with _exclusive_lock(_reachability_lock(root)):
@@ -1261,14 +1263,26 @@ def _record_reachability(root: str, activation: dict, state: str) -> None:
             except OSError:
                 pass
             return
-        if state == "lost":
+        if state == "unconfirmed" and (
+                isinstance(current, dict) and current.get("state") == "lost"
+                and current.get("commit") == activation.get("commit")
+                and current.get("epoch") == activation.get("epoch")):
+            return  # a confirmed loss of this generation stands; a timeout never walks it back
+        if state in ("lost", "unconfirmed"):
             _atomic_json(path, {
                 "schema_version": REACHABILITY_SCHEMA_VERSION,
                 "commit": activation["commit"],
                 "epoch": activation["epoch"],
-                "state": "lost",
+                "state": state,
             })
-        # 'unconfirmed' is intentionally a no-op (see docstring).
+
+
+def _reachability_unconfirmed_notice(commit: str, reason: str) -> str:
+    """The calm operator sentence for a reachability check that could not complete: disclosed, never a
+    hold. Writing follows the merge, so an offline session still saves; the check runs again next start."""
+    return (f"Engine memory could not confirm with GitHub that its activated commit {commit[:12]} is still "
+            f"on the default branch ({reason}). Memory writing continues, and the check runs again at the "
+            "next session start.")
 
 
 def measure_reachability(root: str, activation: dict, *, notices: list | None = None) -> str:
@@ -1278,8 +1292,8 @@ def measure_reachability(root: str, activation: dict, *, notices: list | None = 
     ``ensure_activation_ambient`` — so a hung compare read cannot borrow against the session-start repo read.
     Reads GitHub's compare of ``default_branch...activated_commit``: ``identical``/``behind`` establish
     reachability, ``ahead``/``diverged`` do not. Never raises: a time-budget or CLI failure is recorded as
-    ``unconfirmed`` (which does not hold writes). A published release is a pinned operator choice and is not
-    measured against the default branch.
+    ``unconfirmed`` (which does not hold writes) and disclosed through one calm notice. A published release
+    is a pinned operator choice and is not measured against the default branch.
 
     Returns the state it observed ('reachable' | 'lost' | 'unconfirmed'), for callers and tests.
     """
@@ -1287,18 +1301,23 @@ def measure_reachability(root: str, activation: dict, *, notices: list | None = 
         return "reachable"
     repository = activation["repository"]
     commit = activation["commit"]
+
+    def unconfirmed(reason: str) -> str:
+        _record_reachability(root, activation, "unconfirmed")
+        if notices is not None:
+            notices.append(_reachability_unconfirmed_notice(commit, reason))
+        return "unconfirmed"
+
     try:
         with _ambient_budget(REACHABILITY_BUDGET_SECONDS):
             default_branch = _github_default_branch(repository)
             comparison = _github_json(
                 f"repos/{repository}/compare/{quote(default_branch, safe='')}...{commit}")
         status = comparison.get("status") if isinstance(comparison, dict) else None
-    except QualificationError:
-        _record_reachability(root, activation, "unconfirmed")
-        return "unconfirmed"
+    except QualificationError as exc:
+        return unconfirmed(str(exc) or "GitHub could not be read")
     except Exception:  # noqa: BLE001 — reachability must never break session start
-        _record_reachability(root, activation, "unconfirmed")
-        return "unconfirmed"
+        return unconfirmed("an unexpected fault while reading GitHub")
     if status in ("identical", "behind"):
         _record_reachability(root, activation, "reachable")
         return "reachable"
@@ -1307,8 +1326,7 @@ def measure_reachability(root: str, activation: dict, *, notices: list | None = 
         if notices is not None:
             notices.append(_reachability_posture(activation["epoch"]))
         return "lost"
-    _record_reachability(root, activation, "unconfirmed")
-    return "unconfirmed"
+    return unconfirmed(f"GitHub answered with an unrecognized comparison status {status!r}")
 
 
 def _relative_script(root: str, script: str) -> str:

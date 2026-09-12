@@ -94,6 +94,12 @@ class RunChildTests(_Base):
         self.assertEqual(second["id"], first["id"])                     # the same record, not a new one
         self.assertEqual(len(self._pins()), 1)                          # nothing appended the second time
         self.assertIn("already_pinned", [json.loads(line)["event"] for line in lines])
+        # ...and the reply SAYS so: the existing record's id and scrubbed text, never a fresh "Saved."
+        self.assertTrue(second["already_pinned"])
+        self.assertIn(first["id"], second["note"])
+        self.assertIn("say it once", second["note"])
+        self.assertNotIn("Saved.", second["note"])
+        self.assertNotIn("already_pinned", first)                       # a fresh commit carries no such flag
 
     def test_a_pin_that_differs_only_by_session_is_not_a_duplicate(self):
         a = write_dispatch.run_child({"verb": "pin", "text": "same words", "session_id": "s1"})
@@ -200,6 +206,9 @@ class ClassifyOutcomeTests(unittest.TestCase):
         self.assertEqual(out["outcome"], "committed")
         self.assertEqual(out["response"]["id"], "r9")
         self.assertIn("unconfirmed", out["response"])
+        self.assertTrue(out["response"]["already_pinned"])              # rebuilt as the duplicate it was
+        self.assertIn("r9", out["response"]["note"])
+        self.assertIn("dup", out["response"]["note"])
 
     # -- a forged or corrupt receipt cannot mint a success (SC-3) ------------------------------------------
     def test_a_receipt_without_a_record_id_is_not_trusted_and_falls_through(self):

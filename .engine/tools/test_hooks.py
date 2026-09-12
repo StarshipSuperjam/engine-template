@@ -1175,6 +1175,9 @@ class _AcceptedDispatchRepo:
                 print(json.dumps([{"number": 42, "merged_at": "2026-01-01T00:00:00Z",
                     "merge_commit_sha": commit,
                     "base": {"ref": os.environ.get("ENGINE_TEST_GH_DEFAULT", "main")}}]))
+            elif "/compare/" in endpoint:
+                # The reachability compare (default_branch...commit): reachable unless a test says otherwise.
+                print(json.dumps({"status": os.environ.get("ENGINE_TEST_GH_COMPARE", "identical")}))
             elif "/releases/tags/" in endpoint:
                 print(json.dumps({"id": 77, "tag_name": endpoint.rsplit("/", 1)[-1]}))
             elif "/git/ref/tags/" in endpoint:
@@ -2529,9 +2532,10 @@ class TestReachability(unittest.TestCase):
         self.assertIsNone(self.d.reachability_state(self.root, self.act))
         self.assertFalse(os.path.exists(self.d._reachability_path(self.root)))
 
-    def test_unconfirmed_never_holds_and_never_undoes_a_confirmed_loss(self):
+    def test_unconfirmed_is_recorded_for_disclosure_but_never_holds_and_never_undoes_a_confirmed_loss(self):
         self.d._record_reachability(self.root, self.act, "unconfirmed")
-        self.assertIsNone(self.d.reachability_state(self.root, self.act))  # created no hold
+        self.assertEqual(self.d.reachability_state(self.root, self.act), "unconfirmed")  # disclosed...
+        self.assertFalse(self.d._reachability_lost(self.root, self.act))                  # ...never a hold
         self.d._record_reachability(self.root, self.act, "lost")
         self.d._record_reachability(self.root, self.act, "unconfirmed")
         self.assertEqual(self.d.reachability_state(self.root, self.act), "lost")  # loss survives
@@ -2603,7 +2607,11 @@ class TestReachability(unittest.TestCase):
         state, notices = self._measure("weird")
         self.assertEqual(state, "unconfirmed")
         self.assertFalse(self.d._reachability_lost(self.root, self.act))
-        self.assertEqual(notices, [])
+        self.assertEqual(self.d.reachability_state(self.root, self.act), "unconfirmed")
+        self.assertEqual(len(notices), 1)                       # disclosed, calmly, with the reason
+        self.assertIn("could not confirm", notices[0])
+        self.assertIn("'weird'", notices[0])
+        self.assertIn("Memory writing continues", notices[0])
 
     def test_measure_is_unconfirmed_when_github_cannot_be_reached(self):
         self._clear()
@@ -2613,7 +2621,9 @@ class TestReachability(unittest.TestCase):
             state = self.d.measure_reachability(self.root, self.act, notices=notices)
         self.assertEqual(state, "unconfirmed")
         self.assertFalse(self.d._reachability_lost(self.root, self.act))  # offline never holds a write
-        self.assertEqual(notices, [])
+        self.assertEqual(len(notices), 1)                                 # ...but the operator is told
+        self.assertIn("offline", notices[0])
+        self.assertIn("Memory writing continues", notices[0])
 
     def test_a_published_release_is_never_measured_against_the_default_branch(self):
         with mock.patch.object(self.d, "_github_default_branch") as gb, \

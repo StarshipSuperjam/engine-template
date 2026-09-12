@@ -98,6 +98,7 @@ def run_child(request: dict, *, emit=None) -> dict:
         # Not an operator-facing refusal: a malformed request is our bug, so it faults rather than refuses.
         raise DispatchFaulted(f"write dispatch received an unknown verb {verb!r}")
     accepted_id = records.new_record_id()
+    seen = {"already_pinned": False}
 
     def on_event(kind: str, payload: dict) -> None:
         record = payload.get("record")
@@ -109,6 +110,7 @@ def run_child(request: dict, *, emit=None) -> dict:
                 line["bytes"] = payload.get("bytes")
             _emit_line(emit, "committed", line)
         elif kind == "already_pinned":
+            seen["already_pinned"] = True
             _emit_line(emit, "already_pinned", {"record": _safe_record(record)})
 
     try:
@@ -122,7 +124,12 @@ def run_child(request: dict, *, emit=None) -> dict:
             live = pins.list_pins()
             response = {"id": record[records.RECORD_ID_KEY], "text": record["text"],
                         records.PIN_VIA_KEY: record[records.PIN_VIA_KEY], "total": len(live)}
-            if len(live) >= pins.PIN_PRUNE_HINT_AT:
+            if seen["already_pinned"]:
+                # The duplicate outcome is reported as such - the existing record's id and scrubbed text -
+                # never as a fresh "Saved." with an identical shape.
+                response["already_pinned"] = True
+                response["note"] = _already_pinned_note(record)
+            elif len(live) >= pins.PIN_PRUNE_HINT_AT:
                 response["note"] = (
                     f"Saved. You now have {len(live)} pinned notes. The session-start briefing shows the "
                     "newest as one-line titles and folds the older ones behind a loud disclosed count — "
@@ -177,6 +184,14 @@ _UNCONFIRMED_NOTE = (
 _STILL_UNCONFIRMED_NOTE = (
     "This may still be completing and was not confirmed. Nothing was retried. Give it a moment, then check "
     "with a search before saving it again.")
+
+
+def _already_pinned_note(record: dict) -> str:
+    """The operator-facing sentence for a pin the child's decisive in-lock check found already saved: it
+    names the EXISTING record's id and its scrubbed stored text, so the reply never reads as a fresh save
+    and the operator can see which note already carries these words. Nothing was appended."""
+    return (f"Already pinned as {record.get(records.RECORD_ID_KEY)}: {record.get('text')} — nothing new "
+            "was saved.")
 
 
 def dispatch(request: dict, *, run=None) -> dict:
@@ -314,7 +329,8 @@ def _classify_outcome(stdout, *, returncode, verb, request, read_back, child_ali
         None)
     if committed is not None:
         return {"outcome": "committed",
-                "response": _committed_response(verb, request, committed.get("record"))}
+                "response": _committed_response(verb, request, committed.get("record"),
+                                                already_pinned=committed.get("event") == "already_pinned")}
 
     # 3. A begin line: the child reached the write body. Decide on disk first, then on liveness.
     begin = next((e for e in reversed(events) if e.get("event") == "begin"), None)
@@ -339,7 +355,7 @@ def _target_phrase(request: dict) -> str:
     return "that conversation" if request.get("session_id") else "that note"
 
 
-def _committed_response(verb: str, request: dict, record) -> dict:
+def _committed_response(verb: str, request: dict, record, *, already_pinned: bool = False) -> dict:
     """Rebuild the operator-facing response for a write we KNOW committed (a committed receipt or a positive
     read-back) when the child's authoritative response line did not make it back. Shaped per verb, so a lost
     confirmation reads like the verb that actually ran rather than defaulting to a pin, and always carries the
@@ -358,6 +374,11 @@ def _committed_response(verb: str, request: dict, record) -> dict:
         response["text"] = record.get("text")
     if record.get(records.PIN_VIA_KEY) is not None:
         response[records.PIN_VIA_KEY] = record.get(records.PIN_VIA_KEY)
+    if already_pinned:
+        # An already-pinned receipt is a landed write too, but the reply must still say which existing
+        # note it is rather than reading as a fresh save.
+        response["already_pinned"] = True
+        response["note"] = _already_pinned_note(record)
     return response
 
 
