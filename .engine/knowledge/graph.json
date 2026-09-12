@@ -22007,7 +22007,7 @@
       },
       "slug": "test_telemetry",
       "source": {
-        "fingerprint": "sha256:972f6d42c138ca2925ec66402bedf5ef59ef2d596cba32a987b0dcfd76f5940f",
+        "fingerprint": "sha256:4cd5d00f98ea9e8c35888b6cc11acd2e0e0729d9fe9bc3f1e1e2520c8ceae873",
         "path": ".engine/tools/test_telemetry.py"
       },
       "status": "active",
