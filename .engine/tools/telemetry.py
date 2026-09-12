@@ -514,7 +514,9 @@ def _verify_current_boot(root, identity, deadline):
             or not identity.get("boot_input_digest")):
         raise ReaderHealthUnavailable("current trusted runtime cannot verify this boot reader")
     context = identity["boot_context"]
-    environment = dict(os.environ, ENGINE_PROJECT_ROOT=str(root), ENGINE_PROVIDER=context["provider"])
+    import providers
+    environment = dict(os.environ, ENGINE_PROJECT_ROOT=str(root))
+    environment[providers.PROVIDER_ENV] = context["provider"]
     sites = sorted({str(Path(p).resolve()) for p in sys.path if isinstance(p, str) and
                     ("site-packages" in p or "dist-packages" in p) and Path(p).is_dir()})
     if sites != execution["sites"]:
