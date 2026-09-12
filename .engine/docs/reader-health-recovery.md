@@ -68,8 +68,9 @@ original observation with matching first/last timestamps and a known scoped-read
 It refuses aggregated incidents, unrelated hook sources, missing diagnostics and ambiguous evidence.
 The operator must establish that this clone and reader account for the incident's original scope; a matching
 event or title alone is insufficient. Issues without that proof remain manual.
-Enrollment remains available after that reader recovers; retained original attribution is still required,
-and changed or expired recovery evidence still prevents closure until the reader verifies again.
+Enrollment remains available after that reader recovers; retained original attribution is still required.
+Confirmation invalidates earlier success before updating the issue, so the reader must verify again after
+enrollment before closure. An older verification already in progress cannot satisfy that requirement.
 
 ```sh
 uv run --directory .engine --frozen -- python tools/telemetry.py enroll-reader-incident ISSUE_NUMBER READER_ID scoped-reader --observed-at ORIGINAL_TIMESTAMP > /tmp/reader-enrollment.json

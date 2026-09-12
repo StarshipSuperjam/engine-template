@@ -324,6 +324,20 @@ class ReaderHealthStore:
                 self._write(value)
             return {"scope": value["scope"], "generation": value["generation"]}
 
+    def require_fresh_verification(self, reader, producer, expected):
+        """Persist a verification boundary before attributing an older incident."""
+        with self.lock():
+            value = self._read()
+            self._drain(value)
+            if value != expected:
+                raise ReaderHealthUnavailable("reader evidence changed before enrollment")
+            record = value["readers"][reader + "/" + producer]
+            self._merge(value, {"reader": reader, "root": record["root"], "producer": producer,
+                "state": "unknown", "identity": record["identity"], "observed": moment.utc_now(),
+                "verification": None})
+            self._write(value)
+            return value
+
     def observe(self, producer, state, identity, *, verification=None):
         if producer not in READER_HEALTH_PRODUCERS or state not in {"healthy", "failing", "unknown"}:
             raise ReaderHealthUnavailable("unsupported health observation")
@@ -820,11 +834,16 @@ def reader_incident_enrollment(client, root, number, reader, producer, observed_
     final = issue_triage.read_api(client, path)
     if any(final.get(k) != live.get(k) for k in ("id", "body", "updated_at", "state", "labels")):
         raise ReaderHealthUnavailable("original incident changed before enrollment")
+    # The original crash may never have reached the health store. Revoke any
+    # retained success, including verifications already in flight, before the
+    # issue becomes eligible for automatic recovery. No wall-clock ordering claim.
+    snapshot = store.require_fresh_verification(reader, producer, snapshot)
     now = moment.utc_now()
     finding = _reader_health_record(snapshot["scope"], producer)
     finding["message"] += (" The operator attributed this original incident to this reader using the retained "
                            "diagnostic and an unchanged issue-evidence preview. Enrollment does not prove recovery.")
-    receipt = {**preview, "approved_at": now, "reason_digest": hashlib.sha256(reason.encode()).hexdigest()}
+    receipt = {**preview, "approved_at": now, "verification_generation": snapshot["generation"],
+               "reason_digest": hashlib.sha256(reason.encode()).hexdigest()}
     enrolled = producer_body(issue_body(finding, observed_at, now), _semantic_finding(finding), now, previous=body)
     # Outside the replaceable report, so subsequent recovery updates retain the attribution receipt.
     enrolled += "\n<!-- engine-reader-enrollment: " + json.dumps(receipt, sort_keys=True) + " -->\n"

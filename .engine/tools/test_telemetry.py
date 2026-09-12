@@ -556,6 +556,40 @@ class ReaderHealthRecovery(ReaderHealthEvidence):
         self.assertEqual(self.reconcile()["closed"], 1)
         self.assertIn("engine-reader-enrollment", self.fake.issues[1]["body"])
 
+    def test_legacy_enrollment_revokes_success_before_an_unrecorded_crash(self):
+        with mock.patch.object(telemetry.moment, "utc_now", return_value="2026-09-12T11:59:59Z"):
+            self.healthy(self.sibling)
+        in_flight = self.other.begin_verification()
+        # The original diagnostic and remote alert survive, but its local failure
+        # observation was lost. The retained success alone would still be fresh.
+        with mock.patch.object(self.other, "observe"):
+            reader, stamp, diagnostic = self.legacy_incident()
+        with mock.patch.object(telemetry.moment, "utc_now", return_value="2026-09-12T12:00:01Z"):
+            self.assertEqual(telemetry._reader_recovery_state(self.store, self.store.snapshot(),
+                "scoped-reader", time.monotonic() + 10), "healthy")
+            preview = telemetry.reader_incident_enrollment(self.client, self.root, 1, reader, "scoped-reader", stamp)
+            telemetry.reader_incident_enrollment(self.client, self.root, 1, reader, "scoped-reader", stamp,
+                expected=preview, confirm=True, reason="Operator verified retained original attribution")
+            self.other.observe("scoped-reader", "healthy",
+                telemetry.reader_health_identity(self.sibling, "scoped-reader"), verification=in_flight)
+            self.assertEqual(self.store.snapshot()["readers"][reader + "/scoped-reader"]["state"], "unknown")
+            self.assertTrue(self.reconcile()["unverified"])
+            self.assertEqual(self.fake.open_count(), 1)
+            self.healthy(self.sibling)
+            self.assertEqual(self.reconcile()["closed"], 1)
+
+    def test_failed_enrollment_verification_boundary_makes_no_remote_write(self):
+        reader, stamp, diagnostic = self.legacy_incident()
+        self.healthy(self.sibling)
+        preview = telemetry.reader_incident_enrollment(self.client, self.root, 1, reader, "scoped-reader", stamp)
+        self.fake.calls.clear()
+        with mock.patch.object(telemetry.ReaderHealthStore, "_write", side_effect=OSError("disk unavailable")):
+            with self.assertRaises(OSError):
+                telemetry.reader_incident_enrollment(self.client, self.root, 1, reader, "scoped-reader", stamp,
+                    expected=preview, confirm=True, reason="Operator verified original attribution")
+        self.assertEqual(self.fake.writes(), [])
+        self.assertEqual(self.fake.open_count(), 1)
+
     def test_legacy_enrollment_refuses_changed_original_evidence_without_writes(self):
         reader, stamp, diagnostic = self.legacy_incident()
         preview = telemetry.reader_incident_enrollment(self.client, self.root, 1, reader, "scoped-reader", stamp)
