@@ -913,7 +913,7 @@ class Issue1012BookkeepingTraps(unittest.TestCase):
     def test_the_reviewed_to_final_line_says_none_is_a_judgment_and_what_it_costs(self):
         source = Path(bc.__file__).read_text(encoding="utf-8")
         self.assertIn("`none` is a real judgment, not a skip", source)
-        self.assertIn("clears the repair packet", source)
+        self.assertIn("retaining original review", source)
 
 
 class TheV1SunsetDemo(unittest.TestCase):
@@ -944,6 +944,20 @@ class ReviewCoverageDemo(unittest.TestCase):
                 self.assertIn("AssertionError",output.getvalue())
             else:
                 self.assertIn("production submit preview reaches mark-ready",output.getvalue())
+
+
+class RepairCompletionDemo(unittest.TestCase):
+    """The normal scenario already runs in test_build_coordinator; faults fail early."""
+
+    def test_fault_controls_fail_behavioral_assertions(self):
+        import demo_repair_completion
+        for flag in ('--bypass-own-commit-hold', '--lose-originals', '--omit-decision-freshness'):
+            with self.subTest(fault=flag):
+                output = io.StringIO()
+                self.assertEqual(1, demo_repair_completion.main([flag], stream=output), output.getvalue())
+                self.assertNotIn('ERROR:', output.getvalue(), 'A harness exception is not falsification')
+                self.assertIn('FAIL:', output.getvalue())
+                self.assertIn('AssertionError', output.getvalue())
 
 
 if __name__ == "__main__":

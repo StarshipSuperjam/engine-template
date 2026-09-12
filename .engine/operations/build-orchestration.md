@@ -61,6 +61,8 @@ omitted approved reviewer coverage; absent deliverable review; validation stale 
 change without a proportional judgment; a finding explicitly left blocking this PR; missing or failed
 registered preflight; incomplete PR contract; wrong/non-draft PR during construction; and any operation that
 would merge. Each has demonstrated-failure tests and merge history.
+Fix accepted in-scope findings and verify the repairs before choosing no, scoped or full further review. A terminal decision preserves original review evidence and identifies the exact range directly verified; it never stands in for unfinished assigned review. Review limits do not authorize deferring in-scope defects.
+
 Unexpected paths, reviewer severity, diff size, and non-blocking findings remain evidence or judgment inputs, as does a repair's surface classification — round accounting bounds how many rounds run, never which lenses run or how deep; an
 `unresolved` assumption instead holds the `ready` phase until cleared by `assumption dispose` or `plan revise`.
 

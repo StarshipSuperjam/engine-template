@@ -8463,6 +8463,12 @@ class TestRepairCompletionScenario(unittest.TestCase):
                                            '--rationale','Independent check of the repair'])
             bc.cmd_repair_assess(full,fixture.store)
             repair_packet = fixture.packet(stage='repair',head=head)
+            unfinished = fixture.state()
+            premature = bc.parser().parse_args(['repair','assess','--judgment','none',
+                '--rationale','Attempt to end an unfinished panel','--verification-ref','candidate'])
+            with self.assertRaisesRegex(bc.CoordinatorError, 'original assigned read'):
+                bc.cmd_repair_assess(premature,fixture.store)
+            self.assertEqual(unfinished,fixture.state(), 'An unfinished panel cannot be absorbed')
             for lens in fixture.DELIVERABLE_LENSES:
                 report = [{'severity':'serious','message':'Repair round defect','location':None}] if lens=='technical-integrity' else []
                 fixture.record_frozen(repair_packet,lens,report)
@@ -8495,6 +8501,10 @@ class TestRepairCompletionScenario(unittest.TestCase):
             pr['body']=body(); preflight()
             self.assertEqual('mark-ready',bc._submit_preview(fixture.store,str(fixture.plan_path))['action'])
             decision = copy.deepcopy(fixture.state()['repair']['direct_verification'])
+            disclosure = bc._drift_line(fixture.state(), head)
+            self.assertIn('Retained independently reviewed scopes:', disclosure)
+            self.assertIn('was directly verified', disclosure)
+            self.assertNotIn(f"reviewed `{decision['from_commit'][:12]}`, submitted", disclosure)
             lineage = bc._review_lineage_digest(fixture.state())
             bc.cmd_repair_assess(assess,fixture.store)
             self.assertEqual(decision,fixture.state()['repair']['direct_verification'])
@@ -8512,6 +8522,17 @@ class TestRepairCompletionScenario(unittest.TestCase):
             with self.assertRaises(bc.CoordinatorError): preflight()
             pr['body']=body(); preflight()
             saved = copy.deepcopy(fixture.state())
+            companion = bc.scoped_agents.Store(fixture.review_library, fixture.review_slug).path
+            companion_bytes = companion.read_bytes()
+            try:
+                companion.unlink()
+                with self.assertRaises(bc.CoordinatorError):
+                    bc._submit_preview(fixture.store,str(fixture.plan_path))
+                with self.assertRaisesRegex(bc.CoordinatorError, 'ownership is unverified'):
+                    bc.cmd_repair_assess(assess,fixture.store)
+            finally:
+                companion.write_bytes(companion_bytes)
+            self.assertEqual('mark-ready',bc._submit_preview(fixture.store,str(fixture.plan_path))['action'])
             # New candidate evidence at the same commit requires a fresh decision.
             def replace_candidate(s):
                 s['validation']['candidate']['results'][0]['summary'] = 'A later candidate run'

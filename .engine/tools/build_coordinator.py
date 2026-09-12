@@ -724,11 +724,16 @@ def _terminal_decisions(state):
 
 
 def _direct_verification_lines(state):
-    return [f"Direct verification `{d['from_commit'][:12]}..{d['to_commit'][:12]}`: "
-            f"no independent review requested for this repair; {_plain(d['rationale'])}. "
-            f"Checks: {_plain('; '.join(d['verification_refs']))}. "
-            f"Original review receipts and assigned ranges remain unchanged."
-            for d in _terminal_decisions(state)]
+    lines = []
+    for d in _terminal_decisions(state):
+        scopes = '; '.join(f"`{scope['base'][:12]}..{scope['tip'][:12]}` "
+                           f"({_plain(', '.join(scope['lenses']))})" for scope in d['read_scopes'])
+        lines.append(f"Direct verification `{d['from_commit'][:12]}..{d['to_commit'][:12]}`: "
+                     f"no independent review requested for this repair; {_plain(d['rationale'])}. "
+                     f"Checks: {_plain('; '.join(d['verification_refs']))}. "
+                     f"Retained independently reviewed scopes: {scopes}. "
+                     f"Original review receipts and assigned ranges remain unchanged.")
+    return lines
 
 
 def _direct_read_scopes(state, before=None):
@@ -1163,8 +1168,9 @@ def _status(state: dict, plan: dict | None = None) -> dict:
                 "reviewed commit is no longer on it" if rewritten else
                 "the branch has moved past the reviewed commit: judge how much of that divergence needs "
                 "re-reading and record it with `repair assess`. `none` is a real judgment, not a skip — "
-                "it ends the repair loop without a re-review and clears the repair packet, so reach for "
-                "it when the divergence genuinely carries nothing a lens would find.")
+                "it records direct verification of the exact new range while retaining original review "
+                "evidence. Land and verify in-scope fixes first, then supply a rationale and concrete "
+                "--verification-ref checks when another independent pass is disproportionate.")
         elif repair["judgment"] != "none":
             repair_results = _coverage_results(repair, "repair", state, repair["lenses"], _facts=review_facts)
             outstanding = [lens for lens, result in repair_results.items() if not result["covered"]]
@@ -4512,8 +4518,8 @@ def cmd_repair_assess(args, store: Snapshot) -> None:
         if stop:
             raise CoordinatorError(
                 f"{stop} This is the point to stop and bring the operator in: summarise plainly what keeps "
-                "failing and what you propose (narrow the re-review, accept-track the residual findings, or "
-                "keep going), then record their answer with --guidance. That text is published in the PR "
+                "failing and what you propose (narrow the re-review or keep going after fixing in-scope "
+                "defects), then record their answer with --guidance. That text is published in the PR "
                 "body, so the operator sees at merge whether they were actually consulted. This is a "
                 "discipline prompt backed by their merge, not a wall.\n\nHow the rounds have gone:\n"
                 + _trajectory(rounds))
@@ -6163,6 +6169,11 @@ def _review_drift_line(state: dict, head: str) -> str:
                 f"`{repair['final_commit'][:12]}` ({repair['summary']})")
 
     if not reconciles:
+        if repair and repair.get("direct_verification"):
+            direct = repair['direct_verification']
+            return (f"submitted `{head[:12]}`; terminal repair range "
+                    f"`{direct['from_commit'][:12]}..{direct['to_commit'][:12]}` was directly verified, "
+                    "with independently reviewed scopes disclosed separately")
         if repair and repair.get("final_commit"):
             tail = (f"{repair['summary']}; no re-review was judged necessary"
                     if repair.get("judgment") == "none" else repair["summary"])
@@ -6659,7 +6670,7 @@ def parser() -> argparse.ArgumentParser:
     validate = sub.add_parser("validate"); validate.add_argument("mode", nargs="?", choices=["candidate", "final"], help="bare `validate` and `validate candidate` are the same run; `validate final import` verifies and imports the live engine-ci proof for the submitted head"); validate.add_argument("action", nargs="?", choices=["import"], help="for `final`: import is the only action — the proof is never run locally"); validate.add_argument("--force", action="store_true", help="re-run even when the cached candidate identity matches"); validate.add_argument("--plan", help="the approved plan; REQUIRED for a build-plan.v2 Build, whose node roster lives only there"); validate.set_defaults(func=cmd_validate)
     sync_artifacts = sub.add_parser("sync-artifacts"); sync_artifacts.set_defaults(func=cmd_sync_artifacts)
     repair = sub.add_parser("repair").add_subparsers(dest="repair_command", required=True)
-    assess = repair.add_parser("assess"); assess.add_argument("--judgment", choices=["none", "scoped", "full"], required=True); assess.add_argument("--rationale", required=True); assess.add_argument("--guidance", help="The operator's answer when a third or later repair round is proposed; published in the PR body."); assess.add_argument("--lens", action="append"); assess.add_argument("--accept-receipt-loss", action="store_true", help="Re-bind even though recorded repair receipts do not cover the new divergence and will be dropped. Without it the re-bind refuses and names what each lens still owes."); assess.add_argument("--verification-ref", action="append", help="Concrete direct-verification evidence reference; required for an evidence-preserving none decision."); assess.set_defaults(func=cmd_repair_assess)
+    assess = repair.add_parser("assess"); assess.add_argument("--judgment", choices=["none", "scoped", "full"], required=True); assess.add_argument("--rationale", required=True); assess.add_argument("--guidance", help="The operator's answer when a third or later repair round is proposed; published in the PR body."); assess.add_argument("--lens", action="append"); assess.add_argument("--accept-receipt-loss", action="store_true", help="Explicit legacy loss recovery; this is not evidence of a terminal direct-verification decision. The normal completed-review/fix/none path retains receipts without this flag."); assess.add_argument("--verification-ref", action="append", help="Concrete direct-verification evidence reference; required for an evidence-preserving none decision."); assess.set_defaults(func=cmd_repair_assess)
     reconcile = sub.add_parser("reconcile"); reconcile.add_argument("--plan", required=True); reconcile.set_defaults(func=cmd_reconcile)
     preparation = reconcile.add_mutually_exclusive_group()
     preparation.add_argument("--prepare", action="store_true", help="pin and retain an unreviewed Build's source before an intentional rebase")

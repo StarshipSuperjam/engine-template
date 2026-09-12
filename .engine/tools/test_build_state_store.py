@@ -66,6 +66,17 @@ def _state(pr=1, worktree="/tmp/wt", revision=1, **over) -> dict:
     return state
 
 
+def _terminal_decision(base, tip):
+    """Synthetic schema-valid bytes for persistence tests, not review eligibility evidence."""
+    return {"from_commit": base, "to_commit": tip,
+            "authority_digest": "sha256:" + "3" * 64,
+            "divergence_digest": "sha256:" + "4" * 64,
+            "candidate_digest": "sha256:" + "5" * 64,
+            "rationale": "Synthetic fixture terminal repair verification",
+            "verification_refs": ["synthetic focused regression"],
+            "read_scopes": [{"base": base, "tip": tip, "lenses": ["usability"]}]}
+
+
 class _Library(unittest.TestCase):
     """A plan library holding one real plan, in a throwaway directory."""
 
@@ -183,6 +194,19 @@ class TerminalConditionContract(_Library):
         }
         with self.assertRaises(core.CoordinatorError):
             self._store().create(_state(terminal_condition=condition))
+
+
+class DirectVerificationRecoveryContract(_Library):
+    """Older completed rounds remain readable when their optional terminal decision is absent."""
+
+    def test_completed_round_without_direct_verification_stays_absent_after_restart(self):
+        completed = {"reviewed_commit": "a" * 40, "final_commit": "b" * 40,
+                     "judgment": "scoped", "lenses": ["usability"]}
+        self._store().create(_state(repair_rounds=[completed]))
+        restarted = self._store().read()
+        self.assertEqual(completed, restarted["repair_rounds"][0])
+        self.assertNotIn("direct_verification", restarted["repair_rounds"][0],
+                         "reading an older completed round must not synthesize a terminal decision")
 
 
 class DoesNotDestroy(_Library):
@@ -976,6 +1000,9 @@ class TransactionalOwnership(unittest.TestCase):
 
     def test_completion_matches_every_identity_field_and_is_idempotent(self):
         import project_manager as pm
+        decision = _terminal_decision('a' * 40, 'b' * 40)
+        self.state['repair_rounds'] = [{"reviewed_commit": 'a' * 40, "final_commit": 'b' * 40,
+            "judgment": "none", "lenses": [], "direct_verification": decision}]
         claim = self.reserve(); self.finish(claim)
         identity = build_state_store.claim_identity(claim)
         proof = {k: claim[k] for k in ('build_id', 'generation', 'snapshot', 'repository',
@@ -1236,6 +1263,7 @@ class TransactionalOwnership(unittest.TestCase):
     def test_original_review_history_survives_restart_failed_write_retry_and_restore(self):
         import build_coordinator as bc
         from test_review_economy import _RealRepo
+        from test_build_coordinator import TestPreflightHandoffAndSubmission
         repo = _RealRepo(); repo.setUp(); self.addCleanup(repo.doCleanups)
         first = repo.commit("source.py", "initial")
         tip = repo.commit("source.py", "repair")
@@ -1244,8 +1272,21 @@ class TransactionalOwnership(unittest.TestCase):
         repair = {"lens":"usability", "packet_digest":"sha256:"+"2"*64,
             "commit":tip, "finding_ids":[], "reviewed_range":{"base":first,"tip":tip}}
         history = [{"stage":"deliverable","receipt":original,"effective":False}]
+        finding = TestPreflightHandoffAndSubmission()._blocking_finding_with_private(
+            "private retained finding evidence")
+        finding.update(stage="deliverable", lens="usability", commit=first,
+                       packet_digest=original["packet_digest"],
+                       disposition="accepted-fixed", blocks_this_pr=False)
+        finding.pop("lens_packet_digest", None)  # legacy original has no lens packet
+        original["finding_ids"] = [finding["id"]]
+        decision = _terminal_decision(first, tip)
         self.state["review_evidence_history"] = history
         self.state["reviews"]["deliverable"]["receipts"] = [repair]
+        self.state["findings"] = [finding]
+        self.state["repair"] = {"reviewed_commit": first, "final_commit": tip,
+            "summary": "Synthetic fixture terminal repair", "judgment": "none",
+            "rationale": "Synthetic fixture terminal repair verification", "lenses": [],
+            "packet_digest": None, "receipts": [], "direct_verification": decision}
         claim = self.reserve(); saved = self.finish(claim)
         identity = build_state_store.claim_identity(claim)
         store = build_state_store.ClaimedBuildStore(self.lib,self.slug,SCHEMA,identity=identity)
@@ -1259,12 +1300,18 @@ class TransactionalOwnership(unittest.TestCase):
                 store.mutate(lambda s: s.update(submission="draft"), from_revision=1)
         self.assertEqual(before, path.read_bytes())
         store.mutate(lambda s: s.update(submission="draft"), from_revision=1)
+        self.assertEqual(decision, store.read()["repair"]["direct_verification"])
         before = path.read_bytes()
+        with self.assertRaises(core.CoordinatorError):
+            store.mutate(lambda s: s["repair"].update(direct_verification=None), from_revision=1)
+        self.assertEqual(before, path.read_bytes(), "a stale writer cannot replace the terminal decision")
         with self.assertRaises(core.CoordinatorError):
             store.mutate(lambda s: s.update(review_evidence_history=[]), from_revision=1)
         self.assertEqual(before, path.read_bytes())
         saved = build_state_store.ClaimedBuildStore(self.lib,self.slug,SCHEMA,identity=identity).read()
         self.assertEqual(expected, coverage(saved)); self.assertEqual(history,saved["review_evidence_history"])
+        self.assertEqual(finding["id"], saved["findings"][0]["id"])
+        self.assertEqual(decision, saved["repair"]["direct_verification"])
         value = bc._handoff(saved); value["snapshot"] = claim["snapshot"]
         restored = bc._restore_base_state(value,"build-state.v2"); restored["work"] = {}
         self.assertNotIn("review_evidence_history",value)
@@ -1272,6 +1319,8 @@ class TransactionalOwnership(unittest.TestCase):
             worktree=self.state["build"]["worktree"],projection=bc._handoff)
         self.assertEqual(history,updated["review_evidence_history"])
         self.assertEqual(expected,coverage(updated))
+        self.assertEqual(finding["id"], updated["findings"][0]["id"])
+        self.assertEqual(decision, updated["repair"]["direct_verification"])
         # An export cannot invent originals after their canonical home is lost.
         path.unlink()
         with self.assertRaises(core.CoordinatorError):

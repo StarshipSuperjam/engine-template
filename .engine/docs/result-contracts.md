@@ -252,3 +252,33 @@ reverified rebase. Refreshing the deliverable packet asks its new whole scope. E
 includes retained original receipts, so a later nonexecuting review cannot hide an earlier execution.
 Historical receipts without an execution declaration remain unchanged and are disclosed as unknown;
 a fresh current receipt supplies its own declaration without claiming what the earlier reviewer did.
+
+
+## Fix-first repair completion demonstration
+
+Run from the repository root:
+
+```sh
+uv run --directory .engine --frozen -- python tools/demo_repair_completion.py
+```
+
+The real-Git scenario accepts a finding, shows that accepted-fixed at its own original review commit
+cannot submit, lands a fix, completes an independent repair panel with another finding, lands that
+repair, and reaches production submit preview through an explicit terminal direct-verification decision.
+Original receipts and findings remain intact. The decision names its exact range, approved authority,
+candidate evidence, rationale and concrete checks; it does not claim independent review of that range.
+A same-commit decision or reference change requires fresh PR disclosure and preflight. New candidate
+evidence requires reassessment. A later authored edit requires another proportional judgment.
+
+Run the deliberate controls separately; each must exit nonzero with an `AssertionError`, not a harness error:
+
+```sh
+uv run --directory .engine --frozen -- python tools/demo_repair_completion.py --bypass-own-commit-hold
+uv run --directory .engine --frozen -- python tools/demo_repair_completion.py --lose-originals
+uv run --directory .engine --frozen -- python tools/demo_repair_completion.py --omit-decision-freshness
+```
+
+The controls suppress the unchanged-commit hold, discard retained originals, or omit decision freshness.
+The normal scenario runs once in the permanent suite; fault controls reuse it and stop at their violated
+assertions. Native reviewer transport, GitHub and candidate/final CI inputs are explicitly synthetic.
+This demonstration does not qualify live review execution or replace the Build's real validation and QA.

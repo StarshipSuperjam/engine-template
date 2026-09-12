@@ -24,7 +24,7 @@ Accepting a concern is not accepting its remedy. Verify each finding and record 
 Before involving the operator, synthesize one recommended call and its tradeoff. Return only for a change to design, law, authority, agreed capability, required guardrail acknowledgement or another unresolved operator-only decision.
 
 ### Judge repair proportionately
-After accepted repairs, measure reviewed-to-final divergence with `repair assess` and record one engineering judgment:
+Land and verify each accepted in-scope fix before deciding whether another review would help. After the fixes, measure reviewed-to-final divergence with `repair assess` and record one engineering judgment:
 - `none`: direct verification suffices; another independent pass would be disproportionate.
 - `scoped`: re-read affected lenses. With no `--lens`, use the lenses that raised blocking findings; explicit lenses override that default.
 - `full`: re-read all applicable lenses when architecture, authority or broad behavior changed.
@@ -32,19 +32,21 @@ The same judgment applies after target-branch reconciliation. Diff size and touc
 
 Retain original receipts and their execution evidence: compatible exact read ranges combine per lens, but cannot bridge gaps or make a spliced repair stand for an unread whole-deliverable range. Each lens owes its original deliverable scope and assigned repairs; other proportional repairs are excluded without claiming they were read. A refreshed delivery packet asks its new scope.
 Retaining a read neither revives settled findings nor settles unresolved ones. Disposition each finding against its original receipt ID and stage, even after refresh or restart. See [Result contracts](../docs/result-contracts.md#cumulative-review-coverage-demonstration) for the executable example.
-`none` is a terminal judgment and clears the repair packet; if it would discard uncovered receipts, it refuses unless `--accept-receipt-loss` is explicit. Scoped/full asks for the missing read instead. Do not turn this flag into routine bookkeeping.
+`none` records direct verification of the exact new repair range, with a rationale and one or more `--verification-ref` references to concrete checks. It requires current green candidate evidence and completion of the original panel and all assigned repair reads. Original receipts, findings and execution evidence remain unchanged; direct verification is explicitly separate from independent review. Missing originals or an unfinished panel must be recovered or completed first. The normal fix/none path needs no receipt-loss flag. Historical explicit loss recovery is not evidence of a new terminal decision.
+
+An accepted-fixed finding cannot be submitted at its own original review commit. Missing or ambiguous original ownership also holds submission. Land the fix or correct a mistaken disposition; a different commit alone does not establish that a fix is adequate. A later authored change requires a new proportional judgment. A same-commit change to the terminal decision or its verification references requires refreshed PR disclosure and preflight; rerunning preflight against an old body cannot repair that disclosure.
 A behavior-changing or large repair after lighter review suggests under-chosen depth: lean scoped/full when the defect and fix warrant it. Depth remains engineering judgment, not a size threshold.
 
 Two or more cold lenses spend a counted panel round; none or one lens spend no counted budget. The convention for a low-yield single check is a minimal model. An already-spent round is never refunded.
 Three counted rounds or six total rounds trigger consultation before exceeding the limit. Summarize what keeps failing and the proposed remedy, then record the operator's answer with `--guidance`; it reaches the PR body. The trajectory classifies each increment and highlights growing code/guarded-surface churn.
-These bounds cap cost, not lens coverage. One design panel freezes the plan; a changed plan follows the explicit revision path, not another automatic panel.
+These bounds cap review cost, not in-scope repairs or lens coverage. Reaching a limit never justifies tracking an accepted in-scope defect instead of fixing it. One design panel freezes the plan; a changed plan follows the explicit revision path, not another automatic panel.
 
 ### Preserve receipts across a proven clean target merge
 An active branch may fetch and merge its target. Commit authored resolutions and regenerate derived outputs through `sync-artifacts`; validate the actual merged HEAD and push it before assessment:
 ```text
 build_coordinator.py <identity flags> validate --plan <payload.json>
 git push origin <build-branch>
-build_coordinator.py <identity flags> repair assess --judgment none --rationale "<why direct verification suffices>"
+build_coordinator.py <identity flags> repair assess --judgment none --rationale "<why direct verification suffices>" --verification-ref "<concrete check and result>"
 ```
 The coordinator observes the exact draft head and verified default-target repository/ref/tip. It requires two parents with that target second and an actual merge tree matching `git merge-tree --write-tree` in an isolated object-only repository, excluding local configuration, attributes and replacement refs.
 Only proven imported target ancestry and that exact automatic merge are exempt from unread work; local commits before/after still need coverage. Original receipts/read ranges remain unchanged. The PR records target tip, merge, automatic tree and validated HEAD, not a claim that combined behavior is unchanged.
