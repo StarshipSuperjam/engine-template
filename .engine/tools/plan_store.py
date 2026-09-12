@@ -59,7 +59,7 @@ def shared_reader_diagnosis(value, schema_path):
 
     A local, descendant origin/main schema is diagnostic evidence only. No network,
     checkout execution, schema relaxation, or record rewrite is permitted here.
-    Readers must be updated before consuming a newer closed shape (#1256).
+    Readers must be updated before consuming a newer closed shape (StarshipSuperjam/engine-template#1256).
     """
     from jsonschema import Draft202012Validator
     schema_path = Path(schema_path).resolve()

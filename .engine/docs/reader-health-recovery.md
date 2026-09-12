@@ -2,9 +2,13 @@
 title: Reader health and verified recovery
 ---
 
+## What this covers
+
 The scoped-evidence reader and boot assembly report health locally. Telemetry's existing SessionStart
 inbox pass promotes their failures and checks recovery. These readers run on your machine; GitHub Actions
 does not run them. No additional schedule is required.
+
+## What you need to know
 
 An alert belongs to one local clone and one producer. All worktrees registered with that clone share an
 opaque scope, including worktrees created outside the usual Codex or Claude directories. Independent clones
