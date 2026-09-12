@@ -5307,7 +5307,7 @@
       },
       "slug": "result-contracts",
       "source": {
-        "fingerprint": "sha256:bad2d37ba48a5140aa5be3929787dd379ba251e0d83fdce0ab78f83b3c398a2f",
+        "fingerprint": "sha256:4ae5953526ed3368088edecadf6f87b167550e485c51b3da83ce7db494e47ecd",
         "path": ".engine/docs/result-contracts.md"
       },
       "status": "active",
@@ -5840,7 +5840,7 @@
       },
       "slug": "build-orchestration",
       "source": {
-        "fingerprint": "sha256:d2206cb29b1b33af682f39bb65b1fa8ca95e92d1739575c5ccb468a1ee18e337",
+        "fingerprint": "sha256:de2ed37e8a1b5d636a203b7dce16a74dcbd427a6959d724379a701e0a42e7f3e",
         "path": ".engine/operations/build-orchestration.md"
       },
       "status": "active",
@@ -5900,7 +5900,7 @@
       },
       "slug": "build-submission",
       "source": {
-        "fingerprint": "sha256:fc2ba5fec87229cb111b4944ce6cc7da73acb43128743bd69daea904355aa7c1",
+        "fingerprint": "sha256:dda414fa99dde6db151feb6061d5e7bac6217e9fdca3033ec4926267da0cfa30",
         "path": ".engine/operations/build-submission.md"
       },
       "status": "active",
@@ -5920,7 +5920,7 @@
       },
       "slug": "build-validation-and-review",
       "source": {
-        "fingerprint": "sha256:7a7f85ad3a44cb1dabd2d45e308b4b30b366cce330117288c5b458d6767e2746",
+        "fingerprint": "sha256:fd137d9de0dd9ca6d8910ef6f98f2e557089b4e75ce9e1f9c1cfdc8a612291ea",
         "path": ".engine/operations/build-validation-and-review.md"
       },
       "status": "active",
@@ -6765,7 +6765,7 @@
       },
       "slug": "finding-disposition",
       "source": {
-        "fingerprint": "sha256:dbdeb2a3a9f791a2a6487fb8e0f88ae67cac74febccdc9fdcf0996645ccb7f81",
+        "fingerprint": "sha256:bae43bb33bc8f26b2198dea3d7794beb4b862dbfb7e6c32154e3cf674ad1a34c",
         "path": ".engine/policies/finding-disposition.md"
       },
       "status": "active",
@@ -7173,7 +7173,7 @@
       },
       "slug": "build-state.v2",
       "source": {
-        "fingerprint": "sha256:46e89e0e31ba6718ae463657974b32542b0d9cdd283bc0146e4f4892be9033fe",
+        "fingerprint": "sha256:c45826dcefc61735f4d6339a5bb7124196bc08ad40d3fb5d706e2953f826c135",
         "path": ".engine/schemas/build-state.v2.json"
       },
       "status": "active",
@@ -9808,7 +9808,7 @@
       },
       "slug": "build_coordinator",
       "source": {
-        "fingerprint": "sha256:5242303c3f7b0e4c8b438726ebe97e1a8389bda1682d678a7502c0515900f594",
+        "fingerprint": "sha256:0d6b031849de9d93cf6d448d0392ee84c4962126fc6dcfa757126adbf25d8552",
         "path": ".engine/tools/build_coordinator.py"
       },
       "status": "active",
@@ -9953,7 +9953,7 @@
       },
       "slug": "build_coordinator_review",
       "source": {
-        "fingerprint": "sha256:8c9d2ea82a5a5caa3fc5f13ae76b1ad9d87bb2ff81131e6f0cafa3cadb90a24d",
+        "fingerprint": "sha256:542d1aa3363bb44a95a803b398c3d6e5e4a8bfbed2f1c128517d99e32f07d264",
         "path": ".engine/tools/build_coordinator_review.py"
       },
       "status": "active",
@@ -12007,6 +12007,30 @@
       },
       "status": "active",
       "summary": "Behavioural demonstration of the terminal-cut publisher (release_terminal.py).",
+      "type": "tool"
+    },
+    {
+      "entrypoint": "demo",
+      "guarded": false,
+      "id": "tool:demo_repair_completion",
+      "name": ".engine/tools/demo_repair_completion.py",
+      "owner": "core",
+      "predicates": {
+        "imports": [
+          "tool:build_coordinator",
+          "tool:build_coordinator_review"
+        ],
+        "provided_by": [
+          "module:core"
+        ]
+      },
+      "slug": "demo_repair_completion",
+      "source": {
+        "fingerprint": "sha256:d99ab46eb96e54545e9a61995a3ab76a21ddb6105a3ace3c65d6c8f2a6811743",
+        "path": ".engine/tools/demo_repair_completion.py"
+      },
+      "status": "active",
+      "summary": "Demonstrate fix-first repair completion through production commands and real Git.",
       "type": "tool"
     },
     {
@@ -16873,7 +16897,7 @@
       },
       "slug": "test_build_coordinator",
       "source": {
-        "fingerprint": "sha256:16651f1fabc13ba6fceddf3b51b68930a90b9e9e47dac7ee1b3fb13b5871867e",
+        "fingerprint": "sha256:feb08e4c32c6ba26078c16e936c127c41d1182bf2d5bcc2d097d4eb0924a0e52",
         "path": ".engine/tools/test_build_coordinator.py"
       },
       "status": "active",
@@ -17030,7 +17054,7 @@
       },
       "slug": "test_build_coordinator_review",
       "source": {
-        "fingerprint": "sha256:21472b9eec7ee986f9e2e6de562e23d485b6cbe4e946745b72112b2116ed2d39",
+        "fingerprint": "sha256:93d7b9534202a35a666a1485cf87c4f54c0e525ea905c13371b923485600c533",
         "path": ".engine/tools/test_build_coordinator_review.py"
       },
       "status": "active",
@@ -17169,7 +17193,7 @@
       },
       "slug": "test_build_state_store",
       "source": {
-        "fingerprint": "sha256:1d2f3ae4331636c044b268ff3dca693206209a7244a28430df561bb8945763aa",
+        "fingerprint": "sha256:4342860f4d24444fbf8295890ba1c374674f674146dcfd7ec7da138c356c5684",
         "path": ".engine/tools/test_build_state_store.py"
       },
       "status": "active",
@@ -20918,6 +20942,7 @@
           "tool:build_coordinator",
           "tool:build_coordinator_review",
           "tool:build_review_range",
+          "tool:demo_repair_completion",
           "tool:demo_review_coverage",
           "tool:demo_v1_plan_sunset_refused",
           "tool:quiet_call",
@@ -20928,7 +20953,7 @@
       },
       "slug": "test_review_economy",
       "source": {
-        "fingerprint": "sha256:3c5d68338620e73f37a65c654d42dc6928646608d055ce998bdc6cff9c6d92d8",
+        "fingerprint": "sha256:e9dbc655953dea7793248ff9a7b0cd7458bcaed3c9ccb7711cd6a9a36ca33f01",
         "path": ".engine/tools/test_review_economy.py"
       },
       "status": "active",
