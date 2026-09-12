@@ -6642,7 +6642,7 @@
       },
       "slug": "test-performance",
       "source": {
-        "fingerprint": "sha256:2f57e6e7feee8fa4392bc88a6ace5a273195bc96a3bbf5f58c8b9a049bdaffc4",
+        "fingerprint": "sha256:4fc51f6d60acb7a8167af02bc5152cab14b3b8ec8defb4bb7605151a0143b74c",
         "path": ".engine/operations/test-performance.md"
       },
       "status": "active",
