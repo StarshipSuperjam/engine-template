@@ -121,7 +121,6 @@ instrumented times of 27.946, 28.059 and 28.069 seconds. All six runs passed; so
 matched before and after. Median overhead was 1.85%, within the child's 2% investigation target.
 This focused measurement is descriptive and does not establish full-suite overhead or the program's
 15-minute target. An earlier experiment was discarded because tested source changed during measurement.
-Raw commands, source hashes, output hashes and logs are retained with the Build qualification evidence.
 
 ## Done when
 
