@@ -2,10 +2,9 @@
 title: Build orchestration — from approved intent to a ready pull request
 ---
 ## Purpose
-Build turns an operator-approved plan into a coherent pull request. The orchestrator judges quality;
-the coordinator preserves evidence, runs checks and reports missing requirements. It marks a draft ready
-only when the required evidence is complete. The protected-branch merge remains the binding gate:
-the operator alone merges it.
+Build turns an operator-approved plan into one coherent pull request. The coordinator preserves evidence and
+reports remaining work; the orchestrator judges design, implementation and findings, as detailed below.
+Only complete evidence permits draft-to-ready submission; the operator alone merges it.
 
 ## Steps
 ### Responsibility boundary
@@ -52,6 +51,9 @@ runbook.
 `status [--json]` returns derived phase, missing submission evidence, items needing engineering judgment,
 warnings, and either one mechanically unique next prerequisite or unordered engineering activities. Its
 suggestion is never more authoritative than the orchestrator's understanding of the work.
+An engineering-decision phase calls for engineering work, not an automatic operator handoff. Investigate
+assumptions, correct in-scope failures and record the result; ask only when the resolution needs a decision
+about changed design, scope or authority. A status report or phase transition adds no approval requirement.
 
 Hard holds are limited to: unavailable or mismatched plan authority; absent plan/depth approval; silently
 omitted approved reviewer coverage; absent deliverable review; validation stale or red for final; post-review

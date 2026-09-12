@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import argparse
 import sys
 import tempfile
 from pathlib import Path
@@ -20,6 +21,44 @@ import session_relay  # noqa: E402
 def _check(label: str, condition: bool) -> bool:
     print(f"{'PASS' if condition else 'FAIL'} — {label}")
     return condition
+
+
+def presentation_demo(withhold_seal: bool = False) -> int:
+    """Exercise the real lifecycle in a disposable library using fixture review evidence.
+
+    The permanent ConsentGates tests cover these transitions. This existing
+    construction demo adds an operator-readable way to vary the seal decision.
+    """
+    from test_plan_lifecycle import _Ceremony
+    import plan_lifecycle
+    fixture = _Ceremony()
+    fixture.setUp()
+    try:
+        print("Temporary plan library; fixture review evidence, real lifecycle commands. No GitHub writes.")
+        slug = fixture.reviewed()
+        approved = fixture.lib.read_record(slug)["consent"]
+        code, _, err = fixture.run_command("present-findings", slug)
+        record = fixture.lib.read_record(slug)
+        results = [
+            _check("showing findings succeeds without asking for acknowledgment", code == 0),
+            _check("presentation adds no operator decision", record["consent"] == approved),
+            _check("the notification records the current findings", plan_lifecycle.presentation_current(record)),
+        ]
+        if err:
+            print(err)
+        code, _, _ = fixture.run_command("seal", slug)
+        results.append(_check("without a seal decision, the plan stays unsealed",
+                              code == 2 and fixture.lib.read_record(slug).get("seal") is None))
+        if not withhold_seal:
+            code, _, _ = fixture.run_command("seal", slug, "--operator-decided")
+            record = fixture.lib.read_record(slug)
+            results.append(_check("with a seal decision, the plan seals", code == 0))
+            results.append(_check("the flow needs two decisions instead of the historical three",
+                                  [c["gate"] for c in record["consent"]] == ["approve", "seal"]))
+            results.append(_check("sealing did not start a Build", not record.get("build_binding")))
+        return 0 if all(results) else 1
+    finally:
+        fixture.doCleanups()
 
 
 # A plan slug that satisfies session_relay.PLAN_SELECTOR_PATTERN, so the advisory prints a runnable
@@ -171,4 +210,10 @@ def main() -> int:
 
 
 if __name__ == "__main__":
-    raise SystemExit(main())
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument("--plan-presentation", action="store_true", help="Demonstrate notification without acknowledgment.")
+    parser.add_argument("--withhold-seal", action="store_true", help="Leave the demonstrated plan awaiting its seal decision.")
+    args = parser.parse_args()
+    if args.withhold_seal and not args.plan_presentation:
+        parser.error("--withhold-seal requires --plan-presentation")
+    raise SystemExit(presentation_demo(args.withhold_seal) if args.plan_presentation else main())

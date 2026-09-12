@@ -392,10 +392,9 @@ def _next_step(status: str, record: dict, blockers: list) -> str:
             return (f"revise to clear what still blocks the seal, then seal:\n"
                     f"    project_manager.py revise {plan} --document <revision.json> "
                     f"--expect-revision {record['current']['revision']}")
-        if not plan_lifecycle.consent_for(record, "findings-presented") or not plan_lifecycle.presentation_current(record):
+        if not plan_lifecycle.presentation_recorded(record) or not plan_lifecycle.presentation_current(record):
             return (f"show the operator what the panel found and what was done about each, then record "
-                    f"that you did:\n    project_manager.py present-findings {plan} "
-                    "(add --operator-decided only after the operator's go)")
+                    f"that you did (no acknowledgment ask):\n    project_manager.py present-findings {plan}")
         return (f"seal the plan — it is reviewed and nothing outstanding blocks it:\n"
                 f"    project_manager.py seal {plan} (add --operator-decided only after the operator's go)")
     if status == "awaiting-review":
@@ -404,12 +403,10 @@ def _next_step(status: str, record: dict, blockers: list) -> str:
                 f"    project_manager.py review record {plan} --packet-digest <digest from the packet> "
                 f"--lens <lens> --findings <findings.json>")
     if status == "awaiting-approval":
-        return (f"present the full revision — and stop there. Invite the operator's questions, take their "
-                f"revisions, and say nothing about approval yet:\n"
+        return (f"present the full revision and resolve the operator's design questions:\n"
                 f"    project_manager.py preview {plan}\n"
-                f"  NOT in that same message, and not until the operator has read the plan and says they "
-                f"are satisfied with it: the depth choice and the approval are their own separate turn, "
-                f"and these two are listed here only so you know where they are —\n"
+                f"  Once the operator has seen the plan and chosen a depth, record that decision; "
+                f"do not ask again when their current instruction already supplies it:\n"
                 f"    project_manager.py depths {plan}\n"
                 f"    project_manager.py approve {plan} --depth <quick|standard|thorough> "
                 "(add --operator-decided only after the operator's go)")
@@ -1251,18 +1248,19 @@ def cmd_present_findings(args) -> int:
             "present the panel's outcome once its findings have dispositions, not before — the "
             "operator is being shown what was found AND what was done about each. Outstanding: "
             + ", ".join(outstanding))
-    consent = _require_consent(record, "findings-presented", args)
+    # The caller records what was shown, not a new operator decision. Keep the
+    # old CLI switch accepted for compatibility, but never turn it into consent.
+    presented_at = _now()
 
     def attest(current):
         if current.get("seal"):
             raise ProjectManagerError("this plan was sealed while the presentation was being recorded")
         if plan_lifecycle.review_lineage_digest(current) != plan_lifecycle.review_lineage_digest(record):
             raise ProjectManagerError("review outcomes changed during presentation; present the current lineage")
-        current.setdefault("consent", []).append(consent)
         # What was shown, not only that something was: the reviewed revision and the packet the panel
         # read, the way the approval and the seal carry their own substance beside their decision.
         current["findings_presented"] = {"revision": review["revision"],
-                                         "packet_digest": review["packet_digest"], "at": consent["at"],
+                                         "packet_digest": review["packet_digest"], "at": presented_at,
                                          "lineage_digest": plan_lifecycle.review_lineage_digest(current)}
 
     library.update_record(slug, attest)
@@ -1413,16 +1411,17 @@ def seal_refusals(library: plan_store.PlanLibrary, slug: str) -> list:
         outstanding = [f["id"] for f in plan_lifecycle.findings(record) if not f.get("disposition")]
         if outstanding:
             refusals.append("these findings have no disposition: " + ", ".join(outstanding))
-        # The consent gate the silent ceremony bought. A panel whose outcome the operator never saw
+        # Presentation remains required; acknowledgment is not another consent gate.
+        # A panel whose outcome the operator never saw
         # is a panel that informed nobody, and this is where that becomes a refusal rather than a
         # hope. Only when a panel actually ran: at a depth with no cold lenses there is nothing to
         # present, and demanding it anyway would be ceremony for its own sake.
-        if not plan_lifecycle.consent_for(record, "findings-presented"):
+        if not plan_lifecycle.presentation_recorded(record):
             refusals.append(
                 f"the panel's outcome has not been presented to the operator. {len(review.get('findings', []))} "
                 "finding(s) were recorded and dispositioned, and a seal is the last moment anyone can "
                 "act on them. Show the operator what was found and what was done about each, then:\n"
-                "      project_manager.py present-findings <plan> (add --operator-decided only after the operator's go)")
+                "      project_manager.py present-findings <plan> (records notification; no acknowledgment ask)")
         # A presentation recorded before 2026-09-05 carries the decision entry and no subject block;
         # it is accepted as it stands. Only a block that names a DIFFERENT packet is a presentation
         # of the wrong panel.
@@ -1431,7 +1430,7 @@ def seal_refusals(library: plan_store.PlanLibrary, slug: str) -> list:
             refusals.append(
                 "the presentation on record does not name the packet this review read, so nothing shows "
                 "the operator saw THIS panel's outcome; present it again:\n"
-                "      project_manager.py present-findings <plan> (add --operator-decided only after the operator's go)")
+                "      project_manager.py present-findings <plan> (records notification; no acknowledgment ask)")
     if review and not plan_lifecycle.presentation_current(record):
         refusals.append("the complete review result/disposition lineage has changed; present findings again")
     refusals.extend(_program_check(library, record, document)[0])
@@ -1654,7 +1653,7 @@ def cmd_seal(args) -> int:
 
 
 def seal_handback(plan_id: str) -> str:
-    """The plan-to-build hand-back: stop, settle, suggest, wait for the typed start, then bind.
+    """The plan-to-build hand-back: preserve the separate start decision without asking twice.
 
     SIX LINES, ADDRESSED TO THE SESSION. This prints into the session's context, not onto the
     operator's screen, so it is instructions for the assistant's next move — not operator training.
@@ -1679,10 +1678,10 @@ def seal_handback(plan_id: str) -> str:
     """
     return "\n".join([
         "",
-        f"The plan is sealed and read-only. {plan_lifecycle.CARRIER_RULE} Stop building context here.",
+        f"The plan is sealed and read-only. {plan_lifecycle.CARRIER_RULE}",
         "Settle into the record anything that still lives only in this conversation.",
         "Judge the Build ahead and suggest a model and effort for this harness; their context is theirs to manage.",
-        "Build begins only when the operator types /engine-start or $engine-start (tell them the one this runtime uses): wait, then bind, adding --operator-decided only after their go:",
+        "Build needs the operator's /engine-start or $engine-start. If already supplied for this plan, continue; otherwise wait. Then bind, adding --operator-decided only after their go:",
         f"  build_coordinator.py plan bind --plan {plan_id} \\",
         "    --repository <owner/repo> --pr <number>",
     ])
@@ -2586,7 +2585,8 @@ def build_parser() -> argparse.ArgumentParser:
         "present-findings",
         help="record that the operator was shown the panel's outcome (the seal refuses without it)")
     present.add_argument("plan")
-    _consent_argument(present, "findings-presented")
+    present.add_argument("--operator-decided", action="store_true",
+                         help="Deprecated compatibility switch; presentation records a notification, not consent.")
     present.set_defaults(func=cmd_present_findings)
 
     review = sub.add_parser("review", help="the one cold plan review").add_subparsers(

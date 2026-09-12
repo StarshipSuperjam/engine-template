@@ -28,9 +28,10 @@ approval, a four-lens panel, twenty-one findings, dispositions, a fix revision a
 thirty-two minutes with no operator input at all. Nothing malfunctioned. The consent points were
 prose in a runbook, and prose is advice a session may follow.
 
-So approve, seal and bind each refuse without a recorded operator decision at that gate, and the
-seal additionally refuses until the panel's outcome was presented to the operator and that
-presentation recorded. Each gate also checks that the gate before it left its record: the seal
+So approve, seal and bind each refuse without a recorded operator decision at that gate. Showing
+findings is a notification, recorded by findings_presented, not another request for permission.
+The seal still requires that presentation and its own operator decision. Each gate also checks
+that the gate before it left its record: the seal
 looks for the approval's, the bind for the seal's. The record is an EVENT — the gate and the
 moment — never the operator's words. Until 2026-09-05 each gate demanded the operator's actual
 words and the pull request republished them; a quotation typed by the session proves nothing, so
@@ -97,6 +98,7 @@ def depth_choice_closed(record: dict) -> str | None:
 # The gates that require an operator attestation, and what each one is consent TO.
 GATES = {
     "approve": "approving this plan and choosing the review depth its panel will run",
+    # Retained for historical records; new presentations do not mint consent.
     "findings-presented": "being shown the panel's outcome — its findings and their dispositions — "
                           "before the plan locks",
     "seal": "sealing this plan, which is terminal, and authorising the Build it enters",
@@ -311,3 +313,13 @@ def presentation_current(record):
     if (record.get("approval") or {}).get("review_contract") or record.get("supplemental_reviews"):
         return shown.get("lineage_digest") == review_lineage_digest(record)
     return not shown or shown.get("packet_digest") == (record.get("plan_review") or {}).get("packet_digest")
+
+
+def presentation_recorded(record):
+    """A notification receipt, or the historical acknowledgment event, exists.
+
+    Freshness is separate: legacy records without a subject keep their existing
+    treatment, while modern review contracts still require the current lineage.
+    Never manufacture a consent event to make a new notification look historical.
+    """
+    return bool(record.get("findings_presented") or consent_for(record, "findings-presented"))
