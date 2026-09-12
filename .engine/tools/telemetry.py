@@ -654,10 +654,9 @@ def reconcile_reader_health(github, root, *, deadline=None):
             record = _reader_health_record(snapshot["scope"], producer)
             sid = record["source_id"]
             if status == "failing":
+                result["unverified"] = True
                 if promote_finding(client, record, moment.utc_now()):
                     result["opened_or_updated"] += 1
-                else:
-                    result["unverified"] = True
                 continue
             if status != "healthy":
                 result["unverified"] = True
@@ -778,9 +777,9 @@ def reader_incident_enrollment(client, root, number, reader, producer, observed_
     store = ReaderHealthStore(root)
     snapshot = store.snapshot()
     record = snapshot["readers"].get(reader + "/" + producer)
-    if (not record or record["state"] != "failing" or record["retired"]
+    if (not record or record["state"] not in {"failing", "healthy"} or record["retired"]
             or record["root"] not in store.roots or _health_topology(record["root"])[0] != store.common):
-        raise ReaderHealthUnavailable("enrollment needs the exact registered, failing reader")
+        raise ReaderHealthUnavailable("enrollment needs the exact registered reader with known health")
     path = f"/repos/{client.repo}/issues/{number}"
     live = issue_triage.read_api(client, path)
     body = live.get("body", "")

@@ -220,6 +220,21 @@ class ReaderHealthRecovery(ReaderHealthEvidence):
         self.assertNotIn(str(self.root), body)
         self.assertNotIn("assignments", body)
 
+    def test_manual_verdict_stays_nonzero_after_successful_failure_publication(self):
+        self.other.observe("scoped-reader", "failing", telemetry.reader_health_identity(self.sibling, "scoped-reader"))
+        failing = self.reconcile()
+        self.assertEqual(failing["opened_or_updated"], 1)
+        self.assertTrue(failing["unverified"])
+        self.assertEqual(self.fake.open_count(), 1)
+        self.healthy(self.sibling)
+        recovered = self.reconcile()
+        self.assertEqual(recovered["closed"], 1)
+        self.assertFalse(recovered["unverified"])
+        for result, expected in ((failing, 1), (recovered, 0)):
+            with mock.patch.object(telemetry.subprocess, "run", return_value=mock.Mock(
+                    stdout=json.dumps(result))), contextlib.redirect_stdout(io.StringIO()):
+                self.assertEqual(telemetry._reader_health_cli([str(self.root)]), expected)
+
     def test_historical_reader_fails_sibling_cannot_clear_and_updated_reader_recovers(self):
         import subprocess
         import scoped_agents
@@ -522,6 +537,21 @@ class ReaderHealthRecovery(ReaderHealthEvidence):
         self.assertIn("Maintainer context must remain", body)
         self.assertNotIn(str(self.sibling), body)
         self.assertNotIn("unsupported schema", body)
+        self.healthy(self.sibling)
+        self.assertEqual(self.reconcile()["closed"], 1)
+        self.assertIn("engine-reader-enrollment", self.fake.issues[1]["body"])
+
+    def test_legacy_enrollment_after_recovery_still_requires_current_verification(self):
+        reader, stamp, diagnostic = self.legacy_incident()
+        self.healthy(self.sibling)
+        preview = telemetry.reader_incident_enrollment(self.client, self.root, 1, reader, "scoped-reader", stamp)
+        result = telemetry.reader_incident_enrollment(self.client, self.root, 1, reader, "scoped-reader", stamp,
+            expected=preview, confirm=True, reason="Operator verified retained original incident attribution")
+        self.assertFalse(result["closed"])
+        self.assertEqual(self.fake.open_count(), 1)
+        self.record_path.write_text(self.record_path.read_text() + " ")
+        self.assertTrue(self.reconcile()["unverified"])
+        self.assertEqual(self.fake.open_count(), 1)
         self.healthy(self.sibling)
         self.assertEqual(self.reconcile()["closed"], 1)
         self.assertIn("engine-reader-enrollment", self.fake.issues[1]["body"])

@@ -63,11 +63,13 @@ are refused. A durable tombstone retains the reason and observation generation; 
 failure supersedes the retirement. These commands never remove a worktree or accept plan evidence.
 
 For an older incident, an operator may explicitly confirm attribution after inspecting its original issue
-evidence and the exact failing reader's retained local crash diagnostic. The preview supports a single
+evidence and the exact original reader's retained local crash diagnostic. The preview supports a single
 original observation with matching first/last timestamps and a known scoped-reader or boot-assembly source.
 It refuses aggregated incidents, unrelated hook sources, missing diagnostics and ambiguous evidence.
 The operator must establish that this clone and reader account for the incident's original scope; a matching
 event or title alone is insufficient. Issues without that proof remain manual.
+Enrollment remains available after that reader recovers; retained original attribution is still required,
+and changed or expired recovery evidence still prevents closure until the reader verifies again.
 
 ```sh
 uv run --directory .engine --frozen -- python tools/telemetry.py enroll-reader-incident ISSUE_NUMBER READER_ID scoped-reader --observed-at ORIGINAL_TIMESTAMP > /tmp/reader-enrollment.json
