@@ -4922,6 +4922,11 @@ class TestAssumptionDisposition(CoordinatorCase):
         value = self._seed_unresolved()
         status = self._status_now(value)
         self.assertTrue(any("investigate unresolved assumption" in j for j in status["engineering_judgment"]))
+        self.assertIsNone(status["suggested_next"])
+        self.assertIn("correct in-scope failures and record an aligned checkpoint",
+                      status["available_activities"])
+        self.assertIn("ask the operator only for changed design, scope or authority; then record that decision",
+                      status["available_activities"])
         # An in-flight state carries no dispositions key at all — the field is materialized lazily.
         self.assertNotIn("assumption_dispositions", self.state())
 
