@@ -55,6 +55,9 @@ runbook.
 `status [--json]` returns derived phase, missing submission evidence, items needing engineering judgment,
 warnings, and either one mechanically unique next prerequisite or unordered engineering activities. Its
 suggestion is never more authoritative than the orchestrator's understanding of the work.
+An engineering-decision phase calls for engineering work, not an automatic operator handoff. Investigate
+assumptions, correct in-scope failures and record the result; ask only when the resolution needs a decision
+about changed design, scope or authority. A status report or phase transition adds no approval requirement.
 
 Hard holds are limited to: unavailable or mismatched plan authority; absent plan/depth approval; silently
 omitted approved reviewer coverage; absent deliverable review; validation stale or red for final; post-review
