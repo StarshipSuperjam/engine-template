@@ -377,3 +377,56 @@ def receipt_attests_scope(stage: dict, receipt: dict, kind: str = "deliverable")
                 and any(c["lens"] == receipt["lens"]
                         and c["lens_packet_digest"] == receipt.get("lens_packet_digest")
                         for c in stage.get("reviewer_contracts", [])))
+
+
+def accepted_fixed_holds(state: dict, head: str) -> list[str]:
+    """Equality is the whole fix floor, never proof of fix adequacy from inequality.
+
+    Resolve the finding's exact original accepted receipt even after archival. A newer
+    packet cannot replace its identity. Missing/ambiguous ownership remains unverified.
+    """
+    origins = {}
+    for stage, receipt in retained_receipts(state):
+        key = _finding_key(stage, receipt['lens'], receipt['packet_digest'],
+                           receipt.get('lens_packet_digest'), receipt['commit'])
+        for finding_id in receipt['finding_ids']:
+            origins.setdefault((finding_id, key), set()).add(core.digest(receipt))
+    holds = []
+    for finding in live_findings(state):
+        if finding.get('disposition') != 'accepted-fixed':
+            continue
+        key = _finding_key(finding['stage'], finding['lens'], finding['packet_digest'],
+                           finding.get('lens_packet_digest'), finding['commit'])
+        owners = origins.get((finding['id'], key), set())
+        if len(owners) != 1:
+            holds.append(f"accepted-fixed finding {finding['id']}: original review ownership is unverified; restore its accepted receipt")
+        elif head == finding['commit']:
+            holds.append(f"accepted-fixed finding {finding['id']}: final commit is still its original review commit {head}; land the fix or correct the disposition")
+    return holds
+
+
+def direct_verification_identity(state: dict) -> str:
+    """Approved authority for a controller decision, separate from reviewer testimony."""
+    return core.digest({'build': state['build'], 'ownership': state.get('ownership'),
+                        'plan': state['plan']['digest'],
+                        'contract': reviewer_contracts.effective_build(state)})
+
+
+def direct_verification_errors(state: dict, decision: dict, *, divergence_digest: str,
+                               read_scope_errors=()) -> list[str]:
+    """Pure binding check; the caller supplies fresh Git and accepted-read observations.
+
+    It grants no review credit and has no positive-result cache. Historical decisions
+    retain their candidate reference; current-head candidate validation remains a separate gate.
+    """
+    errors = list(read_scope_errors)
+    if decision.get('authority_digest') != direct_verification_identity(state):
+        errors.append('direct verification belongs to different Build or approved review obligations')
+    if decision.get('divergence_digest') != divergence_digest:
+        errors.append('direct verification divergence is unverified')
+    if not str(decision.get('rationale', '')).strip():
+        errors.append('direct verification needs a rationale')
+    refs = decision.get('verification_refs', [])
+    if not refs or any(not isinstance(ref, str) or not ref.strip() for ref in refs):
+        errors.append('direct verification needs concrete verification references')
+    return errors
