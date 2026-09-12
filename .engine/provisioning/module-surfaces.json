@@ -792,6 +792,9 @@
   ".engine/docs/product-design.md": [
    "product-design"
   ],
+  ".engine/docs/reader-health-recovery.md": [
+   "core"
+  ],
   ".engine/docs/result-contracts.md": [
    "core"
   ],

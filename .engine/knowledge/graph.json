@@ -1134,6 +1134,7 @@
           "doc:ci-assurance",
           "doc:getting-started",
           "doc:product-design",
+          "doc:reader-health-recovery",
           "doc:result-contracts"
         ]
       },
@@ -1166,6 +1167,7 @@
           "doc:ci-assurance",
           "doc:getting-started",
           "doc:product-design",
+          "doc:reader-health-recovery",
           "doc:result-contracts"
         ]
       },
@@ -5294,6 +5296,26 @@
       "type": "doc"
     },
     {
+      "id": "doc:reader-health-recovery",
+      "name": ".engine/docs/reader-health-recovery.md",
+      "owner": "core",
+      "predicates": {
+        "governed_by": [
+          "schema:doc.v1"
+        ],
+        "provided_by": [
+          "module:core"
+        ]
+      },
+      "slug": "reader-health-recovery",
+      "source": {
+        "fingerprint": "sha256:c1d17c68bf9fe36be451ee9c898c59b2e8b279128f9373f0a9f581dbc110240d",
+        "path": ".engine/docs/reader-health-recovery.md"
+      },
+      "status": "active",
+      "type": "doc"
+    },
+    {
       "id": "doc:result-contracts",
       "name": ".engine/docs/result-contracts.md",
       "owner": "core",
@@ -5509,7 +5531,7 @@
       },
       "slug": "core",
       "source": {
-        "fingerprint": "sha256:f0c23e1bec4e07bbfd7802792bf53bcb4ec54e8d7921b3c25e75678e8fabcff2",
+        "fingerprint": "sha256:9204f686a01028c4a255f265af0080a39e0d268c30962606a8884e5efb51cf76",
         "path": ".engine/modules/core/manifest.json"
       },
       "status": "required",
@@ -14682,7 +14704,7 @@
       },
       "slug": "plan_store",
       "source": {
-        "fingerprint": "sha256:e6c0f8f40849a1c2a87f05bb2a30ff4a2b2bb463caefc65cc4c5a7b2f77daec6",
+        "fingerprint": "sha256:a876daff4322ab56b582d261fed770577d478740b17c197875bf1fdebb356844",
         "path": ".engine/tools/plan_store.py"
       },
       "status": "active",
@@ -15761,7 +15783,7 @@
       },
       "slug": "scoped_agents",
       "source": {
-        "fingerprint": "sha256:2a0acfd437bc3b1c274a708b69189d8ad150d7e583551698e7c1f2765909c839",
+        "fingerprint": "sha256:906e817ba0f0471efc8925dfe4560be161184339a52bcaf1b8ad4627acc6fc3a",
         "path": ".engine/tools/scoped_agents.py"
       },
       "status": "active",
@@ -16378,7 +16400,7 @@
       },
       "slug": "telemetry",
       "source": {
-        "fingerprint": "sha256:9e15d7c269b0bec8e7a6b24a157e094b279cb3280bf2787f24db10e4bf36f6cc",
+        "fingerprint": "sha256:ea6faa9b1bd92b1b05325b5e1f4d49d4c8a61f03937a08408dbbe4ea401e8f98",
         "path": ".engine/tools/telemetry.py"
       },
       "status": "active",
@@ -19560,7 +19582,7 @@
       },
       "slug": "test_modules",
       "source": {
-        "fingerprint": "sha256:4245ae72a815421f2f3db94708d91bb29be78c253cbb16e4342826e3fc5cd1df",
+        "fingerprint": "sha256:d7b378ef70893c7bd7090f6740553ddf075deb9a3db8ae19d63c39479c2fdd72",
         "path": ".engine/tools/test_modules.py"
       },
       "status": "active",
@@ -20078,7 +20100,7 @@
       },
       "slug": "test_plan_program",
       "source": {
-        "fingerprint": "sha256:3da2eba9988c9a7597dd29c823a1800b37664a1ad6a59aa98242b757780f3881",
+        "fingerprint": "sha256:3c7de16bce89cd8be42bd8957fd7a2551778b77bcb781792da3b61e43643de42",
         "path": ".engine/tools/test_plan_program.py"
       },
       "status": "active",
@@ -21234,12 +21256,13 @@
           "tool:result_contracts",
           "tool:scoped_agents",
           "tool:selftest_support",
+          "tool:telemetry",
           "tool:test_plan_store"
         ]
       },
       "slug": "test_scoped_agents",
       "source": {
-        "fingerprint": "sha256:e39141e0e6925da0b1a5400c50719df2e23320636b80c5b19fd4c8df67538fdd",
+        "fingerprint": "sha256:6e7a90a62f427ac61050fcf989164d265e47591eb4bf8a37a2fd7297c2deaa94",
         "path": ".engine/tools/test_scoped_agents.py"
       },
       "status": "active",
@@ -21984,7 +22007,7 @@
       },
       "slug": "test_telemetry",
       "source": {
-        "fingerprint": "sha256:d996f1d07ab6debd56993ed84b4cf69aac2736c937cd51eb52da0c98ffad92eb",
+        "fingerprint": "sha256:972f6d42c138ca2925ec66402bedf5ef59ef2d596cba32a987b0dcfd76f5940f",
         "path": ".engine/tools/test_telemetry.py"
       },
       "status": "active",
