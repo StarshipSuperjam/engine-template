@@ -1467,6 +1467,49 @@ class TestAcceptedAutomaticHookDispatch(unittest.TestCase):
     def tearDown(self):
         self.repo.cleanup()
 
+    def test_real_accepted_boot_assembly_records_failure_then_verified_success(self):
+        import shutil
+        import test_boot
+        import telemetry
+        for source in _ACCEPTED_TOOLS.glob("*.py"):
+            shutil.copyfile(source, self.repo.root / ".engine/tools" / source.name)
+        for name in ("schemas", "policies", "state", "conduct"):
+            shutil.copytree(_ACCEPTED_TOOLS.parent / name, self.repo.root / ".engine" / name, dirs_exist_ok=True)
+        self.repo._put(".engine/health-inputs.json", json.dumps(test_boot._signals()))
+        shutil.copytree(_ACCEPTED_TOOLS / "memory", self.repo.root / ".engine/tools/memory", dirs_exist_ok=True,
+                        ignore=shutil.ignore_patterns("__pycache__"))
+        fixture_entry = textwrap.dedent("""\
+            if __name__ == '__main__':
+                from pathlib import Path
+                signals = json.loads((Path(__file__).parents[1] / 'health-inputs.json').read_text())
+                gather_signals = lambda *a, **k: signals
+                if os.environ.get('ENGINE_TEST_HEALTH_FAIL') == '1':
+                    session_relay.render = lambda value: (_ for _ in ()).throw(ValueError('fixture assembly failure'))
+                assemble_pack('fixture-health-session', use_ledger=True)
+                state = telemetry.ReaderHealthStore(os.environ['ENGINE_PROJECT_ROOT']).snapshot()
+                print(json.dumps(state))
+                raise SystemExit(0)
+            """)
+        boot_source = (_ACCEPTED_TOOLS / "boot.py").read_text()
+        offset = boot_source.rfind('if __name__ == "__main__":')
+        self.assertGreater(offset, 0)
+        self.repo._put(".engine/tools/boot.py", boot_source[:offset] + fixture_entry + boot_source[offset:])
+        self.repo.script = self.repo.worktree / ".engine/tools/boot.py"
+        self.repo.git("add", ".engine")
+        self.repo.git("commit", "-m", "real boot health demonstration")
+        candidate = self.repo.git("rev-parse", "HEAD")
+        self.assertEqual(self.repo.activate(commit=candidate).returncode, 0)
+        failed = self.repo.run_direct({**os.environ, "ENGINE_TEST_HEALTH_FAIL": "1"})
+        self.assertEqual(failed.returncode, 0, failed.stderr)
+        record = next(iter(json.loads(failed.stdout)["readers"].values()))
+        self.assertEqual(record["state"], "failing")
+        recovered = self.repo.run_direct(dict(os.environ))
+        self.assertEqual(recovered.returncode, 0, recovered.stderr)
+        record = next(iter(json.loads(recovered.stdout)["readers"].values()))
+        self.assertEqual(record["state"], "healthy", recovered.stderr)
+        self.assertEqual(record["identity"]["activation"]["commit"], candidate)
+        self.assertIn("accepted-hooks", record["identity"]["execution"]["producer"])
+
     def test_health_identity_follows_real_dispatch_and_refuses_checkout_or_stale_activation(self):
         import accepted_hook_dispatch as dispatcher
         self.repo._put(".engine/tools/telemetry.py", "# accepted health producer fixture\n")

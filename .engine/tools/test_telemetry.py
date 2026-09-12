@@ -49,6 +49,19 @@ def rec(sid, severity="persistent-but-benign", message="A check keeps reporting 
 
 
 class ReaderHealthEvidence(unittest.TestCase):
+    def test_process_deadline_terminates_a_stalled_health_pass(self):
+        from pathlib import Path
+        with tempfile.TemporaryDirectory() as directory:
+            script = Path(directory) / "telemetry.py"
+            script.write_text("import time\ndef _reader_health_process(*args):\n time.sleep(5)\n")
+            output = io.StringIO()
+            with mock.patch.object(telemetry, "__file__", str(script)), mock.patch.object(
+                    telemetry, "READER_HEALTH_BUDGET", .1), contextlib.redirect_stdout(output):
+                start = time.monotonic()
+                self.assertEqual(telemetry._reader_health_cli([directory]), 0)
+            self.assertLess(time.monotonic() - start, 1)
+            self.assertIn('"unverified": true', output.getvalue())
+
     def setUp(self):
         import subprocess
         from pathlib import Path

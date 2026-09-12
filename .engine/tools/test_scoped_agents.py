@@ -866,7 +866,10 @@ class ScopedAgentHookRunner(unittest.TestCase):
                                 env=env, cwd=self.fixture.root, timeout=20)
         self.assertIn(result.returncode, (0, 2), result.stderr)
         if result.returncode == 0:
-            self.assertEqual(result.stderr, "", "an allowed call must not hide a hook crash")
+            # This envelope-only fixture has no registered Git checkout. The health
+            # producer must disclose that it cannot persist recovery evidence there.
+            self.assertIn(result.stderr, ("", "Engine reader health could not be recorded; "
+                "automatic recovery remains unverified.\n"), "an allowed call must not hide a hook crash")
         return {"action": "block" if result.returncode == 2 else "proceed"}
 
     def test_claude_partial_then_same_child_clarification(self):
