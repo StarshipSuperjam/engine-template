@@ -5309,7 +5309,7 @@
       },
       "slug": "reader-health-recovery",
       "source": {
-        "fingerprint": "sha256:1e27a10eed8eee77e3363fdf52b9bd55f057f2474f6ae85327454fdb120f9019",
+        "fingerprint": "sha256:b00d907ecf689fb1a9f229f49bb423cb35e4af296916cdd72747c32a70a76503",
         "path": ".engine/docs/reader-health-recovery.md"
       },
       "status": "active",
@@ -16429,7 +16429,7 @@
       },
       "slug": "telemetry",
       "source": {
-        "fingerprint": "sha256:9e39caec5eb7b37f5797826346b0dc272ed6ad49ce4c737f6514e783c01ea051",
+        "fingerprint": "sha256:0b090d307f263ac61ccbe09a27775a7b9e6f9d9d331ece2e0d60ee55f1f210f3",
         "path": ".engine/tools/telemetry.py"
       },
       "status": "active",
@@ -22045,7 +22045,7 @@
       },
       "slug": "test_telemetry",
       "source": {
-        "fingerprint": "sha256:73c53cb32f80d2810f775de853398e2407f00c37cce7b8058b1aeea37ae334b6",
+        "fingerprint": "sha256:2740a567c6131e656a196d0fbd1f2982343623f1e5b71921861fb8aa93bdfcf0",
         "path": ".engine/tools/test_telemetry.py"
       },
       "status": "active",
