@@ -1479,10 +1479,35 @@ class TestAcceptedAutomaticHookDispatch(unittest.TestCase):
         shutil.copytree(_ACCEPTED_TOOLS / "memory", self.repo.root / ".engine/tools/memory", dirs_exist_ok=True,
                         ignore=shutil.ignore_patterns("__pycache__"))
         fixture_entry = textwrap.dedent("""\
+            from pathlib import Path
+            def fixture_signals(*a, **k):
+                return json.loads((Path(os.environ['ENGINE_PROJECT_ROOT']) / '.engine/health-inputs.json').read_text())
+            gather_signals = fixture_signals
             if __name__ == '__main__':
-                from pathlib import Path
-                signals = json.loads((Path(__file__).parents[1] / 'health-inputs.json').read_text())
-                gather_signals = lambda *a, **k: signals
+                if os.environ.get('ENGINE_TEST_HEALTH_RECONCILE') == '1':
+                    from test_telemetry import FakeGH
+                    state = telemetry.ReaderHealthStore(os.environ['ENGINE_PROJECT_ROOT']).snapshot()
+                    finding = telemetry._reader_health_record(state['scope'], 'boot-assembly')
+                    now = telemetry.moment.utc_now()
+                    fake = FakeGH()
+                    fake.issues[1] = {'id': 1001, 'number': 1, 'state': 'open', 'labels': ['engine'],
+                        'title': 'Fixture boot incident', 'body': telemetry.producer_body(
+                            telemetry.issue_body(finding, now, now), telemetry._semantic_finding(finding), now)}
+                    client = telemetry.GitHubIssues('owner/project', 'fixture', transport=fake.transport,
+                                                   recovery_store=fake.recovery_store)
+                    result = telemetry.reconcile_reader_health(client, os.environ['ENGINE_PROJECT_ROOT'])
+                    print(json.dumps(result))
+                    raise SystemExit(0)
+                if os.environ.get('ENGINE_TEST_HEALTH_PROBE') == '1':
+                    state = telemetry.ReaderHealthStore(os.environ['ENGINE_PROJECT_ROOT']).snapshot()
+                    identity = next(iter(state['readers'].values()))['identity']
+                    try:
+                        proof = telemetry._verify_current_boot(os.environ['ENGINE_PROJECT_ROOT'], identity,
+                                                               telemetry.time.monotonic() + 10)
+                        print(json.dumps({'verified': True, 'proof': proof}))
+                    except Exception as exc:
+                        print(json.dumps({'verified': False, 'error': str(exc)}))
+                    raise SystemExit(0)
                 if os.environ.get('ENGINE_TEST_HEALTH_FAIL') == '1':
                     session_relay.render = lambda value: (_ for _ in ()).throw(ValueError('fixture assembly failure'))
                 assemble_pack('fixture-health-session', use_ledger=True)
@@ -1511,6 +1536,24 @@ class TestAcceptedAutomaticHookDispatch(unittest.TestCase):
         self.assertEqual(record["state"], "healthy", recovered.stderr)
         self.assertEqual(record["identity"]["activation"]["commit"], candidate)
         self.assertIn("accepted-hooks", record["identity"]["execution"]["producer"])
+        self.assertIn("boot_input_digest", record["identity"])
+        probe = self.repo.run_direct({**os.environ, "ENGINE_TEST_HEALTH_PROBE": "1"})
+        self.assertEqual(probe.returncode, 0, probe.stderr)
+        self.assertTrue(json.loads(probe.stdout)["verified"], probe.stdout)
+        closed = self.repo.run_direct({**os.environ, "ENGINE_TEST_HEALTH_RECONCILE": "1"})
+        self.assertEqual(closed.returncode, 0, closed.stderr)
+        self.assertEqual(json.loads(closed.stdout)["closed"], 1, closed.stdout + closed.stderr)
+        self.repo._put(".engine/health-inputs.json", json.dumps({**test_boot._signals(), "issue_triage": {"invalid": True}}))
+        changed = self.repo.run_direct({**os.environ, "ENGINE_TEST_HEALTH_PROBE": "1"})
+        self.assertEqual(changed.returncode, 0, changed.stderr)
+        self.assertFalse(json.loads(changed.stdout)["verified"], changed.stdout)
+        refused = self.repo.run_direct({**os.environ, "ENGINE_TEST_HEALTH_RECONCILE": "1"})
+        self.assertEqual(refused.returncode, 0, refused.stderr)
+        self.assertEqual(json.loads(refused.stdout)["closed"], 0, refused.stdout)
+        self.assertTrue(json.loads(refused.stdout)["unverified"], refused.stdout)
+        # The previous healthy observation still exists; current input re-verification
+        # (not a new failure marker or activation change) is what refuses clearance.
+        self.assertEqual(next(iter(telemetry.ReaderHealthStore(self.repo.root).snapshot()["readers"].values()))["state"], "healthy")
 
     def test_health_identity_follows_real_dispatch_and_refuses_checkout_or_stale_activation(self):
         import accepted_hook_dispatch as dispatcher

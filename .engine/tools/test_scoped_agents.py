@@ -46,8 +46,9 @@ class ScopedAssignments(unittest.TestCase):
         """Use a production assignment and its real schema, not a toy evidence record."""
         schema = core._local_validation_schema(Path(scoped.__file__).resolve().parents[1] /
                                                "schemas/scoped-agent-evidence.v1.json")
-        historical = copy.deepcopy(schema)
-        del historical["$defs"]["assignment"]["properties"]["result_contract"]
+        from test_reader_health_history import historical as historical_schema, current_assignment
+        current_assignment(self.store, self.packet)
+        historical = historical_schema("SCOPED")
         repo = self.root / "reader-history"
         schema_path = repo / ".engine/schemas/scoped-agent-evidence.v1.json"
         schema_path.parent.mkdir(parents=True)

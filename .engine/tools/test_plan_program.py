@@ -97,6 +97,28 @@ class SharedReaderDiagnosis(unittest.TestCase):
             with self.assertRaises(plan_store.PlanStoreError):
                 plan_store.validate_shared_record(self.value, self.path)
 
+    def test_real_historical_program_schema_refuses_actual_current_writer(self):
+        import build_coordinator_core as core
+        from test_reader_health_history import historical
+        programs = plan_program.ProgramLibrary(plan_store.PlanLibrary(self.root / "program-fixture"))
+        slug = programs.create("Historical reader", "Verify current intended order")
+        programs.add_intent(slug, "first", "First step", "Deliver the first step", [])
+        current = programs.read(slug)
+        original = programs._record_path(slug).read_bytes()
+        self.path.write_text(json.dumps(historical("PROGRAM")))
+        self.git("add", str(self.path)); self.git("commit", "-qm", "actual historical program schema")
+        old = self.git("rev-parse", "HEAD")
+        self.path.write_text(json.dumps(core._local_validation_schema(plan_program.PROGRAM_SCHEMA)))
+        self.git("add", str(self.path)); self.git("commit", "-qm", "current program schema")
+        self.git("update-ref", "refs/remotes/origin/main", "HEAD")
+        self.git("checkout", "-q", "--detach", old)
+        with mock.patch.object(plan_program, "PROGRAM_SCHEMA", self.path):
+            with self.assertRaises(plan_store.IncompatibleReaderError):
+                programs.read(slug)
+            self.git("checkout", "-q", "--detach", "refs/remotes/origin/main")
+            self.assertEqual(programs.read(slug), current)
+        self.assertEqual(programs._record_path(slug).read_bytes(), original)
+
 
 def _obligation(identifier, statement, state="carried", reason=None):
     obligation = {"id": identifier, "statement": statement, "state": state}
