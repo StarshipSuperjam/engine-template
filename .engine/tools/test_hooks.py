@@ -1964,6 +1964,61 @@ class TestAmbientActivationLifecycle(unittest.TestCase):
         self.assertTrue(any("does not descend" in notice or "no longer descends" in notice
                             for notice in result["notices"]), result["notices"])
 
+    def test_a_confirmed_loss_lets_a_restart_recover_onto_a_rolled_back_default_branch(self):
+        """Round 3, DH-1: the write hold's own posture says "pull, then restart" clears it. After a force-pushed
+        rollback the branch tip does NOT descend from the activated commit, so the forward-only rule alone
+        would refuse forever. With GitHub's confirmed loss on record, the restart re-activates onto the
+        rolled-back tip as a new epoch (it still needs that tip's own merged-PR proof), and the hold clears."""
+        self._ambient()                                            # epoch 1 at R
+        stale = self._advance_canonical()                          # S, a descendant of R
+        result = self._ambient(commit=stale)
+        self.assertEqual((result["activation"]["commit"], result["activation"]["epoch"]), (stale, 2))
+        # The operator force-pushes main back to R and lands a fresh commit T (a sibling of S, not a descendant).
+        self.repo.git("reset", "--hard", self.repo.commit)
+        (self.repo.root / "product.txt").write_text("the rollback's replacement\n", encoding="utf-8")
+        self.repo.git("add", "product.txt")
+        self.repo.git("commit", "-m", "replacement after rollback")
+        replacement = self.repo.git("rev-parse", "HEAD")
+        # Before any confirmed loss, the non-descendant tip is refused, exactly as before (forward-only).
+        refused = self._ambient(commit=replacement, extra_env={"ENGINE_TEST_GH_COMPARE": "identical"})
+        self.assertEqual((refused["activation"]["commit"], refused["activation"]["epoch"]), (stale, 2))
+        self.assertTrue(any("no longer descends" in n for n in refused["notices"]), refused["notices"])
+        # GitHub now confirms S left the default branch: the loss is recorded and the hold is announced.
+        import accepted_hook_dispatch
+        lost = self._ambient(commit=replacement, extra_env={"ENGINE_TEST_GH_COMPARE": "diverged"})
+        self.assertEqual(lost["activation"]["commit"], stale)
+        self.assertEqual(accepted_hook_dispatch.reachability_state(str(self.repo.root), lost["activation"]),
+                         "lost")
+        self.assertTrue(any("through the memory helper" in n for n in lost["notices"]), lost["notices"])
+        # The restart the posture promises: activation moves to T as epoch 3 and the mark stops matching.
+        recovered = self._ambient(commit=replacement)
+        self.assertEqual((recovered["activation"]["commit"], recovered["activation"]["epoch"]),
+                         (replacement, 3))
+        self.assertIsNone(accepted_hook_dispatch.reachability_state(str(self.repo.root),
+                                                                    recovered["activation"]))
+        self.assertFalse(accepted_hook_dispatch._reachability_lost(str(self.repo.root),
+                                                                   recovered["activation"]))
+
+    def test_a_confirmed_loss_still_requires_the_tips_own_acceptance_proof(self):
+        """DH-1's exception opens the forward-only rule for a confirmed loss and nothing else: the rolled-back
+        tip must still be a merged pull request on GitHub's default branch, or the activation stays where it
+        was, still held."""
+        self._ambient()
+        stale = self._advance_canonical()
+        self._ambient(commit=stale)
+        self.repo.git("reset", "--hard", self.repo.commit)
+        (self.repo.root / "product.txt").write_text("unreviewed force-push\n", encoding="utf-8")
+        self.repo.git("add", "product.txt")
+        self.repo.git("commit", "-m", "unreviewed")
+        unreviewed = self.repo.git("rev-parse", "HEAD")
+        self._ambient(commit=unreviewed, extra_env={"ENGINE_TEST_GH_COMPARE": "diverged"})
+        import accepted_hook_dispatch
+        result = self._ambient(commit=unreviewed, accepted_proof=False,
+                               extra_env={"ENGINE_TEST_GH_COMPARE": "diverged"})
+        self.assertEqual((result["activation"]["commit"], result["activation"]["epoch"]), (stale, 2))
+        self.assertEqual(accepted_hook_dispatch.reachability_state(str(self.repo.root), result["activation"]),
+                         "lost")                                    # the hold stands until a real acceptance
+
     def test_a_failed_advance_never_costs_the_working_activation(self):
         self._ambient()
         self._advance_canonical()
@@ -2655,6 +2710,43 @@ class TestReachability(unittest.TestCase):
         self.assertFalse(self.d._reachability_lost(self.root, self.act))  # offline never holds a write
         self.assertEqual(len(notices), 1)                                 # ...but the operator is told
         self.assertIn("offline", notices[0])
+        self.assertIn("Memory writing continues", notices[0])
+
+    def test_a_failed_recheck_after_a_confirmed_loss_reports_the_loss_that_is_actually_enforced(self):
+        # Round 3, DH-2: a confirmed loss is on record for this generation. A later session start cannot
+        # reach GitHub (or gets an unrecognized status). The recorder keeps the loss — dispatched writes stay
+        # held on it — so the returned state and the notice must say LOST and carry the hold's posture, never
+        # "Memory writing continues".
+        self._clear()
+        state, _ = self._measure("diverged")
+        self.assertEqual(state, "lost")
+        for name, do_measure in (
+                ("offline", lambda: self._measure_offline("offline")),
+                ("unrecognized", lambda: self._measure("weird"))):
+            with self.subTest(name=name):
+                state, notices = do_measure()
+                self.assertEqual(state, "lost")
+                self.assertTrue(self.d._reachability_lost(self.root, self.act))
+                self.assertEqual(self.d.reachability_state(self.root, self.act), "lost")
+                self.assertEqual(len(notices), 1)
+                self.assertNotIn("Memory writing continues", notices[0])
+                self.assertIn("earlier confirmed result stands", notices[0])
+                self.assertIn(self.d._reachability_posture(self.act["epoch"]), notices[0])
+
+    def _measure_offline(self, reason):
+        notices = []
+        with mock.patch.object(self.d, "_github_default_branch",
+                               side_effect=self.d.QualificationError(reason)):
+            state = self.d.measure_reachability(self.root, self.act, notices=notices)
+        return state, notices
+
+    def test_a_failed_recheck_with_no_prior_loss_is_still_plain_unconfirmed(self):
+        # DH-2's guard changes nothing when no loss is on record: offline stays unconfirmed, never a hold.
+        self._clear()
+        self.d._record_reachability(self.root, self.act, "unconfirmed")
+        state, notices = self._measure_offline("offline")
+        self.assertEqual(state, "unconfirmed")
+        self.assertFalse(self.d._reachability_lost(self.root, self.act))
         self.assertIn("Memory writing continues", notices[0])
 
     def test_a_published_release_is_never_measured_against_the_default_branch(self):

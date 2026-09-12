@@ -13,6 +13,16 @@ Three distinct states, per subject (a referenced session, or a source-record id)
   absent               — no line for it exists
   excluded-but-present — a line exists but is withheld or superseded: retained, not gone
 
+A gist's sessions are RESOLVED THROUGH ITS SOURCE_IDS: each source id that still has a line is an episodic
+record carrying the session it summarized, and every such session is a contributing session the gist
+folded (a cross-session cluster gist has several; a single-session gist has one, the same as its own
+session id). Each contributing session is classified over that session's conversation records. A gist
+whose own session id is a real session is always classified for that session too; a source that has no
+line cannot name its session, so a gist none of whose sessions can be resolved is counted as unresolved
+rather than silently skipped. Withholding a whole session hides its episodic records from recall as well,
+so a source record is excluded-but-present when its record id is withheld, when it is superseded, OR when
+its session is withheld.
+
 Honesty rails, because a census that quietly guesses is worse than none:
   * read-health. `ledger.read()` reports the malformed and torn lines that `ledger.iter_records` would
     silently skip and never witness. Any such line makes the whole run INDETERMINATE — a lost `superseded`
@@ -56,7 +66,7 @@ EXCLUDED_BUT_PRESENT = "excluded-but-present"
 _STATES = (PRESENT, ABSENT, EXCLUDED_BUT_PRESENT)
 
 EPISODIC_SESSION = "episodic-session"      # an episodic summary's referenced session
-GIST_SESSION = "gist-session"              # a gist's referenced session (real sessions only, not cluster sentinels)
+GIST_SESSION = "gist-session"              # a session a gist folded, resolved through source_ids (never a cluster sentinel)
 GIST_SOURCE = "gist-source-record"         # one raw episode id a gist folded (its SOURCE_IDS_KEY entries)
 _SUBJECT_KINDS = (EPISODIC_SESSION, GIST_SESSION, GIST_SOURCE)
 
@@ -166,12 +176,34 @@ def _withheld_targets(recs):
     return ids, sessions
 
 
-def _state_for_id(subject_id, present_ids, excluded_ids) -> str:
+def _state_for_id(subject_id, present_ids, excluded_ids, by_id=None, withheld_sessions=()) -> str:
+    """A source record is excluded-but-present when its own id is withheld or superseded, OR when the whole
+    session it belongs to is withheld — a session withhold hides that session's episodic summaries from
+    recall exactly as a record withhold does, so the census must not count them as plainly present."""
     if subject_id not in present_ids:
         return ABSENT
     if subject_id in excluded_ids:
         return EXCLUDED_BUT_PRESENT
+    record = (by_id or {}).get(subject_id)
+    if isinstance(record, dict) and record.get("session_id") in withheld_sessions:
+        return EXCLUDED_BUT_PRESENT
     return PRESENT
+
+
+def _gist_sessions(gist: dict, by_id: dict) -> list:
+    """The sessions a gist folded, in first-seen order without duplicates: its own session id when that is a
+    real session (never a cross-session cluster sentinel), plus the session of every source record that
+    still has a line in the ledger. A source with no line cannot name its session and contributes nothing."""
+    out: list = []
+    own = gist.get("session_id")
+    if isinstance(own, str) and own and not records.is_cross_session_sentinel(own):
+        out.append(own)
+    for source_id in (gist.get(records.SOURCE_IDS_KEY) or []):
+        source = by_id.get(source_id) if isinstance(source_id, str) else None
+        sid = source.get("session_id") if isinstance(source, dict) else None
+        if isinstance(sid, str) and sid and not records.is_cross_session_sentinel(sid) and sid not in out:
+            out.append(sid)
+    return out
 
 
 def _state_for_session(sid, by_session, excluded_ids, withheld_sessions) -> str:
@@ -191,9 +223,12 @@ def census(path=None) -> CensusResult:
     read = ledger.read(path=path)
     recs = read.records
 
-    present_ids = {r.get(records.RECORD_ID_KEY) for r in recs
-                   if isinstance(r, dict) and isinstance(r.get(records.RECORD_ID_KEY), str)
-                   and r.get(records.RECORD_ID_KEY)}
+    by_id: dict = {}        # record id -> record, for resolving a gist's sources to the sessions they summarize
+    for r in recs:
+        rid = r.get(records.RECORD_ID_KEY) if isinstance(r, dict) else None
+        if isinstance(rid, str) and rid:
+            by_id.setdefault(rid, r)
+    present_ids = set(by_id)
 
     by_session: dict = {}   # session_id -> conversation record ids (derived summaries/gists excluded)
     for r in recs:
@@ -211,7 +246,7 @@ def census(path=None) -> CensusResult:
 
     counts = {k: {s: 0 for s in _STATES} for k in _SUBJECT_KINDS}
     rows: list = []
-    scanned = {"episodics": 0, "gists": 0, "gist_cross_session_clusters": 0}
+    scanned = {"episodics": 0, "gists": 0, "gist_cross_session_clusters": 0, "gists_sessions_unresolved": 0}
 
     for r in recs:
         if not isinstance(r, dict):
@@ -230,18 +265,21 @@ def census(path=None) -> CensusResult:
             scanned["gists"] += 1
             sid = r.get("session_id")
             if isinstance(sid, str) and sid and records.is_cross_session_sentinel(sid):
-                # a `tag:` cluster gist has no single real session; its real provenance is its source_ids,
-                # classified below, so a session-line lookup on the sentinel would be meaningless.
+                # a `tag:` cluster gist has no single real session; its sessions are the ones its source_ids
+                # resolve to, classified just below — the sentinel itself is never a subject.
                 scanned["gist_cross_session_clusters"] += 1
-            elif isinstance(sid, str) and sid:
-                st = _state_for_session(sid, by_session, excluded_ids, withheld_sessions)
+            sessions = _gist_sessions(r, by_id)
+            if not sessions:
+                scanned["gists_sessions_unresolved"] += 1
+            for session in sessions:
+                st = _state_for_session(session, by_session, excluded_ids, withheld_sessions)
                 counts[GIST_SESSION][st] += 1
-                rows.append({"subject_kind": GIST_SESSION, "subject_id": sid,
+                rows.append({"subject_kind": GIST_SESSION, "subject_id": session,
                              "referenced_by": rid, "state": st})
             for s in (r.get(records.SOURCE_IDS_KEY) or []):
                 if not isinstance(s, str) or not s:
                     continue
-                st = _state_for_id(s, present_ids, excluded_ids)
+                st = _state_for_id(s, present_ids, excluded_ids, by_id, withheld_sessions)
                 counts[GIST_SOURCE][st] += 1
                 rows.append({"subject_kind": GIST_SOURCE, "subject_id": s,
                              "referenced_by": rid, "state": st})
@@ -275,7 +313,9 @@ def render(result: CensusResult) -> str:
         lines.append("RESULT: determinate (read-health clean; ledger stable across the pass).")
     lines.append("read-health: malformed={malformed} torn_trailing={torn_trailing}".format(**result.read_health))
     lines.append("scanned: {episodics} episodic summaries, {gists} gists "
-                 "({gist_cross_session_clusters} cross-session cluster gists)".format(**result.scanned))
+                 "({gist_cross_session_clusters} cross-session cluster gists; {gists_sessions_unresolved} whose "
+                 "contributing sessions could not be resolved because none of their sources has a line)"
+                 .format(**result.scanned))
     lines.append("what the counts mean: present = the referenced record is still in memory and recallable; "
                  "excluded-but-present = its text is still on the ledger but withheld from recall; "
                  "absent = the reference points at a record no longer on the ledger.")

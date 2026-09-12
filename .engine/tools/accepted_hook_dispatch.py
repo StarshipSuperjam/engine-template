@@ -1095,7 +1095,13 @@ def ensure_activation(root: str, notices: list | None = None) -> dict:
     * **absent** — bootstrap to the canonical checkout's default-branch tip.
     * **stale** — the default branch has moved ahead of the activated commit, so advance to it. The move
       must be FORWARD: the new commit has to be a descendant of the activated one, which makes a rollback,
-      a force-push, or a branch swap unable to walk qualification backwards.
+      a force-push, or a branch swap unable to walk qualification backwards on local say-so alone. The one
+      exception is a CONFIRMED LOSS: when GitHub's own compare has already recorded that the activated
+      commit left the default branch (the reachability mark is 'lost' for this exact generation), the
+      branch's current tip may be activated even though it does not descend from the old commit — it must
+      still carry the same merged-pull-request acceptance proof every activation does, and the epoch
+      advances, never rewinds. This is what makes the write hold's recovery ("pull, then restart") true
+      after a force-pushed rollback (round 3, DH-1).
     * **current** — verify the recorded object and keep it.
 
     Every advance still needs the same GitHub acceptance proof a first activation does: a pull request the
@@ -1129,10 +1135,14 @@ def ensure_activation(root: str, notices: list | None = None) -> dict:
             ["git", "-C", _main_checkout(root), "merge-base", "--is-ancestor", current["commit"], commit],
             capture_output=True, timeout=30,
         )
-        if forward.returncode != 0:
+        if forward.returncode != 0 and not _reachability_lost(root, current):
             raise QualificationError(
                 "the default branch no longer descends from the activated commit"
             )
+        # Either a forward advance, or a recovery from a CONFIRMED loss: GitHub already said the activated
+        # commit is off the default branch and every helper-dispatched write is held on that mark, so the
+        # branch's current tip is activated as a new epoch — `activate` still demands the merged-pull-request
+        # proof for that tip, so a plain force-push to an unreviewed commit cannot qualify this way either.
         return activate(argparse.Namespace(
             root=root, repository=repository, commit=commit, source="reviewed-merge", source_ref=ref,
             engine_release=_engine_release_at(root, commit), expected_epoch=current["epoch"],
@@ -1210,7 +1220,10 @@ def _reachability_posture(epoch: int) -> str:
     Recovery is a session RESTART, not a command the operator runs by hand: a fresh session re-resolves
     activation against the project's current default-branch commit (``ensure_activation_ambient``), and once
     that commit is reachable the hold clears on its own — the 'lost' mark is keyed to the old commit and epoch,
-    so it stops matching the instant activation advances. The earlier text pointed at the ``activate`` verb,
+    so it stops matching the instant activation advances. That promise holds for the rollback case too: a
+    confirmed loss lets ``ensure_activation`` re-activate onto a default-branch tip that does NOT descend from
+    the old commit (a force-pushed rollback to an earlier merged commit), provided the tip carries its own
+    merged-pull-request acceptance proof (round 3, DH-1). The earlier text pointed at the ``activate`` verb,
     which is a seven-argument compare-and-set an operator cannot run unaided (StarshipSuperjam/engine-template
     US-1); the runnable recovery is the same restart every other refusal names. It never claims the state
     'converges by itself' inside THIS session — the running server stays pinned to the commit that left the
@@ -1342,6 +1355,13 @@ def _reachability_unconfirmed_notice(commit: str, reason: str) -> str:
             "next session start.")
 
 
+def _reachability_still_lost_notice(epoch: int, reason: str) -> str:
+    """The sentence for a check that could not complete while a CONFIRMED loss of this same generation still
+    stands: the earlier result is what is enforced, so the operator reads the hold, not "writing continues"."""
+    return (f"GitHub could not be re-checked at this session start ({reason}), so the earlier confirmed "
+            f"result stands. {_reachability_posture(epoch)}")
+
+
 def measure_reachability(root: str, activation: dict, *, notices: list | None = None) -> str:
     """Confirm the activated reviewed-merge commit is still on GitHub's default branch, and record it.
 
@@ -1349,10 +1369,12 @@ def measure_reachability(root: str, activation: dict, *, notices: list | None = 
     ``ensure_activation_ambient`` — so a hung compare read cannot borrow against the session-start repo read.
     Reads GitHub's compare of ``default_branch...activated_commit``: ``identical``/``behind`` establish
     reachability, ``ahead``/``diverged`` do not. Never raises: a time-budget or CLI failure is recorded as
-    ``unconfirmed`` (which does not hold writes) and disclosed through one calm notice. A published release
-    is a pinned operator choice and is not measured against the default branch.
+    ``unconfirmed`` (which does not hold writes) and disclosed through one calm notice — UNLESS a confirmed
+    loss of this same generation already stands, in which case the recorder keeps the loss and the notice
+    and returned state report what is actually enforced: ``lost`` (round 3, DH-2). A published release is a
+    pinned operator choice and is not measured against the default branch.
 
-    Returns the state it observed ('reachable' | 'lost' | 'unconfirmed'), for callers and tests.
+    Returns the EFFECTIVE state ('reachable' | 'lost' | 'unconfirmed'), for callers and tests.
     """
     if activation.get("source") != "reviewed-merge":
         return "reachable"
@@ -1361,6 +1383,12 @@ def measure_reachability(root: str, activation: dict, *, notices: list | None = 
 
     def unconfirmed(reason: str) -> str:
         _record_reachability(root, activation, "unconfirmed")
+        # Report the EFFECTIVE persisted state, never the observation alone: a confirmed loss of this
+        # generation survives the failed check, dispatched writes stay held on it, so the notice must say so.
+        if reachability_state(root, activation) == "lost":
+            if notices is not None:
+                notices.append(_reachability_still_lost_notice(activation["epoch"], reason))
+            return "lost"
         if notices is not None:
             notices.append(_reachability_unconfirmed_notice(commit, reason))
         return "unconfirmed"

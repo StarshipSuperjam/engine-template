@@ -126,9 +126,11 @@ def add(text: str, *, session_id: "str | None" = None, via: str = records.PIN_VI
     the conversation around the request stays reachable with the window reader; a pin minted outside a session
     simply carries none. `via` records the route, never an authority claim.
 
-    Appends under the single-writer lock and bumps the ledger generation, exactly as the withhold verbs do and
-    for the same reason: without it the fast index stays stamped current and the pin the operator just saved is
-    missing from the next search, answered as though the index were authoritative."""
+    Appends under the single-writer lock and bumps the ledger's INDEX EPOCH (membership changed: a record the
+    index has not seen), exactly as the withhold verbs do and for the same reason: without it the fast index
+    stays stamped current and the pin the operator just saved is missing from the next search, answered as
+    though the index were authoritative. It does not bump the ledger GENERATION — that counter means content
+    was rewritten or removed, which an append never does — and the two have different recovery meanings."""
     if not isinstance(text, str) or not text.strip():
         raise PinRefused("there was nothing to save — a pin needs some words.")
     cleaned = scrub.scrub_text(text.strip())

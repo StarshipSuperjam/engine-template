@@ -18,14 +18,21 @@ forwards it verbatim); a write that committed but whose confirmation did not mak
 as "nothing saved", because it may well have saved.
 
 HOW A LOST CONFIRMATION IS RESOLVED, NOT GUESSED. The parent runs the child under a timeout, and on a stuck
-or client-cancelled child it terminates and REAPS the child before it reads anything — so a lingering child
-can never keep committing behind an already-reported outcome. Only once the child is dead does the parent
+child it terminates and REAPS the child before it reads anything — so a lingering child can never keep
+committing behind an already-reported outcome. If the parent's own wait is interrupted or cancelled (a
+KeyboardInterrupt, a cancelled task, an interpreter shutdown) the child is killed and reaped before the
+interruption propagates, and no outcome is reported at all. Only once the child is dead does the parent
 fold its line stream into one of five outcomes (`_classify_outcome`): committed, refused, faulted,
 unconfirmed (the child could still be writing — never reported as nothing-saved), or not-attempted (the
-child never launched). A `begin` line with no confirmation is resolved by a read-only read-back of the
-pre-minted id against the ledger on disk: found means the write landed; absent-with-a-dead-child means a
-genuine fault; absent-while-alive stays unconfirmed. Faults and not-attempted launches are recorded to the
-stranding log for forensics.
+child never launched). Every line the child printed is checked against the protocol before it is believed:
+a `response` must be the complete operator-facing response for the verb, a `committed` receipt must name
+the pre-minted id with a positive byte length, an `already_pinned` receipt must name the existing pin —
+anything else is dropped rather than trusted, so a malformed or fabricated line can never manufacture a
+success. A `begin` line with no confirmation is resolved by a read-only read-back of the pre-minted id
+against the ledger on disk: found means the write landed; absent-with-a-dead-child means a genuine fault;
+absent-while-alive stays unconfirmed; and a read-back that could not be PERFORMED (an unreadable ledger) is
+not evidence of absence, so it stays unconfirmed too. Faults and not-attempted launches are recorded to
+the stranding log for forensics.
 
 THE SEAM IS INJECTABLE. `dispatch(request, run=...)` takes the runner, defaulting to the real cross-process
 launcher. Tests pass `run=run_child` to exercise the whole child body in-process without a subprocess. The
@@ -72,6 +79,13 @@ class DispatchFaulted(RuntimeError):
     """The child neither committed nor refused in a way we could read — a genuine fault, not a refusal. It is
     deliberately NOT an `EngineRefusal`: it stays the masked crash it is, so a broken dispatch is disclosed as
     an unexpected fault rather than dressed up as a polished sentence."""
+
+
+class ReadBackUnavailable(RuntimeError):
+    """The read-only confirmation read could not be PERFORMED — the ledger was unreadable (permissions, a
+    missing directory, a fault inside the reader). This is not evidence that the record is absent: a parent
+    that cannot read the ledger cannot tell a landed write from a lost one, so the outcome it feeds stays
+    `unconfirmed`, never `faulted` (round 3, DH-6)."""
 
 
 # --------------------------------------------------------------------------------------------------------- #
@@ -185,6 +199,12 @@ _STILL_UNCONFIRMED_NOTE = (
     "This may still be completing and was not confirmed. Nothing was retried. Give it a moment, then check "
     "with a search before saving it again.")
 
+#: A write that reached its commit step whose outcome could not be confirmed because the memory ledger could
+#: not be read back: neither a success nor "nothing saved" can honestly be claimed.
+_UNRESOLVED_NOTE = (
+    "This reached its save step, but whether it landed could not be confirmed: memory could not be read "
+    "back just now. Nothing was retried. Check with a search before saving it again.")
+
 
 def _already_pinned_note(record: dict) -> str:
     """The operator-facing sentence for a pin the child's decisive in-lock check found already saved: it
@@ -231,12 +251,21 @@ def _spawn_accepted_child(request: dict) -> dict:
     through the working-tree `accepted_hook_dispatch.py`, which re-verifies and re-materializes the accepted
     tree before running a byte of it.
 
-    A stuck or client-cancelled child is terminated and reaped BEFORE its outcome is read, so no lingering
-    child can keep committing behind a reported result. If the kill does not land inside the reap window the
-    child is NOT confirmed dead: it is classified as still alive, so the outcome is `unconfirmed` (or
-    `committed` by read-back), never `faulted`, and nothing is written to the stranding log. A child that
-    never launches is `not_attempted` (distinct from a child that ran and faulted) and is recorded to the
-    stranding log; a REAPED child that leaves no evidence of a commit is `faulted` and likewise recorded.
+    A stuck child is terminated and reaped BEFORE its outcome is read, so no lingering child can keep
+    committing behind a reported result. If the kill does not land inside the reap window the child is NOT
+    confirmed dead: it is classified as still alive, so the outcome is `unconfirmed` (or `committed` by
+    read-back), never `faulted`, and nothing is written to the stranding log. A child that never launches is
+    `not_attempted` (distinct from a child that ran and faulted) and is recorded to the stranding log; a
+    REAPED child that leaves no evidence of a commit is `faulted` and likewise recorded.
+
+    CANCELLATION (round 3, TI-1). If the wait itself is interrupted — a `KeyboardInterrupt` or `SystemExit`
+    at server shutdown, a cancelled task when the caller runs on an event loop — the child is killed and
+    reaped before the interruption propagates out of this function, and nothing is classified or recorded:
+    the caller is going away, so no outcome is reported to anyone and no lingering child can commit behind
+    its back. One honest limit: the memory server's tool functions are synchronous and the MCP SDK runs them
+    on worker threads, so a client cancelling the MCP request does not interrupt the waiting thread at all —
+    that thread still runs the child to its single outcome (or the timeout kill above) and its result is
+    discarded. Either way the child never outlives the wait that owns it.
 
     This cannot succeed from a tree whose accepted materialization does not yet contain this file — a
     pre-merge worktree — where it surfaces the launcher's own refusal. That is expected: write authority
@@ -258,19 +287,26 @@ def _spawn_accepted_child(request: dict) -> dict:
         return {"outcome": "not_attempted"}
     reaped = True
     try:
-        stdout, _ = proc.communicate(input=payload, timeout=_TIMEOUT_SECONDS)
-    except subprocess.TimeoutExpired:
-        # Stuck or client-cancelled: kill and REAP before reading, so the child cannot keep committing behind
-        # a reported outcome, and salvage whatever it managed to print before the kill.
-        proc.kill()
         try:
-            stdout, _ = proc.communicate(timeout=_REAP_SECONDS)
+            stdout, _ = proc.communicate(input=payload, timeout=_TIMEOUT_SECONDS)
         except subprocess.TimeoutExpired:
-            # The kill did not land inside the reap window: the child is NOT confirmed dead and may still be
-            # holding the ledger lock or committing. Nothing it printed is readable yet, and its exit status
-            # does not exist — the never-launched sentinel is never reused for a child that did run.
-            stdout = ""
-            reaped = False
+            # Stuck: kill and REAP before reading, so the child cannot keep committing behind a reported
+            # outcome, and salvage whatever it managed to print before the kill.
+            proc.kill()
+            try:
+                stdout, _ = proc.communicate(timeout=_REAP_SECONDS)
+            except subprocess.TimeoutExpired:
+                # The kill did not land inside the reap window: the child is NOT confirmed dead and may still
+                # be holding the ledger lock or committing. Nothing it printed is readable yet, and its exit
+                # status does not exist — the never-launched sentinel is never reused for a child that did run.
+                stdout = ""
+                reaped = False
+    except BaseException:
+        # The WAIT was interrupted or cancelled (KeyboardInterrupt, SystemExit, a cancelled task): the caller
+        # is going away. Kill and reap the child before control leaves, then let the interruption propagate
+        # unchanged. No outcome is classified or recorded — there is nobody to report it to.
+        _kill_and_reap(proc)
+        raise
     # Only a reaped child is confirmed dead; only then is an empty read-back authoritative evidence of a
     # fault. An unreaped child is classified alive, which can yield committed or unconfirmed, never faulted.
     returncode = proc.returncode if reaped else None
@@ -280,6 +316,69 @@ def _spawn_accepted_child(request: dict) -> dict:
     if outcome.get("outcome") == "faulted":
         stranding_log.record_dispatch_outcome(stranding_log.DispatchOutcome.FAULTED, returncode)
     return outcome
+
+
+def _kill_and_reap(proc) -> None:
+    """Best-effort, bounded: kill the child and collect its exit status so it neither lingers nor zombies.
+    Never raises — this runs on the way out of an interrupted wait, where a second fault would only mask the
+    interruption the caller is already handling."""
+    try:
+        proc.kill()
+    except (OSError, ValueError):
+        pass
+    try:
+        proc.communicate(timeout=_REAP_SECONDS)
+    except (subprocess.TimeoutExpired, OSError, ValueError):
+        pass
+
+
+def _valid_response(verb: str, payload) -> bool:
+    """True iff `payload` is the COMPLETE operator-facing response `run_child` returns for `verb` — the exact
+    shape the server relays — or a refusal carrying a non-empty plain sentence. Anything else (a null, an
+    empty object, a pin response missing its stored text, a refusal that is not a sentence) is a protocol
+    violation and is not believed: the classifier falls through to the receipts and the disk instead of
+    minting a success with an empty reply (round 3, DH-5)."""
+    if not isinstance(payload, dict):
+        return False
+    if "refused" in payload:
+        return isinstance(payload["refused"], str) and bool(payload["refused"].strip())
+    if verb == "pin":
+        return (isinstance(payload.get(records.RECORD_ID_KEY), str) and bool(payload[records.RECORD_ID_KEY])
+                and isinstance(payload.get("text"), str))
+    if verb == "withhold":
+        return isinstance(payload.get("withheld"), str) and bool(payload["withheld"])
+    if verb == "restore":
+        return isinstance(payload.get("restored"), str) and bool(payload["restored"])
+    return False
+
+
+def _valid_receipt(event: dict, *, begin_id, verb: str) -> bool:
+    """True iff a `committed` / `already_pinned` line is a well-formed receipt for THIS write.
+
+    A `committed` receipt must carry a dict record whose id is a non-empty string that AGREES with the
+    pre-minted `begin` id (when a begin line was seen — the same child minted both, so a disagreement is a
+    fabricated or foreign line), a positive integer `bytes` (the committed record's own byte length, which
+    the child always prints after the append lands), and for a pin the stored text. An `already_pinned`
+    receipt names the EXISTING pin — a different record from the pre-minted one, by design — so it must carry
+    that record's id and scrubbed text, and it only exists for the pin verb. Anything short of this is not
+    trusted and falls through to the disk (round 3, DH-5)."""
+    record = event.get("record")
+    if not isinstance(record, dict):
+        return False
+    record_id = record.get(records.RECORD_ID_KEY)
+    if not isinstance(record_id, str) or not record_id:
+        return False
+    if event.get("event") == "committed":
+        if begin_id is not None and record_id != begin_id:
+            return False
+        size = event.get("bytes")
+        if isinstance(size, bool) or not isinstance(size, int) or size <= 0:
+            return False
+        if verb == "pin" and not isinstance(record.get("text"), str):
+            return False
+        return True
+    # already_pinned
+    return verb == "pin" and isinstance(record.get("text"), str)
 
 
 def _parse_events(stdout: str) -> list:
@@ -305,56 +404,76 @@ def _classify_outcome(stdout, *, returncode, verb, request, read_back, child_ali
     could still be writing. Pure: every liveness and read-back fact arrives as an argument, so the same
     function classifies a real launch and a test's synthetic stream.
 
-      committed   — a response line, OR a well-formed committed/already_pinned receipt, OR a positive
-                    read-back of the pre-minted id: the write LANDED.
+      committed   — a COMPLETE response line, OR a well-formed committed/already_pinned receipt, OR a
+                    positive read-back of the pre-minted id: the write LANDED.
       refused     — a response line carrying the child's plain refusal sentence.
-      unconfirmed — a begin line, no commit evidence, read-back absent, but the child is still alive: it may
-                    yet commit, so this is NEVER reported as nothing-saved.
-      faulted     — the child confirmed dead with no commit evidence: a begin line and an absent read-back,
-                    or no begin line at all (it never reached the write body). A child that is not confirmed
-                    dead is never faulted: with no begin line it is `unconfirmed` too, since an unreaped
-                    child may not have flushed its begin line yet.
+      unconfirmed — a begin line, no commit evidence, and either the child is still alive (it may yet
+                    commit) or the read-back could not be performed (absence cannot be established): this
+                    is NEVER reported as nothing-saved.
+      faulted     — the child confirmed dead with no commit evidence: a begin line and a read-back that
+                    SEARCHED and found nothing, or no begin line at all (it never reached the write body). A
+                    child that is not confirmed dead is never faulted: with no begin line it is
+                    `unconfirmed` too, since an unreaped child may not have flushed its begin line yet.
+
+    Every line is validated against the protocol before it is believed (`_valid_response`,
+    `_valid_receipt`): a malformed response or receipt is dropped, never trusted, so it can only ever
+    withhold a success and never manufacture one (round 3, DH-5).
 
     (`not_attempted` is the launcher's call — only it knows the child never started — and never reaches here.)
     """
     events = _parse_events(stdout)
+    begin = next((e for e in reversed(events) if e.get("event") == "begin"), None)
+    begin_id = begin.get("id") if begin is not None else None
+    if not isinstance(begin_id, str) or not begin_id:
+        begin_id = None  # a begin line without a usable id: the child reached the body, but nothing to read back
 
-    # 1. The authoritative response line the child prints last: a committed response (any verb) or a refusal.
-    for event in reversed(events):
-        if event.get("event") == "response":
-            payload = event.get("response")
-            payload = payload if isinstance(payload, dict) else {}
+    # 1. The authoritative response line the child prints last: a COMPLETE committed response for the verb,
+    #    or a refusal sentence. A malformed one (null, empty, missing the stored text) is not believed and
+    #    the decision falls through to the receipts and the disk.
+    response_event = next((e for e in reversed(events) if e.get("event") == "response"), None)
+    if response_event is not None:
+        payload = response_event.get("response")
+        if _valid_response(verb, payload):
             if "refused" in payload:
-                return {"outcome": "refused", "sentence": str(payload["refused"])}
+                return {"outcome": "refused", "sentence": payload["refused"]}
             return {"outcome": "committed", "response": payload}
 
-    # 2. A WELL-FORMED committed/already_pinned receipt (a dict record carrying an id). A malformed receipt is
-    #    not trusted here: it falls through to the read-back, so a corrupt or fabricated line can never by
-    #    itself mint a success — only real disk state can.
+    # 2. A WELL-FORMED committed/already_pinned receipt for THIS write. A malformed receipt is not trusted
+    #    here: it falls through to the read-back, so a corrupt or fabricated line can never by itself mint a
+    #    success — only real disk state can.
     committed = next(
         (e for e in reversed(events)
          if e.get("event") in ("committed", "already_pinned")
-         and isinstance(e.get("record"), dict)
-         and e["record"].get(records.RECORD_ID_KEY) is not None),
+         and _valid_receipt(e, begin_id=begin_id, verb=verb)),
         None)
     if committed is not None:
         return {"outcome": "committed",
                 "response": _committed_response(verb, request, committed.get("record"),
                                                 already_pinned=committed.get("event") == "already_pinned")}
 
-    # 3. A begin line: the child reached the write body. Decide on disk first, then on liveness.
-    begin = next((e for e in reversed(events) if e.get("event") == "begin"), None)
+    # 3. A begin line: the child reached the write body. Decide on disk first, then on liveness. The
+    #    read-back is three-state: found, searched-and-absent, or could-not-read — only the middle one is
+    #    evidence of a lost write (round 3, DH-6).
     if begin is not None:
-        record_id = begin.get("id")
-        found = read_back(record_id) if (read_back is not None and record_id) else None
+        found = None
+        unresolved = False
+        if read_back is not None and begin_id is not None:
+            try:
+                found = read_back(begin_id)
+            except ReadBackUnavailable:
+                unresolved = True
         if found is not None:
             # Physically on disk: the write committed; only its confirmation was lost.
             return {"outcome": "committed", "response": _committed_response(verb, request, found)}
+        if unresolved:
+            # Absence could not be established: neither a success nor nothing-saved can be claimed.
+            return {"outcome": "unconfirmed",
+                    "response": _still_unconfirmed_response(verb, request, begin_id, note=_UNRESOLVED_NOTE)}
         if child_alive:
             # The child could still be mid-commit — hold it open, never call it nothing-saved.
             return {"outcome": "unconfirmed",
-                    "response": _still_unconfirmed_response(verb, request, record_id)}
-        # Confirmed dead, nothing on disk, no receipt: a genuine fault.
+                    "response": _still_unconfirmed_response(verb, request, begin_id)}
+        # Confirmed dead, the ledger searched and nothing on disk, no receipt: a genuine fault.
         return {"outcome": "faulted", "returncode": returncode}
 
     # 4. No begin line at all. Confirmed dead: the child never reached the write body. Still alive: nothing
@@ -395,27 +514,30 @@ def _committed_response(verb: str, request: dict, record, *, already_pinned: boo
     return response
 
 
-def _still_unconfirmed_response(verb: str, request: dict, record_id) -> dict:
-    """The reply for a write that began but has no commit evidence yet while the child could still be running:
-    honest that it may still be completing, and never a claim that nothing was saved."""
-    response = {"unconfirmed": _STILL_UNCONFIRMED_NOTE}
+def _still_unconfirmed_response(verb: str, request: dict, record_id, *, note: str = _STILL_UNCONFIRMED_NOTE) -> dict:
+    """The reply for a write that began but has no commit evidence yet — because the child could still be
+    running, or because the ledger could not be read back (`note=_UNRESOLVED_NOTE`): honest about what is not
+    known, and never a claim that nothing was saved."""
+    response = {"unconfirmed": note}
     if verb == "pin" and record_id is not None:
         response["id"] = record_id
     return response
 
 
 def _ledger_read_back(record_id):
-    """Read-only confirmation: return the stored record/marker carrying `record_id`, or None if absent. Reads
-    the RAW ledger (`ledger.read().records`, not `iter_records`) so a withhold/restore marker — which the
-    witness layer would fold away — is still seen, since that marker may be exactly the write being confirmed.
-    Never writes; any read failure is treated as absent, so a broken read can only withhold a success, never
-    invent one."""
+    """Read-only confirmation, three-state: return the stored record/marker carrying `record_id`; return None
+    when the ledger was SEARCHED and no such line exists; raise `ReadBackUnavailable` when the ledger could
+    not be read at all. Reads the RAW ledger (`ledger.read().records`, not `iter_records`) so a
+    withhold/restore marker — which the witness layer would fold away — is still seen, since that marker may
+    be exactly the write being confirmed. Never writes. A read that could not be performed is NOT reported
+    as absence (round 3, DH-6): the classifier keeps such a write `unconfirmed`, so a broken read can only
+    withhold a success, never invent one and never turn a possibly-landed write into "nothing saved"."""
     if not record_id:
         return None
     try:
         result = ledger.read()
-    except Exception:
-        return None
+    except Exception as exc:  # noqa: BLE001 — every reader fault is the same fact: the ledger could not be read
+        raise ReadBackUnavailable("the memory ledger could not be read back") from exc
     for rec in getattr(result, "records", None) or []:
         if isinstance(rec, dict) and rec.get(records.RECORD_ID_KEY) == record_id:
             return rec

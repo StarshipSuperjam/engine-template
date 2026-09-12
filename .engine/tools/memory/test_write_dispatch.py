@@ -286,7 +286,7 @@ class ClassifyOutcomeTests(unittest.TestCase):
         # pin-shaped null response.
         out = self._classify(
             self._stdout({"event": "begin", "id": "r1"},
-                         {"event": "committed", "record": {"id": "r1"}}),
+                         {"event": "committed", "record": {"id": "r1"}, "bytes": 64}),
             verb="withhold", request={"verb": "withhold", "record_id": "r1"},
             read_back=self._forbidden_read_back)
         self.assertEqual(out["outcome"], "committed")
@@ -307,10 +307,138 @@ class ClassifyOutcomeTests(unittest.TestCase):
 
     def test_a_lost_withhold_of_a_whole_conversation_names_the_conversation(self):
         out = self._classify(
-            self._stdout({"event": "committed", "record": {"id": "r1"}}),
+            self._stdout({"event": "committed", "record": {"id": "r1"}, "bytes": 64}),
             verb="withhold", request={"verb": "withhold", "session_id": "s-gone"},
             read_back=self._forbidden_read_back)
         self.assertIn("that conversation", out["response"]["withheld"])
+
+    # -- round 3, DH-5: a response or receipt is believed only when it is COMPLETE for the verb ------------
+    def test_a_response_line_with_a_null_or_empty_response_is_not_a_committed_outcome(self):
+        # DH-5: a `response` event carrying null, a non-dict, or an empty object used to be minted as
+        # committed with `{}` — an empty reply for a write nothing proves. Now it is not believed: the
+        # decision falls through to the receipts and the disk.
+        for payload in (None, "", [], {}, 7):
+            with self.subTest(payload=payload):
+                out = self._classify(
+                    self._stdout({"event": "begin", "id": "r1"}, {"event": "response", "response": payload}),
+                    returncode=1, verb="pin", read_back=lambda rid: None, child_alive=False)
+                self.assertEqual(out, {"outcome": "faulted", "returncode": 1})
+        # ...and a stream with no begin at all is the plain no-begin fault, never `{"response": {}}`.
+        out = self._classify(self._stdout({"event": "response"}), returncode=2,
+                             read_back=lambda rid: None, child_alive=False)
+        self.assertEqual(out, {"outcome": "faulted", "returncode": 2})
+
+    def test_an_incomplete_response_for_the_verb_falls_through_to_the_disk(self):
+        # DH-5: the response must be the whole operator-facing reply for the verb — a pin without its stored
+        # text, a withhold/restore whose sentence is missing or not a string, a refusal that is not a
+        # sentence. Each falls through; here the disk then decides the outcome.
+        cases = [
+            ("pin", {"id": "r1"}),                       # no stored text
+            ("pin", {"id": "", "text": "t"}),            # empty id
+            ("pin", {"text": "t"}),                      # no id at all
+            ("withhold", {"withheld": None}),
+            ("withhold", {"restored": "wrong verb's sentence"}),
+            ("restore", {"restored": ""}),
+            ("pin", {"refused": ""}),
+            ("pin", {"refused": ["not", "a", "sentence"]}),
+        ]
+        for verb, payload in cases:
+            with self.subTest(verb=verb, payload=payload):
+                seen = []
+
+                def read_back(rid, seen=seen):
+                    seen.append(rid)
+                    return {"id": rid, "text": "on disk"}
+
+                out = self._classify(
+                    self._stdout({"event": "begin", "id": "r1"}, {"event": "response", "response": payload}),
+                    verb=verb, request={"verb": verb, "record_id": "r1"}, read_back=read_back)
+                self.assertEqual(seen, ["r1"])           # the disk, not the malformed line, decided
+                self.assertEqual(out["outcome"], "committed")
+                self.assertIn("unconfirmed", out["response"])   # honest it was rebuilt, not relayed
+
+    def test_a_complete_response_is_relayed_for_every_verb(self):
+        for verb, payload in (("pin", {"id": "r1", "text": "t", "via": "assistant", "total": 3}),
+                              ("withhold", {"withheld": "Out of recall."}),
+                              ("restore", {"restored": "Back in recall."})):
+            with self.subTest(verb=verb):
+                out = self._classify(
+                    self._stdout({"event": "begin", "id": "r1"}, {"event": "response", "response": payload}),
+                    verb=verb, request={"verb": verb, "record_id": "r1"}, read_back=self._forbidden_read_back)
+                self.assertEqual(out, {"outcome": "committed", "response": payload})
+
+    def test_a_committed_receipt_must_agree_with_the_begin_id_and_carry_a_positive_byte_length(self):
+        # DH-5: a `committed` receipt is a receipt for THIS write only when it names the pre-minted id and
+        # carries the byte length the child prints after the append lands. A receipt for some other id, or
+        # with no/zero/negative/boolean/non-integer bytes, is not a receipt — the disk decides.
+        bad_receipts = [
+            {"event": "committed", "record": {"id": "other", "text": "t"}, "bytes": 64},   # foreign id
+            {"event": "committed", "record": {"id": "r1", "text": "t"}},                   # no bytes
+            {"event": "committed", "record": {"id": "r1", "text": "t"}, "bytes": 0},
+            {"event": "committed", "record": {"id": "r1", "text": "t"}, "bytes": -5},
+            {"event": "committed", "record": {"id": "r1", "text": "t"}, "bytes": True},
+            {"event": "committed", "record": {"id": "r1", "text": "t"}, "bytes": "64"},
+            {"event": "committed", "record": {"id": "r1"}, "bytes": 64},                   # pin without text
+            {"event": "committed", "record": {"id": ""}, "bytes": 64},                     # empty id
+        ]
+        for receipt in bad_receipts:
+            with self.subTest(receipt=receipt):
+                out = self._classify(
+                    self._stdout({"event": "begin", "id": "r1"}, receipt),
+                    returncode=1, verb="pin", read_back=lambda rid: None, child_alive=False)
+                self.assertEqual(out, {"outcome": "faulted", "returncode": 1})
+                # ...and never a success minted from the bad line when the disk does have the write:
+                out = self._classify(
+                    self._stdout({"event": "begin", "id": "r1"}, receipt),
+                    verb="pin", read_back=lambda rid: {"id": rid, "text": "on disk"})
+                self.assertEqual(out["response"]["id"], "r1")
+                self.assertEqual(out["response"]["text"], "on disk")
+
+    def test_an_already_pinned_receipt_needs_the_existing_pins_text_and_only_exists_for_pin(self):
+        # DH-5: already_pinned names the EXISTING pin (a different id from the begin line, by design) and
+        # must carry that record's scrubbed text; it is meaningless for withhold/restore.
+        out = self._classify(
+            self._stdout({"event": "begin", "id": "r1"},
+                         {"event": "already_pinned", "record": {"id": "r9", "text": "dup"}}),
+            verb="pin", read_back=self._forbidden_read_back)
+        self.assertEqual(out["outcome"], "committed")
+        self.assertEqual(out["response"]["id"], "r9")                 # the existing pin, not the begin id
+        for verb, receipt in (("pin", {"event": "already_pinned", "record": {"id": "r9"}}),
+                              ("withhold", {"event": "already_pinned", "record": {"id": "r9", "text": "d"}})):
+            with self.subTest(verb=verb):
+                out = self._classify(self._stdout({"event": "begin", "id": "r1"}, receipt),
+                                     returncode=1, verb=verb, request={"verb": verb, "record_id": "r1"},
+                                     read_back=lambda rid: None, child_alive=False)
+                self.assertEqual(out, {"outcome": "faulted", "returncode": 1})
+
+    # -- round 3, DH-6: a read-back that could not be PERFORMED is not evidence of absence -----------------
+    def test_an_unreadable_ledger_keeps_a_begun_write_unconfirmed_never_faulted(self):
+        # DH-6: the child is confirmed dead, it printed a begin line, and the ledger could not be read back.
+        # Absence was never established, so this is `unconfirmed` — never `faulted`, never nothing-saved —
+        # whether or not the child is alive.
+        def unreadable(rid):
+            raise write_dispatch.ReadBackUnavailable("permission denied")
+
+        for child_alive in (False, True):
+            with self.subTest(child_alive=child_alive):
+                out = self._classify(
+                    self._stdout({"event": "begin", "id": "r1"}),
+                    returncode=1, verb="pin", read_back=unreadable, child_alive=child_alive)
+                self.assertEqual(out["outcome"], "unconfirmed")
+                self.assertEqual(out["response"]["id"], "r1")
+                self.assertEqual(out["response"]["unconfirmed"], write_dispatch._UNRESOLVED_NOTE)
+                self.assertIn("could not be read back", out["response"]["unconfirmed"])
+                self.assertNotIn("returncode", out)
+                self.assertNotIn("nothing was saved", json.dumps(out).lower())
+
+    def test_the_ledger_read_back_is_three_state(self):
+        # DH-6: found -> the record; searched and absent -> None; could not read -> ReadBackUnavailable.
+        with tempfile.TemporaryDirectory() as tmp, mock.patch.dict(os.environ, {ledger.ENV_DIR: tmp}):
+            self.assertIsNone(write_dispatch._ledger_read_back("nothing-yet"))        # empty cabinet: absent
+            with mock.patch.object(write_dispatch.ledger, "read", side_effect=PermissionError("denied")):
+                with self.assertRaises(write_dispatch.ReadBackUnavailable):
+                    write_dispatch._ledger_read_back("r1")
+        self.assertIsNone(write_dispatch._ledger_read_back(""))                       # no id: nothing to read
 
 
 class DispatchRelayTests(unittest.TestCase):
@@ -517,6 +645,59 @@ class SpawnReapTests(_Base):
         self.assertNotIn("returncode", outcome)                        # no exit status exists yet
         self.assertNotIn(str(stranding_log.EXIT_NOT_LAUNCHED), json.dumps(outcome))
         self.assertEqual(recorded, [])                                  # never stranded: it may still land
+
+    def test_a_dead_child_whose_ledger_cannot_be_read_back_is_unconfirmed_and_not_recorded(self):
+        # Round 3, DH-6: begin-only, killed and reaped, and the LEDGER COULD NOT BE READ (a permission
+        # fault, a missing directory). That is not evidence the write is absent, so it is `unconfirmed` —
+        # never `faulted`, and nothing is written to the stranding log as if the write were known lost.
+        begin_only = json.dumps({"event": "begin", "id": "maybe-landed"}, sort_keys=True,
+                                separators=(",", ":"))
+        proc = _FakeProc(timeout_first=True, reap_stdout=begin_only, returncode=-9)
+        captured = {}
+        recorded, recpatch = self._capture_recording()
+        with self._patch_popen(proc, captured), recpatch, \
+                mock.patch.object(write_dispatch.ledger, "read", side_effect=PermissionError("denied")):
+            outcome = write_dispatch._spawn_accepted_child({"verb": "pin", "text": "x"})
+        self.assertTrue(proc.killed)
+        self.assertEqual(outcome["outcome"], "unconfirmed")
+        self.assertEqual(outcome["response"]["id"], "maybe-landed")
+        self.assertEqual(outcome["response"]["unconfirmed"], write_dispatch._UNRESOLVED_NOTE)
+        self.assertNotIn("returncode", outcome)
+        self.assertEqual(recorded, [])                                  # never stranded: it may have landed
+
+    def test_an_interrupted_wait_kills_and_reaps_a_real_child_before_propagating(self):
+        # Round 3, TI-1 (DH-7 folded in): the parent's wait is interrupted by a REAL cancellation — a
+        # KeyboardInterrupt delivered to the waiting thread while a REAL disposable child is blocked — not a
+        # TimeoutExpired from a fake. The child must be dead and reaped (its exit status collected) before
+        # the interruption leaves `_spawn_accepted_child`, and no outcome is classified or recorded.
+        import _thread
+        launched = {}
+
+        def real_popen(argv, **kwargs):
+            # The same pipes and text mode the launcher asked for, on a disposable child that would block
+            # for a minute if nothing killed it.
+            proc = subprocess.Popen([sys.executable, "-c", "import time; time.sleep(60)"], **kwargs)
+            launched["proc"] = proc
+            return proc
+
+        recorded, recpatch = self._capture_recording()
+        timer = threading.Timer(0.5, _thread.interrupt_main)
+        timer.daemon = True
+        try:
+            with mock.patch.object(subprocess, "Popen", real_popen), recpatch:
+                timer.start()
+                with self.assertRaises(KeyboardInterrupt):
+                    write_dispatch._spawn_accepted_child({"verb": "pin", "text": "x"})
+        finally:
+            timer.cancel()
+            proc = launched.get("proc")
+            if proc is not None and proc.poll() is None:                # never leave a child behind a test
+                proc.kill()
+                proc.wait()
+        self.assertIn("proc", launched)
+        self.assertIsNotNone(proc.returncode)                          # reaped before the raise propagated
+        self.assertNotEqual(proc.returncode, 0)                        # ...by the kill, not a natural exit
+        self.assertEqual(recorded, [])                                  # nothing classified, nothing stranded
 
     def test_a_child_that_never_launches_is_not_attempted_and_recorded(self):
         # not_attempted: Popen itself fails, so no process ever ran — a class distinct from a child that ran

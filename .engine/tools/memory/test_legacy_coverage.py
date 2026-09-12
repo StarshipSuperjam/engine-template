@@ -103,11 +103,59 @@ class TestCensus(unittest.TestCase):
         result = legacy_coverage.census(path=self.path)
         self.assertEqual(_states(result, legacy_coverage.EPISODIC_SESSION)["S_R"], legacy_coverage.PRESENT)
 
-    def test_cross_session_cluster_gist_is_bucketed_not_session_classified(self):
+    def test_cross_session_cluster_gist_is_bucketed_and_its_sentinel_is_never_a_subject(self):
+        # A cluster gist none of whose sources has a line: bucketed, counted as unresolved, and the `tag:`
+        # sentinel itself never appears as a session subject.
         self._write([legacy_shapes.gist(records.TAG_SESSION_PREFIX + "topic", "cluster", ["missing"], "bc")])
         result = legacy_coverage.census(path=self.path)
         self.assertEqual(result.scanned["gist_cross_session_clusters"], 1)
-        self.assertNotIn(records.TAG_SESSION_PREFIX + "topic", _states(result, legacy_coverage.GIST_SESSION))
+        self.assertEqual(result.scanned["gists_sessions_unresolved"], 1)
+        self.assertEqual(_states(result, legacy_coverage.GIST_SESSION), {})
+
+    def test_a_gists_sessions_are_resolved_through_its_source_ids(self):
+        # Round 3, DH-3: a cross-session cluster gist folded episodic records from two sessions. Its
+        # contributing sessions are resolved THROUGH source_ids to the episodic records it folded, and each
+        # is classified over that session's conversation records: S_A still has a turn (present); S_B's
+        # conversation is gone (absent). The sentinel is not a subject; the gist itself is one row per session.
+        e_a = legacy_shapes.episodic("S_A", "user", "a", "ba")
+        e_b = legacy_shapes.episodic("S_B", "user", "b", "bb")
+        cluster = legacy_shapes.gist(records.TAG_SESSION_PREFIX + "topic", "cluster", [e_a[_ID], e_b[_ID]], "bc")
+        self._write([_turn("S_A"), e_a, e_b, cluster])
+        result = legacy_coverage.census(path=self.path)
+        rows = [r for r in result.rows
+                if r["subject_kind"] == legacy_coverage.GIST_SESSION and r["referenced_by"] == cluster[_ID]]
+        self.assertEqual({r["subject_id"]: r["state"] for r in rows},
+                         {"S_A": legacy_coverage.PRESENT, "S_B": legacy_coverage.ABSENT})
+        self.assertEqual(result.scanned["gists_sessions_unresolved"], 0)
+        self.assertEqual(result.counts[legacy_coverage.GIST_SESSION][legacy_coverage.ABSENT], 1)
+
+    def test_a_single_session_gist_names_its_session_once_even_when_its_sources_agree(self):
+        # DH-3: the gist's own real session and the session its sources resolve to are the same session —
+        # one row, not two, so the counts are not inflated.
+        e = legacy_shapes.episodic("S_ONE", "user", "x", "b1")
+        g = legacy_shapes.gist("S_ONE", "g", [e[_ID]], "b1")
+        self._write([_turn("S_ONE"), e, g])
+        result = legacy_coverage.census(path=self.path)
+        rows = [r for r in result.rows
+                if r["subject_kind"] == legacy_coverage.GIST_SESSION and r["referenced_by"] == g[_ID]]
+        self.assertEqual([(r["subject_id"], r["state"]) for r in rows], [("S_ONE", legacy_coverage.PRESENT)])
+
+    def test_a_source_from_a_wholly_withheld_session_is_excluded_but_present(self):
+        # Round 3, DH-4: the operator withheld all of S_W. Its episodic record is unsuperseded and still has a
+        # line, but it is hidden from recall exactly as a record withhold hides one — so a gist that cites it
+        # sees the source as excluded-but-present, never plainly present. The session row says the same.
+        e_w = legacy_shapes.episodic("S_W", "user", "w", "bw")
+        g = legacy_shapes.gist("S_W", "g", [e_w[_ID]], "bw")
+        self._write([_turn("S_W"), e_w, g, _withhold_session("S_W")])
+        result = legacy_coverage.census(path=self.path)
+        self.assertEqual(_states(result, legacy_coverage.GIST_SOURCE)[e_w[_ID]],
+                         legacy_coverage.EXCLUDED_BUT_PRESENT)
+        self.assertEqual(_states(result, legacy_coverage.GIST_SESSION)["S_W"],
+                         legacy_coverage.EXCLUDED_BUT_PRESENT)
+        # ...and a restore puts the source back to present.
+        self._write([_restore_session("S_W")])
+        result = legacy_coverage.census(path=self.path)
+        self.assertEqual(_states(result, legacy_coverage.GIST_SOURCE)[e_w[_ID]], legacy_coverage.PRESENT)
 
     def test_read_health_marks_indeterminate_and_surfaces_counts(self):
         self._write([legacy_shapes.episodic("S", "user", "s", "b")])
