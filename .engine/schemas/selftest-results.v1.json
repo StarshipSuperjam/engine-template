@@ -1,0 +1,396 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "selftest-results.v1.json",
+  "title": "selftest-results.v1 \u2014 serial test observations",
+  "description": "Bounded observations, never merge receipts. Semantic validation also reconciles inventory, observed completion and verdict. Unavailable timing is not a complete measurement.",
+  "type": "object",
+  "additionalProperties": false,
+  "properties": {
+    "schema_version": {
+      "const": "selftest-results.v1"
+    },
+    "source": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "tree": {
+          "anyOf": [
+            {
+              "type": "string",
+              "pattern": "^[0-9a-f]{40}$"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "worktree_dirty": {
+          "anyOf": [
+            {
+              "type": "boolean"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        }
+      },
+      "required": [
+        "tree",
+        "worktree_dirty"
+      ]
+    },
+    "scope": {
+      "enum": [
+        "full",
+        "focused",
+        "project-only"
+      ]
+    },
+    "invocation": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "start_dir": {
+          "type": "string",
+          "maxLength": 4096
+        },
+        "pattern": {
+          "type": "string",
+          "maxLength": 4096
+        },
+        "selection_digest": {
+          "anyOf": [
+            {
+              "type": "string",
+              "maxLength": 4096
+            },
+            {
+              "type": "null"
+            }
+          ]
+        }
+      },
+      "required": [
+        "start_dir",
+        "pattern",
+        "selection_digest"
+      ]
+    },
+    "ci": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "run_id": {
+          "anyOf": [
+            {
+              "type": "string",
+              "maxLength": 4096
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "run_attempt": {
+          "anyOf": [
+            {
+              "type": "string",
+              "maxLength": 4096
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "head": {
+          "anyOf": [
+            {
+              "type": "string",
+              "maxLength": 4096
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "route": {
+          "anyOf": [
+            {
+              "type": "string",
+              "maxLength": 4096
+            },
+            {
+              "type": "null"
+            }
+          ]
+        }
+      },
+      "required": [
+        "run_id",
+        "run_attempt",
+        "head",
+        "route"
+      ]
+    },
+    "inventory": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "id": {
+            "type": "string",
+            "maxLength": 4096
+          },
+          "occurrence": {
+            "type": "integer",
+            "minimum": 1
+          }
+        },
+        "required": [
+          "id",
+          "occurrence"
+        ]
+      },
+      "maxItems": 200000
+    },
+    "selected": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "id": {
+            "type": "string",
+            "maxLength": 4096
+          },
+          "occurrence": {
+            "type": "integer",
+            "minimum": 1
+          }
+        },
+        "required": [
+          "id",
+          "occurrence"
+        ]
+      },
+      "maxItems": 200000
+    },
+    "cases": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "id": {
+            "type": "string",
+            "maxLength": 4096
+          },
+          "occurrence": {
+            "type": "integer",
+            "minimum": 1
+          },
+          "module": {
+            "type": "string",
+            "maxLength": 4096
+          },
+          "class": {
+            "type": "string",
+            "maxLength": 4096
+          },
+          "outcome": {
+            "enum": [
+              "passed",
+              "failed",
+              "error",
+              "expected-failure",
+              "unexpected-success",
+              "skipped",
+              "fixture-blocked",
+              "unexecuted"
+            ]
+          },
+          "started": {
+            "type": "boolean"
+          },
+          "stopped": {
+            "type": "boolean"
+          },
+          "reason": {
+            "anyOf": [
+              {
+                "type": "string",
+                "maxLength": 4096
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "subtests": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "additionalProperties": false,
+              "properties": {
+                "id": {
+                  "type": "string",
+                  "maxLength": 4096
+                },
+                "outcome": {
+                  "enum": [
+                    "passed",
+                    "failed",
+                    "error",
+                    "skipped"
+                  ]
+                },
+                "reason": {
+                  "type": "string",
+                  "maxLength": 4096
+                }
+              },
+              "required": [
+                "id",
+                "outcome"
+              ]
+            },
+            "maxItems": 1000
+          },
+          "seconds": {
+            "anyOf": [
+              {
+                "type": "number",
+                "minimum": 0
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        },
+        "required": [
+          "id",
+          "occurrence",
+          "module",
+          "class",
+          "outcome",
+          "started",
+          "stopped",
+          "reason",
+          "subtests",
+          "seconds"
+        ]
+      },
+      "maxItems": 200000
+    },
+    "fixtures": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "phase": {
+            "enum": [
+              "setUpModule",
+              "tearDownModule",
+              "setUpClass",
+              "tearDownClass"
+            ]
+          },
+          "owner": {
+            "type": "string",
+            "maxLength": 4096
+          },
+          "outcome": {
+            "enum": [
+              "error",
+              "skipped"
+            ]
+          },
+          "reason": {
+            "anyOf": [
+              {
+                "type": "string",
+                "maxLength": 4096
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "affected": {
+            "type": "array",
+            "items": {
+              "type": "integer",
+              "minimum": 0
+            },
+            "maxItems": 200000
+          },
+          "cleanup": {
+            "type": "boolean",
+            "description": "True when unittest reports an error from doClassCleanups or doModuleCleanups; phase retains the original fixture holder."
+          }
+        },
+        "required": [
+          "phase",
+          "owner",
+          "outcome",
+          "reason",
+          "affected",
+          "cleanup"
+        ]
+      },
+      "maxItems": 200000
+    },
+    "issues": {
+      "type": "array",
+      "items": {
+        "type": "string",
+        "maxLength": 4096
+      },
+      "maxItems": 100
+    },
+    "child_finalized": {
+      "type": "boolean"
+    },
+    "complete": {
+      "type": "boolean"
+    },
+    "passed": {
+      "type": "boolean"
+    },
+    "process_exit": {
+      "anyOf": [
+        {
+          "type": "integer"
+        },
+        {
+          "type": "null"
+        }
+      ]
+    },
+    "executed_count": {
+      "type": "integer",
+      "minimum": 0
+    }
+  },
+  "required": [
+    "schema_version",
+    "source",
+    "scope",
+    "invocation",
+    "ci",
+    "inventory",
+    "selected",
+    "cases",
+    "fixtures",
+    "issues",
+    "child_finalized",
+    "complete",
+    "passed",
+    "process_exit",
+    "executed_count"
+  ]
+}

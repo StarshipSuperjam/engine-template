@@ -19,8 +19,9 @@ closing summary. Cleanup is the daily sweep — a later run removes any of this 
 day. The on-screen result is built from the run's own in-memory output, never by re-reading the file, so
 a concurrent run can never make it show the wrong failures.
 
-The load-bearing invariant: the launcher's exit status is the child suite's exit status, VERBATIM
-(`proc.returncode`). It is NEVER derived from parsing the run's text for an `OK`/`FAILED` line. A test
+The load-bearing invariant: failures retain the child's exit status. A zero child status also requires
+complete structured outcomes; a clean early stop or missing report becomes nonzero. The verdict is
+NEVER derived from parsing the run's text for an `OK`/`FAILED` line. A test
 that errors at import/collection time, or a child that is killed or crashes, exits non-zero without a
 tidy summary — and must still surface as a failure, never a false green. The displayed summary is the
 child's own words; only the display is textual, never the verdict.
@@ -38,8 +39,8 @@ to reach end-of-file — which a background grandchild process the child spawned
 open forever. That single-reader model is why teardown can never hang.
 
 Layering: `quiet_call.py` silences one demo's stdout in-process at a single call site; this supervises
-the whole run at the process level. Different layers — neither replaces the other. CI stays on the raw
-`unittest discover ... -b` command (the merge gate is unchanged); this is the local build path.
+the whole run at the process level. CI uses this launcher with explicit full-discovery arguments,
+retaining unittest semantics while recording complete outcomes and optional timing.
 
 Usage:
     uv run --directory .engine --frozen -- python tools/selftest.py
@@ -58,9 +59,9 @@ alone — the inventory then runs nowhere, which the record and the closing bann
 discovered inventory, the committed tree it ran over (nullable, with a dirty flag), what was selected
 and why, per-module timings, failures, and skips. Both appear in `--help`.
 
-Every OTHER flag is hidden and exists for the regression fixture (test_selftest.py), which drives the
-launcher against tiny synthetic suites in a temp directory with a millisecond heartbeat; a normal run
-needs none of them.
+The supported full discovery form is `--start-dir tools --pattern 'test_*.py'`.
+`--results-path PATH` retains mandatory complete outcomes; `--performance-path PATH` also observes
+advisory case and fixture timing. Other hidden flags support tiny synthetic regression suites.
 """
 from __future__ import annotations
 
@@ -78,6 +79,8 @@ import tempfile
 import time
 import unittest
 from typing import Optional
+
+import selftest_results
 
 # Shared with release_gate.py: set on every nested in-process suite spawn so a suite run can never
 # re-enter the real full-suite target from inside itself.
@@ -186,8 +189,9 @@ class _StructuredResult(unittest.TextTestResult):
     failure is reported straight to `addError` and NEVER passes through `startTest` at all — a failure
     list built from stop events would be silently empty while the exit status said FAILED."""
 
-    def __init__(self, *args, progress_write=None, **kwargs):
+    def __init__(self, *args, progress_write=None, observation=None, **kwargs):
         super().__init__(*args, **kwargs)
+        self.observation = observation
         self._progress_write = progress_write
         self._completed = 0
         self.module_times: dict = {}
@@ -218,11 +222,13 @@ class _StructuredResult(unittest.TextTestResult):
 
     def startTest(self, test):
         super().startTest(test)
+        self._observe("start", test)
         self._started_at[id(test)] = time.monotonic()
         self._emit({"event": "start", "id": str(test)})
 
     def stopTest(self, test):
         super().stopTest(test)
+        self._observe("stop", test)
         self._completed += 1
         began = self._started_at.pop(id(test), None)
         if began is not None:
@@ -240,15 +246,48 @@ class _StructuredResult(unittest.TextTestResult):
 
     def addError(self, test, err):
         super().addError(test, err)
+        tb = err[2]
+        cleanup = False
+        while tb is not None:
+            cleanup = cleanup or tb.tb_frame.f_code.co_name in {"doClassCleanups", "doModuleCleanups"}
+            tb = tb.tb_next
+        self._observe("outcome", test, "error", err[0].__name__, cleanup)
         self._note_problem(test, "error")
 
     def addFailure(self, test, err):
         super().addFailure(test, err)
+        self._observe("outcome", test, "failed", err[0].__name__)
         self._note_problem(test, "failure")
 
     def addSkip(self, test, reason):
         super().addSkip(test, reason)
+        self._observe("outcome", test, "skipped", reason)
         self.skipped_count += 1
+
+    def addSuccess(self, test):
+        super().addSuccess(test)
+        self._observe("outcome", test, "passed")
+
+    def addExpectedFailure(self, test, err):
+        super().addExpectedFailure(test, err)
+        self._observe("outcome", test, "expected-failure", err[0].__name__)
+
+    def addUnexpectedSuccess(self, test):
+        super().addUnexpectedSuccess(test)
+        self._observe("outcome", test, "unexpected-success")
+
+    def addSubTest(self, test, subtest, err):
+        super().addSubTest(test, subtest, err)
+        self._observe("subtest", test, subtest, err)
+
+    def _observe(self, method, *args):
+        if self.observation is not None:
+            try:
+                getattr(self.observation, method)(*args)
+            except Exception:
+                # Do not interrupt unittest cleanup. The independent final check fails closed.
+                self.observation.issue("outcome observation failed")
+                self._record_broke = True
 
 
 RECORD_SCHEMA_VERSION = "selftest-run-record.v1"
@@ -517,6 +556,7 @@ def _run_child(args: argparse.Namespace) -> int:
             progress_write = None
 
     started = time.time()
+    monotonic_started = time.monotonic()
     loader = unittest.TestLoader()
     try:
         suite = loader.discover(start_dir=args.start_dir, pattern=args.pattern)
@@ -529,7 +569,9 @@ def _run_child(args: argparse.Namespace) -> int:
         # reading — a reviewer caught the drift. The 2s below are on paths that did not exist before.
         return 1
 
+    collection_seconds = time.monotonic() - monotonic_started
     inventory_modules, inventory_ids = _inventory(suite)
+    inventory_cases = list(_flatten(suite))
     selection = _read_selection(args.selection_path)
     scope = "full"
     unmatched: list = []
@@ -570,22 +612,63 @@ def _run_child(args: argparse.Namespace) -> int:
     # to prevent.
     _progress({"event": "total", "total": total})
 
+    selected_cases = list(_flatten(suite))
+    result_path = getattr(args, "results_path", None)
+    timing_path = getattr(args, "performance_path", None)
+    source = _tree_binding(args.start_dir)
+    observation = selftest_results.Observation(
+        inventory_cases, selected_cases, source=source, scope=scope,
+        invocation={"start_dir": selftest_results.text(args.start_dir), "pattern": args.pattern,
+                    "selection_digest": _selection_digest(selection)}, timing=bool(timing_path))
+    if loader.errors:
+        observation.issue("test discovery contained import or load errors")
+    if not selected_cases:
+        observation.issue("discovery selected no cases")
+    # Persist discovery before running: a killed child leaves an explicitly incomplete inventory.
+    if result_path:
+        selftest_results.write(result_path, observation.document())
+    result_ref = [None]
+
     def _factory(stream, descriptions, verbosity):
-        return _StructuredResult(stream, descriptions, verbosity, progress_write=progress_write)
+        result_ref[0] = _StructuredResult(stream, descriptions, verbosity,
+                                         progress_write=progress_write, observation=observation)
+        return result_ref[0]
 
     runner = unittest.TextTestRunner(stream=sys.stderr, verbosity=1, buffer=True, resultclass=_factory)
     try:
-        result = runner.run(suite)
+        with observation.phases(selected_cases, result_ref):
+            # unittest releases completed cases. Keep identities, not fixtures and their resources.
+            del inventory_cases, selected_cases
+            result = runner.run(suite)
     finally:
         if progress_write is not None:
             try:
                 progress_write.close()
             except OSError:
                 pass
-    rc = 0 if result.wasSuccessful() else 1
+    if _tree_binding(args.start_dir) != source:
+        observation.issue("source tree or dirty status changed during execution")
+    document = observation.document(finalized=True)
+    if not document["complete"]:
+        remaining = sum(row["outcome"] == "unexecuted" for row in document["cases"])
+        print(f"selftest: required outcomes incomplete ({remaining} selected cases unexecuted; "
+              f"{len(document['issues'])} observation issues). A unittest OK is insufficient.", file=sys.stderr)
+    rc = 0 if result.wasSuccessful() and document["complete"] and document["passed"] else 1
+    if result_path:
+        try:
+            selftest_results.write(result_path, document)
+        except (OSError, ValueError, TypeError):
+            print("selftest: required outcomes could not be written", file=sys.stderr)
+            rc = 1
+    if timing_path:
+        try:
+            selftest_results.write(timing_path, observation.performance(
+                collection_seconds, time.monotonic() - monotonic_started))
+        except (OSError, ValueError, TypeError):
+            print("selftest: optional performance observations unavailable", file=sys.stderr)
     _write_run_record(args, {"verdict": "passed" if rc == 0 else "failed", "detail": None}, started,
                       inventory=(inventory_modules, inventory_ids), selection=selection, scope=scope,
-                      result=result, executed=total)
+                      result=result, executed=result.testsRun)
     return rc
 
 
@@ -950,6 +1033,9 @@ def _run_parent(args: argparse.Namespace) -> int:
     ]
     if args.run_record_path:
         child_cmd += ["--run-record-path", os.path.abspath(args.run_record_path)]
+    child_cmd += ["--results-path", os.path.abspath(args.results_path)]
+    if args.performance_path:
+        child_cmd += ["--performance-path", os.path.abspath(args.performance_path)]
     if selection_path:
         child_cmd += ["--selection-path", selection_path]
     # Ambient qualification OFF for the whole suite. It reaches live GitHub and writes activation state into
@@ -957,6 +1043,9 @@ def _run_parent(args: argparse.Namespace) -> int:
     # the developer's own machine as a side effect of running the tests. A test that wants the seam ON turns
     # it on for itself; see boot.AMBIENT_QUALIFICATION_OFF_ENV.
     env = {**os.environ, _NESTED_ENV: "1", "ENGINE_AMBIENT_QUALIFICATION_OFF": "1"}
+    from providers import SESSION_ENV_CHAIN
+    for key in SESSION_ENV_CHAIN:
+        env.pop(key, None)
 
     progress = _Progress()
     captured: list = []   # the run's own output, held in memory for a concurrency-safe result printout
@@ -1097,13 +1186,23 @@ def _run_parent(args: argparse.Namespace) -> int:
     # reads a vanished log as a failure. Cleanup is the daily sweep (_sweep_stale_logs) at the next run.
     elapsed = time.monotonic() - start
     output = "".join(captured)
+    if not selftest_results.finalize(args.results_path, rc) and rc == 0:
+        print("selftest: required outcome accounting is incomplete", file=sys.stderr)
+        rc = 1
+    if args.performance_path:
+        try:
+            metrics = selftest_results.read(args.performance_path)
+            metrics["parent_seconds"] = elapsed
+            selftest_results.write(args.performance_path, metrics)
+        except (OSError, ValueError, KeyError, TypeError, RecursionError):
+            print("selftest: optional timing is unknown", file=sys.stderr)
     _finish_run_record(args.run_record_path, rc, log_path, output,
                        scope=scope_name,
                        selection=_read_json(selection_path) if selection_path else None,
                        start_dir=args.start_dir)
     _cleanup_selection(selection_path, args.selection_path)
     _print_result(rc, elapsed, log_path, output, scope_note)
-    return rc  # VERBATIM — the child's exit status is the launcher's verdict.
+    return rc  # Preserve child failures; independent mandatory completeness can additionally fail.
 
 
 # --------------------------------------------------------------------------------------------------
@@ -1113,8 +1212,12 @@ def _build_parser() -> argparse.ArgumentParser:
     p = argparse.ArgumentParser(description="Run the full self-test suite once, legibly.")
     p.add_argument("--child", action="store_true", help=argparse.SUPPRESS)
     p.add_argument("--progress-fd", type=int, default=None, help=argparse.SUPPRESS)
-    p.add_argument("--start-dir", default=_DEFAULT_START_DIR, help=argparse.SUPPRESS)
-    p.add_argument("--pattern", default=_DEFAULT_PATTERN, help=argparse.SUPPRESS)
+    p.add_argument("--start-dir", default=_DEFAULT_START_DIR, help="unittest discovery directory (default: tools)")
+    p.add_argument("--pattern", default=_DEFAULT_PATTERN, help="unittest discovery pattern (default: test_*.py)")
+    p.add_argument("--results-path", default=None, metavar="PATH",
+                   help="retain required complete case outcomes (selftest-results.v1)")
+    p.add_argument("--performance-path", default=None, metavar="PATH",
+                   help="retain advisory per-case and phase timing (selftest-performance.v1)")
     p.add_argument("--cwd", default=None, help=argparse.SUPPRESS)
     p.add_argument("--heartbeat-interval", type=float,
                    default=float(os.environ.get("ENGINE_SELFTEST_HEARTBEAT_S", _DEFAULT_HEARTBEAT_S)),
@@ -1142,7 +1245,32 @@ def main(argv: Optional[list] = None) -> int:
     args = _build_parser().parse_args(argv)
     if args.child:
         return _run_child(args)
-    return _run_parent(args)
+    with tempfile.TemporaryDirectory(prefix="engine-selftest-results-") as directory:
+        if not args.results_path:
+            args.results_path = os.path.join(directory, "results.json")
+        paths = [os.path.abspath(p) for p in (args.results_path, args.performance_path,
+                                             args.run_record_path, args.log_path) if p]
+        if len(paths) != len(set(paths)):
+            print("selftest: output paths must be distinct", file=sys.stderr)
+            return 2
+        try:
+            # An interrupted launch cannot accidentally reuse a previous run's green report.
+            not_started = selftest_results.Observation(
+                [], [], source={"tree": None, "worktree_dirty": None}, scope="full",
+                invocation={"start_dir": selftest_results.text(args.start_dir),
+                            "pattern": args.pattern, "selection_digest": None})
+            not_started.issue("child has not produced an authoritative discovered inventory")
+            selftest_results.write(args.results_path, not_started.document())
+            if args.performance_path:
+                try:
+                    selftest_results.write(args.performance_path, {"schema_version": "selftest-performance.v1",
+                                                                  "unknown": ["child has not finalized"]})
+                except (OSError, ValueError):
+                    pass
+            return _run_parent(args)
+        except (OSError, ValueError, TypeError) as exc:
+            print(f"selftest: required outcome observation unavailable: {type(exc).__name__}", file=sys.stderr)
+            return 1
 
 
 if __name__ == "__main__":

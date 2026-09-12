@@ -27,9 +27,11 @@ class TestWorkflowExtraction(unittest.TestCase):
         # reuse-arm validator, project-only-arm validator, terminal assert-ran — eleven executable steps. It
         # was ten before the project-only arm, and twelve before the two hand-rolled completion markers were
         # replaced by the runner's own per-step outcomes (StarshipSuperjam/engine-template#1043).
-        self.assertEqual(len(steps), 11)
+        # Three advisory publication steps augment the eleven original gating/receipt steps.
+        self.assertEqual(len(steps), 14)
         self.assertIn("validate.py --suite CI", " ".join(str(row["command"]) for row in steps))
-        self.assertTrue(all(not row["continue"] for row in steps))
+        self.assertEqual({row['name'] for row in steps if row['continue']},
+                         {'Publish observed self-test summary','Upload test outcomes','Upload test timing'})
         self.assertIn("version=0.11.8", " ".join(row["details"] for row in steps))
         # A step id is rendered, not merely tolerated: the condition column prints references like
         # `steps.gate.outputs.mode`, so a catalogue that declined to print which step `gate` is would show a
@@ -89,6 +91,24 @@ class TestStaticTestInventory(unittest.TestCase):
                 fh.write("VALUE = 1\n")
             with self.assertRaisesRegex(ValueError, "no module docstring"):
                 assurance.discover_test_modules(root, self._steps())
+
+    def test_full_launcher_matches_legacy_inventory_and_rejects_narrowing(self):
+        command="uv run --directory .engine --frozen -- python tools/selftest.py --start-dir tools --pattern 'test_*.py' --results-path /tmp/results --performance-path /tmp/performance"
+        with tempfile.TemporaryDirectory() as root:
+            folder=os.path.join(root,'.engine','tools');os.makedirs(folder)
+            with open(os.path.join(folder,'test_trap.py'),'w') as stream:
+                stream.write('\"\"\"Static-only fixture.\"\"\"\nraise RuntimeError("never import")\n')
+            legacy=assurance.discover_test_modules(root,self._steps())
+            self.assertEqual(assurance.discover_test_modules(root,[{'kind':'run','command':command}]),legacy)
+            for bad in [command+' --changed-from main',command+' --child',command+' ; true',
+                        command.replace('--start-dir tools','--start-dir subset'),
+                        command.replace("'test_*.py'","'test_one.py'"),
+                        command.replace(' --results-path /tmp/results',''),
+                        command+' --results-path /tmp/other']:
+                with self.subTest(command=bad),self.assertRaises(ValueError):
+                    assurance.discover_test_modules(root,[{'kind':'run','command':bad}])
+            with self.assertRaises(ValueError):
+                assurance.discover_test_modules(root,[{'kind':'run','command':command}]*2)
 
 
 class TestProofClassification(unittest.TestCase):

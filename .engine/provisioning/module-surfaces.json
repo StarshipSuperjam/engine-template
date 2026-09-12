@@ -993,6 +993,9 @@
   ".engine/operations/serialized-integration.md": [
    "core"
   ],
+  ".engine/operations/test-performance.md": [
+   "core"
+  ],
   ".engine/operations/tune-policy.md": [
    "core"
   ],
@@ -1096,6 +1099,9 @@
    "core"
   ],
   ".engine/schemas/check.v1.json": [
+   "core"
+  ],
+  ".engine/schemas/ci-test-performance.v1.json": [
    "core"
   ],
   ".engine/schemas/codex-agent.v1.json": [
@@ -1222,6 +1228,12 @@
    "core"
   ],
   ".engine/schemas/scoped-agent-evidence.v1.json": [
+   "core"
+  ],
+  ".engine/schemas/selftest-performance.v1.json": [
+   "core"
+  ],
+  ".engine/schemas/selftest-results.v1.json": [
    "core"
   ],
   ".engine/schemas/selftest-run-record.v1.json": [
@@ -2253,6 +2265,12 @@
   ".engine/tools/selftest.py": [
    "core"
   ],
+  ".engine/tools/selftest_performance.py": [
+   "core"
+  ],
+  ".engine/tools/selftest_results.py": [
+   "core"
+  ],
   ".engine/tools/selftest_select.py": [
    "core"
   ],
@@ -2761,6 +2779,12 @@
    "core"
   ],
   ".engine/tools/test_selftest_hermeticity.py": [
+   "core"
+  ],
+  ".engine/tools/test_selftest_performance.py": [
+   "core"
+  ],
+  ".engine/tools/test_selftest_results.py": [
    "core"
   ],
   ".engine/tools/test_selftest_select.py": [

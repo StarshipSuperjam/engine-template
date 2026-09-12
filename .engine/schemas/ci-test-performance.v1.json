@@ -1,0 +1,258 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "ci-test-performance.v1.json",
+  "title": "ci-test-performance.v1 \u2014 completed required CI observations",
+  "description": "Read-only evidence for explicit context/run/attempt identities. Current policy provenance is a snapshot, not a claim about historical requirements. Missing facts remain incomplete; never a merge receipt.",
+  "type": "object",
+  "additionalProperties": false,
+  "properties": {
+    "schema_version": {
+      "const": "ci-test-performance.v1"
+    },
+    "repository": {
+      "type": "string",
+      "maxLength": 4096
+    },
+    "head": {
+      "type": "string",
+      "pattern": "^[0-9a-f]{40}$"
+    },
+    "observed_at": {
+      "type": "string",
+      "maxLength": 4096
+    },
+    "complete": {
+      "type": "boolean"
+    },
+    "timing_complete": {
+      "type": "boolean"
+    },
+    "requirements": {
+      "anyOf": [
+        {
+          "type": "object"
+        },
+        {
+          "type": "null"
+        }
+      ]
+    },
+    "associations": {
+      "type": "object"
+    },
+    "attempts": {
+      "type": "array",
+      "items": {
+        "type": "object"
+      },
+      "maxItems": 200000
+    },
+    "observations": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "name": {
+            "type": "string",
+            "maxLength": 4096
+          },
+          "artifact_id": {
+            "type": "integer"
+          },
+          "sha256": {
+            "type": "string",
+            "pattern": "^[0-9a-f]{64}$"
+          }
+        },
+        "required": [
+          "name",
+          "artifact_id",
+          "sha256"
+        ]
+      },
+      "maxItems": 200000
+    },
+    "route": {
+      "anyOf": [
+        {
+          "enum": [
+            "full-pr",
+            "metadata-reuse",
+            "project-only",
+            "main-push"
+          ]
+        },
+        {
+          "type": "null"
+        }
+      ]
+    },
+    "metrics": {
+      "anyOf": [
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "elapsed_seconds": {
+              "type": "number",
+              "minimum": 0
+            },
+            "active_union_seconds": {
+              "type": "number",
+              "minimum": 0
+            },
+            "queue_only_seconds": {
+              "type": "number",
+              "minimum": 0
+            },
+            "queue_excluded_seconds": {
+              "type": "number",
+              "minimum": 0
+            },
+            "runner_minutes": {
+              "type": "number",
+              "minimum": 0
+            },
+            "cumulative_runner_minutes": {
+              "type": "number",
+              "minimum": 0
+            },
+            "attempt_count": {
+              "type": "number",
+              "minimum": 0
+            }
+          },
+          "required": [
+            "elapsed_seconds",
+            "active_union_seconds",
+            "queue_only_seconds",
+            "queue_excluded_seconds",
+            "runner_minutes",
+            "cumulative_runner_minutes",
+            "attempt_count"
+          ]
+        },
+        {
+          "type": "null"
+        }
+      ]
+    },
+    "environment": {
+      "anyOf": [
+        {
+          "type": "object"
+        },
+        {
+          "type": "null"
+        }
+      ]
+    },
+    "cases": {
+      "anyOf": [
+        {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "properties": {
+              "id": {
+                "type": "string",
+                "maxLength": 4096
+              },
+              "occurrence": {
+                "type": "integer",
+                "minimum": 1
+              },
+              "outcome": {
+                "enum": [
+                  "passed",
+                  "failed",
+                  "error",
+                  "expected-failure",
+                  "unexpected-success",
+                  "skipped",
+                  "fixture-blocked",
+                  "unexecuted"
+                ]
+              },
+              "seconds": {
+                "anyOf": [
+                  {
+                    "type": "number",
+                    "minimum": 0
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              }
+            },
+            "required": [
+              "id",
+              "occurrence",
+              "outcome",
+              "seconds"
+            ]
+          },
+          "maxItems": 200000
+        },
+        {
+          "type": "null"
+        }
+      ]
+    },
+    "issues": {
+      "type": "array",
+      "items": {
+        "type": "string",
+        "maxLength": 4096
+      },
+      "maxItems": 200000
+    },
+    "target_seconds": {
+      "type": "number",
+      "minimum": 0
+    },
+    "concern_seconds": {
+      "type": "number",
+      "minimum": 0
+    },
+    "manual_wait_seconds": {
+      "anyOf": [
+        {
+          "type": "number",
+          "minimum": 0
+        },
+        {
+          "type": "null"
+        }
+      ]
+    },
+    "timing_note": {
+      "type": "string",
+      "maxLength": 4096
+    }
+  },
+  "required": [
+    "schema_version",
+    "repository",
+    "head",
+    "observed_at",
+    "complete",
+    "timing_complete",
+    "requirements",
+    "associations",
+    "attempts",
+    "observations",
+    "route",
+    "metrics",
+    "environment",
+    "cases",
+    "issues",
+    "target_seconds",
+    "concern_seconds",
+    "manual_wait_seconds",
+    "timing_note"
+  ]
+}
