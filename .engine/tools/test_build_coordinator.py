@@ -8620,6 +8620,19 @@ class TestRepairCompletionScenario(unittest.TestCase):
             with self.assertRaises(bc.CoordinatorError):
                 bc._submit_preview(fixture.store,str(fixture.plan_path))
             fixture.store.mutate(lambda s:s.update(review_evidence_history=saved['review_evidence_history']))
+            previous_decision = copy.deepcopy(fixture.state()['repair']['direct_verification'])
+            round_count = len(fixture.state()['repair_rounds'])
+            head = repo.commit('.engine/knowledge/graph.json','{}'); external_candidate()
+            pr['body']=body(); preflight()
+            with self.assertRaises(bc.CoordinatorError):
+                bc._submit_preview(fixture.store,str(fixture.plan_path))
+            bc.cmd_repair_assess(assess,fixture.store)
+            generated = fixture.state()['repair']['direct_verification']
+            self.assertEqual(previous_decision['from_commit'],generated['from_commit'])
+            self.assertEqual(head,generated['to_commit'])
+            self.assertEqual(round_count,len(fixture.state()['repair_rounds']))
+            pr['body']=body(); preflight()
+            self.assertEqual('mark-ready',bc._submit_preview(fixture.store,str(fixture.plan_path))['action'])
             first_terminal_head = head
             head = repo.commit('source.py','later authored edit'); external_candidate()
             pr['body']=body(); preflight()

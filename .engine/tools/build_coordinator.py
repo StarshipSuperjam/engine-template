@@ -4394,6 +4394,12 @@ def cmd_repair_assess(args, store: Snapshot) -> None:
     # and all -- and refund its counted slot, while both stops were skipped because the assess looked like
     # a replacement. Re-recording an older pair is a NEW round; only the latest judgment is still open.
     same = [] if fanned_out or not rounds else [r for r in rounds[-1:] if _same_episode(r)]
+    # Replacing a terminal round must retain the interval it already verified.
+    # A generated-only advance moves the effective anchor to its tip, but the
+    # replacement removes that old edge; re-verify the complete replacement range.
+    if same and same[0].get("direct_verification"):
+        reviewed = same[0]["direct_verification"]["from_commit"]
+        summary = _must_run(["git", "diff", "--shortstat", f"{reviewed}..{head}"]).strip() or "no textual diff"
     # By POSITION, never by value: two dict-identical rounds (the same commit pair assessed twice with a
     # packet cut between, so each appended rather than replaced) would both be dropped by an equality
     # filter, silently erasing a round from the ledger and refunding its counted slot.
