@@ -78,6 +78,8 @@ reading files. Use an isolated plan-library fixture with the real lookup and rem
 SessionStart `source=compact`, bounded additionalContext and the following model response. Repeat without
 a binding. Keep CLI and Desktop results separate; a replay or self-report alone is not the live event.
 
+For multipart delivery, follow [live provider qualification](../docs/result-contracts.md#qualify-multipart-review-delivery).
+
 ## Done when
 
 Retain a `codex-qualification.v1` JSON record in existing Build verification evidence and run:

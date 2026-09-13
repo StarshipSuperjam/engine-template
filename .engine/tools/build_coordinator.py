@@ -2567,7 +2567,9 @@ def _packet(args, store: Snapshot | None) -> None:
             {c["lens"]: c["lens_packet_digest"] for c in dispatch_contracts},
             {c["lens"]: Path(c["path"]).stem for c in dispatch_contracts},
             expected_file_digest=core.digest(packet_content.encode("utf-8")), review_contract=frozen)
-        print("Scoped assignments: " + json.dumps(assignments, sort_keys=True), file=sys.stderr)
+        print("Scoped assignments: " + json.dumps([
+            {**a, "required_reads": scoped_agents.read_requirements(a)} for a in assignments],
+            sort_keys=True), file=sys.stderr)
     else:
         note = reviewer_contracts.historical_disclosure(state)
         print(note or "Execution freshness is unverified: prepare scoped assignments with --session before dispatch.",

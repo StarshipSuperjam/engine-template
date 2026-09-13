@@ -282,3 +282,68 @@ The controls suppress the unchanged-commit hold, discard retained originals, or 
 The normal scenario runs once in the permanent suite; fault controls reuse it and stop at their violated
 assertions. Native reviewer transport, GitHub and candidate/final CI inputs are explicitly synthetic.
 This demonstration does not qualify live review execution or replace the Build's real validation and QA.
+
+### Multipart packet evidence
+
+The shared scoped-agent owner can freeze review packets and clarification supplements into registered
+UTF-8 pieces of at most 16 KiB. The original packet and its digest remain authoritative, with the existing
+1 MiB total limit. The manifest has a 64 KiB limit and at most 65 pieces (the count accounts for backing up
+at UTF-8 boundaries). Each piece records its index, byte range, exact path and digest. A complete original
+read remains valid. Multipart credit comes only from complete successful native reads by the assigned child;
+duplicates are idempotent, and out-of-order reads are allowed. It is transport evidence, not proof of the
+reviewer's judgment. Missing, changed, unregistered or mixed-identity data cannot complete coverage.
+
+`read_protocol: registered-pieces.v1` marks new companion state so older schema-validating clients refuse
+it instead of silently dropping progress. Old valid single-read records remain supported without fabricated
+new observations. Restarted controllers consult the stored piece observations and original assignment.
+
+Run `uv run --directory .engine --frozen -- python tools/demo_review_packet_multipart.py` to see the disposable
+refusal/recovery and coordinator-ingress witnesses. Adding `--overcredit-missing-piece` deliberately breaks
+the fixture's verifier and must make the demonstration fail. These are synthetic transport observations;
+actual Claude and Codex native launch/read/acceptance demonstrations are separate qualification evidence.
+
+### Qualify multipart review delivery
+
+For changes to review delivery, run `tools/demo_review_packet_multipart.py` through the Engine runtime
+first. Its regression fixtures exercise refusal, recovery and both coordinator entry points. Run again
+with `--overcredit-missing-piece`; the deliberate verifier fault must produce assertion failures. Neither
+run is native-provider qualification. The permanent `MultipartDemonstration` regression imports the driver,
+so it remains a tested tool in deployed Engines rather than an unowned construction script.
+
+Then use disposable, clearly labeled synthetic plan and Build fixtures. Record the tested source hashes,
+runtime and host versions, root and actual child IDs, launch/read call IDs, original packet digest and
+observed piece coverage. Prepare an original packet of at least 77,696 UTF-8 bytes through the shared owner;
+the number reproduces the reported incident, not a universal runtime response limit. Launch fresh native
+reviewers under the exact registered roles and names. Have them read the emitted bounded piece paths through
+the qualified reader, deliberately omitting a middle piece initially. The real Project Manager and Build
+review receipt entry points must refuse incomplete evidence. Register clarification, resume the same child,
+read the missing piece and supplement, and verify acceptance without changing the original target. Missing
+or modified frozen artifacts must also refuse. Keep fixture admission, Git and validation assumptions
+explicit; fixture receipts never satisfy production review.
+
+Repeat with actual Claude native Agent, Read and observed hooks. Record provider-specific envelopes and
+actual event ordering; a completed launch result may arrive after child reads and completion. CLI results
+qualify that CLI invocation, not Desktop. An absent native launch surface, authentication or observed hook
+is an unverified live gate, even when synthetic fixtures and another provider pass. Preserve evidence,
+remove disposable source copies, and renew affected witnesses after material implementation changes.
+
+
+### Multipart controller recovery
+
+Packets over 16 KiB also have registered immutable UTF-8 pieces, each at most 16 KiB. Packet commands emit
+the exact read paths. Ask the child to read every piece completely, without line limits, or to read the
+complete original if its runtime can return it. The original packet digest remains authoritative; do not
+summarize or remove obligations. Piece order may vary and repeated reads count once. A bounded manifest
+records the assignment, original digest, contiguous byte ranges and piece digests. Paths in a manifest
+confer no general filesystem access. The shared owner verifies all artifacts before acceptance.
+
+Use `scoped_agents.py status` with the original plan/session to see remaining packet and supplement reads.
+A failed or truncated result earns no piece. Recover with successful reads by the same assigned child;
+reads from the controller or another child do not fill a gap. Ordinary clarification delivery alone does
+not prove its multipart supplement was read. A damaged manifest or piece stays unverified until the exact
+registered bytes are restored. Never edit the evidence record or reassign its progress to another child.
+
+Multipart companions carry `read_protocol: registered-pieces.v1`. Older clients reject the new top-level
+field instead of silently rewriting it. Existing valid single-read receipts remain supported, and no old
+failed read is promoted into evidence. Finish mixed-version work with a runtime using the new owner;
+do not remove the protocol field to make an old client accept the file.
