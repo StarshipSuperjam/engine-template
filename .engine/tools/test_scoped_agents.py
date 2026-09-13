@@ -1161,12 +1161,10 @@ class MultipartClaudeHook(unittest.TestCase):
 
 class MultipartDemonstration(unittest.TestCase):
     def test_demo_passes_and_detects_deliberate_overcredit(self):
-        import contextlib
-        import io
+        import quiet_call
         import demo_review_packet_multipart
-        with contextlib.redirect_stdout(io.StringIO()), contextlib.redirect_stderr(io.StringIO()):
-            self.assertEqual(demo_review_packet_multipart.main([]), 0)
-            self.assertEqual(demo_review_packet_multipart.main(["--overcredit-missing-piece"]), 1)
+        self.assertEqual(quiet_call.run(demo_review_packet_multipart.main, []), 0)
+        self.assertEqual(quiet_call.run(demo_review_packet_multipart.main, ["--overcredit-missing-piece"]), 1)
 
 
 if __name__ == "__main__":
