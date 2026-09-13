@@ -38,9 +38,9 @@ def text(value):
     return "".join(c if c in "\n\t" or ord(c) >= 32 else "?" for c in value)
 
 
-def write(path, value):
+def write(path, value, *, max_bytes=MAX_BYTES):
     data = json.dumps(value, ensure_ascii=False, allow_nan=False, separators=(",", ":")).encode()
-    if len(data) > MAX_BYTES:
+    if len(data) > max_bytes:
         raise ValueError("artifact exceeds byte limit")
     parent = Path(path).parent
     fd, temp = tempfile.mkstemp(prefix=".selftest-", dir=parent)
@@ -91,7 +91,8 @@ def identities(cases):
 
 
 class Observation:
-    def __init__(self, inventory, selected, *, source, scope, invocation, timing=False):
+    def __init__(self, inventory, selected, *, source, scope, invocation, timing=False, costs=None):
+        self.costs = costs
         self.inventory = identities(inventory)
         self.cases = []
         self.objects = []
@@ -137,10 +138,14 @@ class Observation:
         self.cursor = max(self.cursor, index + 1)
         self.active[id(case)] = (index, time.monotonic())
         self.cases[index]["started"] = True
+        if self.costs:
+            self.costs.start_case({k: self.cases[index][k] for k in ('id', 'occurrence')})
         if self._phase_start:
             self._phase_start(case)
 
     def stop(self, case):
+        if self.costs:
+            self.costs.stop_case()
         if self._phase_stop:
             self._phase_stop(case)
         active = self.active.pop(id(case), None)
@@ -281,10 +286,20 @@ class Observation:
                 if not guard(args):
                     return original(*args, **kwargs)
                 start = time.monotonic()
+                previous_owner = self.costs.owner if self.costs else None
+                if self.costs and level == 'fixture':
+                    case = args[1] if len(args) > 1 else None
+                    label = type(case).__module__ + '.' + type(case).__qualname__
+                    if name.startswith('_tearDown') or name == '_handleModuleTearDown':
+                        previous = getattr(args[-1], '_previousTestClass', None)
+                        label = str(previous) if previous else 'unattributed'
+                    self.costs.owner = 'fixture:' + name + ':' + label
                 try:
                     return original(*args, **kwargs)
                 finally:
-                    if len(self.spans) < MAX_CASES * 8:
+                    if self.costs:
+                        self.costs.owner = previous_owner
+                    if self.timing and len(self.spans) < MAX_CASES * 8:
                         self.spans.append({"phase": name, "level": level, "owner": owner,
                                            "start": start - self.origin, "seconds": time.monotonic() - start})
             try:
@@ -307,6 +322,7 @@ class Observation:
         try:
             if self.timing:
                 self._phase_start, self._phase_stop = start, stop
+            if self.timing or self.costs:
                 for name in ("_handleModuleFixture", "_handleClassSetUp", "_tearDownPreviousClass", "_handleModuleTearDown"):
                     wrap(unittest.TestSuite, name, "fixture", "unittest.TestSuite", restores,
                          lambda args: bool(args) and args[-1] is result_ref[0])

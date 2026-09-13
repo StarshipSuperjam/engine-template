@@ -104,5 +104,103 @@ class TestInventory(unittest.TestCase):
         self.assertTrue(any('invalid declaration' in x for x in cost.inventory_findings([record], census, {})))
 
 
+@cost.declaration({**CONTRACT, 'boundary': 'process',
+                   'boundary_rationale': 'Exercise actual audited child launches and the serial launcher',
+                   'limits': {**cost.zeros(), 'processes': 20, 'git_commands': 12,
+                              'schema_decodes': 100, 'metaschema_validations': 10,
+                              'whole_tree_fixtures': 2, 'nested_journeys': 10}})
+class TestResourceObservation(unittest.TestCase):
+    def test_nested_journey_counts_once_and_keeps_work_owned_by_outer_case(self):
+        import io
+        class Inner(unittest.TestCase):
+            def runTest(self):
+                json.loads('{"work": 1}')
+        with cost.Recorder() as observer:
+            observer.start_case({'id': 'outer', 'occurrence': 1})
+            result = unittest.TextTestRunner(stream=io.StringIO()).run(Inner())
+            observer.stop_case()
+        self.assertTrue(result.wasSuccessful())
+        record = observer.document(source={}, scope='full', complete=True, process_exit=0)
+        self.assertEqual(record['totals']['nested_journeys'], 1)
+        self.assertEqual(record['totals']['schema_decodes'], 1)
+        self.assertEqual(len(record['owners']), 1)
+
+    def test_imported_aliases_count_real_work_and_restore_after_exception(self):
+        from json import loads
+        from jsonschema import Draft202012Validator as Validator
+        import subprocess
+        from subprocess import Popen
+        import sys
+        original = json.JSONDecoder.decode
+        prior_schema = vars(Validator)['check_schema']
+        observer = cost.Recorder()
+        with self.assertRaisesRegex(RuntimeError, 'stop'):
+            with observer:
+                observer.start_case({'id': 'case', 'occurrence': 1})
+                loads('{"type":"object"}')
+                Validator.check_schema({'type': 'object'})
+                with Popen([sys.executable, '-c', 'pass'], stdout=subprocess.PIPE) as child:
+                    child.communicate()
+                raise RuntimeError('stop')
+        self.assertIs(json.JSONDecoder.decode, original)
+        self.assertIs(vars(Validator)['check_schema'], prior_schema)
+        record = observer.document(source={}, scope='full', complete=True, process_exit=0)
+        self.assertEqual(record['totals']['processes'], 1)
+        self.assertGreaterEqual(record['totals']['schema_decodes'], 1)
+        self.assertEqual(record['totals']['metaschema_validations'], 1)
+        self.assertIn('descendant work is not instrumented', record['unknown'])
+
+    def test_canonical_fixture_seam_counts_one_clone_and_one_git_enumeration(self):
+        import subprocess
+        import tempfile
+        import engine_fixture
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory) / 'repo'
+            root.mkdir()
+            (root / '.engine').mkdir()
+            (root / '.engine' / 'fixture.txt').write_text('small tracked fixture')
+            subprocess.run(['git', 'init', '-q', str(root)], check=True, capture_output=True)
+            subprocess.run(['git', '-C', str(root), 'add', '.engine/fixture.txt'], check=True, capture_output=True)
+            with cost.Recorder() as observer:
+                engine_fixture.clone_engine(str(root), str(Path(directory) / 'copy'))
+            totals = observer.document(source={}, scope='full', complete=True, process_exit=0)['totals']
+            self.assertEqual(totals['whole_tree_fixtures'], 1)
+            self.assertEqual(totals['git_commands'], 1)
+            self.assertEqual(totals['processes'], 1)
+
+    def test_counter_bounds_report_unknown_instead_of_silently_wrapping(self):
+        observer = cost.Recorder(max_owners=1, max_counter=2)
+        observer.count('processes', 3)
+        observer.owner = 'another'
+        observer.count('processes')
+        self.assertEqual(len(observer.unknown), 2)
+        self.assertEqual(observer.owners['unattributed']['processes'], 2)
+
+    def test_real_launcher_keeps_outcomes_with_observation_on_and_off(self):
+        import subprocess
+        import sys
+        import tempfile
+        import selftest_results
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            (root / 'test_small.py').write_text('import unittest\nclass T(unittest.TestCase):\n def test_ok(self): self.assertEqual(2+2,4)\n @unittest.skip("known")\n def test_skip(self): pass\n')
+            summaries = []
+            for enabled in (False, True):
+                results, observed = root / 'outcomes.json', root / 'costs.json'
+                cmd = [sys.executable, str(cost.ROOT / '.engine/tools/selftest.py'), '--child',
+                       '--start-dir', str(root), '--results-path', str(results)]
+                if enabled: cmd += ['--cost-path', str(observed)]
+                run = subprocess.run(cmd, capture_output=True, text=True)
+                self.assertEqual(run.returncode, 0, run.stderr)
+                result = json.loads(results.read_text())
+                summaries.append([(c['id'], c['outcome']) for c in result['cases']])
+                if enabled:
+                    resource = json.loads(observed.read_text())
+                    selftest_results.validate_shape(resource, 'test-cost-run.v1')
+                    self.assertTrue(resource['complete'])
+                    self.assertEqual(resource['process_exit'], 0)
+            self.assertEqual(*summaries)
+
+
 if __name__ == '__main__':
     unittest.main()

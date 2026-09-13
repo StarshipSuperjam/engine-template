@@ -46,6 +46,16 @@ def declared_contract(case):
     return json.loads(saved) if saved else None
 
 
+def scaling_input(family, size):
+    """Bind a generated or explicit case to a declared, bounded input-size experiment."""
+    if not isinstance(family, str) or not family or type(size) is not int or size < 1:
+        raise ValueError('scaling input needs a family and positive integer size')
+    def attach(method):
+        method.__test_cost_input__ = (family, size)
+        return method
+    return attach
+
+
 def static_census(sources, source_commit):
     """Inspect module/class test definitions before import; local fixture classes are not discovery.
 
@@ -103,7 +113,9 @@ def runtime_inventory(cases, root=ROOT):
         except (TypeError, ValueError, AttributeError):
             path = qualified = None
         records.append({'id': name, 'occurrence': occurrences[name], 'path': path,
-                        'qualified_name': qualified, 'contract': declared_contract(case)})
+                        'qualified_name': qualified, 'contract': declared_contract(case),
+                        'family': getattr(method, '__test_cost_input__', (None, None))[0],
+                        'input_size': getattr(method, '__test_cost_input__', (None, None))[1]})
     return records
 
 
@@ -182,3 +194,140 @@ def budget_findings(counts, limits):
     """Deterministic ceilings, including shared-helper amplification with unchanged test AST."""
     return [f'{resource}: {counts[resource]} exceeds {limits[resource]}' for resource in RESOURCES
             if counts[resource] > limits[resource]]
+
+
+# One audit callback per interpreter. Python audit hooks cannot be removed, so the
+# callback is inert outside a live recorder; wrapped Python attributes ARE restored.
+_ACTIVE = None
+_AUDIT_INSTALLED = False
+
+
+def event(resource, amount=1):
+    if _ACTIVE is not None:
+        _ACTIVE.count(resource, amount)
+
+
+def _audit(name, args):
+    recorder = _ACTIVE
+    if recorder is None or recorder.suspended:
+        return
+    if name == 'subprocess.Popen':
+        recorder.count('processes')
+        executable, argv = args[:2]
+        if Path(str(executable)).name in ('git', 'git.exe'):
+            recorder.count('git_commands')
+        # No command strings or environments are retained. Child-internal work is
+        # unknown unless a future observer returns qualified descendant evidence.
+        recorder.unknown.add('descendant work is not instrumented')
+        if isinstance(argv, (list, tuple)) and any(
+                str(a) == 'unittest' or Path(str(a)).name.startswith(('demo_', 'selftest.py')) for a in argv):
+            recorder.count('nested_journeys')
+    elif name in ('os.system', 'os.exec', 'os.posix_spawn', 'os.fork') and not recorder.popen_depth:
+        recorder.count('processes')
+        recorder.unknown.add('alternate process boundary has unknown descendant work')
+
+
+class Recorder:
+    """Bounded exclusive counters; no full traces, sleeps, subprocess rewriting or test mocks."""
+    def __init__(self, *, max_owners=200000, max_counter=2147483647):
+        self.max_owners, self.max_counter = max_owners, max_counter
+        self.owners = {}
+        self.owner = 'unattributed'
+        self.unknown = set()
+        self.suspended = False
+        self.runtime = []
+        self.restores = []
+        self.active_cases = []
+        self.popen_depth = 0
+
+    def count(self, resource, amount=1):
+        if self.suspended:
+            return
+        if self.owner not in self.owners:
+            if len(self.owners) >= self.max_owners:
+                self.unknown.add('owner counter capacity exceeded')
+                return
+            self.owners[self.owner] = zeros()
+        counts = self.owners[self.owner]
+        value = counts[resource] + amount
+        if value > self.max_counter:
+            self.unknown.add('resource counter capacity exceeded')
+            value = self.max_counter
+        counts[resource] = value
+
+    def start_case(self, identity):
+        self.active_cases.append(self.owner)
+        self.owner = 'case:' + json.dumps(identity, sort_keys=True, separators=(',', ':'))
+
+    def stop_case(self):
+        self.owner = self.active_cases.pop() if self.active_cases else 'unattributed'
+
+    def _wrap(self, obj, name, resource):
+        import functools
+        prior = vars(obj)[name]
+        original = prior.__func__ if isinstance(prior, classmethod) else getattr(obj, name)
+        @functools.wraps(original)
+        def observed(*args, **kwargs):
+            self.count(resource)
+            return original(*args, **kwargs)
+        setattr(obj, name, classmethod(observed) if isinstance(prior, classmethod) else observed)
+        self.restores.append((obj, name, prior))
+
+    def __enter__(self):
+        import sys
+        import jsonschema
+        import subprocess
+        import unittest
+        global _ACTIVE, _AUDIT_INSTALLED
+        self.previous = _ACTIVE
+        if self.previous is not None:
+            # Nested observations must not silently remove work from the outer totals.
+            self.previous.unknown.add('nested independent recorder; inner work requires explicit join')
+        if not _AUDIT_INSTALLED:
+            sys.addaudithook(_audit)
+            _AUDIT_INSTALLED = True
+        _ACTIVE = self
+        try:
+            prior_init = subprocess.Popen.__init__
+            def process_init(*args, **kwargs):
+                self.popen_depth += 1
+                try:
+                    return prior_init(*args, **kwargs)
+                finally:
+                    self.popen_depth -= 1
+            subprocess.Popen.__init__ = process_init
+            self.restores.append((subprocess.Popen, '__init__', prior_init))
+            prior_run = unittest.TextTestRunner.run
+            def nested_run(*args, **kwargs):
+                if self.active_cases:
+                    self.count('nested_journeys')
+                return prior_run(*args, **kwargs)
+            unittest.TextTestRunner.run = nested_run
+            self.restores.append((unittest.TextTestRunner, 'run', prior_run))
+            self._wrap(json.JSONDecoder, 'decode', 'schema_decodes')
+            for name in ('Draft3Validator', 'Draft4Validator', 'Draft6Validator', 'Draft7Validator',
+                         'Draft201909Validator', 'Draft202012Validator'):
+                cls = getattr(jsonschema, name)
+                self._wrap(cls, 'check_schema', 'metaschema_validations')
+            return self
+        except BaseException:
+            self.__exit__(None, None, None)
+            raise
+
+    def __exit__(self, *exc):
+        global _ACTIVE
+        for obj, name, prior in reversed(self.restores):
+            setattr(obj, name, prior)
+        self.restores.clear()
+        _ACTIVE = self.previous
+
+    def document(self, *, source, scope, complete, process_exit):
+        totals = zeros()
+        for counts in self.owners.values():
+            for resource in RESOURCES:
+                totals[resource] += counts[resource]
+        return {'schema_version': 'test-cost-run.v1', 'source': source, 'scope': scope,
+                'complete': complete, 'process_exit': process_exit,
+                'unknown': sorted(self.unknown), 'totals': totals,
+                'owners': [{'owner': owner, 'counts': counts} for owner, counts in sorted(self.owners.items())],
+                'inventory': self.runtime}
