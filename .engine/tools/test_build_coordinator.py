@@ -2544,7 +2544,7 @@ class TestValidationRepairAndStatus(CandidateInventoryFixture):
         self.assertEqual(latest["reviewed_commit"], HEAD_C)
         # The marking is disclosure: it names the review the round is measured from and what was skipped.
         self.assertIn(f"refreshed at {HEAD_C[:12]}", out)
-        self.assertIn("2 commit(s)", out)
+        self.assertIn("skipping 2 commits between the previous round's end and the refreshed review", out)
         self.assertNotIn("the base moved", out)
         self.assertNotIn("no longer on this branch", out)
 
@@ -2587,17 +2587,31 @@ class TestValidationRepairAndStatus(CandidateInventoryFixture):
             self.assertEqual(len(rounds), 2)
             self.assertEqual((rounds[-1]["anchor"], rounds[-1]["anchor_note"]), (HEAD_B, None))
         with self.subTest("refreshed review no longer on the branch"):
+            # BOTH readers fall back to the round's end: the classification anchor AND the commit the
+            # round is measured from. With the branch tip withheld from `_effective_reviewed`, the anchor
+            # fell back while `reviewed_commit` still named the off-branch refresh, so the round's diff
+            # summary and base-advance probe measured a span that crossed the fork.
             self.setUp()
             self.completed_round_then_refresh()
             forked = self.ordered_ancestry([HEAD_A, HEAD_B, HEAD_C], [HEAD_A, HEAD_B, HEAD_D])
+            with mock.patch.object(bc, "_is_ancestor", side_effect=forked):
+                self.assertEqual(bc._effective_reviewed(self.state(), HEAD_D), HEAD_B)
+                # Without a branch tip the review still stands at the refresh: that is what `reconcile`
+                # measures a rewrite FROM, and the refreshed review is what was last read.
+                self.assertEqual(bc._effective_reviewed(self.state()), HEAD_C)
             self.assess("scoped", HEAD_D, lens=list(self.PANEL), ancestry=forked)
             latest = self.state()["repair_rounds"][-1]
             self.assertEqual((latest["anchor"], latest["anchor_note"]), (HEAD_B, None))
+            self.assertEqual(latest["reviewed_commit"], HEAD_B)
+            self.assertEqual(self.state()["repair"]["reviewed_commit"], HEAD_B)
 
-    def test_a_terminal_none_after_a_refreshed_review_starts_at_the_refreshed_commit(self):
+    def test_a_none_after_a_refreshed_review_is_ledgered_at_the_refreshed_commit(self):
         # The effective review anchor and the classification anchor answer from the same predicate, so a
         # `none` judgment measures its interval from the refreshed review rather than from the round
-        # that the review has since superseded.
+        # that the review has since superseded. This synthetic fixture cannot produce a direct
+        # verification (its receipts carry no real ranges), so the round is driven under the receipt-loss
+        # escape and only the LEDGER is asserted here; the recorded verification start commit is proven
+        # over real Git in `test_a_terminal_none_after_a_refreshed_review_verifies_from_it_over_real_git`.
         self.completed_round_then_refresh()
         chain = self.ordered_ancestry([HEAD_A, HEAD_B, HEAD_C, HEAD_D])
         with mock.patch.object(bc, "_is_ancestor", side_effect=chain):
@@ -2653,8 +2667,29 @@ class TestValidationRepairAndStatus(CandidateInventoryFixture):
         self.store.mutate(lambda s: s.update({"repair_rounds": rounds}))
         with mock.patch.object(bc, "_commit_count", return_value=3):
             rendered = "\n".join(bc._repair_round_lines(self.state()))
-        self.assertIn("3 commit(s)", rendered)
+        self.assertIn("skipping 3 commits between", rendered)
         self.assertIn("widening", rendered)
+
+    def test_the_refreshed_disclosure_reads_as_one_sentence_in_every_case(self):
+        # The marking's text is the ledger's only account of why a round did not start where the previous
+        # one ended, so it is asserted WHOLE: a count substring passed while the sentence around it did
+        # not parse ("skipping the 7 commit(s) between the previous round's end and it that...") and the
+        # unmeasured case doubled its article ("the an unmeasured number").
+        previous = {"final_commit": HEAD_B}
+        entry = {"anchor": HEAD_C, "reviewed_commit": HEAD_C, "anchor_note": "refreshed"}
+        def rendered(count):
+            with mock.patch.object(bc, "_commit_count", return_value=count):
+                return bc._refreshed_note(entry, previous)
+        head = (f" (the deliverable review was refreshed at {HEAD_C[:12]} after the previous round ended, "
+                "so this round is measured from that review, skipping ")
+        tail = " between the previous round's end and the refreshed review, which that review already covered)"
+        self.assertEqual(head + "2 commits" + tail, rendered(2))
+        self.assertEqual(head + "1 commit" + tail, rendered(1))
+        self.assertEqual(head + "an unmeasured number of commits" + tail, rendered(None))
+        for text in (rendered(2), rendered(1), rendered(None)):
+            self.assertNotIn("commit(s)", text)
+            self.assertNotIn("the an ", text)
+            self.assertNotIn("and it that", text)
 
     def test_a_branch_reset_cannot_delete_a_dispatched_round_and_refund_its_slot(self):
         # Matching ANY round with this commit pair let a reset back to an older round's head erase that
@@ -8182,7 +8217,7 @@ class TestFrozenBuildContracts(CoordinatorCase):
         else:
             refreshed = repo.commit("generated.json", "regenerated output")
             readers = [lens]
-        self.store.mutate(lambda s: (green(s, refreshed), s.update(repair=None)))
+        self.store.mutate(lambda s: green(s, refreshed))
         packet = self.packet(head=refreshed)
         with mock.patch.object(bc, "_head", return_value=refreshed):
             for each in readers:
@@ -8240,6 +8275,68 @@ class TestFrozenBuildContracts(CoordinatorCase):
             state["repair"]["reviewed_commit"] = previous_end
             result = bc._coverage_result(delivery, "deliverable", state, "usability")
             self.assertFalse(result["covered"]); self.assertEqual([final], result["unread"])
+
+    def test_a_terminal_none_after_a_refreshed_review_verifies_from_it_over_real_git(self):
+        # The plan's terminal obligation, driven WITHOUT the receipt-loss escape: after a completed round
+        # and a refreshed full-panel review, a `none` judgment records its direct verification from the
+        # refreshed commit, and no lens is left owing the span the refreshed review already read.
+        repo, original, previous_end, refreshed, lens = self._real_refreshed_review(round_first=True)
+        head = repo.commit("src.py", "verified directly")
+        self.store.mutate(lambda s: s.update(validation={"commit": head, "results": [
+            {"id": "self-test", "commit": head, "passed": True, "summary": "green"}]}))
+        args = argparse.Namespace(judgment="none", rationale="Verified the narrow follow-up directly.",
+                                  lens=None, guidance=None, verification_ref=["fixture regression"])
+        with mock.patch.object(bc, "ROOT", repo.repo), mock.patch.object(bc, "_head", return_value=head), \
+                mock.patch.object(bc, "_base", return_value=repo.base), \
+                mock.patch.object(repair_divergence, "classify",
+                                  return_value=classification(authored=["src.py"])), \
+                contextlib.redirect_stdout(io.StringIO()), contextlib.redirect_stderr(io.StringIO()):
+            bc.cmd_repair_assess(args, self.store)
+            state = self.state(); repair = state["repair"]; delivery = state["reviews"]["deliverable"]
+            decision = repair["direct_verification"]
+            self.assertEqual((refreshed, head), (decision["from_commit"], decision["to_commit"]))
+            self.assertEqual((refreshed, refreshed, "refreshed"),
+                             (repair["reviewed_commit"], state["repair_rounds"][-1]["anchor"],
+                              state["repair_rounds"][-1]["anchor_note"]))
+            self.assertEqual([], bc._direct_verification_errors(state, decision))
+            # Nothing is owed: the original panel read, the completed round's assigned range and the
+            # refreshed panel read account for everything up to the refresh; the span between the previous
+            # round's end and the refresh was NOT handed to any lens as an unread range.
+            self.assertEqual([], bc._missing_receipts(delivery, state=state))
+            self.assertEqual([], bc._outstanding_repair_lenses(repair, state=state))
+            self.assertEqual({(s["base"], s["tip"]) for s in decision["read_scopes"]},
+                             {(repo.base, original), (original, previous_end), (repo.base, refreshed)})
+            self.assertNotIn((previous_end, refreshed), {(s["base"], s["tip"]) for s in decision["read_scopes"]})
+            # ...and the review now stands at the verified head, so a later round starts there.
+            self.assertEqual(head, bc._effective_reviewed(state, head))
+
+    def test_a_reconcile_after_a_refreshed_review_measures_the_rewrite_from_it_over_real_git(self):
+        # Re-anchoring after a refresh: the rewrite is measured FROM the refreshed review, which is what
+        # was last read, never from the completed round's end behind it. `repair assess` refuses the same
+        # state first, because with the branch tip in hand every candidate anchor is off the branch.
+        repo, original, previous_end, refreshed, lens = self._real_refreshed_review(round_first=True)
+        self.store.mutate(lambda s: s["reviews"]["deliverable"].update({"base_commit": repo.base}))
+        repo.git("checkout", "-q", "-b", "target", repo.base)
+        target = repo.commit("upstream.py", "upstream")
+        repo.git("checkout", "-q", "main"); repo.git("rebase", "-q", "target")
+        rewritten = repo.git("rev-parse", "HEAD")
+        with mock.patch.object(bc, "ROOT", repo.repo), mock.patch.object(bc, "_head", return_value=rewritten), \
+                mock.patch.object(bc, "_base", return_value=target), \
+                mock.patch.object(bc, "_base_or_none", return_value=target), \
+                mock.patch.object(bc.review_integrity, "snapshot", return_value=None), \
+                contextlib.redirect_stdout(io.StringIO()):
+            self.assertEqual(refreshed, bc._effective_reviewed(self.state()))
+            self.assertEqual(previous_end, bc._effective_reviewed(self.state(), rewritten))
+            self.assertTrue(bc._history_was_rewritten(self.state(), rewritten))
+            with self.assertRaisesRegex(bc.CoordinatorError, "reconcile"):
+                bc.cmd_repair_assess(argparse.Namespace(judgment="scoped", rationale="r", lens=[lens],
+                                                        guidance=None), self.store)
+            bc.cmd_reconcile(argparse.Namespace(plan=str(self.plan_path)), self.store)
+        state = self.state(); entry = state["reconciles"][-1]
+        self.assertEqual((refreshed, rewritten), (entry["from_commit"], entry["to_commit"]))
+        self.assertTrue(entry["contribution_identical"], entry)
+        self.assertEqual(rewritten, state["reviews"]["deliverable"]["reviewed_commit"])
+        self.assertEqual(target, state["reviews"]["deliverable"]["base_commit"])
 
     def test_a_carried_original_receipt_earns_the_scoped_round_exemption_over_real_git(self):
         repo, original, _, refreshed, lens = self._real_refreshed_review(round_first=False)

@@ -3725,9 +3725,15 @@ def _contribution_divergence(base_before: str, from_commit: str, base_after: str
     return divergent
 
 
-def _effective_reviewed(state: dict) -> str | None:
+def _effective_reviewed(state: dict, head: str | None = None) -> str | None:
     """The commit the deliverable review currently stands on: the reviewed commit, advanced to a completed
     repair round's final commit. Single-homed -- `cmd_repair_assess` and `cmd_reconcile` must agree.
+
+    `head` is the branch tip when the caller measures a span ON the branch (`repair assess`, and the
+    rewrite probe it runs first): a refreshed review that has left the branch then falls back to the
+    round's end, exactly as the classification anchor does, so the two can never name different
+    commits for one round. `reconcile` passes no head on purpose -- it measures a rewrite FROM whatever
+    was last reviewed, on the branch or not, and that is the refreshed review when one exists.
 
     The advance holds only while that final commit is still ON the branch. A repair record is history: it
     describes a round that happened, and a rewrite does not un-happen it, so its commits are deliberately
@@ -3754,7 +3760,7 @@ def _effective_reviewed(state: dict) -> str | None:
         # whole panel read up to it; the review stands there, not at the round's end. Read off the
         # evidence (receipts at the refreshed commit, panel complete) rather than off commit shape, so
         # a re-cut nobody reviewed, or a half-returned panel, leaves the anchor on the round.
-        if not superseded and not _refreshed_after(state, final):
+        if not superseded and not _refreshed_after(state, final, head):
             return final
     return reviewed
 
@@ -3792,7 +3798,7 @@ def _refreshed_after(state: dict, commit: str, head: str | None = None) -> bool:
 def _history_was_rewritten(state: dict, head: str) -> bool:
     """The reviewed commit is no longer on the branch AND the branch sits on a different base -- the
     signature of a rebase, as distinct from ordinary forward progress or an amend in place."""
-    reviewed = _effective_reviewed(state)
+    reviewed = _effective_reviewed(state, head)
     if not reviewed or reviewed == head:
         return False
     # Both ends must be READABLE before any conclusion is drawn. `merge-base --is-ancestor` exits non-zero
@@ -4170,13 +4176,19 @@ def _substantive_churn(entry: dict) -> int | None:
 
 
 def _refreshed_note(entry: dict, previous: dict | None) -> str:
+    """The operator-facing disclosure behind a `refreshed` marking: which review the round is measured
+    from, and how much history between the previous round's end and that review it therefore skips.
+    Rendered as one coherent sentence in every case -- counted, singular, and unmeasured -- because this
+    text is the ledger's only account of why the round did not start where the previous one ended."""
     anchor = entry.get("anchor") or entry.get("reviewed_commit") or ""
     count = _commit_count(previous["final_commit"], anchor) if previous and anchor else None
-    skipped = ("an unmeasured number of commits" if count is None
-               else f"{count} commit(s)")
+    if count is None:
+        skipped = "an unmeasured number of commits"
+    else:
+        skipped = f"{count} commit" + ("" if count == 1 else "s")
     return (f" (the deliverable review was refreshed at {anchor[:12]} after the previous round ended, so "
-            f"this round is measured from that review, skipping the {skipped} between the previous "
-            "round's end and it that the refreshed review already covered)")
+            f"this round is measured from that review, skipping {skipped} between the previous round's "
+            "end and the refreshed review, which that review already covered)")
 
 
 # Each marking is one fact about WHY a round was not measured from the previous round's end, with the
@@ -4433,7 +4445,7 @@ def cmd_repair_assess(args, store: Snapshot) -> None:
     state = store.read()
     revision = state["revision"]
     prior = state["repair"]
-    reviewed = _effective_reviewed(state)
+    reviewed = _effective_reviewed(state, head)
     # Retrying a terminal judgment measures the same exact interval, even though
     # that judgment now advances the effective review anchor to HEAD.
     if prior and prior.get("direct_verification") and prior["final_commit"] == head:
