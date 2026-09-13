@@ -6624,7 +6624,7 @@
       },
       "slug": "scoped-agent-orchestration",
       "source": {
-        "fingerprint": "sha256:76622c82b876bf7afae881f763c34e277f6e08c560a4861ee496555d08a3b9d7",
+        "fingerprint": "sha256:ec2fae08509da8e686b272c4e2ac727d9d1252a6da905713d0773a39915130a4",
         "path": ".engine/operations/scoped-agent-orchestration.md"
       },
       "status": "active",

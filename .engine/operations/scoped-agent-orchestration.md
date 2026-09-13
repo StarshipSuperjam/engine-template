@@ -27,7 +27,6 @@ supplements over 1 MiB before dispatch; narrow their contents first. A digest re
 provider label cannot establish that read. Do not pass sibling findings or the controller's verdict.
 
 Read every emitted bounded piece in full; see [multipart evidence and recovery](../docs/result-contracts.md#multipart-controller-recovery).
-
 Codex registers the compact `engine-review-reader` at project level. The installed 0.153.4 role loader
 ignores role-local MCP registration, so availability cannot be restricted through reviewer TOMLs.
 Other sessions can discover the same reader; do not claim zero context overhead. Its single `read_file` tool reads complete
