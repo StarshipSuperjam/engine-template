@@ -202,5 +202,98 @@ class TestResourceObservation(unittest.TestCase):
             self.assertEqual(*summaries)
 
 
+def baseline_example():
+    census = cost.static_census({'test_example.py': 'class T:\n def test_a(self): pass\n'}, 'a'*40)
+    case = {'id': 'test_example.T.test_a', 'occurrence': 1}
+    runtime = [{**case, 'path': 'test_example.py', 'qualified_name': 'T.test_a',
+                'contract': None, 'family': None, 'input_size': None}]
+    identity = {'source_commit': 'a'*40, 'base_commit': 'a'*40, 'observer_commit': 'b'*40,
+                'observer_digest': cost.digest({}), 'plan_digest': cost.digest({}), 'contract_digest': cost.digest({}),
+                'policy_digest': cost.digest({}), 'inventory_digest': cost.digest([case]),
+                'environment_digest': cost.digest({'test': True}), 'cache_state': 'unknown',
+                'topology': 'serial', 'stage': 'bootstrap', 'attempt': 'one', 'node': None,
+                'artifact_digest': cost.digest({'tree': 'c'*40})}
+    owner = 'case:' + json.dumps(case, sort_keys=True, separators=(',', ':'))
+    raw = {'schema_version': 'test-cost-run.v1', 'source': {'tree': 'c'*40, 'worktree_dirty': False},
+           'scope': 'full', 'complete': True, 'process_exit': 0, 'unknown': [],
+           'totals': cost.zeros(), 'owners': [{'owner': owner, 'counts': cost.zeros()}], 'inventory': runtime}
+    observation = cost.normalize_run(raw, identity, expected_tree='c'*40)
+    return raw, observation, census, runtime
+
+
+@cost.declaration(CONTRACT)
+class TestBaselineEnrollment(unittest.TestCase):
+    def test_compact_enrollment_refuses_changed_digest_expansion_and_trailing_data(self):
+        import base64
+        raw, _, _, _ = baseline_example()
+        packed = cost.pack_enrollment(raw)
+        self.assertEqual(cost.unpack_enrollment(packed), raw)
+        for bad in ({**packed, 'expanded_bytes': 1}, {**packed, 'document_digest': cost.digest({})},
+                    {**packed, 'data': base64.b64encode(base64.b64decode(packed['data']) + b'trailing').decode()}):
+            with self.assertRaises(ValueError):
+                cost.unpack_enrollment(bad)
+
+    def test_adapter_parity_ignores_addresses_but_retains_subtest_identity_and_outcome(self):
+        import types
+        import selftest_results
+        case = unittest.FunctionTestCase(lambda: None)
+        observation = selftest_results.Observation([case], [case], source={'tree': None, 'worktree_dirty': None},
+                        scope='full', invocation={'start_dir': 'fixture', 'pattern': 'test_*.py', 'selection_digest': None})
+        observation.start(case)
+        observation.subtest(case, types.SimpleNamespace(id=lambda: 'input=<function sample at 0x123>'), None)
+        observation.outcome(case, 'passed')
+        observation.stop(case)
+        original = observation.document(finalized=True)
+        changed = copy.deepcopy(original)
+        changed['cases'][0]['subtests'][0]['id'] = 'input=<function sample at 0x456>'
+        cost.require_outcome_parity(original, changed)
+        changed['cases'][0]['subtests'][0]['id'] = 'a different input'
+        with self.assertRaises(ValueError):
+            cost.require_outcome_parity(original, changed)
+
+    def test_bootstrap_activation_preserves_source_and_observer_identities(self):
+        raw, observation, census, runtime = baseline_example()
+        baseline = cost.enroll_baseline(observation, census, runtime, owner='team', reason='Initial debt', revisit='Audit')
+        self.assertEqual(baseline['source_commit'], 'a'*40)
+        self.assertEqual(baseline['identity']['observer_commit'], 'b'*40)
+        status = cost.baseline_status(baseline, expected_digest=cost.digest(baseline), observer_commit='b'*40,
+                                      observer_digest=observation['identity']['observer_digest'], environment_digest=observation['identity']['environment_digest'])
+        self.assertEqual(status['mode'], 'enforced')
+        self.assertFalse(status['cost_clearance'])  # Activation alone is never candidate evidence.
+        self.assertEqual(cost.inventory_findings(runtime, census, baseline), [])
+
+    def test_missing_corrupt_and_incompatible_baseline_never_grants_clearance(self):
+        _, observation, census, runtime = baseline_example()
+        baseline = cost.enroll_baseline(observation, census, runtime, owner='team', reason='Initial debt', revisit='Audit')
+        for candidate, observer in ((None, 'b'*40), ({}, 'b'*40), (baseline, 'd'*40)):
+            status = cost.baseline_status(candidate, expected_digest=cost.digest(baseline), observer_commit=observer,
+                                          observer_digest=observation['identity']['observer_digest'], environment_digest=observation['identity']['environment_digest'])
+            self.assertEqual(status['mode'], 'measurement-bootstrap')
+            self.assertFalse(status['cost_clearance'])
+        changed = copy.deepcopy(baseline)
+        changed['cases'][0]['limits']['processes'] = 100
+        self.assertEqual(cost.baseline_status(changed, expected_digest=cost.digest(baseline), observer_commit='b'*40,
+                         observer_digest=observation['identity']['observer_digest'], environment_digest=observation['identity']['environment_digest'])['mode'], 'measurement-bootstrap')
+
+    def test_incomplete_wrong_source_and_new_cases_cannot_be_enrolled(self):
+        _, observation, census, runtime = baseline_example()
+        for changed in ({**observation, 'complete': False},
+                        {**observation, 'identity': {**observation['identity'], 'source_commit': 'd'*40}},
+                        {**observation, 'identity': {**observation['identity'], 'stage': 'candidate'}}):
+            with self.assertRaises(ValueError):
+                cost.enroll_baseline(changed, census, runtime, owner='team', reason='Debt', revisit='Audit')
+        runtime[0]['qualified_name'] = 'T.test_new'
+        with self.assertRaises(ValueError):
+            cost.enroll_baseline(observation, census, runtime, owner='team', reason='Debt', revisit='Audit')
+
+    def test_normalization_refuses_forged_tree_and_inventory(self):
+        raw, observation, _, _ = baseline_example()
+        with self.assertRaises(ValueError):
+            cost.normalize_run(raw, observation['identity'], expected_tree='d'*40)
+        raw['inventory'][0]['id'] = 'forged'
+        with self.assertRaises(ValueError):
+            cost.normalize_run(raw, observation['identity'], expected_tree='c'*40)
+
+
 if __name__ == '__main__':
     unittest.main()

@@ -11,7 +11,10 @@
     "reason",
     "revisit",
     "cases",
-    "duplicates"
+    "duplicates",
+    "owners",
+    "totals",
+    "unknown"
   ],
   "properties": {
     "schema_version": {
@@ -42,7 +45,8 @@
         "stage",
         "attempt",
         "node",
-        "artifact_digest"
+        "artifact_digest",
+        "observer_digest"
       ],
       "properties": {
         "source_commit": {
@@ -110,6 +114,10 @@
         "artifact_digest": {
           "type": "string",
           "pattern": "^sha256:[0-9a-f]{64}$"
+        },
+        "observer_digest": {
+          "type": "string",
+          "pattern": "^sha256:[0-9a-f]{64}$"
         }
       }
     },
@@ -133,7 +141,9 @@
         "required": [
           "case",
           "source_digest",
-          "limits"
+          "limits",
+          "path",
+          "qualified_name"
         ],
         "properties": {
           "case": {
@@ -195,6 +205,14 @@
                 "minimum": 0
               }
             }
+          },
+          "path": {
+            "type": "string",
+            "minLength": 1
+          },
+          "qualified_name": {
+            "type": "string",
+            "minLength": 1
           }
         }
       },
@@ -249,6 +267,108 @@
             "minLength": 1
           }
         }
+      },
+      "minItems": 0
+    },
+    "owners": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "owner",
+          "counts"
+        ],
+        "properties": {
+          "owner": {
+            "type": "string",
+            "minLength": 1
+          },
+          "counts": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "processes",
+              "git_commands",
+              "schema_decodes",
+              "metaschema_validations",
+              "whole_tree_fixtures",
+              "nested_journeys"
+            ],
+            "properties": {
+              "processes": {
+                "type": "integer",
+                "minimum": 0
+              },
+              "git_commands": {
+                "type": "integer",
+                "minimum": 0
+              },
+              "schema_decodes": {
+                "type": "integer",
+                "minimum": 0
+              },
+              "metaschema_validations": {
+                "type": "integer",
+                "minimum": 0
+              },
+              "whole_tree_fixtures": {
+                "type": "integer",
+                "minimum": 0
+              },
+              "nested_journeys": {
+                "type": "integer",
+                "minimum": 0
+              }
+            }
+          }
+        }
+      },
+      "minItems": 0
+    },
+    "totals": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "processes",
+        "git_commands",
+        "schema_decodes",
+        "metaschema_validations",
+        "whole_tree_fixtures",
+        "nested_journeys"
+      ],
+      "properties": {
+        "processes": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "git_commands": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "schema_decodes": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "metaschema_validations": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "whole_tree_fixtures": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "nested_journeys": {
+          "type": "integer",
+          "minimum": 0
+        }
+      }
+    },
+    "unknown": {
+      "type": "array",
+      "items": {
+        "type": "string",
+        "minLength": 1
       },
       "minItems": 0
     }

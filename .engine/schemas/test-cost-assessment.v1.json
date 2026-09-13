@@ -38,7 +38,8 @@
         "stage",
         "attempt",
         "node",
-        "artifact_digest"
+        "artifact_digest",
+        "observer_digest"
       ],
       "properties": {
         "source_commit": {
@@ -104,6 +105,10 @@
           ]
         },
         "artifact_digest": {
+          "type": "string",
+          "pattern": "^sha256:[0-9a-f]{64}$"
+        },
+        "observer_digest": {
           "type": "string",
           "pattern": "^sha256:[0-9a-f]{64}$"
         }

@@ -27,6 +27,40 @@ def zeros():
     return dict.fromkeys(RESOURCES, 0)
 
 
+def pack_enrollment(document):
+    """Compact immutable JSON evidence so whole-tree fixtures do not copy megabytes of repetition."""
+    import base64
+    import zlib
+    data = json.dumps(document, sort_keys=True, separators=(',', ':'), allow_nan=False).encode()
+    if len(data) > 16 * 1024 * 1024:
+        raise ValueError('enrollment exceeds expanded byte bound')
+    return {'schema_version': 'test-cost-bundle.v1', 'encoding': 'zlib-base64',
+            'document_digest': digest(document), 'expanded_bytes': len(data),
+            'data': base64.b64encode(zlib.compress(data)).decode('ascii')}
+
+
+def unpack_enrollment(bundle):
+    import base64
+    import zlib
+    if (not isinstance(bundle, dict) or bundle.get('schema_version') != 'test-cost-bundle.v1'
+            or bundle.get('encoding') != 'zlib-base64'
+            or type(bundle.get('expanded_bytes')) is not int
+            or not 0 <= bundle['expanded_bytes'] <= 16 * 1024 * 1024
+            or not isinstance(bundle.get('data'), str) or len(bundle['data']) > 16 * 1024 * 1024):
+        raise ValueError('invalid bounded enrollment bundle')
+    try:
+        decoder = zlib.decompressobj()
+        data = decoder.decompress(base64.b64decode(bundle['data'], validate=True), bundle['expanded_bytes'] + 1)
+        if not decoder.eof or decoder.unused_data or len(data) != bundle['expanded_bytes']:
+            raise ValueError('enrollment expansion or trailing-data mismatch')
+        document = json.loads(data)
+    except (ValueError, zlib.error) as exc:
+        raise ValueError('invalid enrollment encoding') from exc
+    if digest(document) != bundle.get('document_digest'):
+        raise ValueError('enrollment document digest mismatch')
+    return document
+
+
 def declaration(contract):
     """Attach one immutable-by-convention declaration to a case method or owning class.
 
@@ -132,7 +166,7 @@ def inventory_findings(runtime, census, legacy, mappings=()):
     from selftest_results import validate_shape
     from build_coordinator_dag import CoordinatorError, validate_test_cost_contracts
     definitions = {(d['path'], d['qualified_name']): d for d in census['definitions']}
-    old = {case_key(c): c for c in legacy.get('cases', [])}
+    old = {case_key(c.get('case', c)): c for c in legacy.get('cases', [])}
     mapped = {case_key(m['target']): m for m in mappings if m.get('target')}
     if len(mapped) != sum(bool(m.get('target')) for m in mappings):
         return ['duplicate runtime mapping']
@@ -151,7 +185,9 @@ def inventory_findings(runtime, census, legacy, mappings=()):
         if not definition:
             findings.append('unmapped runtime case: ' + str(key))
         prior = old.get(key)
-        unchanged = prior and definition and prior.get('source_digest') == definition['ast_digest']
+        unchanged = (prior and definition and prior.get('source_digest') == definition['ast_digest']
+                     and prior.get('path') == definition['path']
+                     and prior.get('qualified_name') == definition['qualified_name'])
         contract = case.get('contract')
         if contract:
             try:
@@ -258,6 +294,7 @@ class Recorder:
     def start_case(self, identity):
         self.active_cases.append(self.owner)
         self.owner = 'case:' + json.dumps(identity, sort_keys=True, separators=(',', ':'))
+        self.count('processes', 0)
 
     def stop_case(self):
         self.owner = self.active_cases.pop() if self.active_cases else 'unattributed'
@@ -331,3 +368,197 @@ class Recorder:
                 'unknown': sorted(self.unknown), 'totals': totals,
                 'owners': [{'owner': owner, 'counts': counts} for owner, counts in sorted(self.owners.items())],
                 'inventory': self.runtime}
+
+
+def normalize_run(run, identity, *, expected_tree):
+    """Join controller-derived identities to raw observations; a raw file is never a receipt."""
+    from selftest_results import validate_shape
+    validate_shape(run, 'test-cost-run.v1')
+    if run['source'] != {'tree': expected_tree, 'worktree_dirty': False}:
+        raise ValueError('resource observation does not match the immutable measured source')
+    inventory = [{'id': c['id'], 'occurrence': c['occurrence']} for c in run['inventory']]
+    if digest(inventory) != identity['inventory_digest']:
+        raise ValueError('resource inventory does not match the controller identity')
+    owners = {o['owner']: o['counts'] for o in run['owners']}
+    cases = []
+    for case in run['inventory']:
+        selected = {k: case[k] for k in ('id', 'occurrence')}
+        owner = 'case:' + json.dumps(selected, sort_keys=True, separators=(',', ':'))
+        # Inventory may include unselected cases in a focused run. Absence is unknown,
+        # not an invented zero cost: only observed owners become measured case rows.
+        if owner in owners:
+            cases.append({'case': selected, 'owner': owner, 'counts': owners[owner],
+                          'family': case.get('family'), 'input_size': case.get('input_size')})
+    result = {'schema_version': 'test-cost-observation.v1', 'identity': identity,
+              'complete': bool(run['complete'] and run['process_exit'] == 0),
+              'unknown': run['unknown'], 'totals': run['totals'], 'owners': run['owners'], 'cases': cases}
+    validate_shape(result, 'test-cost-observation.v1')
+    return result
+
+
+def enroll_baseline(observation, census, runtime, *, owner, reason, revisit):
+    """Explicit activation only. Routine runs cannot update the pinned budget or add new debt."""
+    from selftest_results import validate_shape
+    validate_shape(observation, 'test-cost-observation.v1')
+    identity = observation['identity']
+    if identity['stage'] != 'bootstrap' or not observation['complete']:
+        raise ValueError('baseline activation needs complete bootstrap observations')
+    if identity['source_commit'] != census['source_commit']:
+        raise ValueError('legacy census and measured source differ')
+    if not all(isinstance(v, str) and v.strip() for v in (owner, reason, revisit)):
+        raise ValueError('baseline enrollment needs owner, reason and revisit condition')
+    definitions = {(d['path'], d['qualified_name']): d for d in census['definitions']}
+    runtime_map = {case_key(c): c for c in runtime}
+    if len(runtime_map) != len(runtime):
+        raise ValueError('duplicate runtime identity at baseline activation')
+    cases = []
+    for measured in observation['cases']:
+        row = runtime_map.get(case_key(measured['case']))
+        definition = definitions.get((row.get('path'), row.get('qualified_name'))) if row else None
+        if not definition:
+            raise ValueError('legacy activation cannot enroll a new or unmapped case')
+        cases.append({'case': measured['case'], 'source_digest': definition['ast_digest'],
+                      'path': definition['path'], 'qualified_name': definition['qualified_name'],
+                      'limits': measured['counts']})
+    result = {'schema_version': 'test-cost-baseline.v1', 'source_commit': identity['source_commit'],
+              'observation_digest': digest(observation), 'identity': identity,
+              'owner': owner, 'reason': reason, 'revisit': revisit, 'cases': cases,
+              'duplicates': census['duplicates'], 'owners': observation['owners'],
+              'totals': observation['totals'], 'unknown': observation['unknown']}
+    validate_shape(result, 'test-cost-baseline.v1')
+    return result
+
+
+def baseline_status(baseline, *, expected_digest, observer_commit, observer_digest, environment_digest):
+    """Missing/corrupt/incompatible enrollment opens measurement, never cost clearance."""
+    from selftest_results import validate_shape
+    reason = None
+    try:
+        validate_shape(baseline, 'test-cost-baseline.v1')
+        if digest(baseline) != expected_digest:
+            reason = 'enrollment differs from the pinned activation digest'
+        elif (baseline['identity']['observer_commit'] != observer_commit
+              or baseline['identity']['observer_digest'] != observer_digest):
+            reason = 'observer adapter changed; parity and measurement require requalification'
+        elif baseline['identity']['environment_digest'] != environment_digest:
+            reason = 'execution environment is incompatible'
+    except (ValueError, TypeError, KeyError):
+        reason = 'baseline is missing or corrupt'
+    return {'mode': 'measurement-bootstrap' if reason else 'enforced',
+            'cost_clearance': False, 'reason': reason,
+            'required': ['existing correctness checks', 'static test inventory checks',
+                         'bounded measurement', 'explicit enrollment review'] if reason else []}
+
+
+def require_outcome_parity(native, observed):
+    """An adapter cannot qualify itself by changing the workload or its outcome accounting."""
+    from selftest_results import validate
+    for result in (native, observed):
+        complete, passed = validate(result)
+        if not complete or not passed:
+            raise ValueError('adapter qualification requires complete passing outcomes on both runs')
+    for key in ('source', 'inventory', 'selected', 'executed_count'):
+        if native[key] != observed[key]:
+            raise ValueError('adapter changed ' + key)
+    def outcomes(result):
+        import re
+        rows = []
+        for case in result['cases']:
+            row = {k: case[k] for k in ('id', 'occurrence', 'outcome', 'started', 'stopped', 'reason')}
+            row['subtests'] = [{**sub, 'id': re.sub(r' at 0x[0-9a-fA-F]+(?=>)', ' at [address]', sub['id'])}
+                              for sub in case['subtests']]
+            rows.append(row)
+        return rows
+    if outcomes(native) != outcomes(observed) or native['fixtures'] != observed['fixtures']:
+        raise ValueError('adapter changed test outcomes')
+
+
+def observe_retained_source(source_root, output_directory, *, pattern='test_*.py'):
+    """Disposable adapter over the existing child entry, keeping original source bytes intact.
+
+    Call only in a fresh subprocess: loaded baseline test modules keep their original
+    names; the observation object is a private alias used only by the retained launcher.
+    """
+    import importlib.util
+    import os
+    import sys
+    source = Path(source_root).resolve()
+    output = Path(output_directory).resolve()
+    if output.is_relative_to(source):
+        raise ValueError('observation output must be outside the immutable source')
+    output.mkdir(parents=True, exist_ok=False)
+    observer_root = ROOT
+    sys.path.insert(0, str(source / '.engine/tools'))
+    import selftest
+    import engine_fixture
+    # Preserve the pinned modules seen by tests. Only the runner's reference changes.
+    spec = importlib.util.spec_from_file_location('test_cost_adapter_results',
+                                                  observer_root / '.engine/tools/selftest_results.py')
+    results = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(results)
+    selftest.selftest_results = results
+    sys.modules['selftest_cost'] = sys.modules[__name__]
+    original_inventory = runtime_inventory
+    globals()['runtime_inventory'] = lambda cases, root=source: original_inventory(cases, root=root)
+    module = ast.parse((observer_root / '.engine/tools/selftest.py').read_text())
+    functions = [node for node in module.body if isinstance(node, ast.FunctionDef)
+                 and node.name in ('_run_child', '_run_child_observed')]
+    if len(functions) != 2:
+        raise ValueError('retained observer adapter does not support this runner version')
+    exec(compile(ast.Module(body=functions, type_ignores=[]), '<cost-observer-adapter>', 'exec'), selftest.__dict__)
+    clone = engine_fixture.clone_engine
+    import functools
+    @functools.wraps(clone)
+    def observed_clone(*args, **kwargs):
+        event('whole_tree_fixtures')
+        return clone(*args, **kwargs)
+    engine_fixture.clone_engine = observed_clone
+    os.environ[selftest._NESTED_ENV] = '1'
+    os.environ['ENGINE_AMBIENT_QUALIFICATION_OFF'] = '1'
+    for name in ('ENGINE_SESSION_ID', 'CLAUDE_CODE_SESSION_ID', 'CODEX_THREAD_ID', 'CODEX_SESSION_ID'):
+        os.environ.pop(name, None)
+    args = selftest._build_parser().parse_args([
+        '--child', '--start-dir', str(source / '.engine/tools'), '--pattern', pattern,
+        '--results-path', str(output / 'outcomes.json'),
+        '--performance-path', str(output / 'performance.json')])
+    args.cost_path = str(output / 'cost.json')
+    results.write(args.cost_path, {'schema_version': 'test-cost-run.v1', 'complete': False,
+                                   'unknown': ['child has not finalized']})
+    args.progress_fd = os.open(output / 'progress.jsonl', os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
+    return selftest._run_child(args)
+
+
+def observer_fingerprint(root=ROOT):
+    """Content identity of executed observation code, independent of later report consumers."""
+    selected = {
+        'selftest_cost.py': {'Recorder', 'event', '_audit', 'runtime_inventory', 'declared_contract',
+                            'observe_retained_source', 'zeros'},
+        'selftest_results.py': {'Observation', 'write'},
+        'selftest.py': {'_run_child', '_run_child_observed'},
+    }
+    material = {}
+    for path, names in selected.items():
+        parsed = ast.parse((Path(root) / '.engine/tools' / path).read_text())
+        material[path] = [ast.dump(node, include_attributes=False) for node in parsed.body
+                          if isinstance(node, (ast.FunctionDef, ast.ClassDef)) and node.name in names]
+        if len(material[path]) != len(names):
+            raise ValueError('observation adapter is missing an expected implementation boundary')
+    return digest(material)
+
+
+def main(argv=None):
+    import argparse
+    parser = argparse.ArgumentParser(description=__doc__)
+    subs = parser.add_subparsers(dest='command', required=True)
+    observe = subs.add_parser('observe-retained', help='observe pinned source through the existing serial child entry')
+    observe.add_argument('--source-root', required=True)
+    observe.add_argument('--output-directory', required=True)
+    observe.add_argument('--pattern', default='test_*.py')
+    args = parser.parse_args(argv)
+    if args.command == 'observe-retained':
+        return observe_retained_source(args.source_root, args.output_directory, pattern=args.pattern)
+    return 2
+
+
+if __name__ == '__main__':
+    raise SystemExit(main())
