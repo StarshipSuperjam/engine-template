@@ -15,7 +15,15 @@
     "added",
     "removed",
     "aggregate_delta",
-    "timing_findings"
+    "timing_findings",
+    "cost_clearance",
+    "scope",
+    "base_identity",
+    "intervals_unavailable",
+    "case_deltas",
+    "owner_deltas",
+    "families",
+    "timing"
   ],
   "properties": {
     "schema_version": {
@@ -122,8 +130,15 @@
       "pattern": "^sha256:[0-9a-f]{64}$"
     },
     "observation_digest": {
-      "type": "string",
-      "pattern": "^sha256:[0-9a-f]{64}$"
+      "anyOf": [
+        {
+          "type": "string",
+          "pattern": "^sha256:[0-9a-f]{64}$"
+        },
+        {
+          "type": "null"
+        }
+      ]
     },
     "status": {
       "enum": [
@@ -306,36 +321,43 @@
       "minItems": 0
     },
     "aggregate_delta": {
-      "type": "object",
-      "additionalProperties": false,
-      "required": [
-        "processes",
-        "git_commands",
-        "schema_decodes",
-        "metaschema_validations",
-        "whole_tree_fixtures",
-        "nested_journeys"
-      ],
-      "properties": {
-        "processes": {
-          "type": "integer"
+      "anyOf": [
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "processes",
+            "git_commands",
+            "schema_decodes",
+            "metaschema_validations",
+            "whole_tree_fixtures",
+            "nested_journeys"
+          ],
+          "properties": {
+            "processes": {
+              "type": "integer"
+            },
+            "git_commands": {
+              "type": "integer"
+            },
+            "schema_decodes": {
+              "type": "integer"
+            },
+            "metaschema_validations": {
+              "type": "integer"
+            },
+            "whole_tree_fixtures": {
+              "type": "integer"
+            },
+            "nested_journeys": {
+              "type": "integer"
+            }
+          }
         },
-        "git_commands": {
-          "type": "integer"
-        },
-        "schema_decodes": {
-          "type": "integer"
-        },
-        "metaschema_validations": {
-          "type": "integer"
-        },
-        "whole_tree_fixtures": {
-          "type": "integer"
-        },
-        "nested_journeys": {
-          "type": "integer"
+        {
+          "type": "null"
         }
-      }
+      ]
     },
     "timing_findings": {
       "type": "array",
@@ -344,6 +366,674 @@
         "minLength": 1
       },
       "minItems": 0
+    },
+    "cost_clearance": {
+      "type": "boolean"
+    },
+    "scope": {
+      "enum": [
+        "node-focused",
+        "candidate",
+        "full",
+        "bootstrap"
+      ]
+    },
+    "base_identity": {
+      "anyOf": [
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "source_commit",
+            "base_commit",
+            "observer_commit",
+            "plan_digest",
+            "contract_digest",
+            "policy_digest",
+            "inventory_digest",
+            "environment_digest",
+            "cache_state",
+            "topology",
+            "stage",
+            "attempt",
+            "node",
+            "artifact_digest",
+            "observer_digest"
+          ],
+          "properties": {
+            "source_commit": {
+              "type": "string",
+              "pattern": "^[0-9a-f]{40}$"
+            },
+            "base_commit": {
+              "type": "string",
+              "pattern": "^[0-9a-f]{40}$"
+            },
+            "observer_commit": {
+              "type": "string",
+              "pattern": "^[0-9a-f]{40}$"
+            },
+            "plan_digest": {
+              "type": "string",
+              "pattern": "^sha256:[0-9a-f]{64}$"
+            },
+            "contract_digest": {
+              "type": "string",
+              "pattern": "^sha256:[0-9a-f]{64}$"
+            },
+            "policy_digest": {
+              "type": "string",
+              "pattern": "^sha256:[0-9a-f]{64}$"
+            },
+            "inventory_digest": {
+              "type": "string",
+              "pattern": "^sha256:[0-9a-f]{64}$"
+            },
+            "environment_digest": {
+              "type": "string",
+              "pattern": "^sha256:[0-9a-f]{64}$"
+            },
+            "cache_state": {
+              "enum": [
+                "cold",
+                "warm",
+                "unknown"
+              ]
+            },
+            "topology": {
+              "enum": [
+                "serial"
+              ]
+            },
+            "stage": {
+              "enum": [
+                "node-focused",
+                "candidate",
+                "full",
+                "bootstrap"
+              ]
+            },
+            "attempt": {
+              "type": "string",
+              "minLength": 1
+            },
+            "node": {
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "artifact_digest": {
+              "type": "string",
+              "pattern": "^sha256:[0-9a-f]{64}$"
+            },
+            "observer_digest": {
+              "type": "string",
+              "pattern": "^sha256:[0-9a-f]{64}$"
+            }
+          }
+        },
+        {
+          "type": "null"
+        }
+      ]
+    },
+    "intervals_unavailable": {
+      "type": "array",
+      "items": {
+        "type": "string",
+        "minLength": 1
+      }
+    },
+    "case_deltas": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "case",
+          "baseline",
+          "candidate",
+          "delta"
+        ],
+        "properties": {
+          "case": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "id",
+              "occurrence"
+            ],
+            "properties": {
+              "id": {
+                "type": "string",
+                "minLength": 1
+              },
+              "occurrence": {
+                "type": "integer",
+                "minimum": 1
+              }
+            }
+          },
+          "baseline": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "processes",
+              "git_commands",
+              "schema_decodes",
+              "metaschema_validations",
+              "whole_tree_fixtures",
+              "nested_journeys"
+            ],
+            "properties": {
+              "processes": {
+                "type": "integer",
+                "minimum": 0
+              },
+              "git_commands": {
+                "type": "integer",
+                "minimum": 0
+              },
+              "schema_decodes": {
+                "type": "integer",
+                "minimum": 0
+              },
+              "metaschema_validations": {
+                "type": "integer",
+                "minimum": 0
+              },
+              "whole_tree_fixtures": {
+                "type": "integer",
+                "minimum": 0
+              },
+              "nested_journeys": {
+                "type": "integer",
+                "minimum": 0
+              }
+            }
+          },
+          "candidate": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "processes",
+              "git_commands",
+              "schema_decodes",
+              "metaschema_validations",
+              "whole_tree_fixtures",
+              "nested_journeys"
+            ],
+            "properties": {
+              "processes": {
+                "type": "integer",
+                "minimum": 0
+              },
+              "git_commands": {
+                "type": "integer",
+                "minimum": 0
+              },
+              "schema_decodes": {
+                "type": "integer",
+                "minimum": 0
+              },
+              "metaschema_validations": {
+                "type": "integer",
+                "minimum": 0
+              },
+              "whole_tree_fixtures": {
+                "type": "integer",
+                "minimum": 0
+              },
+              "nested_journeys": {
+                "type": "integer",
+                "minimum": 0
+              }
+            }
+          },
+          "delta": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "processes",
+              "git_commands",
+              "schema_decodes",
+              "metaschema_validations",
+              "whole_tree_fixtures",
+              "nested_journeys"
+            ],
+            "properties": {
+              "processes": {
+                "type": "integer"
+              },
+              "git_commands": {
+                "type": "integer"
+              },
+              "schema_decodes": {
+                "type": "integer"
+              },
+              "metaschema_validations": {
+                "type": "integer"
+              },
+              "whole_tree_fixtures": {
+                "type": "integer"
+              },
+              "nested_journeys": {
+                "type": "integer"
+              }
+            }
+          }
+        }
+      }
+    },
+    "owner_deltas": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "owner",
+          "baseline",
+          "candidate",
+          "delta"
+        ],
+        "properties": {
+          "owner": {
+            "type": "string",
+            "minLength": 1
+          },
+          "baseline": {
+            "anyOf": [
+              {
+                "type": "object",
+                "additionalProperties": false,
+                "required": [
+                  "processes",
+                  "git_commands",
+                  "schema_decodes",
+                  "metaschema_validations",
+                  "whole_tree_fixtures",
+                  "nested_journeys"
+                ],
+                "properties": {
+                  "processes": {
+                    "type": "integer",
+                    "minimum": 0
+                  },
+                  "git_commands": {
+                    "type": "integer",
+                    "minimum": 0
+                  },
+                  "schema_decodes": {
+                    "type": "integer",
+                    "minimum": 0
+                  },
+                  "metaschema_validations": {
+                    "type": "integer",
+                    "minimum": 0
+                  },
+                  "whole_tree_fixtures": {
+                    "type": "integer",
+                    "minimum": 0
+                  },
+                  "nested_journeys": {
+                    "type": "integer",
+                    "minimum": 0
+                  }
+                }
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "candidate": {
+            "anyOf": [
+              {
+                "type": "object",
+                "additionalProperties": false,
+                "required": [
+                  "processes",
+                  "git_commands",
+                  "schema_decodes",
+                  "metaschema_validations",
+                  "whole_tree_fixtures",
+                  "nested_journeys"
+                ],
+                "properties": {
+                  "processes": {
+                    "type": "integer",
+                    "minimum": 0
+                  },
+                  "git_commands": {
+                    "type": "integer",
+                    "minimum": 0
+                  },
+                  "schema_decodes": {
+                    "type": "integer",
+                    "minimum": 0
+                  },
+                  "metaschema_validations": {
+                    "type": "integer",
+                    "minimum": 0
+                  },
+                  "whole_tree_fixtures": {
+                    "type": "integer",
+                    "minimum": 0
+                  },
+                  "nested_journeys": {
+                    "type": "integer",
+                    "minimum": 0
+                  }
+                }
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "delta": {
+            "anyOf": [
+              {
+                "type": "object",
+                "additionalProperties": false,
+                "required": [
+                  "processes",
+                  "git_commands",
+                  "schema_decodes",
+                  "metaschema_validations",
+                  "whole_tree_fixtures",
+                  "nested_journeys"
+                ],
+                "properties": {
+                  "processes": {
+                    "type": "integer"
+                  },
+                  "git_commands": {
+                    "type": "integer"
+                  },
+                  "schema_decodes": {
+                    "type": "integer"
+                  },
+                  "metaschema_validations": {
+                    "type": "integer"
+                  },
+                  "whole_tree_fixtures": {
+                    "type": "integer"
+                  },
+                  "nested_journeys": {
+                    "type": "integer"
+                  }
+                }
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        }
+      }
+    },
+    "families": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "id",
+          "samples",
+          "growth_limits_per_input_unit"
+        ],
+        "properties": {
+          "id": {
+            "type": "string",
+            "minLength": 1
+          },
+          "samples": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": [
+                "input_size",
+                "counts"
+              ],
+              "properties": {
+                "input_size": {
+                  "type": "integer",
+                  "minimum": 1
+                },
+                "counts": {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "required": [
+                    "processes",
+                    "git_commands",
+                    "schema_decodes",
+                    "metaschema_validations",
+                    "whole_tree_fixtures",
+                    "nested_journeys"
+                  ],
+                  "properties": {
+                    "processes": {
+                      "type": "integer",
+                      "minimum": 0
+                    },
+                    "git_commands": {
+                      "type": "integer",
+                      "minimum": 0
+                    },
+                    "schema_decodes": {
+                      "type": "integer",
+                      "minimum": 0
+                    },
+                    "metaschema_validations": {
+                      "type": "integer",
+                      "minimum": 0
+                    },
+                    "whole_tree_fixtures": {
+                      "type": "integer",
+                      "minimum": 0
+                    },
+                    "nested_journeys": {
+                      "type": "integer",
+                      "minimum": 0
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "growth_limits_per_input_unit": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "processes",
+              "git_commands",
+              "schema_decodes",
+              "metaschema_validations",
+              "whole_tree_fixtures",
+              "nested_journeys"
+            ],
+            "properties": {
+              "processes": {
+                "type": "integer",
+                "minimum": 0
+              },
+              "git_commands": {
+                "type": "integer",
+                "minimum": 0
+              },
+              "schema_decodes": {
+                "type": "integer",
+                "minimum": 0
+              },
+              "metaschema_validations": {
+                "type": "integer",
+                "minimum": 0
+              },
+              "whole_tree_fixtures": {
+                "type": "integer",
+                "minimum": 0
+              },
+              "nested_journeys": {
+                "type": "integer",
+                "minimum": 0
+              }
+            }
+          }
+        }
+      }
+    },
+    "timing": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "status",
+        "reasons",
+        "baseline_seconds",
+        "candidate_seconds",
+        "delta_seconds",
+        "noise_envelope_seconds",
+        "material_growth",
+        "concern_samples",
+        "interval",
+        "sample_digests"
+      ],
+      "properties": {
+        "status": {
+          "enum": [
+            "acceptable",
+            "concerns",
+            "unavailable"
+          ]
+        },
+        "reasons": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "minLength": 1
+          }
+        },
+        "baseline_seconds": {
+          "type": "array",
+          "items": {
+            "type": "number",
+            "minimum": 0
+          }
+        },
+        "candidate_seconds": {
+          "type": "array",
+          "items": {
+            "type": "number",
+            "minimum": 0
+          }
+        },
+        "delta_seconds": {
+          "type": "array",
+          "items": {
+            "type": "number"
+          }
+        },
+        "noise_envelope_seconds": {
+          "anyOf": [
+            {
+              "type": "number",
+              "minimum": 0
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "material_growth": {
+          "type": "boolean"
+        },
+        "concern_samples": {
+          "type": "array",
+          "items": {
+            "type": "integer",
+            "minimum": 0
+          }
+        },
+        "interval": {
+          "type": "string",
+          "minLength": 1
+        },
+        "sample_digests": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "baseline",
+              "candidate"
+            ],
+            "properties": {
+              "baseline": {
+                "anyOf": [
+                  {
+                    "type": "string",
+                    "pattern": "^sha256:[0-9a-f]{64}$"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              },
+              "candidate": {
+                "anyOf": [
+                  {
+                    "type": "string",
+                    "pattern": "^sha256:[0-9a-f]{64}$"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              }
+            }
+          }
+        }
+      }
     }
-  }
+  },
+  "allOf": [
+    {
+      "if": {
+        "properties": {
+          "status": {
+            "const": "acceptable"
+          }
+        }
+      },
+      "then": {
+        "properties": {
+          "cost_clearance": {
+            "const": true
+          },
+          "violations": {
+            "maxItems": 0
+          },
+          "unknown": {
+            "maxItems": 0
+          },
+          "timing": {
+            "properties": {
+              "status": {
+                "const": "acceptable"
+              }
+            }
+          }
+        }
+      },
+      "else": {
+        "properties": {
+          "cost_clearance": {
+            "const": false
+          }
+        }
+      }
+    }
+  ]
 }

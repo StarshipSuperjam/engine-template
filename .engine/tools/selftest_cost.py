@@ -270,6 +270,333 @@ def budget_findings(counts, limits):
             if counts[resource] > limits[resource]]
 
 
+def observation_problems(observation, expected_identity):
+    """Validate both the wire shape and exclusive accounting before consuming evidence."""
+    from selftest_results import validate_shape
+    try:
+        validate_shape(observation, 'test-cost-observation.v1')
+    except (ValueError, TypeError):
+        return ['resource observation is missing or malformed']
+    problems = []
+    if observation['identity'] != expected_identity:
+        problems.append('resource observation identity differs from the controller identity')
+    if not observation['complete']:
+        problems.append('resource observation is incomplete')
+    owners = {row['owner']: row['counts'] for row in observation['owners']}
+    if len(owners) != len(observation['owners']):
+        problems.append('resource observation has duplicate owners')
+    if any(sum(row[r] for row in owners.values()) != observation['totals'][r] for r in RESOURCES):
+        problems.append('resource totals disagree with exclusive ownership')
+    keys = [case_key(row['case']) for row in observation['cases']]
+    if len(keys) != len(set(keys)):
+        problems.append('resource observation has duplicate case occurrences')
+    measured_owners = {row['owner'] for row in observation['cases']}
+    if any(owner.startswith('case:') and owner not in measured_owners for owner in owners):
+        problems.append('resource observation has an unmeasured case owner')
+    for row in observation['cases']:
+        owner = 'case:' + json.dumps(row['case'], sort_keys=True, separators=(',', ':'))
+        if row['owner'] != owner or row['counts'] != owners.get(owner, zeros()):
+            problems.append('case counters disagree with their exclusive owner')
+            break
+    if expected_identity['stage'] in ('full', 'bootstrap') and digest(
+            [row['case'] for row in observation['cases']]) != expected_identity['inventory_digest']:
+        problems.append('full observation omits or changes inventory occurrences')
+    return problems
+
+
+def timing_assessment(pairs, *, expected_identity, expected_base_identity, minimum_pairs=3,
+                      concern_seconds=1200):
+    """Advisory measured noise, never a duration-based correctness assertion.
+
+    Each sample carries its immutable execution identity. Retries and phases remain
+    in the source performance report; these samples represent only the named interval.
+    """
+    import math
+    import re
+    reasons = []
+    if len(pairs) < minimum_pairs:
+        reasons.append('insufficient matched timing pairs')
+    base, candidate = [], []
+    sample_digests = []
+    seen_base, seen_candidate = set(), set()
+    for pair in pairs:
+        if not isinstance(pair, dict):
+            reasons.append('timing pair is malformed')
+            continue
+        sample_digests.append({side: pair.get(side + '_sample_digest') if isinstance(
+            pair.get(side + '_sample_digest'), str) and re.fullmatch(r'sha256:[0-9a-f]{64}', pair[side + '_sample_digest'])
+            else None for side in ('baseline', 'candidate')})
+        for field, seen in (('baseline_sample_digest', seen_base), ('candidate_sample_digest', seen_candidate)):
+            value = pair.get(field)
+            if not isinstance(value, str) or not re.fullmatch(r'sha256:[0-9a-f]{64}', value):
+                reasons.append('timing sample identity unavailable')
+            elif value in seen:
+                reasons.append('one timing sample was reused as multiple independent samples')
+            else:
+                seen.add(value)
+        if (pair.get('baseline_identity') != expected_base_identity
+                or pair.get('candidate_identity') != expected_identity):
+            reasons.append('timing pair identity mismatch')
+        a, b = pair.get('baseline_seconds'), pair.get('candidate_seconds')
+        if any(type(v) not in (int, float) or not math.isfinite(v) or v < 0 for v in (a, b)):
+            reasons.append('timing interval is missing or invalid')
+            continue
+        base.append(a); candidate.append(b)
+    if seen_base & seen_candidate:
+        reasons.append('the same timing sample cannot represent both sides of a pair')
+    if not expected_base_identity:
+        reasons.append('base timing identity unavailable')
+    else:
+        for field in ('environment_digest', 'observer_digest', 'cache_state', 'topology', 'stage'):
+            if expected_identity[field] != expected_base_identity[field]:
+                reasons.append('timing ' + field + ' differs')
+    if expected_identity['cache_state'] == 'unknown':
+        reasons.append('cache state unavailable')
+    noise = max((abs(b-a) for a, b in zip(base, base[1:])), default=0) if not reasons else None
+    deltas = [b-a for a, b in zip(base, candidate)]
+    growth = bool(not reasons and deltas and all(d > noise for d in deltas))
+    concerns = [i for i, value in enumerate(candidate) if value >= concern_seconds]
+    return {'status': 'unavailable' if reasons else 'concerns' if growth or concerns else 'acceptable',
+            'reasons': sorted(set(reasons)), 'baseline_seconds': base, 'candidate_seconds': candidate,
+            'delta_seconds': deltas, 'noise_envelope_seconds': noise, 'material_growth': growth,
+            'sample_digests': sample_digests,
+            'concern_samples': concerns, 'interval': 'declared self-test interval; not complete PR elapsed'}
+
+
+def scaling_assessment(cases, contracts):
+    """Bound count growth per input unit; elapsed time cannot establish a complexity bound."""
+    import fnmatch
+    definitions, samples, findings, unknown = {}, {}, [], []
+    for key, contract in contracts.items():
+        for family in contract['families']:
+            name = family['id']
+            if name in definitions and definitions[name] != family:
+                findings.append('conflicting scaling family: ' + name)
+            definitions[name] = family
+    for row in cases:
+        matches = [f for f in definitions.values() if any(
+            fnmatch.fnmatchcase(row['case']['id'], pattern) for pattern in f['case_patterns'])]
+        if len(matches) > 1:
+            findings.append('ambiguous scaling family: ' + row['case']['id'])
+            continue
+        if not matches:
+            if row['family'] is not None:
+                findings.append('undeclared scaling family: ' + row['case']['id'])
+            continue
+        family = matches[0]
+        if row['family'] != family['id'] or row['input_size'] not in family['input_sizes']:
+            findings.append('missing or invalid scaling input: ' + row['case']['id'])
+            continue
+        counts = samples.setdefault(family['id'], {}).setdefault(row['input_size'], zeros())
+        for resource in RESOURCES:
+            counts[resource] = max(counts[resource], row['counts'][resource])
+    report = []
+    for name, family in sorted(definitions.items()):
+        measured = samples.get(name, {})
+        if set(measured) != set(family['input_sizes']):
+            unknown.append('scaling family lacks its declared input sizes: ' + name)
+        ordered = sorted(measured)
+        for lo, hi in zip(ordered, ordered[1:]):
+            for resource in RESOURCES:
+                growth = measured[hi][resource] - measured[lo][resource]
+                ceiling = family['growth_limits'][resource] * (hi-lo)
+                if growth > ceiling:
+                    findings.append(f'scaling {name} {resource}: growth {growth} exceeds {ceiling} from {lo} to {hi}')
+        report.append({'id': name, 'samples': [{'input_size': size, 'counts': measured[size]} for size in ordered],
+                       'growth_limits_per_input_unit': family['growth_limits']})
+    return report, findings, unknown
+
+
+def assess_cost(observation, *, expected_identity, baseline, expected_baseline_digest,
+                runtime, census, policy, now, declarations=(), mappings=(), exceptions=(),
+                base_observation=None, expected_base_identity=None, expected_cases=None,
+                bootstrap_inventory=None, timing_pairs=()):
+    """One pure assessment used again at every cache, review and submission boundary.
+
+    Expected identities and enrollment digest come from the controller's retained
+    authority, never from the candidate artifact being assessed. The enrollment fixes
+    legacy ceilings; a separate actual-base observation owns change attribution.
+    """
+    from selftest_results import validate_shape
+    from build_coordinator_dag import CoordinatorError, validate_test_cost_contracts
+    unknown = observation_problems(observation, expected_identity)
+    valid_observation = not unknown
+    valid_inventory = isinstance(census, dict) and census.get('source_commit') == expected_identity['source_commit']
+    if not valid_inventory:
+        unknown.append('static census does not match the controller source commit')
+        valid_observation = False
+        census, runtime, declarations, mappings = {'definitions': [], 'duplicates': []}, [], (), ()
+    violations, used, deltas, families = [], [], [], []
+    common, added, removed, owner_deltas = [], [], [], []
+    aggregate = None
+    if digest(policy) != expected_identity['policy_digest']:
+        unknown.append('policy differs from the controller identity')
+        valid_observation = False
+    enrollment = baseline_status(baseline, expected_digest=expected_baseline_digest,
+        observer_commit=expected_identity['observer_commit'], observer_digest=expected_identity['observer_digest'],
+        environment_digest=expected_identity['environment_digest'])
+    valid_baseline = enrollment['mode'] == 'enforced'
+    if not valid_baseline:
+        unknown.append('needs-baseline: ' + enrollment['reason'])
+    else:
+        unknown += ['enrollment: ' + reason for reason in baseline['unknown']]
+    try:
+        validate_shape(baseline, 'test-cost-baseline.v1')
+        trusted_inventory = digest(baseline) == expected_baseline_digest
+    except (ValueError, TypeError):
+        trusted_inventory = False
+    # Runtime incompatibility invalidates resource comparison, not immutable source
+    # identities. Continue enforcing new declarations while measurement is pending.
+    legacy = baseline if trusted_inventory else bootstrap_inventory
+    if not valid_inventory:
+        pass
+    elif legacy is not None:
+        violations += inventory_findings(runtime, census, legacy, mappings, declarations)
+        violations += duplicate_findings(census, legacy)
+    else:
+        unknown.append('trusted pre-change inventory unavailable; new work cannot be enrolled as legacy')
+        # Preserve structural checks even when there is no trusted source/debt reference.
+        definitions = {(d['path'], d['qualified_name']) for d in census['definitions']}
+        mapped = {(r.get('path'), r.get('qualified_name')) for r in runtime}
+        if definitions != mapped:
+            violations.append('static/runtime inventory has unexplained definitions or cases')
+        violations += duplicate_findings(census, {})
+    definitions = {(d['path'], d['qualified_name']): d for d in census['definitions']}
+    declared = {case_key(d): d for d in declarations}
+    contracts = {}
+    for row in runtime:
+        try:
+            contract = effective_contract(row, definitions.get((row.get('path'), row.get('qualified_name'))),
+                                          declared.get(case_key(row)))
+            if contract:
+                validate_shape(contract, 'test-cost-contract.v1')
+                validate_test_cost_contracts({'work_items': [{'id': row['id'], 'test_cost': contract}]})
+                contracts[case_key(row)] = contract
+        except (ValueError, CoordinatorError) as exc:
+            violations.append(str(exc))
+    legacy_cases = {case_key(row['case']): row for row in baseline['cases']} if valid_baseline else {}
+    actual_cases = observation['cases'] if valid_observation else []
+    if valid_observation:
+        unknown += observation['unknown']
+        unbudgeted = 0
+        if digest([{'id': r['id'], 'occurrence': r['occurrence']} for r in runtime]) != expected_identity['inventory_digest']:
+            unknown.append('runtime mapping inventory differs from observation')
+        if expected_cases is None and expected_identity['stage'] not in ('full', 'bootstrap'):
+            unknown.append('controller-selected case inventory unavailable')
+        elif expected_cases is not None and [r['case'] for r in actual_cases] != list(expected_cases):
+            unknown.append('observed cases differ from controller-selected cases')
+        for row in actual_cases:
+            key = case_key(row['case'])
+            contract, prior = contracts.get(key), legacy_cases.get(key)
+            limits = contract['limits'] if contract else prior['limits'] if prior else None
+            if limits is None:
+                unbudgeted += 1
+                continue
+            if prior:
+                definition = definitions.get((prior['path'], prior['qualified_name']))
+                if definition and definition['ast_digest'] == prior['source_digest']:
+                    limits = {r: min(limits[r], prior['limits'][r]) for r in RESOURCES}
+            for resource in RESOURCES:
+                count = row['counts'][resource]
+                if count <= limits[resource]:
+                    continue
+                allowances = [e for e in exceptions if exception_applies(e, row['case'], resource,
+                    expected_identity['source_commit'], now=now,
+                    max_seconds=policy['max_exception_seconds']) and count <= e['ceiling']]
+                if len(allowances) == 1:
+                    if allowances[0] not in used:
+                        used.append(allowances[0])
+                else:
+                    violations.append(f'{key} {resource}: {count} exceeds {limits[resource]} without one live allowance')
+        if unbudgeted:
+            unknown.append(f'resource ceilings unavailable for {unbudgeted} measured cases; their identities remain in the observation')
+        families, growth_findings, missing = scaling_assessment(actual_cases, contracts)
+        violations += growth_findings; unknown += missing
+        if valid_baseline:
+            added_budget = zeros()
+            for key, contract in contracts.items():
+                prior = legacy_cases.get(key)
+                definition = definitions.get((prior['path'], prior['qualified_name'])) if prior else None
+                if not prior or not definition or definition['ast_digest'] != prior['source_digest']:
+                    for resource in RESOURCES:
+                        added_budget[resource] += contract['limits'][resource]
+            allowance_budget = zeros()
+            for exception in used:
+                prior = legacy_cases.get(case_key(exception['case']))
+                if prior:
+                    resource = exception['resource']
+                    allowance_budget[resource] += max(0, exception['ceiling']-prior['limits'][resource])
+            full_coverage = digest([r['case'] for r in actual_cases]) == expected_identity['inventory_digest']
+            if full_coverage:
+                ceilings = {r: baseline['totals'][r]+added_budget[r]+allowance_budget[r] for r in RESOURCES}
+                violations += ['aggregate ' + message for message in budget_findings(observation['totals'], ceilings)]
+            else:
+                unknown.append('whole-suite aggregate coverage unavailable in this focused observation')
+            old_owners = {o['owner']: o['counts'] for o in baseline['owners']}
+            for owner in observation['owners']:
+                name = owner['owner']
+                if name.startswith('case:'):
+                    continue
+                if name in old_owners:
+                    ceiling = old_owners[name]
+                    if name.startswith('unattributed'):
+                        ceiling = {r: ceiling[r]+added_budget[r] for r in RESOURCES}
+                else:
+                    label = name.split(':', 2)[-1].removeprefix("<class '").removesuffix("'>")
+                    owners = {c['fixture_owner']: c['limits'] for c in contracts.values()
+                              if label == c['fixture_owner'] or label.startswith(c['fixture_owner'] + '.')}
+                    if not owners:
+                        unknown.append('resource fixture owner has no declaration: ' + name)
+                        continue
+                    ceiling = {r: sum(v[r] for v in owners.values()) for r in RESOURCES}
+                violations += [name + ' ' + message for message in budget_findings(owner['counts'], ceiling)]
+    base_problems = (observation_problems(base_observation, expected_base_identity)
+                     if expected_base_identity else ['controller base identity unavailable'])
+    if expected_base_identity and expected_base_identity['source_commit'] != expected_identity['base_commit']:
+        base_problems.append('base observation is not the actual comparison base')
+    if base_problems:
+        unknown += ['base: ' + p for p in base_problems]
+    elif valid_observation:
+        unknown += ['base: ' + p for p in base_observation['unknown']]
+        for field in ('observer_commit', 'observer_digest', 'environment_digest', 'cache_state', 'topology', 'stage'):
+            if base_observation['identity'][field] != expected_identity[field]:
+                unknown.append('comparison ' + field + ' differs')
+        if expected_identity['cache_state'] == 'unknown':
+            unknown.append('comparison cache state unavailable')
+        a = {case_key(r['case']): r for r in base_observation['cases']}
+        b = {case_key(r['case']): r for r in actual_cases}
+        common = [b[k]['case'] for k in sorted(a.keys() & b.keys())]
+        added = [b[k]['case'] for k in sorted(b.keys()-a.keys())]
+        removed = [a[k]['case'] for k in sorted(a.keys()-b.keys())]
+        deltas = [{'case': b[k]['case'], 'baseline': a[k]['counts'], 'candidate': b[k]['counts'],
+                   'delta': {r: b[k]['counts'][r]-a[k]['counts'][r] for r in RESOURCES}}
+                  for k in sorted(a.keys() & b.keys())]
+        if base_observation['identity']['stage'] == expected_identity['stage']:
+            aggregate = {r: observation['totals'][r]-base_observation['totals'][r] for r in RESOURCES}
+            left = {o['owner']: o['counts'] for o in base_observation['owners']}
+            right = {o['owner']: o['counts'] for o in observation['owners']}
+            owner_deltas = [{'owner': key, 'baseline': left.get(key), 'candidate': right.get(key),
+                'delta': {r: right[key][r]-left[key][r] for r in RESOURCES} if key in left and key in right else None}
+                for key in sorted(left.keys() | right.keys()) if not key.startswith('case:')]
+    timing = timing_assessment(timing_pairs, expected_identity=expected_identity,
+        expected_base_identity=expected_base_identity, minimum_pairs=policy['timing']['minimum_pairs'],
+        concern_seconds=policy['concern_seconds'])
+    timing_findings = timing['reasons'] + (['advisory timing concern requires disposition'] if timing['status']=='concerns' else [])
+    status = ('concerns' if violations or timing['status']=='concerns' else
+              'unavailable' if unknown or timing['status']=='unavailable' else 'acceptable')
+    result = {'schema_version': 'test-cost-assessment.v1', 'identity': expected_identity,
+        'baseline_digest': expected_baseline_digest if valid_baseline else None,
+        'observation_digest': digest(observation) if valid_observation else None,
+        'status': status, 'violations': sorted(set(violations)), 'unknown': sorted(set(unknown)),
+        'exceptions': used, 'common': common, 'added': added, 'removed': removed,
+        'aggregate_delta': aggregate, 'timing_findings': timing_findings, 'timing': timing,
+        'case_deltas': deltas, 'owner_deltas': owner_deltas, 'families': families,
+        'cost_clearance': status == 'acceptable', 'scope': expected_identity['stage'],
+        'base_identity': expected_base_identity, 'intervals_unavailable': ['acquisition', 'cleanup', 'retries', 'runner-minutes']}
+    validate_shape(result, 'test-cost-assessment.v1')
+    return result
+
+
 # One audit callback per interpreter. Python audit hooks cannot be removed, so the
 # callback is inert outside a live recorder; wrapped Python attributes ARE restored.
 _ACTIVE = None
@@ -714,6 +1041,84 @@ def observer_fingerprint(root=ROOT):
     return digest(material)
 
 
+def inventory_source(source_root, output_path):
+    """Discover a retained source in a fresh process, using its existing serial loader.
+
+    This supplies identity-only bootstrap classification; it creates no measured
+    ceilings, cost approval or substitute test execution. The controller pins Git
+    independently before using the returned source and census.
+    """
+    import os
+    import subprocess
+    import sys
+    import unittest
+    source, output = Path(source_root).resolve(), Path(output_path).resolve()
+    if output.is_relative_to(source) or not (source / '.engine/tools/selftest.py').is_file():
+        raise ValueError('inventory needs retained Engine source and an external output path')
+    if 'selftest' in sys.modules:
+        raise ValueError('source inventory requires a fresh process')
+    for key in list(os.environ):
+        if key.startswith('GIT_'):
+            os.environ.pop(key)
+    os.environ.update(GIT_CONFIG_NOSYSTEM='1', GIT_CONFIG_GLOBAL=os.devnull, GIT_OPTIONAL_LOCKS='0')
+    sys.path.insert(0, str(source / '.engine/tools'))
+    import selftest
+    from providers import SESSION_ENV_CHAIN
+    for key in SESSION_ENV_CHAIN:
+        os.environ.pop(key, None)
+    os.environ[selftest._NESTED_ENV] = '1'
+    os.environ['ENGINE_AMBIENT_QUALIFICATION_OFF'] = '1'
+    binding = selftest._tree_binding(str(source / '.engine/tools'))
+    if not binding['tree'] or binding['worktree_dirty'] is not False:
+        raise ValueError('source inventory requires a clean committed checkout')
+    commit = subprocess.check_output(['git', '-C', str(source), 'rev-parse', 'HEAD'], text=True).strip()
+    sources = {p.relative_to(source).as_posix(): p.read_text()
+               for p in (source / '.engine/tools').rglob('test_*.py')}
+    census = static_census(sources, commit)
+    loader = unittest.TestLoader()
+    cases = list(selftest._flatten(loader.discover(str(source / '.engine/tools'))))
+    if loader.errors or len(cases) > 200000:
+        raise ValueError('source inventory is incomplete or exceeds its case bound')
+    inventory = runtime_inventory(cases, root=source)
+    if selftest._tree_binding(str(source / '.engine/tools')) != binding:
+        raise ValueError('source changed during inventory discovery')
+    if subprocess.check_output(['git', '-C', str(source), 'rev-parse', 'HEAD'], text=True).strip() != commit:
+        raise ValueError('source commit changed during inventory discovery')
+    document = {'schema_version': 'test-cost-inventory.v1', 'source_commit': commit,
+                'source': binding, 'runtime': inventory, 'census': census}
+    encoded = json.dumps(document, sort_keys=True, allow_nan=False).encode()
+    if len(encoded) > 16 * 1024 * 1024:
+        raise ValueError('source inventory exceeds its artifact byte bound')
+    with output.open('xb') as handle:
+        handle.write(encoded)
+    return 0
+
+
+def identity_only_inventory(document, *, expected_commit, expected_tree, duplicate_enrollment=()):
+    """Use verified pre-change identities during bootstrap, without inventing resource debt."""
+    from selftest_results import validate_shape
+    validate_shape(document, 'test-cost-inventory.v1')
+    if (document['source_commit'] != expected_commit
+            or document['source'] != {'tree': expected_tree, 'worktree_dirty': False}
+            or document['census']['source_commit'] != expected_commit):
+        raise ValueError('bootstrap source inventory differs from the independently pinned base')
+    census = document['census']
+    definitions = {(d['path'], d['qualified_name']): d for d in census['definitions']}
+    cases = []
+    for row in document['runtime']:
+        definition = definitions.get((row['path'], row['qualified_name']))
+        if not definition:
+            raise ValueError('bootstrap cannot infer an unmapped historical case identity')
+        cases.append({'case': {k: row[k] for k in ('id', 'occurrence')}, 'path': row['path'],
+                      'qualified_name': row['qualified_name'], 'source_digest': definition['ast_digest']})
+    legacy = {'cases': cases, 'duplicates': list(duplicate_enrollment)}
+    if (len({case_key(c['case']) for c in cases}) != len(cases)
+            or {(c['path'], c['qualified_name']) for c in cases} != set(definitions)
+            or duplicate_findings(census, legacy)):
+        raise ValueError('bootstrap source inventory has unexplained cases or definitions')
+    return legacy
+
+
 def main(argv=None):
     import argparse
     parser = argparse.ArgumentParser(description=__doc__)
@@ -725,9 +1130,14 @@ def main(argv=None):
     inspect_parser = subs.add_parser('inspect', help='show the readable identity and largest enrolled resource costs')
     inspect_parser.add_argument('--baseline', required=True)
     inspect_parser.add_argument('--case', help='inspect one exact case id, including all occurrences')
+    inventory = subs.add_parser('inventory', help='discover pinned source identities without running cases or learning budgets')
+    inventory.add_argument('--source-root', required=True)
+    inventory.add_argument('--output', required=True)
     args = parser.parse_args(argv)
     if args.command == 'observe-retained':
         return observe_retained_source(args.source_root, args.output_directory, pattern=args.pattern)
+    if args.command == 'inventory':
+        return inventory_source(args.source_root, args.output)
     if args.command == 'inspect':
         from selftest_results import read, validate_shape
         baseline = read(args.baseline)
