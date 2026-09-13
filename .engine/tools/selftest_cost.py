@@ -534,7 +534,8 @@ def observe_retained_source(source_root, output_directory, *, pattern='test_*.py
     engine_fixture.clone_engine = observed_clone
     os.environ[selftest._NESTED_ENV] = '1'
     os.environ['ENGINE_AMBIENT_QUALIFICATION_OFF'] = '1'
-    for name in ('ENGINE_SESSION_ID', 'CLAUDE_CODE_SESSION_ID', 'CODEX_THREAD_ID', 'CODEX_SESSION_ID'):
+    from providers import SESSION_ENV_CHAIN
+    for name in SESSION_ENV_CHAIN:
         os.environ.pop(name, None)
     args = selftest._build_parser().parse_args([
         '--child', '--start-dir', str(source / '.engine/tools'), '--pattern', pattern,
