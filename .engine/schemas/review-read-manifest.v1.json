@@ -1,0 +1,79 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "Immutable registered UTF-8 review pieces",
+  "description": "Bounds are structural; the transport owner also verifies identity, canonical paths, ordered contiguous byte ranges and exact reassembly. Original packet bytes remain the semantic authority.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_version",
+    "assignment_id",
+    "packet_digest",
+    "file_digest",
+    "total_bytes",
+    "pieces"
+  ],
+  "properties": {
+    "schema_version": {
+      "const": "review-read-manifest.v1"
+    },
+    "assignment_id": {
+      "type": "string",
+      "pattern": "^sa_[0-9a-f]{32}$"
+    },
+    "packet_digest": {
+      "type": "string",
+      "pattern": "^sha256:[0-9a-f]{64}$"
+    },
+    "file_digest": {
+      "type": "string",
+      "pattern": "^sha256:[0-9a-f]{64}$"
+    },
+    "total_bytes": {
+      "type": "integer",
+      "minimum": 0,
+      "maximum": 1048576
+    },
+    "pieces": {
+      "type": "array",
+      "minItems": 1,
+      "maxItems": 65,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "index",
+          "start",
+          "end",
+          "path",
+          "digest"
+        ],
+        "properties": {
+          "index": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 64
+          },
+          "start": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 1048576
+          },
+          "end": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 1048576
+          },
+          "path": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 4096
+          },
+          "digest": {
+            "type": "string",
+            "pattern": "^sha256:[0-9a-f]{64}$"
+          }
+        }
+      }
+    }
+  }
+}

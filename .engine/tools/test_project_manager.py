@@ -2779,6 +2779,22 @@ class ProjectionLink(_Governed):
 
 
 class ObservedPlanReview(_Governed):
+    def test_multipart_receipt_requires_every_original_piece_at_real_plan_ingress(self):
+        import scoped_agents
+        slug = self.prepared()
+        digest = self._packet_digest(slug)
+        for omit in (1, None):
+            companion, a = observe_review_execution(self.lib, slug,
+                scoped_agents.plan_owner(self.lib.read_record(slug)), "architecture", digest, [],
+                multipart=True, omit_piece=omit)
+            self.assertGreater(len(a["transport"]["manifest"]["pieces"]), 1)
+            report = Path(self._tmp.name) / "multipart-report.json"
+            report.write_text("[]")
+            code, _, err = self.run_command("review", "record", slug, "--lens", "architecture",
+                "--packet-digest", digest, "--session", "fixture-root", "--findings", str(report), observe=False)
+            self.assertEqual(code, 2 if omit is not None else 0, err)
+            self.assertEqual(bool(companion.read()["acceptances"]), omit is None)
+
     def test_exact_wire_byte_limit_survives_single_and_panel_ingress(self):
         import result_contracts
         for panel in (False, True):

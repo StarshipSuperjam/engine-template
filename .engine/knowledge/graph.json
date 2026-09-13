@@ -5331,7 +5331,7 @@
       },
       "slug": "result-contracts",
       "source": {
-        "fingerprint": "sha256:52f63e81d42d577cd890870dfd8efa3773ae328de94b3b18e879514c08968610",
+        "fingerprint": "sha256:536780913fe54dd148a72a666329521fcf95d27b9de9718c129a594834cc975b",
         "path": ".engine/docs/result-contracts.md"
       },
       "status": "active",
@@ -6064,7 +6064,7 @@
       },
       "slug": "codex-validation",
       "source": {
-        "fingerprint": "sha256:12f2892c5987a937538315ea7f2808f6acf882bc618d49579fd1eba5d221f16f",
+        "fingerprint": "sha256:3096d12e7c16d4864a69eb58d8d09ca4b34e47a54a56a2b8032c56da68ee3a26",
         "path": ".engine/operations/codex-validation.md"
       },
       "status": "active",
@@ -6624,7 +6624,7 @@
       },
       "slug": "scoped-agent-orchestration",
       "source": {
-        "fingerprint": "sha256:156826ab050c0b9f8c1b26e2fc403618b9b6ce2eecfcc8934fa3b37876515ba7",
+        "fingerprint": "sha256:ec2fae08509da8e686b272c4e2ac727d9d1252a6da905713d0773a39915130a4",
         "path": ".engine/operations/scoped-agent-orchestration.md"
       },
       "status": "active",
@@ -7972,6 +7972,23 @@
       "type": "schema"
     },
     {
+      "id": "schema:review-read-manifest.v1",
+      "name": ".engine/schemas/review-read-manifest.v1.json",
+      "owner": "core",
+      "predicates": {
+        "provided_by": [
+          "module:core"
+        ]
+      },
+      "slug": "review-read-manifest.v1",
+      "source": {
+        "fingerprint": "sha256:208b31a1291c15bd2c514cb7fe1704d9d7514155e48e08e9bdb31199d86b55da",
+        "path": ".engine/schemas/review-read-manifest.v1.json"
+      },
+      "status": "active",
+      "type": "schema"
+    },
+    {
       "id": "schema:reviewer-contract.v1",
       "name": ".engine/schemas/reviewer-contract.v1.json",
       "owner": "core",
@@ -7999,7 +8016,7 @@
       },
       "slug": "scoped-agent-evidence.v1",
       "source": {
-        "fingerprint": "sha256:923989c18482e3a8c28412f7b64971706f5c99ea779813a1e82d6091e2b78062",
+        "fingerprint": "sha256:568a9cd63c9e155aa0cd5a297cbd5661252fdee761d5df435abbb51cd121b972",
         "path": ".engine/schemas/scoped-agent-evidence.v1.json"
       },
       "status": "active",
@@ -9920,7 +9937,7 @@
       },
       "slug": "build_coordinator",
       "source": {
-        "fingerprint": "sha256:570cabf284ad61e7922d93803b68705e9126e79c38240597fe4b40cbc0663f0f",
+        "fingerprint": "sha256:454f5d5d1c08edb11b78e0e8d0f88d0f52f5c7e71ecc74c2ee5cdf4eba65bfe7",
         "path": ".engine/tools/build_coordinator.py"
       },
       "status": "active",
@@ -12266,6 +12283,29 @@
       },
       "status": "active",
       "summary": "Falsify cumulative coverage through real Git and the production submission gate.",
+      "type": "tool"
+    },
+    {
+      "entrypoint": "demo",
+      "guarded": false,
+      "id": "tool:demo_review_packet_multipart",
+      "name": ".engine/tools/demo_review_packet_multipart.py",
+      "owner": "core",
+      "predicates": {
+        "imports": [
+          "tool:scoped_agents"
+        ],
+        "provided_by": [
+          "module:core"
+        ]
+      },
+      "slug": "demo_review_packet_multipart",
+      "source": {
+        "fingerprint": "sha256:51b0ddce875896b2a863e2a6f169ce8a6a3c5dec259269b8ba7ddecf33e47c36",
+        "path": ".engine/tools/demo_review_packet_multipart.py"
+      },
+      "status": "active",
+      "summary": "Falsify multipart credit in disposable libraries through the production owners.",
       "type": "tool"
     },
     {
@@ -14984,7 +15024,7 @@
       },
       "slug": "project_manager",
       "source": {
-        "fingerprint": "sha256:0c74e28e7ced8183fd4ab17cb65b27ee7ddf79f9a8b492de283f633021680182",
+        "fingerprint": "sha256:45fccc3c85dd34e07389caad18939098e6e01a7ac1e5a85ae14fed65651578b6",
         "path": ".engine/tools/project_manager.py"
       },
       "status": "active",
@@ -15126,7 +15166,7 @@
       },
       "slug": "providers",
       "source": {
-        "fingerprint": "sha256:3ad725a1d994001ae0bce843b3a3c367841d7f5f8c8f91c3798f61b1e555ac88",
+        "fingerprint": "sha256:3f610caaec2f5b3bddb98dd41a5e3ee02dc400155319e0913f106b58f7194922",
         "path": ".engine/tools/providers.py"
       },
       "status": "active",
@@ -15694,7 +15734,8 @@
       "predicates": {
         "imports": [
           "tool:plan_store",
-          "tool:providers"
+          "tool:providers",
+          "tool:scoped_agents"
         ],
         "provided_by": [
           "module:core"
@@ -15702,7 +15743,7 @@
       },
       "slug": "review_reader",
       "source": {
-        "fingerprint": "sha256:b27ac550a8fbe8c4d0d9823bf22f06c8d063ca3d84f9f328c04463564d3213de",
+        "fingerprint": "sha256:c2dcfd96bddd37902683eee3572f4b2d2377767ee0ea7c7b9be423d44e5b064d",
         "path": ".engine/tools/review_reader.py"
       },
       "status": "active",
@@ -15907,7 +15948,7 @@
       },
       "slug": "scoped_agents",
       "source": {
-        "fingerprint": "sha256:906e817ba0f0471efc8925dfe4560be161184339a52bcaf1b8ad4627acc6fc3a",
+        "fingerprint": "sha256:ecdf779c4f91bbfff0e0fccf004bf8ab4d0e19259380dcc082172b4ea6a31f9b",
         "path": ".engine/tools/scoped_agents.py"
       },
       "status": "active",
@@ -17089,7 +17130,7 @@
       },
       "slug": "test_build_coordinator",
       "source": {
-        "fingerprint": "sha256:d041997e46272f44eec51fcdf4addf91ecea538aeaa754db226f9b9eab547c4f",
+        "fingerprint": "sha256:963e68e78e34a71b90176165484a0461367feb79febf7726e9a5516508fb06f1",
         "path": ".engine/tools/test_build_coordinator.py"
       },
       "status": "active",
@@ -20516,7 +20557,7 @@
       },
       "slug": "test_project_manager",
       "source": {
-        "fingerprint": "sha256:00e94511d010545956d187472778f1dfa9ee3d6fcb733207dc2a9164fc5c9943",
+        "fingerprint": "sha256:1190b766c2c7e1888f89de739bfda08aa3ee846f798186359b07ca95ba0ff7ee",
         "path": ".engine/tools/test_project_manager.py"
       },
       "status": "active",
@@ -20596,7 +20637,7 @@
       },
       "slug": "test_providers",
       "source": {
-        "fingerprint": "sha256:384f9e4b2dac88e4deaf591fc274c6178c5dd19df58a45ed8295eeb7bcff2041",
+        "fingerprint": "sha256:1eb243d5d236bc6dbbfc699eed29634ce627370ef47783f709676f69a01db248",
         "path": ".engine/tools/test_providers.py"
       },
       "status": "active",
@@ -21191,13 +21232,15 @@
           "module:core"
         ],
         "tests": [
+          "tool:build_coordinator_core",
           "tool:mcp_test_support",
-          "tool:review_reader"
+          "tool:review_reader",
+          "tool:scoped_agents"
         ]
       },
       "slug": "test_review_reader",
       "source": {
-        "fingerprint": "sha256:940bc567849756666a68c61b12e5287879d58855615116a059e332321cbf5bbc",
+        "fingerprint": "sha256:5c2989b57be3f450f7f8362e0cfd0cc46042b9ae5b0a39e16552e2096798fe66",
         "path": ".engine/tools/test_review_reader.py"
       },
       "status": "active",
@@ -21428,8 +21471,10 @@
         ],
         "tests": [
           "tool:build_coordinator_core",
+          "tool:demo_review_packet_multipart",
           "tool:plan_store",
           "tool:providers",
+          "tool:quiet_call",
           "tool:reader_health_history_fixture",
           "tool:result_contracts",
           "tool:scoped_agents",
@@ -21440,7 +21485,7 @@
       },
       "slug": "test_scoped_agents",
       "source": {
-        "fingerprint": "sha256:76521cb7902757d911f9151cdd92ea95717b5333609c8379118c9adecca234d7",
+        "fingerprint": "sha256:77acb6831dcecca5a9f2513cb5195eafda8e5d521e72249b2a39e872b8379c14",
         "path": ".engine/tools/test_scoped_agents.py"
       },
       "status": "active",

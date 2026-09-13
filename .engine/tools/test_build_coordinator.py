@@ -122,7 +122,7 @@ def plan_v2(objective="Ship a dependency-ordered Build", items=None, mode="seria
     }
 
 
-def observe_review_execution(library, slug, owner, lens, digest, output, root="fixture-root", purpose="review", review_contract=None, packet_content=None):
+def observe_review_execution(library, slug, owner, lens, digest, output, root="fixture-root", purpose="review", review_contract=None, packet_content=None, multipart=False, omit_piece=None):
     """Synthetic native event fixture through the real store, not acceptance bypasses."""
     import uuid
     import scoped_agents
@@ -155,8 +155,18 @@ def observe_review_execution(library, slug, owner, lens, digest, output, root="f
     event("PostToolUse", **launch, tool_response={"task_name": "/root/" + a["id"]})
     child_fields = {"agent_id": child, "agent_type": role, "agent_transcript_path": str(transcript)}
     event("SubagentStart", **child_fields)
-    event("PostToolUse", **child_fields, tool_name="Bash", tool_input={"command": "cat " + a["packet_path"]},
-          tool_response={"exit_code": 0, "stdout": packet.read_text()})
+    if multipart:
+        for part in a["transport"]["manifest"]["pieces"]:
+            if part["index"] == omit_piece:
+                continue
+            content = Path(part["path"]).read_bytes().decode()
+            event("PostToolUse", **child_fields, tool_name="mcp__engine-review-reader__read_file",
+                  tool_input={"path": part["path"]}, tool_response={"content": [{"type": "text", "text": json.dumps({
+                      "file_path": part["path"], "content": content, "complete": True,
+                      "offset": 0, "sha256": bc.core.digest(content.encode())})}]})
+    else:
+        event("PostToolUse", **child_fields, tool_name="Bash", tool_input={"command": "cat " + a["packet_path"]},
+              tool_response={"exit_code": 0, "stdout": packet.read_text()})
     event("SubagentStop", **child_fields, last_assistant_message=json.dumps(output))
     return store, a
 
@@ -1077,6 +1087,24 @@ class TestReviewAndFindings(CoordinatorCase):
             with contextlib.redirect_stdout(io.StringIO()):
                 self.record_review(self.receipt_args(pkt, lens, ["F-" + lens]), self.store)
         return pkt
+
+    def test_multipart_native_evidence_is_required_at_build_receipt_ingress(self):
+        import functools
+        pkt = self.packet()
+        raw = json.dumps(pkt)
+        self.assertGreater(len(raw.encode()), 16384)
+        observe = observe_review_execution
+        for omit in (1, None):
+            args = self.receipt_args(pkt, "usability", [])
+            with mock.patch(__name__ + ".observe_review_execution", side_effect=functools.partial(
+                    observe, multipart=True, omit_piece=omit, packet_content=raw)):
+                if omit is not None:
+                    with self.assertRaises(bc.CoordinatorError):
+                        self.record_review(args, self.store)
+                else:
+                    with contextlib.redirect_stdout(io.StringIO()):
+                        self.record_review(args, self.store)
+        self.assertEqual(len(self.store.read()["reviews"]["deliverable"]["receipts"]), 1)
 
     # --- the plan stage is gone from this side ----------------------------------------
 

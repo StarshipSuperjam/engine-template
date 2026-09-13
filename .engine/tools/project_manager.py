@@ -934,6 +934,8 @@ def cmd_review_packet(args) -> int:
         print("\nFresh assignments (native task name, role and immutable packet):")
         for a in assignments:
             print(f"  {a['id']} | {a['role']} | {a['packet_path']}")
+            print("    Read every path completely (or the complete original packet): " +
+                  json.dumps(scoped_agents.read_requirements(a)["paths"]))
     elif covering:
         print("\nExecution evidence is unverified: pass --session with the current root identity to prepare fresh assignments.", file=sys.stderr)
     return 0

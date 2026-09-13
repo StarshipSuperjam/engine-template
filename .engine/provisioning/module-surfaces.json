@@ -1230,6 +1230,9 @@
   ".engine/schemas/result-rejection.v1.json": [
    "core"
   ],
+  ".engine/schemas/review-read-manifest.v1.json": [
+   "core"
+  ],
   ".engine/schemas/reviewer-contract.v1.json": [
    "core"
   ],
@@ -1627,6 +1630,9 @@
    "core"
   ],
   ".engine/tools/demo_review_coverage.py": [
+   "core"
+  ],
+  ".engine/tools/demo_review_packet_multipart.py": [
    "core"
   ],
   ".engine/tools/demo_scope_profile.py": [
