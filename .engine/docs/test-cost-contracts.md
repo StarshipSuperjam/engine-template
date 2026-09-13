@@ -10,6 +10,22 @@ A baseline is an explicit enrollment, not a learned running maximum. The source 
 
 Missing, corrupt or incompatible enrollment opens a bounded measurement bootstrap under the existing correctness and static inventory checks. Bootstrap does not grant cost clearance. Activation requires complete observations, exact legacy source identities, an owner, a reason and a revisit condition. Candidate runs cannot add legacy cases, rename them into allowances or ratchet limits upward. Unknown coverage remains visible after enrollment.
 
+The installed enrollment has two tracked artifacts: `test-cost-legacy-baseline.json` stores a bounded compressed document, and `test-cost-activation.json` records its digest, execution identities and parity evidence. Compression avoids making every whole-tree fixture copy a large repeated case census. Inspect the document without decoding it by hand:
+
+```sh
+uv run --directory .engine --frozen -- python tools/selftest_cost.py inspect --baseline policies/test-cost-legacy-baseline.json
+```
+
+Add `--case` with an exact runtime ID to inspect its occurrences and ceilings. The command reports the largest costs, original source and adapter identities, ownership and remaining unknowns. A valid activation does not itself approve a candidate.
+
+For an explicit bootstrap, preserve a clean immutable source checkout and run its native full launcher with structured outcomes and performance output. Then observe that same source through the retained-source adapter, writing to a new directory outside the source:
+
+```sh
+uv run --directory .engine --frozen -- python tools/selftest_cost.py observe-retained --source-root /absolute/pinned-source --output-directory /absolute/new-observation-directory
+```
+
+This command measures only; it never writes an activation or changes enrolled limits. Enrollment requires complete passing native/observed outcome parity, the exact static/runtime census, independently resolved identities and explicit review of the resulting debt. A focused `--pattern` is a diagnostic, not full bootstrap evidence. Requalify an incompatible adapter or environment before activating its measurements; a local enrollment cannot qualify a different CI environment.
+
 The initial static census covers all recursively discovered test modules. Existing overwritten definitions have separate source/AST-bound enrollment; they are not runtime cases and are not a completed relevance audit. Generated runtime identities need explicit source mappings and fault-preservation rationale. Line numbers aid diagnosis but do not grant an allowance.
 
 Exceptions are bounded to a source, case occurrence, resource and ceiling. Their UTC issuance/expiry interval must be positive and at most 30 days. Every consumer checks current time through `moment.py`; old green evidence cannot extend permission. Expiry removes the allowance, while otherwise compatible raw observations can be re-evaluated against the unwaived rules.

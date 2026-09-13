@@ -26,7 +26,7 @@ class TestInventory(unittest.TestCase):
         self.assertTrue(any('orphan test definition' in f for f in cost.inventory_findings([], census, {})))
 
     def test_budget_growth_and_exception_expiry_cannot_reuse_old_permission(self):
-        from selftest_support import TestClock
+        import moment
         counts = {**cost.zeros(), 'processes': 3}
         self.assertTrue(cost.budget_findings(counts, {**cost.zeros(), 'processes': 2}))
         case = {'id': 'case', 'occurrence': 1}
@@ -34,15 +34,15 @@ class TestInventory(unittest.TestCase):
                      'revisit': 'Fixture repair', 'issued_at': '2026-09-13T00:00:00Z',
                      'expires_at': '2026-09-14T00:00:00Z', 'case': case, 'resource': 'processes',
                      'ceiling': 3, 'source_commit': 'a'*40}
-        clock = TestClock('2026-09-13T23:59:59Z')
-        self.assertTrue(cost.exception_applies(exception, case, 'processes', 'a'*40, now=clock.now))
-        clock.advance(1)
-        self.assertFalse(cost.exception_applies(exception, case, 'processes', 'a'*40, now=clock.now))
+        now = '2026-09-13T23:59:59Z'
+        self.assertTrue(cost.exception_applies(exception, case, 'processes', 'a'*40, now=now))
+        now = moment.to_z(moment.epoch(now) + 1)
+        self.assertFalse(cost.exception_applies(exception, case, 'processes', 'a'*40, now=now))
         exception['expires_at'] = '2027-09-14T00:00:00Z'
-        self.assertFalse(cost.exception_applies(exception, case, 'processes', 'a'*40, now=clock.now))
+        self.assertFalse(cost.exception_applies(exception, case, 'processes', 'a'*40, now=now))
         exception['expires_at'] = '2026-09-15T00:00:00Z'
         exception['revisit'] = ''
-        self.assertFalse(cost.exception_applies(exception, case, 'processes', 'a'*40, now=clock.now))
+        self.assertFalse(cost.exception_applies(exception, case, 'processes', 'a'*40, now=now))
 
     def test_duplicate_allowance_is_exact_and_does_not_follow_changes_or_growth(self):
         source = 'class T:\n def test_a(self): return 1\n def test_a(self): return 2\n'
