@@ -3017,7 +3017,49 @@ class TestMaterializationIsAttributeBlind(unittest.TestCase):
         self.d._write_tree_from_objects(self.root, commit, dest)
         self.assertEqual(os.readlink(os.path.join(dest, "docs", "up.txt")), "../win.txt")
 
-    def test_symlink_containment_is_lexical_against_the_links_own_directory(self):
+    def test_a_chain_of_links_that_escapes_on_disk_is_refused_and_no_link_remains(self):
+        # R6 DH-1: `dir/hop -> ..` resolves lexically to the tree root (inside), and `x -> dir/hop/../out.txt`
+        # resolves lexically to `dir/out.txt` (inside) — but on disk `dir/hop/..` is the PARENT of the tree, so
+        # the second link reads outside it. The on-disk pass after writing catches what the lexical guard
+        # cannot, and every link written for that tree is removed before the refusal is raised.
+        (self.repo.root / "dir").mkdir(exist_ok=True)
+        self.repo._put("dir/inner.txt", "inner\n")
+        os.symlink("..", self.repo.root / "dir" / "hop")
+        os.symlink("dir/hop/../outside.txt", self.repo.root / "x.txt")
+        _accepted_call("git", "-C", str(self.repo.root), "add", "-A")
+        _accepted_call("git", "-C", str(self.repo.root), "commit", "-q", "-m", "link chain")
+        commit = self.repo.git("rev-parse", "HEAD")
+        dest = tempfile.mkdtemp(dir=self.repo.temp.name)
+        with open(os.path.join(os.path.dirname(dest), "outside.txt"), "w") as fh:
+            fh.write("secret\n")
+        with self.assertRaises(self.d.QualificationError) as caught:
+            self.d._write_tree_from_objects(self.root, commit, dest)
+        self.assertIn("escapes the tree", str(caught.exception))
+        self.assertFalse(os.path.lexists(os.path.join(dest, "x.txt")))
+        self.assertFalse(os.path.lexists(os.path.join(dest, "dir", "hop")))
+        self.assertTrue(os.path.isfile(os.path.join(dest, "dir", "inner.txt")))   # plain files were written
+        os.unlink(self.repo.root / "x.txt")
+        os.unlink(self.repo.root / "dir" / "hop")
+
+    def test_a_chain_of_links_that_stays_inside_on_disk_is_kept(self):
+        # The on-disk pass admits a chain whose every hop lands inside: `dir/hop -> .` then `x -> dir/hop/inner.txt`.
+        (self.repo.root / "dir").mkdir(exist_ok=True)
+        self.repo._put("dir/inner.txt", "inner\n")
+        os.symlink(".", self.repo.root / "dir" / "hop")
+        os.symlink("dir/hop/inner.txt", self.repo.root / "x.txt")
+        _accepted_call("git", "-C", str(self.repo.root), "add", "-A")
+        _accepted_call("git", "-C", str(self.repo.root), "commit", "-q", "-m", "link chain inside")
+        commit = self.repo.git("rev-parse", "HEAD")
+        dest = tempfile.mkdtemp(dir=self.repo.temp.name)
+        self.d._write_tree_from_objects(self.root, commit, dest)
+        with open(os.path.join(dest, "x.txt")) as fh:
+            self.assertEqual(fh.read(), "inner\n")
+        os.unlink(self.repo.root / "x.txt")
+        os.unlink(self.repo.root / "dir" / "hop")
+
+    def test_the_lexical_guard_is_the_pre_write_check_not_the_authority(self):
+        # The helper refuses what it can see before a link exists (absolute, plain climb); the chain case above
+        # is the on-disk pass's job, and this test names that division so nobody reads the helper as complete.
         base = os.path.realpath(tempfile.mkdtemp(dir=self.repo.temp.name))
         inside = os.path.join(base, "docs", "up.txt")
         self.assertTrue(self.d._symlink_target_stays_inside(base, inside, "../win.txt"))

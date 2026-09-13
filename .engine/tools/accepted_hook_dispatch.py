@@ -576,6 +576,7 @@ def _write_tree_from_objects(root: str, commit: str, dest: str) -> None:
         raise QualificationError("the accepted commit's objects could not be read")
     stream = proc.stdout
     cursor = 0
+    links: list[str] = []
     for path, mode, oid in manifest:
         newline = stream.find(b"\n", cursor)
         if newline < 0:
@@ -596,20 +597,42 @@ def _write_tree_from_objects(root: str, commit: str, dest: str) -> None:
             if not _symlink_target_stays_inside(base, target, link):
                 raise QualificationError("the accepted commit's tree holds a symlink that escapes the tree")
             os.symlink(link, target)
+            links.append(target)
             continue
         with open(target, "wb") as handle:
             handle.write(content)
         os.chmod(target, 0o755 if mode == "100755" else 0o644)
+    # The lexical guard above cannot see through a link that is itself a hop: `dir/link -> ..` followed by
+    # `x -> dir/link/../outside` is lexically inside and lands outside on disk. Now that every entry exists,
+    # resolve each link the way the operating system will and refuse the tree if any hop escapes; the links
+    # written so far are removed first so no escaping pointer survives the refusal (R6 DH-1).
+    for target in links:
+        if not _symlink_resolves_inside(base, target):
+            for written in links:
+                try:
+                    os.unlink(written)
+                except OSError:
+                    pass
+            raise QualificationError("the accepted commit's tree holds a symlink that escapes the tree")
 
 
 def _symlink_target_stays_inside(base: str, link_path: str, link: str) -> bool:
     """True when a symlink written at ``link_path`` pointing at ``link`` stays under ``base`` after a purely
-    lexical resolution against the link's own directory. Lexical on purpose: the tree is being written and
-    nothing exists to follow yet, and a chain of links can only reach a path this same check has already
-    admitted, so every hop stays inside. An absolute target is refused outright."""
+    lexical resolution against the link's own directory. This is the PRE-WRITE guard: an absolute target or a
+    plain relative climb is refused before the link is created, so it never exists on disk. It is not the
+    authority on containment, because a link can route through another link and the lexical form cannot see
+    that; ``_symlink_resolves_inside`` checks the written tree on disk once every entry exists."""
     if not link or os.path.isabs(link):
         return False
     resolved = os.path.normpath(os.path.join(os.path.dirname(link_path), link))
+    return resolved == base or resolved.startswith(base + os.sep)
+
+
+def _symlink_resolves_inside(base: str, link_path: str) -> bool:
+    """True when the link at ``link_path``, resolved by the operating system with every link already on disk
+    (``os.path.realpath`` follows each hop that exists), still lands at or under ``base``. A dangling tail
+    resolves lexically, which is the same answer the pre-write guard gave for it."""
+    resolved = os.path.realpath(link_path)
     return resolved == base or resolved.startswith(base + os.sep)
 
 
