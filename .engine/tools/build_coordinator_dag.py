@@ -64,9 +64,32 @@ def validate_plan_document(value: dict, plan_schemas: dict) -> str:
     ids = [item["id"] for item in value["work_items"]]
     if len(ids) != len(set(ids)):
         raise CoordinatorError("Build plan work-item ids must be unique")
-    if version == "build-plan.v2":
+    if version in ("build-plan.v2", "build-plan.v3"):
         validate_dag(value)
+    if version == "build-plan.v3":
+        validate_test_cost_contracts(value)
     return version
+
+
+def validate_test_cost_contracts(plan: dict) -> None:
+    """Semantic checks on declarations; measured cost is judged by the observation owner.
+
+    Every node declares its boundary, including nodes whose expected process cost is zero.
+    Applicability is never an author-controlled boolean exemption.
+    """
+    for item in plan["work_items"]:
+        contract = item["test_cost"]
+        if contract["boundary"] == "pure":
+            for resource in ("processes", "git_commands", "whole_tree_fixtures", "nested_journeys"):
+                if contract["limits"][resource]:
+                    raise CoordinatorError(f"{item['id']}: pure test boundary cannot require {resource}")
+        families = contract["families"]
+        if len({family["id"] for family in families}) != len(families):
+            raise CoordinatorError(f"{item['id']}: test-cost family ids must be unique")
+        for family in families:
+            sizes = family["input_sizes"]
+            if sizes != sorted(set(sizes)):
+                raise CoordinatorError(f"{item['id']}: scaling input sizes must be distinct and increasing")
 
 
 def validate_dag(plan: dict) -> None:

@@ -1,0 +1,781 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "build-plan.v3 \u2014 prospective per-node test-cost contracts",
+  "description": "Preserves the static DAG and carries a complete test-cost declaration per node. Older sealed payloads retain their original schema and bytes.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_version",
+    "profile",
+    "intent_source",
+    "raw_intent",
+    "objective",
+    "success_obligations",
+    "work_items",
+    "parallelism",
+    "spec"
+  ],
+  "properties": {
+    "schema_version": {
+      "const": "build-plan.v3"
+    },
+    "profile": {
+      "enum": [
+        "trivial",
+        "normal",
+        "routine"
+      ]
+    },
+    "intent_source": {
+      "oneOf": [
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "kind"
+          ],
+          "properties": {
+            "kind": {
+              "const": "direct"
+            }
+          }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "kind",
+            "issue"
+          ],
+          "properties": {
+            "kind": {
+              "const": "issue"
+            },
+            "issue": {
+              "type": "integer",
+              "minimum": 1
+            }
+          }
+        }
+      ]
+    },
+    "raw_intent": {
+      "type": "string",
+      "minLength": 1
+    },
+    "interpretation": {
+      "type": "string",
+      "minLength": 1
+    },
+    "evidence": {
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/evidence"
+      }
+    },
+    "assumptions": {
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/assumption"
+      }
+    },
+    "objective": {
+      "type": "string",
+      "minLength": 1
+    },
+    "success_obligations": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "$ref": "#/$defs/obligation"
+      }
+    },
+    "scope_boundary": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "type": "string",
+        "minLength": 1
+      }
+    },
+    "non_goals": {
+      "type": "array",
+      "items": {
+        "type": "string",
+        "minLength": 1
+      }
+    },
+    "risks": {
+      "type": "array",
+      "items": {
+        "type": "string",
+        "minLength": 1
+      }
+    },
+    "work_items": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "$ref": "#/$defs/work_item"
+      }
+    },
+    "parallelism": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "mode",
+        "max_concurrency"
+      ],
+      "properties": {
+        "mode": {
+          "enum": [
+            "serial",
+            "conditional"
+          ]
+        },
+        "max_concurrency": {
+          "type": "integer",
+          "minimum": 1
+        }
+      }
+    },
+    "review_strategy": {
+      "type": "string",
+      "minLength": 1
+    },
+    "spec": {
+      "oneOf": [
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "posture",
+            "selection_basis",
+            "disclosure"
+          ],
+          "properties": {
+            "posture": {
+              "const": "none"
+            },
+            "selection_basis": {
+              "type": "string",
+              "minLength": 1
+            },
+            "disclosure": {
+              "type": "string",
+              "minLength": 1
+            }
+          }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "posture",
+            "selection_basis",
+            "documents"
+          ],
+          "properties": {
+            "posture": {
+              "const": "settled"
+            },
+            "selection_basis": {
+              "type": "string",
+              "minLength": 1
+            },
+            "documents": {
+              "type": "array",
+              "minItems": 1,
+              "items": {
+                "$ref": "#/$defs/spec_document"
+              }
+            }
+          }
+        }
+      ]
+    }
+  },
+  "allOf": [
+    {
+      "if": {
+        "properties": {
+          "profile": {
+            "const": "trivial"
+          }
+        }
+      },
+      "then": {
+        "properties": {
+          "work_items": {
+            "maxItems": 1
+          },
+          "spec": {
+            "properties": {
+              "posture": {
+                "const": "none"
+              }
+            }
+          },
+          "parallelism": {
+            "properties": {
+              "mode": {
+                "const": "serial"
+              }
+            }
+          }
+        }
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "profile": {
+            "enum": [
+              "normal",
+              "routine"
+            ]
+          }
+        }
+      },
+      "then": {
+        "required": [
+          "interpretation",
+          "evidence",
+          "assumptions",
+          "scope_boundary",
+          "non_goals",
+          "risks",
+          "review_strategy"
+        ]
+      }
+    },
+    {
+      "description": "A routine plan's intent must have come from an Issue. This is a SHAPE rule, and no longer the authority itself. When the durable Issue CARRIED the plan, an Issue-derived intent was how an unattended Build proved it held the right plan, and the check at bind was digest equality. The plan lives locally now, so the Issue and the plan are two separate artifacts and the real work is done by the correspondence check in build_coordinator._check_authorization: the Issue supplied at bind must be the one the sealed plan's intent_source names. What this rule still guarantees is that there IS such a reference to correspond to \u2014 a routine plan can never be sealed in a shape that leaves an unattended bind with nothing to check against.",
+      "if": {
+        "properties": {
+          "profile": {
+            "const": "routine"
+          }
+        }
+      },
+      "then": {
+        "properties": {
+          "intent_source": {
+            "properties": {
+              "kind": {
+                "const": "issue"
+              }
+            }
+          }
+        }
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "parallelism": {
+            "properties": {
+              "mode": {
+                "const": "serial"
+              }
+            }
+          }
+        }
+      },
+      "then": {
+        "properties": {
+          "parallelism": {
+            "properties": {
+              "max_concurrency": {
+                "const": 1
+              }
+            }
+          }
+        }
+      }
+    }
+  ],
+  "$defs": {
+    "digest": {
+      "type": "string",
+      "pattern": "^sha256:[0-9a-f]{64}$"
+    },
+    "evidence": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "claim",
+        "basis",
+        "kind"
+      ],
+      "properties": {
+        "claim": {
+          "type": "string",
+          "minLength": 1
+        },
+        "basis": {
+          "type": "string",
+          "minLength": 1
+        },
+        "kind": {
+          "enum": [
+            "observed",
+            "inferred"
+          ]
+        }
+      }
+    },
+    "assumption": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "claim",
+        "status"
+      ],
+      "properties": {
+        "claim": {
+          "type": "string",
+          "minLength": 1
+        },
+        "status": {
+          "enum": [
+            "verified",
+            "accepted-risk",
+            "unresolved"
+          ]
+        }
+      }
+    },
+    "obligation": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "outcome",
+        "verification"
+      ],
+      "properties": {
+        "outcome": {
+          "type": "string",
+          "minLength": 1
+        },
+        "verification": {
+          "type": "string",
+          "minLength": 1
+        }
+      }
+    },
+    "work_item": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "id",
+        "description",
+        "paths",
+        "verification",
+        "depends_on",
+        "exclusive_resources",
+        "executor_class",
+        "output_contract",
+        "test_cost"
+      ],
+      "properties": {
+        "id": {
+          "type": "string",
+          "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]*$"
+        },
+        "description": {
+          "type": "string",
+          "minLength": 1
+        },
+        "paths": {
+          "type": "array",
+          "minItems": 1,
+          "items": {
+            "type": "string",
+            "minLength": 1
+          }
+        },
+        "verification": {
+          "type": "array",
+          "minItems": 1,
+          "items": {
+            "type": "string",
+            "minLength": 1
+          }
+        },
+        "depends_on": {
+          "type": "array",
+          "uniqueItems": true,
+          "items": {
+            "type": "string",
+            "minLength": 1
+          }
+        },
+        "exclusive_resources": {
+          "type": "array",
+          "uniqueItems": true,
+          "items": {
+            "type": "string",
+            "minLength": 1
+          }
+        },
+        "executor_class": {
+          "enum": [
+            "integrator",
+            "builder",
+            "bounded"
+          ]
+        },
+        "output_contract": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "deliverable",
+            "artifact_kinds",
+            "required_evidence"
+          ],
+          "properties": {
+            "deliverable": {
+              "type": "string",
+              "minLength": 1
+            },
+            "artifact_kinds": {
+              "type": "array",
+              "minItems": 1,
+              "uniqueItems": true,
+              "items": {
+                "type": "string",
+                "minLength": 1
+              }
+            },
+            "required_evidence": {
+              "type": "array",
+              "minItems": 1,
+              "uniqueItems": true,
+              "items": {
+                "type": "string",
+                "minLength": 1
+              }
+            }
+          }
+        },
+        "test_cost": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "schema_version",
+            "supported_fault",
+            "boundary",
+            "boundary_rationale",
+            "fixture_owner",
+            "dependencies",
+            "data_reads",
+            "cadence",
+            "limits",
+            "mutable_state",
+            "cache_lifetime",
+            "added_cost_risk",
+            "families"
+          ],
+          "properties": {
+            "schema_version": {
+              "const": "test-cost-contract.v1"
+            },
+            "supported_fault": {
+              "type": "string",
+              "minLength": 1
+            },
+            "boundary": {
+              "enum": [
+                "pure",
+                "filesystem",
+                "process",
+                "integration"
+              ]
+            },
+            "boundary_rationale": {
+              "type": "string",
+              "minLength": 1
+            },
+            "fixture_owner": {
+              "type": "string",
+              "minLength": 1
+            },
+            "dependencies": {
+              "type": "array",
+              "items": {
+                "type": "string",
+                "minLength": 1
+              },
+              "minItems": 0
+            },
+            "data_reads": {
+              "type": "array",
+              "items": {
+                "type": "string",
+                "minLength": 1
+              },
+              "minItems": 0
+            },
+            "cadence": {
+              "enum": [
+                "pr",
+                "nightly",
+                "release"
+              ]
+            },
+            "limits": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": [
+                "processes",
+                "git_commands",
+                "schema_decodes",
+                "metaschema_validations",
+                "whole_tree_fixtures",
+                "nested_journeys"
+              ],
+              "properties": {
+                "processes": {
+                  "type": "integer",
+                  "minimum": 0
+                },
+                "git_commands": {
+                  "type": "integer",
+                  "minimum": 0
+                },
+                "schema_decodes": {
+                  "type": "integer",
+                  "minimum": 0
+                },
+                "metaschema_validations": {
+                  "type": "integer",
+                  "minimum": 0
+                },
+                "whole_tree_fixtures": {
+                  "type": "integer",
+                  "minimum": 0
+                },
+                "nested_journeys": {
+                  "type": "integer",
+                  "minimum": 0
+                }
+              }
+            },
+            "mutable_state": {
+              "type": "string",
+              "minLength": 1
+            },
+            "cache_lifetime": {
+              "enum": [
+                "none",
+                "case",
+                "class",
+                "module",
+                "run"
+              ]
+            },
+            "added_cost_risk": {
+              "type": "string",
+              "minLength": 1
+            },
+            "families": {
+              "type": "array",
+              "items": {
+                "type": "object",
+                "additionalProperties": false,
+                "required": [
+                  "id",
+                  "case_patterns",
+                  "input_sizes",
+                  "growth_limits"
+                ],
+                "properties": {
+                  "id": {
+                    "type": "string",
+                    "minLength": 1
+                  },
+                  "case_patterns": {
+                    "type": "array",
+                    "items": {
+                      "type": "string",
+                      "minLength": 1
+                    },
+                    "minItems": 1
+                  },
+                  "input_sizes": {
+                    "type": "array",
+                    "items": {
+                      "type": "integer",
+                      "minimum": 1
+                    },
+                    "minItems": 2
+                  },
+                  "growth_limits": {
+                    "type": "object",
+                    "additionalProperties": false,
+                    "required": [
+                      "processes",
+                      "git_commands",
+                      "schema_decodes",
+                      "metaschema_validations",
+                      "whole_tree_fixtures",
+                      "nested_journeys"
+                    ],
+                    "properties": {
+                      "processes": {
+                        "type": "integer",
+                        "minimum": 0
+                      },
+                      "git_commands": {
+                        "type": "integer",
+                        "minimum": 0
+                      },
+                      "schema_decodes": {
+                        "type": "integer",
+                        "minimum": 0
+                      },
+                      "metaschema_validations": {
+                        "type": "integer",
+                        "minimum": 0
+                      },
+                      "whole_tree_fixtures": {
+                        "type": "integer",
+                        "minimum": 0
+                      },
+                      "nested_journeys": {
+                        "type": "integer",
+                        "minimum": 0
+                      }
+                    }
+                  }
+                }
+              },
+              "minItems": 0
+            }
+          }
+        }
+      }
+    },
+    "spec_document": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "path",
+        "selection_reason",
+        "digest",
+        "criteria"
+      ],
+      "properties": {
+        "path": {
+          "type": "string",
+          "pattern": "^docs/spec/.+\\.md$"
+        },
+        "selection_reason": {
+          "type": "string",
+          "minLength": 1
+        },
+        "digest": {
+          "$ref": "#/$defs/digest"
+        },
+        "criteria": {
+          "type": "array",
+          "minItems": 1,
+          "items": {
+            "$ref": "#/$defs/criterion_mapping"
+          }
+        }
+      }
+    },
+    "criterion_mapping": {
+      "oneOf": [
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "id",
+            "digest",
+            "text",
+            "how_verified",
+            "disposition",
+            "work_item_ids",
+            "planned_verification"
+          ],
+          "properties": {
+            "id": {
+              "type": "string",
+              "minLength": 1
+            },
+            "digest": {
+              "$ref": "#/$defs/digest"
+            },
+            "text": {
+              "type": "string",
+              "minLength": 1
+            },
+            "how_verified": {
+              "type": "string",
+              "minLength": 1
+            },
+            "disposition": {
+              "const": "mapped"
+            },
+            "work_item_ids": {
+              "type": "array",
+              "minItems": 1,
+              "uniqueItems": true,
+              "items": {
+                "type": "string",
+                "minLength": 1
+              }
+            },
+            "planned_verification": {
+              "type": "array",
+              "minItems": 1,
+              "items": {
+                "type": "string",
+                "minLength": 1
+              }
+            }
+          }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "id",
+            "digest",
+            "text",
+            "how_verified",
+            "disposition",
+            "reason"
+          ],
+          "properties": {
+            "id": {
+              "type": "string",
+              "minLength": 1
+            },
+            "digest": {
+              "$ref": "#/$defs/digest"
+            },
+            "text": {
+              "type": "string",
+              "minLength": 1
+            },
+            "how_verified": {
+              "type": "string",
+              "minLength": 1
+            },
+            "disposition": {
+              "const": "not_applicable"
+            },
+            "reason": {
+              "type": "string",
+              "minLength": 1
+            }
+          }
+        }
+      ]
+    }
+  }
+}

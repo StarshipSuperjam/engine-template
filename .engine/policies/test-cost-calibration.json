@@ -1,0 +1,48 @@
+{
+  "schema_version": "test-cost-calibration.v1",
+  "foundation": {
+    "repository": "StarshipSuperjam/engine-template",
+    "head": "45d9dda7a93c1ad93856073a180be5fce437f5b8",
+    "observed_at": "2026-09-12T22:19:29Z",
+    "report_digest": "sha256:d8f27031a080b5e833dcf37e407db5dc5b7d9dfd7bfd6e64cd1702d1981161d7",
+    "associations": {
+      "engine-ci": {
+        "run": 34720997322,
+        "attempt": 1,
+        "workflow": ".github/workflows/engine-ci.yml"
+      },
+      "engine-guard": {
+        "run": 34720980845,
+        "attempt": 1,
+        "workflow": ".github/workflows/engine-guard.yml"
+      }
+    },
+    "metrics": {
+      "elapsed_seconds": 1489.0,
+      "active_union_seconds": 1474.0,
+      "queue_only_seconds": 5.0,
+      "queue_excluded_seconds": 1484.0,
+      "runner_minutes": 24.566666666666666,
+      "cumulative_runner_minutes": 24.566666666666666,
+      "attempt_count": 2
+    },
+    "complete": true,
+    "timing_complete": true
+  },
+  "bounded_profile": {
+    "source_commit": "c434b4771efb94bce36894287b8ffeda2555b651",
+    "adapter_digest": "sha256:52d96b560f6dc287b32f724aa242bdcf75557b977ce6ba9c2399b131816eae78",
+    "schema_digest": "sha256:5dd0e4a0672c66d7333bf082e6c1fc649456b1e369142702687df8881d6143e8",
+    "workload": "200 validations of the two-node v3 payload in test_plan_contract._cost_payload; three sequential samples in one private-runtime process",
+    "python": "3.12.13",
+    "platform": "macOS-26.6.2-arm64-arm-64bit",
+    "cache_state": "warm",
+    "samples_seconds": [
+      0.08531958400271833,
+      0.06944383401423693,
+      0.06911508296616375
+    ],
+    "baseline_noise_seconds": 0.015875749988481402
+  },
+  "decision": "The retained CI observation exceeds the independent 1200-second concern. These bounded local samples establish a reproducible noise calculation only; they do not qualify CI speed, compare v2 with v3, or set a global timing gate. Actual comparisons must recompute the envelope from matching baseline samples."
+}

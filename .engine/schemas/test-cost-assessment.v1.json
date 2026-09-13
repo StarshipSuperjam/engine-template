@@ -1,0 +1,335 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_version",
+    "identity",
+    "baseline_digest",
+    "observation_digest",
+    "status",
+    "violations",
+    "unknown",
+    "exceptions",
+    "common",
+    "added",
+    "removed",
+    "aggregate_delta",
+    "timing_findings"
+  ],
+  "properties": {
+    "schema_version": {
+      "const": "test-cost-assessment.v1"
+    },
+    "identity": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "source_commit",
+        "base_commit",
+        "observer_commit",
+        "plan_digest",
+        "contract_digest",
+        "policy_digest",
+        "inventory_digest",
+        "environment_digest",
+        "cache_state",
+        "topology",
+        "stage",
+        "attempt",
+        "node",
+        "artifact_digest"
+      ],
+      "properties": {
+        "source_commit": {
+          "type": "string",
+          "pattern": "^[0-9a-f]{40}$"
+        },
+        "base_commit": {
+          "type": "string",
+          "pattern": "^[0-9a-f]{40}$"
+        },
+        "observer_commit": {
+          "type": "string",
+          "pattern": "^[0-9a-f]{40}$"
+        },
+        "plan_digest": {
+          "type": "string",
+          "pattern": "^sha256:[0-9a-f]{64}$"
+        },
+        "contract_digest": {
+          "type": "string",
+          "pattern": "^sha256:[0-9a-f]{64}$"
+        },
+        "policy_digest": {
+          "type": "string",
+          "pattern": "^sha256:[0-9a-f]{64}$"
+        },
+        "inventory_digest": {
+          "type": "string",
+          "pattern": "^sha256:[0-9a-f]{64}$"
+        },
+        "environment_digest": {
+          "type": "string",
+          "pattern": "^sha256:[0-9a-f]{64}$"
+        },
+        "cache_state": {
+          "enum": [
+            "cold",
+            "warm",
+            "unknown"
+          ]
+        },
+        "topology": {
+          "enum": [
+            "serial"
+          ]
+        },
+        "stage": {
+          "enum": [
+            "node-focused",
+            "candidate",
+            "full",
+            "bootstrap"
+          ]
+        },
+        "attempt": {
+          "type": "string",
+          "minLength": 1
+        },
+        "node": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "artifact_digest": {
+          "type": "string",
+          "pattern": "^sha256:[0-9a-f]{64}$"
+        }
+      }
+    },
+    "baseline_digest": {
+      "type": [
+        "string",
+        "null"
+      ],
+      "pattern": "^sha256:[0-9a-f]{64}$"
+    },
+    "observation_digest": {
+      "type": "string",
+      "pattern": "^sha256:[0-9a-f]{64}$"
+    },
+    "status": {
+      "enum": [
+        "acceptable",
+        "concerns",
+        "unavailable"
+      ]
+    },
+    "violations": {
+      "type": "array",
+      "items": {
+        "type": "string",
+        "minLength": 1
+      },
+      "minItems": 0
+    },
+    "unknown": {
+      "type": "array",
+      "items": {
+        "type": "string",
+        "minLength": 1
+      },
+      "minItems": 0
+    },
+    "exceptions": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "id",
+          "owner",
+          "reason",
+          "revisit",
+          "issued_at",
+          "expires_at",
+          "case",
+          "resource",
+          "ceiling",
+          "source_commit"
+        ],
+        "properties": {
+          "id": {
+            "type": "string",
+            "minLength": 1
+          },
+          "owner": {
+            "type": "string",
+            "minLength": 1
+          },
+          "reason": {
+            "type": "string",
+            "minLength": 1
+          },
+          "revisit": {
+            "type": "string",
+            "minLength": 1
+          },
+          "issued_at": {
+            "type": "string",
+            "pattern": "^\\d{4}-\\d\\d-\\d\\dT\\d\\d:\\d\\d:\\d\\dZ$"
+          },
+          "expires_at": {
+            "type": "string",
+            "pattern": "^\\d{4}-\\d\\d-\\d\\dT\\d\\d:\\d\\d:\\d\\dZ$"
+          },
+          "case": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "id",
+              "occurrence"
+            ],
+            "properties": {
+              "id": {
+                "type": "string",
+                "minLength": 1
+              },
+              "occurrence": {
+                "type": "integer",
+                "minimum": 1
+              }
+            }
+          },
+          "resource": {
+            "enum": [
+              "processes",
+              "git_commands",
+              "schema_decodes",
+              "metaschema_validations",
+              "whole_tree_fixtures",
+              "nested_journeys"
+            ]
+          },
+          "ceiling": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "source_commit": {
+            "type": "string",
+            "pattern": "^[0-9a-f]{40}$"
+          }
+        }
+      },
+      "minItems": 0
+    },
+    "common": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "id",
+          "occurrence"
+        ],
+        "properties": {
+          "id": {
+            "type": "string",
+            "minLength": 1
+          },
+          "occurrence": {
+            "type": "integer",
+            "minimum": 1
+          }
+        }
+      },
+      "minItems": 0
+    },
+    "added": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "id",
+          "occurrence"
+        ],
+        "properties": {
+          "id": {
+            "type": "string",
+            "minLength": 1
+          },
+          "occurrence": {
+            "type": "integer",
+            "minimum": 1
+          }
+        }
+      },
+      "minItems": 0
+    },
+    "removed": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "id",
+          "occurrence"
+        ],
+        "properties": {
+          "id": {
+            "type": "string",
+            "minLength": 1
+          },
+          "occurrence": {
+            "type": "integer",
+            "minimum": 1
+          }
+        }
+      },
+      "minItems": 0
+    },
+    "aggregate_delta": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "processes",
+        "git_commands",
+        "schema_decodes",
+        "metaschema_validations",
+        "whole_tree_fixtures",
+        "nested_journeys"
+      ],
+      "properties": {
+        "processes": {
+          "type": "integer"
+        },
+        "git_commands": {
+          "type": "integer"
+        },
+        "schema_decodes": {
+          "type": "integer"
+        },
+        "metaschema_validations": {
+          "type": "integer"
+        },
+        "whole_tree_fixtures": {
+          "type": "integer"
+        },
+        "nested_journeys": {
+          "type": "integer"
+        }
+      }
+    },
+    "timing_findings": {
+      "type": "array",
+      "items": {
+        "type": "string",
+        "minLength": 1
+      },
+      "minItems": 0
+    }
+  }
+}

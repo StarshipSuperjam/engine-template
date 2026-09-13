@@ -57,6 +57,7 @@ PLAN_SCHEMAS = {"engine-plan.v1": PLAN_SCHEMA}
 BUILD_PLAN_SCHEMAS = {
     "build-plan.v1": ROOT / ".engine" / "schemas" / "build-plan.v1.json",
     "build-plan.v2": ROOT / ".engine" / "schemas" / "build-plan.v2.json",
+    "build-plan.v3": ROOT / ".engine" / "schemas" / "build-plan.v3.json",
     # The honestly-empty payload an imported native plan carries until someone actually decomposes it.
     # It is registered HERE, on the one validation path, rather than given a branch of its own: a
     # second and laxer path is how an undecomposed plan would eventually find its way to a Build. It
@@ -65,7 +66,7 @@ BUILD_PLAN_SCHEMAS = {
     "build-plan.imported": ROOT / ".engine" / "schemas" / "build-plan.imported.json",
 }
 IMPORTED_BUILD_PLAN_VERSION = "build-plan.imported"
-SEALABLE_BUILD_PLAN_VERSION = "build-plan.v2"
+SEALABLE_BUILD_PLAN_VERSION = "build-plan.v3"
 
 PlanContractError = core.CoordinatorError
 
