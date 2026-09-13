@@ -45,6 +45,38 @@ import module_coherence  # noqa: E402
 import repo_identity     # noqa: E402
 import validate          # noqa: E402
 
+
+def test_process_environment(directory, *, base=None, ambient_git=False):
+    """Return a fresh process environment with disposable configuration by default.
+
+    Tests whose supported fault is ambient Git discovery deliberately opt in. No global
+    environment is changed, and each sibling owns its returned mapping.
+    """
+    from pathlib import Path
+    env = dict(os.environ if base is None else base)
+    if not ambient_git:
+        for name in list(env):
+            if name.startswith('GIT_'):
+                env.pop(name)
+        env.update(HOME=str(directory), XDG_CONFIG_HOME=str(Path(directory) / 'config'),
+                   GIT_CONFIG_NOSYSTEM='1', GIT_CONFIG_GLOBAL=os.devnull,
+                   GIT_CEILING_DIRECTORIES=str(directory))
+    return env
+
+
+class TestClock:
+    """An explicit clock for policy-expiry tests; advance time without sleeping."""
+    def __init__(self, now):
+        import moment
+        if moment.parse_z(now) is None:
+            raise ValueError('clock requires a valid UTC moment')
+        self.now = now
+
+    def advance(self, seconds):
+        import moment
+        self.now = moment.to_z(moment.epoch(self.now) + seconds)
+        return self.now
+
 # The recursion-refusal marker: selftest.py sets it on the child that runs the whole suite, and
 # release_gate.py sets it on every process it spawns inside a projection, so a nested run refuses to spawn
 # another nested run underneath it. Same string as selftest._NESTED_ENV and release_gate._NESTED_ENV

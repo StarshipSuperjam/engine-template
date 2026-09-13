@@ -24,6 +24,15 @@ _FOREIGN = "/dummy/foreign/repo"
 
 
 class TestShapeVerdict(unittest.TestCase):
+    def test_process_configuration_is_fresh_and_ambient_discovery_is_explicit(self):
+        original = {'GIT_DIR': '/operator/repo', 'HOME': '/operator', 'PATH': '/bin'}
+        first = selftest_support.test_process_environment('/scratch', base=original)
+        self.assertNotIn('GIT_DIR', first)
+        self.assertEqual(first['HOME'], '/scratch')
+        first['PATH'] = 'changed'
+        self.assertEqual(selftest_support.test_process_environment('/scratch', base=original)['PATH'], '/bin')
+        self.assertEqual(selftest_support.test_process_environment('/scratch', base=original, ambient_git=True), original)
+
     def test_home_repo_bare_environ_is_true(self):
         self.assertTrue(selftest_support.shape_verdict(_HOME, {}, is_home=lambda root: root == _HOME))
 
