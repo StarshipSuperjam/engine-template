@@ -553,7 +553,10 @@ def _write_tree_from_objects(root: str, commit: str, dest: str) -> None:
     exact binding would then fail on every attempt in any project carrying such attributes, holding every
     memory write. Reading objects directly is attribute-blind by construction: the materialized set equals
     the manifest whenever the object store is intact. Paths come from git, but are still refused if they
-    could escape ``dest``; any object kind a working tree cannot hold fails closed.
+    could escape ``dest``, and so is a symlink whose TARGET would (an absolute target, or a relative one that
+    climbs out of the tree once resolved against the link's own directory) — ``git archive`` plus
+    ``tarfile``'s ``data`` filter used to refuse those, and reading objects directly must not lose that
+    containment (R5-SG-1). Any object kind a working tree cannot hold fails closed.
     """
     manifest = sorted(_git_manifest(root, commit))
     base = os.path.realpath(dest)
@@ -589,11 +592,25 @@ def _write_tree_from_objects(root: str, commit: str, dest: str) -> None:
         target = os.path.join(base, *path.split("/"))
         os.makedirs(os.path.dirname(target), exist_ok=True)
         if mode == "120000":
-            os.symlink(content.decode("utf-8", "surrogateescape"), target)
+            link = content.decode("utf-8", "surrogateescape")
+            if not _symlink_target_stays_inside(base, target, link):
+                raise QualificationError("the accepted commit's tree holds a symlink that escapes the tree")
+            os.symlink(link, target)
             continue
         with open(target, "wb") as handle:
             handle.write(content)
         os.chmod(target, 0o755 if mode == "100755" else 0o644)
+
+
+def _symlink_target_stays_inside(base: str, link_path: str, link: str) -> bool:
+    """True when a symlink written at ``link_path`` pointing at ``link`` stays under ``base`` after a purely
+    lexical resolution against the link's own directory. Lexical on purpose: the tree is being written and
+    nothing exists to follow yet, and a chain of links can only reach a path this same check has already
+    admitted, so every hop stays inside. An absolute target is refused outright."""
+    if not link or os.path.isabs(link):
+        return False
+    resolved = os.path.normpath(os.path.join(os.path.dirname(link_path), link))
+    return resolved == base or resolved.startswith(base + os.sep)
 
 
 def _materialize(root: str, activation: dict) -> str:

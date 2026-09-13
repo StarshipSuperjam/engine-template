@@ -2447,6 +2447,32 @@ class TestAcceptedTreeBytecodeHygiene(unittest.TestCase):
         for result in results:
             self.assertEqual(result.returncode, 0, result.stderr)
 
+    def test_two_concurrent_attended_launches_while_the_tree_needs_rebuilding_both_succeed(self):
+        # R5-DH-1: the plan's contention case is the REBUILD, not a clean tree. Pollute the published tree so
+        # the next launch must materialize again, then launch twice at once: the materialize lock serializes
+        # the rebuild, the loser finds the winner's valid tree, both run, and exactly one clean, valid tree
+        # (no bytecode, marker present, exact binding intact) is what remains.
+        self.assertEqual(self.repo.run_attended().returncode, 0)
+        seeded = self._tree_path() / ".engine/tools/__pycache__"
+        seeded.mkdir(parents=True, exist_ok=True)
+        (seeded / "poison.cpython-000.pyc").write_bytes(b"\x00\x01poison")
+        self.assertIsNone(self._valid(), "the polluted tree must need rebuilding before the race starts")
+        results = []
+        with concurrent.futures.ThreadPoolExecutor(max_workers=2) as pool:
+            futures = [pool.submit(self.repo.run_attended) for _ in range(2)]
+            for future in concurrent.futures.as_completed(futures):
+                results.append(future.result())
+        for result in results:
+            self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual(self._pycache_dirs(self._tree_path()), [])
+        self.assertIsNotNone(self._valid(), "the race left no valid materialization behind")
+        self.assertTrue(self._marker_path().is_file())
+        # And the tree is now stable: a third launch finds it valid and does not rebuild it again.
+        before = os.stat(self._marker_path())
+        self.assertEqual(self.repo.run_attended().returncode, 0)
+        after = os.stat(self._marker_path())
+        self.assertEqual((after.st_ino, after.st_mtime_ns), (before.st_ino, before.st_mtime_ns))
+
 
 class TestBytecodeBeltScope(unittest.TestCase):
     """W2 repair: the bytecode belt is scoped to the INNER accepted-dispatch process. Importing this module
@@ -2962,6 +2988,43 @@ class TestMaterializationIsAttributeBlind(unittest.TestCase):
         with mock.patch.object(self.d, "_git_manifest", return_value=forged):
             with self.assertRaises(self.d.QualificationError):
                 self.d._write_tree_from_objects(self.root, self.commit, tempfile.mkdtemp(dir=self.repo.temp.name))
+
+    def _commit_with_symlink(self, name, link):
+        os.symlink(link, self.repo.root / name)
+        _accepted_call("git", "-C", str(self.repo.root), "add", "-A")
+        _accepted_call("git", "-C", str(self.repo.root), "commit", "-q", "-m", f"link {name}")
+        return self.repo.git("rev-parse", "HEAD")
+
+    def test_a_symlink_whose_target_escapes_the_tree_is_refused_and_nothing_is_written(self):
+        # R5-SG-1: the archive path's `tarfile` data filter refused an escaping link; the object-store writer
+        # must too. Both an absolute target and a relative climb are refused BEFORE the link is created, so
+        # no dangling pointer at the operator's home ever exists on disk, even briefly.
+        for name, link in (("abs.txt", os.path.abspath(os.sep)), ("climb.txt", "../../outside.txt")):
+            with self.subTest(link=link):
+                commit = self._commit_with_symlink(name, link)
+                dest = tempfile.mkdtemp(dir=self.repo.temp.name)
+                with self.assertRaises(self.d.QualificationError) as caught:
+                    self.d._write_tree_from_objects(self.root, commit, dest)
+                self.assertIn("escapes the tree", str(caught.exception))
+                self.assertFalse(os.path.lexists(os.path.join(dest, name)))
+                os.unlink(self.repo.root / name)
+
+    def test_a_symlink_that_climbs_but_stays_inside_the_tree_is_kept(self):
+        # `docs/../win.txt` climbs one level and lands inside: contained, so it is written like `link.txt`.
+        self.repo._put("docs/inner.txt", "inner\n")
+        commit = self._commit_with_symlink("docs/up.txt", "../win.txt")
+        dest = tempfile.mkdtemp(dir=self.repo.temp.name)
+        self.d._write_tree_from_objects(self.root, commit, dest)
+        self.assertEqual(os.readlink(os.path.join(dest, "docs", "up.txt")), "../win.txt")
+
+    def test_symlink_containment_is_lexical_against_the_links_own_directory(self):
+        base = os.path.realpath(tempfile.mkdtemp(dir=self.repo.temp.name))
+        inside = os.path.join(base, "docs", "up.txt")
+        self.assertTrue(self.d._symlink_target_stays_inside(base, inside, "../win.txt"))
+        self.assertTrue(self.d._symlink_target_stays_inside(base, inside, "sibling.txt"))
+        self.assertFalse(self.d._symlink_target_stays_inside(base, inside, "../../out.txt"))
+        self.assertFalse(self.d._symlink_target_stays_inside(base, inside, os.path.abspath(os.sep)))
+        self.assertFalse(self.d._symlink_target_stays_inside(base, inside, ""))
 
 
 class TestActivationValidationIgnoresTheReachabilityMark(unittest.TestCase):
