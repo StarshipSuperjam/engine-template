@@ -15166,7 +15166,7 @@
       },
       "slug": "providers",
       "source": {
-        "fingerprint": "sha256:29bfc101f2636e54b16645342e8b75291da837ccf295ef1f73e32149b0176903",
+        "fingerprint": "sha256:3f610caaec2f5b3bddb98dd41a5e3ee02dc400155319e0913f106b58f7194922",
         "path": ".engine/tools/providers.py"
       },
       "status": "active",
@@ -15743,7 +15743,7 @@
       },
       "slug": "review_reader",
       "source": {
-        "fingerprint": "sha256:26464d525077b054231cbd6d7458f3ee9910e3b67c959109648c5f05a1ee6cc4",
+        "fingerprint": "sha256:0ef0fc911b6b4c3f76ebb26589607b9f88696bc13b89e98dcadb4ebe5a1438a8",
         "path": ".engine/tools/review_reader.py"
       },
       "status": "active",
@@ -15948,7 +15948,7 @@
       },
       "slug": "scoped_agents",
       "source": {
-        "fingerprint": "sha256:b4885ed14fbb9ae88a32f3f64f0e7e5fcc12ff685a7a85a58cb89d6ab9d60657",
+        "fingerprint": "sha256:4b6824cc477bcd1afc709a559f8bcad02b01cfd5c0567af08dca15eebe8ec359",
         "path": ".engine/tools/scoped_agents.py"
       },
       "status": "active",
@@ -21240,7 +21240,7 @@
       },
       "slug": "test_review_reader",
       "source": {
-        "fingerprint": "sha256:8b5850ed748eb64e0adc8d08e2a89786c1dcb301a134c96806f940235156aefe",
+        "fingerprint": "sha256:80db36e615cc8fc120402015603c1ebbf647d748685c42f7138bc0015d9ec533",
         "path": ".engine/tools/test_review_reader.py"
       },
       "status": "active",
@@ -21485,7 +21485,7 @@
       },
       "slug": "test_scoped_agents",
       "source": {
-        "fingerprint": "sha256:9aeda81fda939f57c72980ff96124aa0ef9e4e47d7384f8e46697f1027552d77",
+        "fingerprint": "sha256:668fc8fca5dc63714d8f8281e5a10ed842a7c600eb469daa95cf77999c9fedd1",
         "path": ".engine/tools/test_scoped_agents.py"
       },
       "status": "active",
