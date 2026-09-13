@@ -5859,6 +5859,21 @@ class TestTypedEnvelopeCutover(unittest.TestCase):
             qualification_notices=["memory-write qualification advanced to full access for this session"],
             automatic_checkout={"status": "blocked", "reason": "diverged"})
 
+    def test_recovery_proof_binds_actual_signals_authority_and_task_binding(self):
+        with mock.patch.object(boot, "gather_signals", return_value=_signals()) as signals, mock.patch.object(
+                boot.modes, "current_stance", return_value=boot.modes.EXPLORE) as stance, mock.patch.object(
+                boot, "resolve_task_binding", return_value={"state": "none"}) as binding:
+            context = {"session_id": "proof-fixture", "payload": {}}
+            first = boot.reader_recovery_probe(context)
+            signals.return_value = _signals(gate="off", reason="fixture")
+            self.assertNotEqual(first["inputs"], boot.reader_recovery_probe(context)["inputs"])
+            signals.return_value = _signals()
+            stance.return_value = boot.modes.BUILD
+            self.assertNotEqual(first["inputs"], boot.reader_recovery_probe(context)["inputs"])
+            stance.return_value = boot.modes.EXPLORE
+            binding.return_value = {"state": "none", "fixture_generation": 2}
+            self.assertNotEqual(first["inputs"], boot.reader_recovery_probe(context)["inputs"])
+
     def test_assemble_envelope_validates_and_carries_the_seven_sections(self):
         patchers = _offline()
         try:

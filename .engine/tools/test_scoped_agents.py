@@ -5,6 +5,7 @@ import json
 import os
 from pathlib import Path
 import sys
+import subprocess
 import tempfile
 import unittest
 from unittest import mock
@@ -60,6 +61,38 @@ class ScopedAssignments(unittest.TestCase):
         return self.store.register(owner=self.owner, root="root-id", purpose="review", lens=lens,
                                    role="engine-design-review-" + lens, packet=self.packet,
                                    packet_digest=core.digest(self.packet.read_bytes()))
+
+    def test_closed_historical_assignment_shape_refuses_current_writer_with_guidance(self):
+        """Use a production assignment and its real schema, not a toy evidence record."""
+        schema = core._local_validation_schema(Path(scoped.__file__).resolve().parents[1] /
+                                               "schemas/scoped-agent-evidence.v1.json")
+        from reader_health_history_fixture import historical as historical_schema, current_assignment
+        current_assignment(self.store, self.packet)
+        historical = historical_schema("SCOPED")
+        repo = self.root / "reader-history"
+        schema_path = repo / ".engine/schemas/scoped-agent-evidence.v1.json"
+        schema_path.parent.mkdir(parents=True)
+        def git(*args):
+            return subprocess.run(["git", "-C", str(repo), *args], capture_output=True,
+                                  text=True, check=True).stdout.strip()
+        git("init", "-q")
+        git("config", "user.email", "fixture@example.invalid")
+        git("config", "user.name", "Fixture")
+        schema_path.write_text(json.dumps(historical))
+        git("add", ".")
+        git("-c", "core.hooksPath=/dev/null", "commit", "-qm", "historical closed shape")
+        old_head = git("rev-parse", "HEAD")
+        schema_path.write_text(json.dumps(schema))
+        git("add", ".")
+        git("-c", "core.hooksPath=/dev/null", "commit", "-qm", "writer result binding")
+        git("update-ref", "refs/remotes/origin/main", "HEAD")
+        git("checkout", "-q", "--detach", old_head)
+        value = self.store.read()
+        original = self.store.path.read_bytes()
+        self.assertEqual(plan_store.shared_reader_diagnosis(value, schema_path), "incompatible")
+        with self.assertRaisesRegex(core.CoordinatorError, "older than the shared record"):
+            plan_store.validate_shared_record(value, schema_path, local_refs=True)
+        self.assertEqual(self.store.path.read_bytes(), original)
 
     def observe(self, event, tool=None, inp=None, child=None, response=None, **kw):
         payload = {"session_id": "root-id", "tool_use_id": "call-1", **kw}
@@ -362,6 +395,20 @@ class ScopedAssignments(unittest.TestCase):
                 debug.assert_called_once()
                 self.assertEqual(self.store.path.read_text(), "null")
                 self.assertEqual(broken.read_text(), "[]")
+
+    def test_incompatible_reader_reaches_hook_user_without_disclosing_record_contents(self):
+        import io
+        import telemetry
+        err = io.StringIO()
+        with mock.patch.object(self.library, "slugs", return_value=["test-plan"]), \
+             mock.patch.object(plan_store, "validate_shared_record", side_effect=plan_store.IncompatibleReaderError("private record contents")), \
+             mock.patch.object(telemetry, "observe_reader_health", return_value=True), \
+             mock.patch.object(scoped.hooks, "_record_crash_debug"), mock.patch("sys.stderr", err):
+            result = scoped.handler("PreToolUse", {"session_id": "root-id"}, self.library)
+        self.assertEqual(result["action"], "proceed")
+        self.assertIn("older than the shared record", err.getvalue())
+        self.assertIn("restart the session", err.getvalue())
+        self.assertNotIn("private record contents", err.getvalue())
 
     def test_failure_recorder_errors_do_not_erase_a_healthy_refusal(self):
         import io
@@ -854,7 +901,10 @@ class ScopedAgentHookRunner(unittest.TestCase):
                                 env=env, cwd=self.fixture.root, timeout=20)
         self.assertIn(result.returncode, (0, 2), result.stderr)
         if result.returncode == 0:
-            self.assertEqual(result.stderr, "", "an allowed call must not hide a hook crash")
+            # This envelope-only fixture has no registered Git checkout. The health
+            # producer must disclose that it cannot persist recovery evidence there.
+            self.assertIn(result.stderr, ("", "Engine reader health could not be recorded; "
+                "automatic recovery remains unverified.\n"), "an allowed call must not hide a hook crash")
         return {"action": "block" if result.returncode == 2 else "proceed"}
 
     def test_claude_partial_then_same_child_clarification(self):

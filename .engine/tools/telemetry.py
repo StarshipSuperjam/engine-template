@@ -35,6 +35,11 @@ Operator demo (faked GitHub, real logic — no real Issues, no token):
 from __future__ import annotations
 
 import json
+import hashlib
+import contextlib
+from pathlib import Path
+import secrets
+import subprocess
 import math
 import os
 import re
@@ -156,6 +161,726 @@ DEFAULT_CACHE_PATH = os.path.join(validate.ROOT, ".engine", "telemetry", ".cache
 # promote_finding), so the detail BEHIND that finding lives beside telemetry's other gitignored cache —
 # never committed, never operator-visible. hooks appends to it; telemetry owns the path.
 HOOK_CRASH_DEBUG_PATH = os.path.join(validate.ROOT, ".engine", "telemetry", ".cache", "hook-crash-debug.log")
+
+# Positive health is distinct from absence of an emitted finding. These two producers
+# own explicit recovery; generic hook crashes and the capture lifecycle are unchanged.
+READER_HEALTH_VERSION = "reader-health.v1"
+READER_HEALTH_PRODUCERS = frozenset({"scoped-reader", "boot-assembly"})
+READER_HEALTH_BUDGET = 10.0
+READER_HEALTH_LOCK_BUDGET = 0.05
+
+
+class ReaderHealthUnavailable(ValueError):
+    """Unknown health never earns automatic clearance."""
+
+
+def _health_digest(value):
+    return hashlib.sha256(json.dumps(value, sort_keys=True, separators=(",", ":")).encode()).hexdigest()
+
+
+def _health_git(root, *args, deadline=None):
+    remaining = min(1.0, deadline - time.monotonic()) if deadline is not None else 1.0
+    if remaining <= 0:
+        raise ReaderHealthUnavailable("health observation budget exhausted")
+    return subprocess.run(["git", "-C", str(root), *args], check=True,
+                          capture_output=True, text=True, timeout=remaining).stdout.strip()
+
+
+def _health_topology(root, deadline=None):
+    """Git's inventory includes Codex, Claude and nonstandard registered worktrees."""
+    common = Path(_health_git(root, "rev-parse", "--path-format=absolute", "--git-common-dir", deadline=deadline)).resolve()
+    raw = _health_git(root, "worktree", "list", "--porcelain", "-z", deadline=deadline)
+    roots = [str(Path(part[9:]).resolve()) for part in raw.split("\0") if part.startswith("worktree ")]
+    if not roots or len(roots) > 512:
+        raise ReaderHealthUnavailable("registered reader inventory is incomplete or too large")
+    return common, roots
+
+
+def _health_repository(root, deadline=None):
+    slug = repo_identity.parse_github_slug(_health_git(root, "remote", "get-url", "origin", deadline=deadline))
+    if not slug:
+        raise ReaderHealthUnavailable("reader repository identity is unknown")
+    return slug.lower()
+
+
+class ReaderHealthStore:
+    """One local observation scope, shared by worktrees and never by independent clones.
+
+    The private binding detects a copied/moved cache. Unknown versions, missing state
+    after initialization and unreadable pending observations refuse clearance. No path
+    or record content from this store is published to GitHub.
+    """
+    def __init__(self, root, *, deadline=None):
+        self.root = str(Path(root).resolve())
+        self.common, self.roots = _health_topology(root, deadline)
+        self.directory = Path(self.roots[0]) / ".engine/telemetry/.cache/reader-health"
+        self.path = self.directory / "state.json"
+        self.lock_path = self.directory / "state.lock"
+        self.pending = self.directory / "pending"
+        info = self.common.stat()
+        self.binding = {"common": str(self.common), "device": info.st_dev, "inode": info.st_ino}
+
+    @contextlib.contextmanager
+    def lock(self, deadline=None):
+        import fcntl
+        self.directory.mkdir(parents=True, exist_ok=True, mode=0o700)
+        until = time.monotonic() + READER_HEALTH_LOCK_BUDGET
+        if deadline is not None:
+            until = min(until, deadline)
+        with self.lock_path.open("a") as handle:
+            while True:
+                try:
+                    fcntl.flock(handle.fileno(), fcntl.LOCK_EX | fcntl.LOCK_NB)
+                    break
+                except BlockingIOError:
+                    if time.monotonic() >= until:
+                        raise ReaderHealthUnavailable("health observation lock is busy")
+                    time.sleep(min(0.005, max(0, until - time.monotonic())))
+            try:
+                yield
+            finally:
+                fcntl.flock(handle.fileno(), fcntl.LOCK_UN)
+
+    @staticmethod
+    def _json(path):
+        if path.is_symlink() or path.stat().st_size > 1048576:
+            raise ReaderHealthUnavailable("unsafe or oversized health record")
+        return json.loads(path.read_text())
+
+    def _read(self, *, create=False):
+        if not self.path.exists():
+            if not create or (self.directory / "initialized").exists():
+                raise ReaderHealthUnavailable("health evidence is missing")
+            value = {"schema_version": READER_HEALTH_VERSION, "binding": self.binding,
+                     "scope": secrets.token_hex(16), "generation": 0, "readers": {}, "retirements": []}
+        else:
+            value = self._json(self.path)
+        from build_coordinator_core import validate as validate_schema
+        validate_schema(value, Path(__file__).resolve().parents[1] / "schemas/reader-health.v1.json")
+        if value["binding"] != self.binding:
+            raise ReaderHealthUnavailable("health scope was copied or moved; recovery is unknown")
+        return value
+
+    def _write(self, value):
+        from build_coordinator_core import atomic_write, validate as validate_schema
+        validate_schema(value, Path(__file__).resolve().parents[1] / "schemas/reader-health.v1.json")
+        text = json.dumps(value, sort_keys=True)
+        if len(text.encode()) > 1048576:
+            raise ReaderHealthUnavailable("health store reached its bounded capacity")
+        atomic_write(self.path, text, durable=True, mode=0o600)
+        atomic_write(self.directory / "initialized", value["scope"], durable=True, mode=0o600)
+
+    def _merge(self, value, observation, *, pending=False):
+        required = {"reader", "root", "producer", "state", "identity", "observed", "verification"}
+        if set(observation) != required or observation["producer"] not in READER_HEALTH_PRODUCERS:
+            raise ReaderHealthUnavailable("unknown pending health observation")
+        key = observation["reader"] + "/" + observation["producer"]
+        previous = value["readers"].get(key)
+        # A delayed observation has no trustworthy execution order. It may retain
+        # failure/uncertainty but can never overwrite a failure with success.
+        observation = dict(observation)
+        verification = observation.pop("verification")
+        if observation["state"] == "healthy" and verification != {
+                "scope": value["scope"], "generation": value["generation"]}:
+            observation["state"] = "unknown"
+        required_inputs = sorted(set(previous.get("required_inputs", []) if previous else []) |
+                                 set(observation["identity"].get("records", {})))
+        if pending:
+            observation["state"] = "failing" if observation["state"] == "failing" or (
+                previous and previous["state"] == "failing") else "unknown"
+        if previous and observation["state"] == "healthy":
+            if not set(required_inputs) <= set(observation["identity"].get("records", {})):
+                observation["state"] = "unknown"
+        if previous and previous["state"] == "failing" and observation["state"] == "unknown":
+            observation["state"] = "failing"
+        value["generation"] += 1
+        value["readers"][key] = {**observation, "generation": value["generation"], "retired": False,
+                                  "required_inputs": required_inputs}
+
+    def _drain(self, value):
+        files = sorted(self.pending.glob("*.json")) if self.pending.exists() else []
+        if len(files) > 256:
+            raise ReaderHealthUnavailable("pending health evidence exceeds its bound")
+        for path in files:
+            self._merge(value, self._json(path), pending=True)
+        # Commit before removing pending observations; duplicate replay is harmless.
+        if files:
+            self._write(value)
+            for path in files:
+                path.unlink()
+
+    def snapshot(self, deadline=None):
+        with self.lock(deadline):
+            value = self._read()
+            self._drain(value)
+            return value
+
+    def begin_verification(self):
+        """Capture ordering before checking; only this generation may publish success."""
+        with self.lock():
+            value = self._read(create=True)
+            self._drain(value)
+            if not self.path.exists():
+                self._write(value)
+            return {"scope": value["scope"], "generation": value["generation"]}
+
+    def require_fresh_verification(self, reader, producer, expected):
+        """Persist a verification boundary before attributing an older incident."""
+        with self.lock():
+            value = self._read()
+            self._drain(value)
+            if value != expected:
+                raise ReaderHealthUnavailable("reader evidence changed before enrollment")
+            record = value["readers"][reader + "/" + producer]
+            self._merge(value, {"reader": reader, "root": record["root"], "producer": producer,
+                "state": "unknown", "identity": record["identity"], "observed": moment.utc_now(),
+                "verification": None})
+            self._write(value)
+            return value
+
+    def observe(self, producer, state, identity, *, verification=None):
+        if producer not in READER_HEALTH_PRODUCERS or state not in {"healthy", "failing", "unknown"}:
+            raise ReaderHealthUnavailable("unsupported health observation")
+        reader = _health_digest({"scope_binding": self.binding, "root": self.root})
+        observation = {"reader": reader, "root": self.root, "producer": producer,
+                       "state": state, "identity": identity, "observed": moment.utc_now(),
+                       "verification": verification}
+        try:
+            with self.lock():
+                value = self._read(create=True)
+                self._drain(value)
+                self._merge(value, observation)
+                self._write(value)
+            return True
+        except ReaderHealthUnavailable as exc:
+            if str(exc) != "health observation lock is busy":
+                raise
+            # Deterministic slots bound the queue without an unbounded directory race.
+            self.pending.mkdir(parents=True, exist_ok=True, mode=0o700)
+            raw = json.dumps(observation).encode()
+            if len(raw) > 16384:
+                raise ReaderHealthUnavailable("pending observation is too large")
+            for slot in range(256):
+                path = self.pending / (str(slot) + ".json")
+                try:
+                    with path.open("xb") as out:
+                        os.chmod(path, 0o600)
+                        out.write(raw)
+                        out.flush()
+                        os.fsync(out.fileno())
+                    return False  # durable pending, not a committed healthy observation
+                except FileExistsError:
+                    continue
+            raise ReaderHealthUnavailable("pending health evidence is full")
+
+    def retirement(self, reader, producer, *, expected=None, reason=None, confirm=False):
+        _, registered = _health_topology(self.root)
+        with self.lock():
+            value = self._read()
+            self._drain(value)
+            key = reader + "/" + producer
+            record = value["readers"].get(key)
+            if record is None:
+                raise ReaderHealthUnavailable("unknown reader")
+            preview = {"scope": value["scope"], "reader": reader, "producer": producer,
+                       "generation": value["generation"], "reader_generation": record["generation"]}
+            if not confirm:
+                return preview
+            if expected != preview or not isinstance(reason, str) or not reason.strip():
+                raise ReaderHealthUnavailable("retirement needs the current preview and a reason")
+            if record["root"] in registered:
+                raise ReaderHealthUnavailable("a registered reader cannot be retired")
+            value["generation"] += 1
+            record["retired"] = True
+            record["generation"] = value["generation"]
+            value["retirements"].append({**preview, "reason": reason, "recorded": moment.utc_now()})
+            self._write(value)
+            return preview
+
+
+def accepted_health_execution_identity(root: str, producer_path: str) -> dict:
+    """Identify a health producer in the exact, currently accepted snapshot."""
+    import accepted_hook_dispatch as dispatcher
+    activation = dispatcher.load_activation(root)
+    tree = dispatcher._valid_materialization(root, activation)
+    expected = os.path.join(tree, ".engine", "tools", "telemetry.py") if tree else None
+    if expected is None or os.path.realpath(producer_path) != os.path.realpath(expected):
+        raise dispatcher.QualificationError("reader health needs execution from the current accepted snapshot")
+    return {key: activation[key] for key in ("repository", "commit", "tree", "engine_release", "epoch")}
+
+
+def reader_health_identity(root, producer, *, deadline=None, execution=None):
+    """Fingerprint actual inputs; a format pass is never review execution credit."""
+    root = str(Path(root).resolve())
+    repository = _health_repository(root, deadline)
+    execution = execution or {"interpreter": sys.executable,
+        "sites": sorted({str(Path(p).resolve()) for p in sys.path if isinstance(p, str) and
+                          ("site-packages" in p or "dist-packages" in p) and Path(p).is_dir()}),
+        "producer": str(Path(__file__).resolve())}
+    runtime_files = [Path(execution["interpreter"]), Path(execution["producer"])]
+    for site in execution["sites"]:
+        runtime_files += sorted(Path(site).glob("*.dist-info/METADATA"))
+        # Under the accepted -S interpreter sys.prefix may be the base interpreter.
+        # Use the actual injected dependency search paths and package bytes, so a
+        # removed/broken dependency invalidates success even with unchanged metadata.
+        for name in ("jsonschema", "jsonschema_specifications", "referencing", "rpds", "attrs", "attr"):
+            runtime_files += sorted(p for p in (Path(site) / name).rglob("*")
+                                    if p.is_file() and "__pycache__" not in p.parts)
+    if len(runtime_files) > 2048:
+        raise ReaderHealthUnavailable("runtime inventory exceeds its bound")
+    runtime = {}
+    total = 0
+    for path in runtime_files:
+        if deadline is not None and time.monotonic() >= deadline:
+            raise ReaderHealthUnavailable("runtime inventory budget exhausted")
+        size = path.stat().st_size
+        total += size
+        if size > 16777216 or total > 67108864:
+            raise ReaderHealthUnavailable("runtime input exceeds its bound")
+        runtime[str(path)] = hashlib.sha256(path.read_bytes()).hexdigest()
+    runtime = {"execution": execution, "runtime_digest": _health_digest(runtime)}
+    if producer == "boot-assembly":
+        activation = accepted_health_execution_identity(root, execution["producer"])
+        if not repo_identity.slug_eq(activation["repository"], repository):
+            raise ReaderHealthUnavailable("accepted activation belongs to another repository")
+        return {"repository": repository, "activation": activation, **runtime}
+    import plan_store
+    library = plan_store.PlanLibrary(plan_store.library_root(cwd=root))
+    records = {}
+    for slug in library.slugs():
+        if deadline is not None and time.monotonic() >= deadline:
+            raise ReaderHealthUnavailable("reader inventory budget exhausted")
+        # Use the producer's single filename owner; no guessed companion path.
+        import scoped_agents
+        path = library.plan_dir(slug) / scoped_agents.FILENAME
+        if path.exists():
+            if path.is_symlink() or path.stat().st_size > 1048576:
+                raise ReaderHealthUnavailable("unreadable shared reader input")
+            records[slug] = hashlib.sha256(path.read_bytes()).hexdigest()
+    if not records or len(records) > 512:
+        raise ReaderHealthUnavailable("no complete shared reader inputs")
+    files = ["tools/scoped_agents.py", "tools/plan_store.py", "tools/build_coordinator_core.py"]
+    files += [str(p.relative_to(Path(root) / ".engine")) for p in sorted((Path(root) / ".engine/schemas").glob("*.json"))]
+    code = {rel: hashlib.sha256((Path(root) / ".engine" / rel).read_bytes()).hexdigest() for rel in files}
+    return {"repository": repository, "head": _health_git(root, "rev-parse", "HEAD", deadline=deadline), "code": _health_digest(code),
+            "records": records, **runtime}
+
+
+def verify_scoped_reader_health(*, root=None, library=None):
+    """Validate a stable inventory with the running reader before issuing success."""
+    if "unittest" in sys.modules and root is None:
+        return False
+    root = root or os.environ.get("ENGINE_PROJECT_ROOT") or validate.ROOT
+    try:
+        import plan_store
+        import scoped_agents
+        library = library or plan_store.PlanLibrary(plan_store.library_root(cwd=root))
+        verification = ReaderHealthStore(root).begin_verification()
+        before = reader_health_identity(root, "scoped-reader")
+        for slug in before["records"]:
+            scoped_agents.Store(library, slug).read()
+        after = reader_health_identity(root, "scoped-reader")
+        if before != after:
+            raise ReaderHealthUnavailable("shared inputs changed while being checked")
+        return observe_reader_health("scoped-reader", "healthy", root=root, identity=after,
+                                     verification=verification)
+    except Exception:
+        return observe_reader_health("scoped-reader", "unknown", root=root, identity={})
+
+
+def begin_reader_verification(*, root=None):
+    if "unittest" in sys.modules and root is None:
+        return None
+    try:
+        return ReaderHealthStore(root or os.environ.get("ENGINE_PROJECT_ROOT") or validate.ROOT).begin_verification()
+    except Exception:
+        return None
+
+
+def observe_boot_reader_success(inputs, session_id, payload, *, verification=None, root=None):
+    if "unittest" in sys.modules and root is None:
+        return False
+    root = root or os.environ.get("ENGINE_PROJECT_ROOT") or validate.ROOT
+    try:
+        import providers
+        identity = reader_health_identity(root, "boot-assembly")
+        identity["boot_input_digest"] = _health_digest(inputs)
+        identity["boot_context"] = {"session_id": session_id, "provider": providers.detect(payload),
+            "payload": {k: v for k, v in (payload or {}).items() if k in {
+                "_automatic_checkout", "_qualification_notices", "_issue_triage", "_restore_recovery"}}}
+        if len(json.dumps(identity["boot_context"]).encode()) > 65536:
+            raise ReaderHealthUnavailable("boot context exceeds its bound")
+        return observe_reader_health("boot-assembly", "healthy", root=root, identity=identity,
+                                     verification=verification)
+    except Exception:
+        return observe_reader_health("boot-assembly", "unknown", root=root, identity={})
+
+
+def _verify_current_boot(root, identity, deadline):
+    """Recheck dynamic assembly inputs only with this trusted, identical producer.
+
+    Never launch a recorded checkout's code or interpreter. An incompatible current
+    runtime cannot verify another reader; it remains unknown until that reader runs.
+    """
+    execution = identity["execution"]
+    if (Path(execution["producer"]).resolve() != Path(__file__).resolve()
+            or Path(execution["interpreter"]).resolve() != Path(sys.executable).resolve()
+            or not identity.get("boot_input_digest")):
+        raise ReaderHealthUnavailable("current trusted runtime cannot verify this boot reader")
+    context = identity["boot_context"]
+    import providers
+    environment = dict(os.environ, ENGINE_PROJECT_ROOT=str(root))
+    environment[providers.PROVIDER_ENV] = context["provider"]
+    sites = sorted({str(Path(p).resolve()) for p in sys.path if isinstance(p, str) and
+                    ("site-packages" in p or "dist-packages" in p) and Path(p).is_dir()})
+    if sites != execution["sites"]:
+        raise ReaderHealthUnavailable("current trusted dependencies differ from the boot reader")
+    source = ("import json,sys; sys.path[:0]=json.loads(sys.argv[1]); import boot; "
+              "print(json.dumps(boot.reader_recovery_probe(json.loads(sys.argv[2]))))")
+    remaining = deadline - time.monotonic()
+    if remaining <= 0:
+        raise ReaderHealthUnavailable("boot re-verification budget exhausted")
+    result = subprocess.run([sys.executable, "-I", "-S", "-B", "-c", source,
+        json.dumps([str(Path(__file__).resolve().parent), *sites]), json.dumps(context)],
+        cwd=root, env=environment, check=True, capture_output=True, text=True, timeout=remaining)
+    proof = json.loads(result.stdout.splitlines()[-1])
+    if not all(isinstance(proof.get(k), str) and re.fullmatch(r"[0-9a-f]{64}", proof[k])
+               for k in ("inputs", "envelope")):
+        raise ReaderHealthUnavailable("fresh boot assembly proof is incomplete")
+    return proof
+
+
+def observe_reader_health(producer, state, *, root=None, identity=None, verification=None):
+    """Production emit-only seam: no network, no tests writing to the real store."""
+    if "unittest" in sys.modules and root is None:
+        return False
+    root = root or os.environ.get("ENGINE_PROJECT_ROOT") or validate.ROOT
+    try:
+        store = ReaderHealthStore(root)
+        if identity is None:
+            try:
+                identity = reader_health_identity(root, producer)
+            except Exception:
+                identity = {}
+                if state == "healthy":
+                    state = "unknown"
+        if producer == "boot-assembly" and state == "healthy":
+            context = json.loads(os.environ.get("ENGINE_ACCEPTED_HOOK_CONTEXT", "{}"))
+            if (context.get("activation") != identity.get("activation")
+                    or not identity.get("boot_input_digest") or not identity.get("boot_context")):
+                state = "unknown"
+        store.observe(producer, state, identity, verification=verification)
+        return True  # includes durable pending; pending success is never closure evidence
+    except Exception:  # a lost observation is surfaced, never a false healthy result
+        print("Engine reader health could not be recorded; automatic recovery remains unverified.", file=sys.stderr)
+        return False
+
+
+def _reader_recovery_state(store, snapshot, producer, deadline):
+    _, registered = _health_topology(store.root, deadline)
+    records = [r for r in snapshot["readers"].values() if r["producer"] == producer]
+    if not records:
+        return "unknown"
+    statuses = []
+    now = moment.epoch(moment.utc_now())
+    for record in records:
+        if time.monotonic() >= deadline:
+            raise ReaderHealthUnavailable("reader recovery budget exhausted")
+        if record["retired"] and record["root"] not in registered:
+            statuses.append("healthy")
+            continue
+        if record["retired"] or record["state"] == "failing":
+            statuses.append("failing")
+            continue
+        if record["root"] not in registered or record["state"] != "healthy":
+            statuses.append("unknown")
+            continue
+        observed = moment.epoch(record["observed"])
+        if observed is None or not 0 <= now - observed <= 3600:
+            statuses.append("unknown")
+            continue
+        try:
+            actual_common, _ = _health_topology(record["root"], deadline)
+            if actual_common != store.common or not repo_identity.slug_eq(
+                    _health_repository(record["root"], deadline), _health_repository(store.root, deadline)):
+                raise ReaderHealthUnavailable("reader no longer belongs to this clone and repository")
+            current = reader_health_identity(record["root"], producer, deadline=deadline,
+                                             execution=record["identity"]["execution"])
+            expected = {k: v for k, v in record["identity"].items()
+                        if k not in {"boot_input_digest", "boot_context"}}
+            if current != expected:
+                statuses.append("unknown")
+                continue
+            if producer == "boot-assembly":
+                # A runtime fingerprint is insufficient for changing state, alarms,
+                # authority and task binding. Require actual fresh assembly each time.
+                _verify_current_boot(record["root"], record["identity"], deadline)
+            statuses.append("healthy")
+        except Exception:
+            statuses.append("unknown")
+    return "failing" if "failing" in statuses else "healthy" if set(statuses) == {"healthy"} else "unknown"
+
+
+def _reader_health_record(scope, producer, *, recovered=False):
+    label = "scoped evidence reader" if producer == "scoped-reader" else "boot assembly reader"
+    message = (f"The {label} failed in this local clone. Recovery is unverified until every recorded reader "
+               "has current successful execution evidence or an explicitly approved retirement. "
+               "Update the affected worktree and restart its session; boot recovery also requires a verified "
+               "accepted activation. No worktree or activation is changed automatically.")
+    if recovered:
+        message = (f"Verified recovery of the {label} within this local clone's recorded reader scope. "
+                   "Every affected reader has current successful execution evidence or an explicitly approved "
+                   "retirement. Input, code, runtime and accepted activation identities were rechecked. "
+                   "This does not prove health in independent clones. GitHub offers no atomic closure against "
+                   "local recurrence; a later failure will raise or reopen an alert on the next health pass.")
+    return {"source_id": f"reader-health/{scope}/{producer}", "severity": TRUST_CRITICAL,
+            "message": message, "location": None}
+
+
+def reconcile_reader_health(github, root, *, deadline=None):
+    """Positive, clone-scoped recovery. No observation lock spans a GitHub call.
+
+    Production runs this entire pass in a killable process, enforcing the total
+    deadline even if DNS, a response body, a journal lock or filesystem stalls.
+    Every transport entry and closure also rechecks the remaining budget.
+    """
+    deadline = deadline if deadline is not None else time.monotonic() + READER_HEALTH_BUDGET
+    result = {"opened_or_updated": 0, "closed": 0, "unverified": False}
+    def check_budget():
+        if time.monotonic() >= deadline:
+            raise ReaderHealthUnavailable("reader recovery budget exhausted")
+    def transport(method, path, body=None):
+        check_budget()
+        response = github._transport(method, path, body)
+        check_budget()
+        return response
+    client = GitHubIssues(github.repo, github.token, github.label, transport, github.recovery_store)
+    try:
+        if not repo_identity.slug_eq(_health_repository(root, deadline), github.repo):
+            raise ReaderHealthUnavailable("reader checkout does not match the GitHub repository")
+        store = ReaderHealthStore(root, deadline=deadline)
+        snapshot = store.snapshot(deadline)
+        for producer in sorted(READER_HEALTH_PRODUCERS):
+            check_budget()
+            if not any(r["producer"] == producer for r in snapshot["readers"].values()):
+                continue
+            status = _reader_recovery_state(store, snapshot, producer, deadline)
+            record = _reader_health_record(snapshot["scope"], producer)
+            sid = record["source_id"]
+            if status == "failing":
+                result["unverified"] = True
+                if promote_finding(client, record, moment.utc_now()):
+                    result["opened_or_updated"] += 1
+                continue
+            if status != "healthy":
+                result["unverified"] = True
+                continue
+            matches = [i for i in client.list_open_engine_issues() if i.get("source_id") == sid]
+            for issue in matches:
+                import issue_triage
+                number = issue["number"]
+                path = f"/repos/{client.repo}/issues/{number}"
+                live = issue_triage.read_api(client, path)
+                if (parse_source_id(live.get("body", "")) != sid or not issue_triage.scoped(live)
+                        or issue_triage.parse(live.get("body", "")) is None):
+                    raise ReaderHealthUnavailable("incident attribution is no longer verified")
+                recovered = _reader_health_record(snapshot["scope"], producer, recovered=True)
+                now = moment.utc_now()
+                body = issue_body(recovered, parse_first_noticed(live.get("body", "")) or now, now)
+                recovery_body = producer_body(body, _semantic_finding(recovered), now,
+                                              previous=live.get("body", ""))
+                # Refuse any local change, pending write, registration change or input drift
+                # discovered after the remote read. No lock is retained for the remote write.
+                def unchanged():
+                    check_budget()
+                    current = store.snapshot(deadline)
+                    return (current == snapshot and
+                            _reader_recovery_state(store, current, producer, deadline) == "healthy")
+                if not unchanged():
+                    raise ReaderHealthUnavailable("reader evidence changed before closure")
+                final = issue_triage.read_api(client, path)
+                if (parse_source_id(final.get("body", "")) != sid or not issue_triage.scoped(final)
+                        or any(final.get(key) != live.get(key) for key in ("body", "updated_at", "state", "labels"))):
+                    raise ReaderHealthUnavailable("incident evidence changed before closure")
+                if not unchanged():
+                    raise ReaderHealthUnavailable("reader evidence changed before closure")
+                # Publish the verified explanation with the closure, never on a still-open
+                # incident before the final evidence checks. GitHub still provides no CAS.
+                code, _ = client._transport("PATCH", path, {"state": "closed", "body": recovery_body})
+                if code >= 400:
+                    raise DegradedReadError("reader recovery closure was refused")
+                after = issue_triage.read_api(client, path)
+                if (after.get("state") != "closed" or parse_source_id(after.get("body", "")) != sid
+                        or not issue_triage.scoped(after) or after.get("body") != recovery_body):
+                    raise ReaderHealthUnavailable("reader recovery closure is unconfirmed")
+                if not unchanged():
+                    # GitHub has no CAS. Repair an observed close/recurrence race when
+                    # time permits; otherwise retained local evidence drives the next pass.
+                    pending = _reader_health_record(snapshot["scope"], producer)
+                    pending["message"] = ("Reader recovery is unverified because the checked evidence changed "
+                                          "during closure. A fresh successful verification is required.")
+                    restored = producer_body(issue_body(pending, parse_first_noticed(after.get("body", "")) or now, now),
+                                             _semantic_finding(pending), now, previous=after.get("body", ""))
+                    client._transport("PATCH", path, {"state": "open", "body": restored})
+                    raise ReaderHealthUnavailable("reader recurrence followed closure; recovery is pending")
+                result["closed"] += 1
+    except Exception:
+        result["unverified"] = True
+    return result
+
+
+def _reader_health_process(root, deadline):
+    from boot import gh_token
+    repo, token = _health_repository(root, deadline), gh_token()
+    if not repo or not token:
+        return {"opened_or_updated": 0, "closed": 0, "unverified": True}
+    return reconcile_reader_health(GitHubIssues(repo, token), root, deadline=deadline)
+
+
+def _reader_health_cli(argv):
+    root = argv[0] if argv else os.environ.get("ENGINE_PROJECT_ROOT") or validate.ROOT
+    deadline = time.monotonic() + READER_HEALTH_BUDGET
+    sites = [str(Path(p).resolve()) for p in sys.path if isinstance(p, str) and
+             ("site-packages" in p or "dist-packages" in p) and Path(p).is_dir()]
+    source = ("import json,sys;sys.path[:0]=json.loads(sys.argv[1]);import telemetry;"
+              "print(json.dumps(telemetry._reader_health_process(sys.argv[2],float(sys.argv[3]))))")
+    try:
+        completed = subprocess.run([sys.executable, "-I", "-S", "-B", "-c", source,
+            json.dumps([str(Path(__file__).resolve().parent), *sites]), str(root), str(deadline)],
+            capture_output=True, text=True, timeout=max(.001, deadline - time.monotonic()), check=True)
+        result = json.loads(completed.stdout.splitlines()[-1])
+    except Exception:
+        result = {"opened_or_updated": 0, "closed": 0, "unverified": True}
+    print("Reader health: " + json.dumps(result, sort_keys=True))
+    return 1 if result["unverified"] else 0
+
+
+def _reader_retirement_cli(argv):
+    import argparse
+    parser = argparse.ArgumentParser(description="Preview or confirm retirement of one deregistered reader.")
+    parser.add_argument("reader")
+    parser.add_argument("producer", choices=sorted(READER_HEALTH_PRODUCERS))
+    parser.add_argument("--root", default=validate.ROOT)
+    parser.add_argument("--confirm", action="store_true")
+    parser.add_argument("--preview", help="JSON file containing the exact preview being approved")
+    parser.add_argument("--reason")
+    args = parser.parse_args(argv)
+    if args.confirm and (not args.preview or not args.reason or not args.reason.strip()):
+        parser.error("confirmation requires --preview and --reason")
+    expected = ReaderHealthStore._json(Path(args.preview)) if args.preview else None
+    result = ReaderHealthStore(args.root).retirement(args.reader, args.producer,
+        expected=expected, reason=args.reason, confirm=args.confirm)
+    print(json.dumps(result, sort_keys=True))
+    return 0
+
+
+def reader_incident_enrollment(client, root, number, reader, producer, observed_at, *,
+                               expected=None, confirm=False, reason=None):
+    """Preview/confirm attribution of one original legacy observation, never closure.
+
+    A retained local diagnostic and exact original remote evidence support the
+    operator's attribution decision. Aggregated, missing or ambiguous evidence is
+    deliberately manual; an event name or title alone cannot enroll an incident.
+    """
+    import issue_triage
+    import hooks
+    if producer not in READER_HEALTH_PRODUCERS or type(number) is not int or number <= 0:
+        raise ReaderHealthUnavailable("name one reader producer and issue")
+    if not repo_identity.slug_eq(_health_repository(root), client.repo):
+        raise ReaderHealthUnavailable("incident repository differs from the local clone")
+    store = ReaderHealthStore(root)
+    snapshot = store.snapshot()
+    record = snapshot["readers"].get(reader + "/" + producer)
+    if (not record or record["state"] not in {"failing", "healthy"} or record["retired"]
+            or record["root"] not in store.roots or _health_topology(record["root"])[0] != store.common):
+        raise ReaderHealthUnavailable("enrollment needs the exact registered reader with known health")
+    path = f"/repos/{client.repo}/issues/{number}"
+    live = issue_triage.read_api(client, path)
+    body = live.get("body", "")
+    source = parse_source_id(body)
+    events = {hooks._fail_open_source_id(event, "crash"): event
+              for event in ("PreToolUse", "PostToolUse", "SubagentStart", "SubagentStop")}
+    event = events.get(source) if producer == "scoped-reader" else (
+        "SessionStart-envelope-assembly" if source == "boot/envelope-assembly-failed" else None)
+    original = f"*First noticed {observed_at}; last reconfirmed {observed_at}.*"
+    if (not event or live.get("state") != "open" or not issue_triage.scoped(live)
+            or issue_triage.parse(body) is None or moment.epoch(observed_at) is None
+            or parse_first_noticed(body) != observed_at or body.count(original) != 1):
+        raise ReaderHealthUnavailable("legacy incident attribution is ambiguous; investigate manually")
+    diagnostic_path = Path(record["root"]) / ".engine/telemetry/.cache/hook-crash-debug.log"
+    if diagnostic_path.is_symlink() or diagnostic_path.stat().st_size > 1048576:
+        raise ReaderHealthUnavailable("legacy diagnostic is unsafe or oversized")
+    diagnostic = diagnostic_path.read_text()
+    entries = re.findall(r"(?ms)^" + re.escape(observed_at + " " + event + " handler crash: ") +
+                         r".*?(?=^\d{4}-\d\d-\d\dT|\Z)", diagnostic)
+    if len(entries) != 1:
+        raise ReaderHealthUnavailable("original local diagnostic is missing or ambiguous")
+    entry = entries[0].strip()
+    if producer == "scoped-reader" and not (
+            re.search(r"handler crash: (?:EvidenceError|PlanStoreError|IncompatibleReaderError):", entry)
+            and re.search(r" @ (?:scoped_agents|plan_store|build_coordinator_core)\.py:\d+$", entry)):
+        raise ReaderHealthUnavailable("the original diagnostic does not identify the scoped reader")
+    preview = {"repository": client.repo.lower(), "issue": number, "issue_id": live.get("id"),
+               "scope": snapshot["scope"], "generation": snapshot["generation"], "reader": reader,
+               "producer": producer, "original_source": source, "observed_at": observed_at,
+               "body_digest": hashlib.sha256(body.encode()).hexdigest(),
+               "diagnostic_digest": hashlib.sha256(entry.encode()).hexdigest()}
+    if not confirm:
+        return preview
+    if expected != preview or not isinstance(reason, str) or not reason.strip():
+        raise ReaderHealthUnavailable("enrollment requires the current preview and operator attribution reason")
+    if store.snapshot() != snapshot:
+        raise ReaderHealthUnavailable("reader evidence changed before enrollment")
+    final = issue_triage.read_api(client, path)
+    if any(final.get(k) != live.get(k) for k in ("id", "body", "updated_at", "state", "labels")):
+        raise ReaderHealthUnavailable("original incident changed before enrollment")
+    # The original crash may never have reached the health store. Revoke any
+    # retained success, including verifications already in flight, before the
+    # issue becomes eligible for automatic recovery. No wall-clock ordering claim.
+    snapshot = store.require_fresh_verification(reader, producer, snapshot)
+    now = moment.utc_now()
+    finding = _reader_health_record(snapshot["scope"], producer)
+    finding["message"] += (" The operator attributed this original incident to this reader using the retained "
+                           "diagnostic and an unchanged issue-evidence preview. Enrollment does not prove recovery.")
+    receipt = {**preview, "approved_at": now, "verification_generation": snapshot["generation"],
+               "reason_digest": hashlib.sha256(reason.encode()).hexdigest()}
+    enrolled = producer_body(issue_body(finding, observed_at, now), _semantic_finding(finding), now, previous=body)
+    # Outside the replaceable report, so subsequent recovery updates retain the attribution receipt.
+    enrolled += "\n<!-- engine-reader-enrollment: " + json.dumps(receipt, sort_keys=True) + " -->\n"
+    code, _ = client._transport("PATCH", path, {"body": enrolled})
+    if code >= 400:
+        raise ReaderHealthUnavailable("legacy enrollment was refused")
+    after = issue_triage.read_api(client, path)
+    if (after.get("body") != enrolled or after.get("state") != "open" or not issue_triage.scoped(after)
+            or store.snapshot() != snapshot):
+        raise ReaderHealthUnavailable("enrollment outcome is unconfirmed; inspect the issue before retrying")
+    return {"enrolled": number, "source_id": finding["source_id"], "closed": False}
+
+
+def _reader_enrollment_cli(argv):
+    import argparse
+    from boot import gh_token
+    parser = argparse.ArgumentParser(description="Preview or confirm evidence-bound legacy reader attribution.")
+    parser.add_argument("issue", type=int)
+    parser.add_argument("reader")
+    parser.add_argument("producer", choices=sorted(READER_HEALTH_PRODUCERS))
+    parser.add_argument("--observed-at", required=True, help="Exact original first/last observation timestamp")
+    parser.add_argument("--root", default=validate.ROOT)
+    parser.add_argument("--confirm", action="store_true")
+    parser.add_argument("--preview")
+    parser.add_argument("--reason")
+    args = parser.parse_args(argv)
+    if args.confirm and (not args.preview or not args.reason or not args.reason.strip()):
+        parser.error("confirmation requires --preview and --reason")
+    token = gh_token()
+    if not token:
+        raise ReaderHealthUnavailable("GitHub is unavailable; enrollment was not attempted")
+    client = GitHubIssues(_health_repository(args.root), token)
+    expected = ReaderHealthStore._json(Path(args.preview)) if args.preview else None
+    result = reader_incident_enrollment(client, args.root, args.issue, args.reader, args.producer,
+        args.observed_at, expected=expected, confirm=args.confirm, reason=args.reason)
+    print(json.dumps(result, sort_keys=True))
+    return 0
 
 
 class DegradedReadError(Exception):
@@ -2494,6 +3219,8 @@ def _run_ambient_locked(argv: list) -> int:
 
 
 def _run_drain_locked(argv: list) -> int:
+    if "unittest" not in sys.modules:
+        _reader_health_cli([])
     _lock = _serialize_session_passes()   # noqa: F841 — held until the pass returns
     return _run_drain_cli(argv)
 
@@ -2510,6 +3237,9 @@ def _run_drain_locked(argv: list) -> int:
 #     the audit-prep workflow already writes an honest in-band marker when a feed step fails.
 # The two sets partition the table (test-pinned), so a new verb cannot be added without being classified.
 COMMANDS = {
+    "reconcile-readers": "_reader_health_cli",
+    "retire-reader": "_reader_retirement_cli",
+    "enroll-reader-incident": "_reader_enrollment_cli",
     "run": "_run_cli",
     "run-ambient": "_run_ambient_locked",
     "drain-inbox": "_run_drain_locked",
@@ -2519,10 +3249,10 @@ COMMANDS = {
     "never-fired": "_never_fired_cli",
 }
 FAIL_OPEN_COMMANDS = frozenset({"run", "run-ambient", "drain-inbox", "refresh"})
-VERDICT_COMMANDS = frozenset({"demo", "engine-issues", "never-fired"})
+VERDICT_COMMANDS = frozenset({"demo", "engine-issues", "never-fired", "retire-reader", "reconcile-readers", "enroll-reader-incident"})
 
 _USAGE = ("usage: telemetry.py {run|run-ambient|drain-inbox|demo|refresh|engine-issues|"
-          "never-fired}   (`run` is the live CI-health triage the scheduled audit-prep workflow drives; "
+          "never-fired|reconcile-readers|retire-reader|enroll-reader-incident}   (`run` is the live CI-health triage the scheduled audit-prep workflow drives; "
           "`run-ambient` and `drain-inbox` are the local SessionStart triages — over local "
           "check-fires, over the memory tidy-up backlog, and over the findings inbox (promoting a broken "
           "tool-runtime alert and any out-of-band findings); `engine-issues` and `never-fired` (the engine's "
