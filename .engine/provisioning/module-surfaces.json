@@ -792,6 +792,9 @@
   ".engine/docs/product-design.md": [
    "product-design"
   ],
+  ".engine/docs/reader-health-recovery.md": [
+   "core"
+  ],
   ".engine/docs/result-contracts.md": [
    "core"
   ],
@@ -1219,6 +1222,9 @@
    "core"
   ],
   ".engine/schemas/provisioning-catalog.v1.json": [
+   "core"
+  ],
+  ".engine/schemas/reader-health.v1.json": [
    "core"
   ],
   ".engine/schemas/result-rejection.v1.json": [
@@ -2200,6 +2206,9 @@
    "core"
   ],
   ".engine/tools/quiet_call.py": [
+   "core"
+  ],
+  ".engine/tools/reader_health_history_fixture.py": [
    "core"
   ],
   ".engine/tools/release_cut.py": [

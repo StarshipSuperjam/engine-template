@@ -1309,7 +1309,7 @@ ENFORCEMENT_SOURCE_INVENTORY = {'.engine/tools/agent_bindings.py': {'dependencie
                                                       '.engine/tools/validate.py'),
                                      'exclusions': {}},
  '.engine/tools/scoped_agents.py': {'dependencies': (),
- 'exclusions': {'.engine/tools/reviewer_contracts.py': 'module_coherence reads BLOCK_INVARIANT only; reviewer contract validation and historical adoption are outside that hard-check path.', '.engine/tools/build_coordinator_core.py': 'module_coherence reads the literal '
+ 'exclusions': {'.engine/tools/telemetry.py': 'module_coherence reads BLOCK_INVARIANT only; runtime health observations do not participate in that hard-check path or alter the scoped gate decision.', '.engine/tools/reviewer_contracts.py': 'module_coherence reads BLOCK_INVARIANT only; reviewer contract validation and historical adoption are outside that hard-check path.', '.engine/tools/build_coordinator_core.py': 'module_coherence reads the literal '
                                                            'BLOCK_INVARIANT only; assignment storage, '
                                                            'runtime hooks and receipt validation are '
                                                            'outside that hard-check path.',

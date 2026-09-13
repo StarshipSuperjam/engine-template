@@ -95,7 +95,9 @@ class Store:
             raise EvidenceError("unsupported or damaged scoped-assignment companion; review is unverified")
         schema = Path(__file__).resolve().parents[1] / "schemas" / (VERSION + ".json")
         try:
-            core.validate(value, schema, local_refs=True)
+            plan_store.validate_shared_record(value, schema, local_refs=True)
+        except plan_store.IncompatibleReaderError:
+            raise
         except core.CoordinatorError as exc:
             raise EvidenceError("damaged scoped-assignment companion; review is unverified: " + str(exc)) from exc
         return value
@@ -746,12 +748,15 @@ def handler(event, payload, library=None):
     library = library or plan_store.PlanLibrary()
     blocked = None
     failures = []
+    checked = 0
     for slug in library.slugs():
         store = Store(library, slug)
         if not store.path.exists():
             continue
         try:
             decision = store.observe(event, payload)
+            store.read()  # verify the post-observation bytes too
+            checked += 1
         except (OSError, ValueError, TypeError, KeyError, core.CoordinatorError) as exc:
             failures.append(exc)
             continue
@@ -764,10 +769,21 @@ def handler(event, payload, library=None):
             hooks._record_crash_debug(event, failures[0])
         except Exception:  # recording a failed check must not disable a healthy guard
             pass
-        hooks._emit_finding(sys.stderr, "hard", event, "crash",
+        import telemetry
+        recorded = telemetry.observe_reader_health("scoped-reader", "failing")
+        notice = (
             "Engine agent checks could not read one or more plan evidence files; those plans' "
-            "execution and review freshness are unverified. Other plans were still checked.",
-            hooks._promote_fail_open)
+            "execution and review freshness are unverified. Other plans were still checked.")
+        if any(isinstance(exc, plan_store.IncompatibleReaderError) for exc in failures):
+            notice += (" This local reader is older than the shared record. Update this worktree "
+                       "through the existing recovery path, preserve local work, then restart the session.")
+        if recorded:
+            sys.stderr.write(notice + " Recovery evidence was saved locally for the next health pass.\n")
+        else:
+            hooks._emit_finding(sys.stderr, "hard", event, "crash", notice, hooks._promote_fail_open)
+    elif checked and providers.scoped_call(payload).get("root"):
+        import telemetry
+        telemetry.verify_scoped_reader_health(library=library)
     return blocked or hooks.proceed()
 
 

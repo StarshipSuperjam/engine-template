@@ -1471,6 +1471,126 @@ class TestAcceptedAutomaticHookDispatch(unittest.TestCase):
     def tearDown(self):
         self.repo.cleanup()
 
+    def test_real_accepted_boot_assembly_records_failure_then_verified_success(self):
+        import shutil
+        import test_boot
+        import telemetry
+        for source in _ACCEPTED_TOOLS.glob("*.py"):
+            shutil.copyfile(source, self.repo.root / ".engine/tools" / source.name)
+        for name in ("schemas", "policies", "state", "conduct"):
+            shutil.copytree(_ACCEPTED_TOOLS.parent / name, self.repo.root / ".engine" / name, dirs_exist_ok=True)
+        self.repo._put(".engine/health-inputs.json", json.dumps(test_boot._signals()))
+        shutil.copytree(_ACCEPTED_TOOLS / "memory", self.repo.root / ".engine/tools/memory", dirs_exist_ok=True,
+                        ignore=shutil.ignore_patterns("__pycache__"))
+        fixture_entry = textwrap.dedent("""\
+            from pathlib import Path
+            def fixture_signals(*a, **k):
+                return json.loads((Path(os.environ['ENGINE_PROJECT_ROOT']) / '.engine/health-inputs.json').read_text())
+            gather_signals = fixture_signals
+            if __name__ == '__main__':
+                if os.environ.get('ENGINE_TEST_HEALTH_RECONCILE') == '1':
+                    from test_telemetry import FakeGH
+                    state = telemetry.ReaderHealthStore(os.environ['ENGINE_PROJECT_ROOT']).snapshot()
+                    finding = telemetry._reader_health_record(state['scope'], 'boot-assembly')
+                    now = telemetry.moment.utc_now()
+                    fake = FakeGH()
+                    fake.issues[1] = {'id': 1001, 'number': 1, 'state': 'open', 'labels': ['engine'],
+                        'title': 'Fixture boot incident', 'body': telemetry.producer_body(
+                            telemetry.issue_body(finding, now, now), telemetry._semantic_finding(finding), now)}
+                    client = telemetry.GitHubIssues('owner/project', 'fixture', transport=fake.transport,
+                                                   recovery_store=fake.recovery_store)
+                    result = telemetry.reconcile_reader_health(client, os.environ['ENGINE_PROJECT_ROOT'])
+                    print(json.dumps(result))
+                    raise SystemExit(0)
+                if os.environ.get('ENGINE_TEST_HEALTH_PROBE') == '1':
+                    state = telemetry.ReaderHealthStore(os.environ['ENGINE_PROJECT_ROOT']).snapshot()
+                    identity = next(iter(state['readers'].values()))['identity']
+                    try:
+                        proof = telemetry._verify_current_boot(os.environ['ENGINE_PROJECT_ROOT'], identity,
+                                                               telemetry.time.monotonic() + 10)
+                        print(json.dumps({'verified': True, 'proof': proof}))
+                    except Exception as exc:
+                        print(json.dumps({'verified': False, 'error': str(exc)}))
+                    raise SystemExit(0)
+                if os.environ.get('ENGINE_TEST_HEALTH_FAIL') == '1':
+                    session_relay.render = lambda value: (_ for _ in ()).throw(ValueError('fixture assembly failure'))
+                assemble_pack('fixture-health-session', use_ledger=True)
+                state = telemetry.ReaderHealthStore(os.environ['ENGINE_PROJECT_ROOT']).snapshot()
+                print(json.dumps(state))
+                raise SystemExit(0)
+            """)
+        boot_source = (_ACCEPTED_TOOLS / "boot.py").read_text()
+        offset = boot_source.rfind('if __name__ == "__main__":')
+        self.assertGreater(offset, 0)
+        self.repo._put(".engine/tools/boot.py", boot_source[:offset] + fixture_entry + boot_source[offset:])
+        self.repo.script = self.repo.worktree / ".engine/tools/boot.py"
+        self.repo.git("add", ".engine")
+        self.repo.git("commit", "-m", "real boot health demonstration")
+        candidate = self.repo.git("rev-parse", "HEAD")
+        self.assertEqual(self.repo.activate(commit=candidate).returncode, 0)
+        failed = self.repo.run_direct({**os.environ, "ENGINE_TEST_HEALTH_FAIL": "1"})
+        self.assertEqual(failed.returncode, 0, failed.stderr)
+        record = next(iter(json.loads(failed.stdout)["readers"].values()))
+        self.assertEqual(record["state"], "failing")
+        self.assertFalse((self.repo.root / ".engine/telemetry/.cache/findings-inbox.ndjson").exists(),
+                         "a recorded producer failure must not also emit a generic boot alert")
+        recovered = self.repo.run_direct(dict(os.environ))
+        self.assertEqual(recovered.returncode, 0, recovered.stderr)
+        record = next(iter(json.loads(recovered.stdout)["readers"].values()))
+        self.assertEqual(record["state"], "healthy", recovered.stderr)
+        self.assertEqual(record["identity"]["activation"]["commit"], candidate)
+        self.assertIn("accepted-hooks", record["identity"]["execution"]["producer"])
+        self.assertIn("boot_input_digest", record["identity"])
+        probe = self.repo.run_direct({**os.environ, "ENGINE_TEST_HEALTH_PROBE": "1"})
+        self.assertEqual(probe.returncode, 0, probe.stderr)
+        self.assertTrue(json.loads(probe.stdout)["verified"], probe.stdout)
+        closed = self.repo.run_direct({**os.environ, "ENGINE_TEST_HEALTH_RECONCILE": "1"})
+        self.assertEqual(closed.returncode, 0, closed.stderr)
+        self.assertEqual(json.loads(closed.stdout)["closed"], 1, closed.stdout + closed.stderr)
+        self.repo._put(".engine/health-inputs.json", json.dumps({**test_boot._signals(), "issue_triage": {"invalid": True}}))
+        changed = self.repo.run_direct({**os.environ, "ENGINE_TEST_HEALTH_PROBE": "1"})
+        self.assertEqual(changed.returncode, 0, changed.stderr)
+        self.assertFalse(json.loads(changed.stdout)["verified"], changed.stdout)
+        refused = self.repo.run_direct({**os.environ, "ENGINE_TEST_HEALTH_RECONCILE": "1"})
+        self.assertEqual(refused.returncode, 0, refused.stderr)
+        self.assertEqual(json.loads(refused.stdout)["closed"], 0, refused.stdout)
+        self.assertTrue(json.loads(refused.stdout)["unverified"], refused.stdout)
+        # The previous healthy observation still exists; current input re-verification
+        # (not a new failure marker or activation change) is what refuses clearance.
+        self.assertEqual(next(iter(telemetry.ReaderHealthStore(self.repo.root).snapshot()["readers"].values()))["state"], "healthy")
+
+    def test_health_identity_follows_real_dispatch_and_refuses_checkout_or_stale_activation(self):
+        import accepted_hook_dispatch as dispatcher
+        import telemetry
+        self.repo._put(".engine/tools/telemetry.py", "# accepted health producer fixture\n")
+        self.repo.git("add", ".engine/tools/telemetry.py")
+        self.repo.git("commit", "-m", "health producer")
+        initial = self.repo.git("rev-parse", "HEAD")
+        self.assertEqual(self.repo.activate(commit=initial).returncode, 0)
+        first = self.repo.run_direct()
+        self.assertEqual(first.returncode, 0, first.stderr)
+        observed = json.loads(first.stdout)
+        tree = Path(observed["helper_origin"]).parents[2]
+        producer = tree / ".engine/tools/telemetry.py"
+        identity = telemetry.accepted_health_execution_identity(str(self.repo.root), str(producer))
+        self.assertEqual(identity, observed["context"]["activation"])
+        with self.assertRaises(dispatcher.QualificationError):
+            telemetry.accepted_health_execution_identity(str(self.repo.root), str(self.repo.root / ".engine/tools/telemetry.py"))
+        self.repo._put(".engine/tools/telemetry.py", "# recovered accepted health producer\n")
+        self.repo.git("add", ".engine/tools/telemetry.py")
+        self.repo.git("commit", "-m", "recovered producer")
+        successor = self.repo.git("rev-parse", "HEAD")
+        self.assertNotEqual(self.repo.activate(commit=successor, expected_epoch=1, accepted_proof=False).returncode, 0)
+        self.assertEqual(telemetry.accepted_health_execution_identity(str(self.repo.root), str(producer)), identity)
+        self.assertEqual(self.repo.activate(commit=successor, expected_epoch=1).returncode, 0)
+        with self.assertRaises(dispatcher.QualificationError):
+            telemetry.accepted_health_execution_identity(str(self.repo.root), str(producer))
+        resumed = self.repo.run_direct()
+        self.assertEqual(resumed.returncode, 0, resumed.stderr)
+        new = json.loads(resumed.stdout)
+        new_path = Path(new["helper_origin"]).parents[2] / ".engine/tools/telemetry.py"
+        self.assertEqual(telemetry.accepted_health_execution_identity(str(self.repo.root), str(new_path))["commit"], successor)
+
     def test_existing_worktree_next_stop_uses_new_shared_activation_on_both_launchers(self):
         # The worktree is never recreated or switched: this is the already-open-session boundary.
         self.assertEqual(self.repo.activate().returncode, 0)

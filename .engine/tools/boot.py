@@ -330,7 +330,7 @@ def _envelope_assembly_message() -> str:
 
 
 def record_envelope_assembly_failure(exc: BaseException, *, crash_path: str | None = None,
-                                     spool_path: str | None = None) -> dict:
+                                     spool_path: str | None = None, emit_legacy: bool = True) -> dict:
     """Durably and content-safely record an envelope-assembly failure that would otherwise vanish, using two
     sinks already registered under boot's automatic closure — so NO new writer is introduced:
 
@@ -362,10 +362,11 @@ def record_envelope_assembly_failure(exc: BaseException, *, crash_path: str | No
     except Exception:  # noqa: BLE001 — a raising sink must not break the other, nor the fail-open
         crash_logged = False
     try:
-        telemetry.emit_finding(
-            {"source_id": ENVELOPE_ASSEMBLY_SOURCE_ID, "severity": telemetry.PERSISTENT_BENIGN,
-             "message": _envelope_assembly_message(), "location": None},
-            spool_path=spool_path or telemetry.INBOX_SPOOL_PATH)
+        if emit_legacy:
+            telemetry.emit_finding(
+                {"source_id": ENVELOPE_ASSEMBLY_SOURCE_ID, "severity": telemetry.PERSISTENT_BENIGN,
+                 "message": _envelope_assembly_message(), "location": None},
+                spool_path=spool_path or telemetry.INBOX_SPOOL_PATH)
     except Exception:  # noqa: BLE001 — emit_finding is already fail-open; this guard is belt-and-suspenders
         pass
     return {"crash_log": crash_logged}
@@ -3662,7 +3663,8 @@ def _project_binding_evidence(binding: dict) -> dict:
     return {k: binding[k] for k in allowed if k in binding}
 
 
-def _envelope_from_signals(s: dict, session_id: str | None, *, use_ledger: bool) -> dict:
+def _envelope_from_signals(s: dict, session_id: str | None, *, use_ledger: bool,
+                           health_inputs: dict | None = None) -> dict:
     """Build and VALIDATE the session-relay.v1 envelope from already-gathered signals. This is the schema
     checked SOURCE of truth for the pack's grounding facts; `session_relay.render` is its deterministic
     serializer. Raises RelayValidationError (or any build error) so the caller can fail open to a minimal safe
@@ -3705,6 +3707,8 @@ def _envelope_from_signals(s: dict, session_id: str | None, *, use_ledger: bool)
         provider_note=("Claude Code's plan-mode and harness-notebook carve-outs are inert here — a "
                        "plan- or notebook-shaped write earns no exemption (see memory-recall.md)."))
     binding = resolve_task_binding(validate.ROOT)
+    if health_inputs is not None:
+        health_inputs.update(signals=s, session_id=session_id, stance=stance, binding=binding)
     if binding.get("state") == "verified" and isinstance(binding.get("binding"), dict):
         task_binding = {"state": "verified", "binding": _project_binding_evidence(binding["binding"])}
     else:
@@ -3757,6 +3761,21 @@ def assemble_envelope(session_id: str | None = None, *, use_ledger: bool = False
     return _envelope_from_signals(s, session_id, use_ledger=use_ledger)
 
 
+def reader_recovery_probe(context: dict) -> dict:
+    """Fresh assembly proof using the trusted running boot, without ledger or hook writes.
+
+    Signals include remote and ephemeral authority inputs, so file timestamps alone
+    cannot prove they are unchanged. Recovery reassembles them instead of granting
+    clearance from a cached runtime-only success.
+    """
+    inputs = {}
+    signals = gather_signals(context["session_id"], context["payload"])
+    envelope = _envelope_from_signals(signals, context["session_id"], use_ledger=False,
+                                    health_inputs=inputs)
+    session_relay.render(envelope)
+    return {"inputs": telemetry._health_digest(inputs), "envelope": telemetry._health_digest(envelope)}
+
+
 def assemble_pack(session_id: str | None = None, *, use_ledger: bool = False, payload: dict | None = None) -> str:
     """The AI-FACING briefing injected at SessionStart (the operator-presentation relay), now the
     DETERMINISTIC SERIALIZER of the typed session-relay.v1 envelope: it builds+validates that envelope
@@ -3787,6 +3806,7 @@ def assemble_pack(session_id: str | None = None, *, use_ledger: bool = False, pa
     grounding rather than a partial/corrupt render — SessionStart never breaks. TRIM: whole-component,
     disclosed set-asides are composed here (the never-shed governance core outlasts the reconstructible
     inventory that remains — neighbourhood pointer, sprawl note); `hooks.cap_shed` is only the backstop."""
+    verification = telemetry.begin_reader_verification() if use_ledger else None
     s = gather_signals(session_id, payload)
     bvals = _briefing_values()          # the briefing-budget dials, read once
     marker = present_marker_line(s)
@@ -3801,10 +3821,18 @@ def assemble_pack(session_id: str | None = None, *, use_ledger: bool = False, pa
     # CONTEXT — a build/validation failure falls back to a minimal safe grounding (fail-open), and the alarm
     # relay behind the marker degrades to the fresh full must_push set so an alarm is never silently dropped.
     try:
-        envelope = _envelope_from_signals(s, session_id, use_ledger=use_ledger)
+        checked_inputs = {}
+        envelope = _envelope_from_signals(s, session_id, use_ledger=use_ledger,
+                                        health_inputs=checked_inputs)
         rendered_envelope = session_relay.render(envelope)
         has_alarm = bool(envelope["action_forcing_alarms"])
+        if use_ledger:
+            telemetry.observe_boot_reader_success(checked_inputs, session_id, payload,
+                                                  verification=verification)
     except Exception as exc:  # noqa: BLE001 — SessionStart is fail-open; never inject a partial/corrupt render
+        health_recorded = False
+        if use_ledger:
+            health_recorded = telemetry.observe_reader_health("boot-assembly", "failing")
         # The typed envelope could not be built — but a governance alarm must NEVER be silently dropped, and
         # this is the exact path where the dashboard's departure makes the envelope the sole every-session
         # carrier. So re-derive the must-relay set straight from `must_push(s)` and render its FULL lines under
@@ -3826,7 +3854,8 @@ def assemble_pack(session_id: str | None = None, *, use_ledger: bool = False, pa
         diagnostic_note = ""
         if use_ledger:
             try:
-                diagnostic_note = _envelope_assembly_grounding_note(record_envelope_assembly_failure(exc))
+                diagnostic_note = _envelope_assembly_grounding_note(record_envelope_assembly_failure(
+                    exc, emit_legacy=not health_recorded))
             except Exception:  # noqa: BLE001 — the diagnostic recorder is best-effort; never break fail-open
                 diagnostic_note = ""
         if relay_lines:
