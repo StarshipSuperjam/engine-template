@@ -13067,7 +13067,7 @@
       },
       "slug": "forget",
       "source": {
-        "fingerprint": "sha256:cffd48a28a6a80b292f344f5d01ef641e91b7c050f37001b0aac1a2ca1fce988",
+        "fingerprint": "sha256:f8554ce05117288da54e4daa31112b911beb556c71141ded0c20f5357bb63f7f",
         "path": ".engine/tools/memory/forget.py"
       },
       "status": "active",
@@ -14740,7 +14740,7 @@
       },
       "slug": "pins",
       "source": {
-        "fingerprint": "sha256:5ab46b6303dd7fe99df777632af742220888e6e0423edc8940dc20c24857e475",
+        "fingerprint": "sha256:160849816b1f663c412774237ed3d7da450d4a0a0c3c9cd65abfb56101f08992",
         "path": ".engine/tools/memory/pins.py"
       },
       "status": "active",
@@ -18657,7 +18657,7 @@
       },
       "slug": "test_forget",
       "source": {
-        "fingerprint": "sha256:b836a4aaed8a5a06dc326420590c6a65b9e51eb55df8cb12562ee7b19d13dbe1",
+        "fingerprint": "sha256:004c04beb6a54ca16a457c1947081401a329ab431240e4c4d30ee984016c8d67",
         "path": ".engine/tools/memory/test_forget.py"
       },
       "status": "active",
@@ -19362,7 +19362,7 @@
       },
       "slug": "test_ledger",
       "source": {
-        "fingerprint": "sha256:35a97afa49c12b18c96d7447ad970475318103a4b4f3d21e9f6841fc5e9c3600",
+        "fingerprint": "sha256:051df5c2ff8166085d43951ade37bc1f7355519d67b2bcc7ec847a109674bee7",
         "path": ".engine/tools/memory/test_ledger.py"
       },
       "status": "active",
@@ -20276,7 +20276,7 @@
       },
       "slug": "test_pins",
       "source": {
-        "fingerprint": "sha256:49a0bf909b2a8fedad8794654393f974cfad3c9e8b88925b974ef9d46d641064",
+        "fingerprint": "sha256:11624c2d1927574bebaaf04e3002abed0aac5f529cd850475c2c12136a71aa71",
         "path": ".engine/tools/memory/test_pins.py"
       },
       "status": "active",
@@ -22772,7 +22772,7 @@
       },
       "slug": "test_write_dispatch",
       "source": {
-        "fingerprint": "sha256:28e48b8ed3b7e790947f5ed01a285b452a39997b77211527be81ab4ad8448e2b",
+        "fingerprint": "sha256:9eab5deb8e652840b742c5d0bd7cb71a4d2afdece3db233fd0e2addd56c64147",
         "path": ".engine/tools/memory/test_write_dispatch.py"
       },
       "status": "active",
@@ -23258,7 +23258,7 @@
       },
       "slug": "write_dispatch",
       "source": {
-        "fingerprint": "sha256:d725fb132427096f9fa9c308a8b8565177acb4648382f22a916231053954a0fb",
+        "fingerprint": "sha256:6be3047c24375d8e79aaa112b50c1a02b8403a558b111ed983d6f6e3cf4d4d07",
         "path": ".engine/tools/memory/write_dispatch.py"
       },
       "status": "active",
