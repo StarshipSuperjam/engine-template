@@ -15743,7 +15743,7 @@
       },
       "slug": "review_reader",
       "source": {
-        "fingerprint": "sha256:0ef0fc911b6b4c3f76ebb26589607b9f88696bc13b89e98dcadb4ebe5a1438a8",
+        "fingerprint": "sha256:c2dcfd96bddd37902683eee3572f4b2d2377767ee0ea7c7b9be423d44e5b064d",
         "path": ".engine/tools/review_reader.py"
       },
       "status": "active",
@@ -15948,7 +15948,7 @@
       },
       "slug": "scoped_agents",
       "source": {
-        "fingerprint": "sha256:4b6824cc477bcd1afc709a559f8bcad02b01cfd5c0567af08dca15eebe8ec359",
+        "fingerprint": "sha256:ecdf779c4f91bbfff0e0fccf004bf8ab4d0e19259380dcc082172b4ea6a31f9b",
         "path": ".engine/tools/scoped_agents.py"
       },
       "status": "active",
@@ -21240,7 +21240,7 @@
       },
       "slug": "test_review_reader",
       "source": {
-        "fingerprint": "sha256:80db36e615cc8fc120402015603c1ebbf647d748685c42f7138bc0015d9ec533",
+        "fingerprint": "sha256:5c2989b57be3f450f7f8362e0cfd0cc46042b9ae5b0a39e16552e2096798fe66",
         "path": ".engine/tools/test_review_reader.py"
       },
       "status": "active",
@@ -21485,7 +21485,7 @@
       },
       "slug": "test_scoped_agents",
       "source": {
-        "fingerprint": "sha256:668fc8fca5dc63714d8f8281e5a10ed842a7c600eb469daa95cf77999c9fedd1",
+        "fingerprint": "sha256:77acb6831dcecca5a9f2513cb5195eafda8e5d521e72249b2a39e872b8379c14",
         "path": ".engine/tools/test_scoped_agents.py"
       },
       "status": "active",
