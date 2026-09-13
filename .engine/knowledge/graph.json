@@ -5331,7 +5331,7 @@
       },
       "slug": "result-contracts",
       "source": {
-        "fingerprint": "sha256:a0e5332617a51efec59fef929f511c54a49ba436c7cb00f762d1875f0f8c9754",
+        "fingerprint": "sha256:536780913fe54dd148a72a666329521fcf95d27b9de9718c129a594834cc975b",
         "path": ".engine/docs/result-contracts.md"
       },
       "status": "active",
@@ -6064,7 +6064,7 @@
       },
       "slug": "codex-validation",
       "source": {
-        "fingerprint": "sha256:3852982590f1cf99c3d283232e4bdb8a4d938b34459f9722c6a938df1a8daebc",
+        "fingerprint": "sha256:3096d12e7c16d4864a69eb58d8d09ca4b34e47a54a56a2b8032c56da68ee3a26",
         "path": ".engine/operations/codex-validation.md"
       },
       "status": "active",
@@ -6624,7 +6624,7 @@
       },
       "slug": "scoped-agent-orchestration",
       "source": {
-        "fingerprint": "sha256:3edcba68082d2306b051ab41008345d7f04d06e6ee9fe9f2897aad3d2e98783a",
+        "fingerprint": "sha256:76622c82b876bf7afae881f763c34e277f6e08c560a4861ee496555d08a3b9d7",
         "path": ".engine/operations/scoped-agent-orchestration.md"
       },
       "status": "active",
