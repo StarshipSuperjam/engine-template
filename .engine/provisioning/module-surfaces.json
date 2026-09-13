@@ -1995,6 +1995,9 @@
   ".engine/tools/memory/test_erasure_observer.py": [
    "memory-substrate-sqlite-fts5"
   ],
+  ".engine/tools/memory/test_execution_context.py": [
+   "memory-substrate-sqlite-fts5"
+  ],
   ".engine/tools/memory/test_export.py": [
    "memory-substrate-sqlite-fts5"
   ],

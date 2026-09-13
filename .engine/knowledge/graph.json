@@ -5251,7 +5251,7 @@
       },
       "slug": "ci-assurance",
       "source": {
-        "fingerprint": "sha256:5d1894bc9b7e10b36dc3520ab74f153d1c5ce204b329e0a997d7a336b19b94b2",
+        "fingerprint": "sha256:ac2db1c75b2ac7f04db3e8050cbbafc157167a36c70211be19a612159d713be7",
         "path": ".engine/docs/ci-assurance.md"
       },
       "status": "active",
@@ -9431,7 +9431,7 @@
       },
       "slug": "accepted_hook_dispatch",
       "source": {
-        "fingerprint": "sha256:8fcaa0e34bfd172be66fb1a6f3b82a647c961fa32d48aed1efb6b5406658bafd",
+        "fingerprint": "sha256:ad778f00fa0a5d005eec928f0fc9abddae3c005f56e29cef2fad4510befefd72",
         "path": ".engine/tools/accepted_hook_dispatch.py"
       },
       "status": "active",
@@ -13202,7 +13202,7 @@
       },
       "slug": "hooks_path_health",
       "source": {
-        "fingerprint": "sha256:28c8114f64137f54d153348a3c0644cc7529ae05cbfcb413fe14a150a3d57a6e",
+        "fingerprint": "sha256:f633176efc4810ebaae79539742b120c2b99339d1293a1898ec838785946e1ed",
         "path": ".engine/tools/hooks_path_health.py"
       },
       "status": "active",
@@ -18460,6 +18460,30 @@
     {
       "entrypoint": "test",
       "guarded": false,
+      "id": "tool:test_execution_context",
+      "name": ".engine/tools/memory/test_execution_context.py",
+      "owner": "memory-substrate-sqlite-fts5",
+      "predicates": {
+        "provided_by": [
+          "module:memory-substrate-sqlite-fts5"
+        ],
+        "tests": [
+          "tool:execution_context",
+          "tool:test_mutation_authority"
+        ]
+      },
+      "slug": "test_execution_context",
+      "source": {
+        "fingerprint": "sha256:3b9b5a8dfc3109d83386e5be73aba92e6188c92fa5388c0dd7e59d518af015e4",
+        "path": ".engine/tools/memory/test_execution_context.py"
+      },
+      "status": "active",
+      "summary": "The renewable-root contract of `execution_context` (C4 node 1, plan pln_2dade630388f).",
+      "type": "tool"
+    },
+    {
+      "entrypoint": "test",
+      "guarded": false,
       "id": "tool:test_execution_environment",
       "name": ".engine/tools/test_execution_environment.py",
       "owner": "core",
@@ -18738,7 +18762,7 @@
       },
       "slug": "test_hooks",
       "source": {
-        "fingerprint": "sha256:7c85bddd639c24f892601f9792a5a3e5a70ed4cd9f3ef3ef5bee8df14dbe3284",
+        "fingerprint": "sha256:13c95f3fd08a3ac3b9da2bfb1fa7eca97905bf5647dfa030a27e71b5c0ce67bf",
         "path": ".engine/tools/test_hooks.py"
       },
       "status": "active",
@@ -19942,7 +19966,7 @@
       },
       "slug": "test_mutation_contract",
       "source": {
-        "fingerprint": "sha256:6c88a9056fd34862d9c80d8daf4bef952a0f6278aae0d5e383c6f187bcef1d86",
+        "fingerprint": "sha256:5d28f3de6dcfc5b248b483d4d8242d5ddca8557c5ce57d8114a1bc4c70a74953",
         "path": ".engine/tools/memory/test_mutation_contract.py"
       },
       "status": "active",
