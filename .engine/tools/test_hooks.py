@@ -2016,8 +2016,8 @@ class TestAmbientActivationLifecycle(unittest.TestCase):
         self.assertEqual(result.returncode, 0, result.stderr)
         return json.loads(result.stdout)
 
-    def _advance_canonical(self) -> str:
-        (self.repo.root / "product.txt").write_text("a merged change\n", encoding="utf-8")
+    def _advance_canonical(self, text: str = "a merged change\n") -> str:
+        (self.repo.root / "product.txt").write_text(text, encoding="utf-8")
         self.repo.git("add", "product.txt")
         self.repo.git("commit", "-m", "merged change")
         return self.repo.git("rev-parse", "HEAD")
@@ -2129,7 +2129,7 @@ class TestAmbientActivationLifecycle(unittest.TestCase):
         import accepted_hook_dispatch
         accepted_hook_dispatch._record_reachability(
             str(self.repo.root), accepted_hook_dispatch.load_activation(str(self.repo.root)), "lost")
-        newer = self._advance_canonical()                          # a descendant of S: the branch moved forward
+        newer = self._advance_canonical("a second merged change\n")   # a descendant of S: the branch moved forward
         recovered = self._ambient(commit=newer)
         self.assertEqual((recovered["activation"]["commit"], recovered["activation"]["epoch"]), (newer, 3))
         self.assertIsNone(accepted_hook_dispatch.reachability_state(str(self.repo.root),

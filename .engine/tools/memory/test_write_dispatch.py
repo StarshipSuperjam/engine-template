@@ -547,6 +547,14 @@ class SpawnReapTests(_Base):
     killed and reaped before the read-back, a landed write is recovered from disk after the reap, and the two
     fault classes are recorded forensically."""
 
+    def setUp(self):
+        super().setUp()
+        # The launcher is resolved ONLY from ENGINE_PROJECT_ROOT (round 4, SG-2), never the working directory.
+        # Popen is mocked in every test here, so any absolute root serves as the verified one.
+        root_patch = mock.patch.dict(os.environ, {"ENGINE_PROJECT_ROOT": self._tmp.name})
+        root_patch.start()
+        self.addCleanup(root_patch.stop)
+
     def _patch_popen(self, proc, captured):
         def fake_popen(argv, **kwargs):
             captured["argv"] = argv
@@ -579,6 +587,8 @@ class SpawnReapTests(_Base):
         self.assertEqual(outcome["response"]["id"], "r1")
         self.assertNotIn("a secret standing note", " ".join(captured["argv"]))
         self.assertIn(write_dispatch.OPERATION, captured["argv"])       # launched under the dispatch operation
+        self.assertEqual(captured["argv"][3], os.path.join(              # the launcher comes from the verified
+            self._tmp.name, ".engine", "tools", "accepted_hook_dispatch.py"))  # root, never the working directory
         self.assertEqual(json.loads(proc.input_seen), request)         # the payload went to stdin
         self.assertEqual(recorded, [])                                  # a committed write is not stranded
 
