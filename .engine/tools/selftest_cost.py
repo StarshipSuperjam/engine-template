@@ -431,6 +431,12 @@ def normalize_run(run, identity, *, expected_tree, outcomes=None):
     """Join controller-derived identities to raw observations; a raw file is never a receipt."""
     from selftest_results import validate_shape
     validate_shape(run, 'test-cost-run.v1')
+    owners = {o['owner']: o['counts'] for o in run['owners']}
+    if len(owners) != len(run['owners']):
+        raise ValueError('resource observation contains duplicate owners')
+    if any(sum(counts[resource] for counts in owners.values()) != run['totals'][resource]
+           for resource in RESOURCES):
+        raise ValueError('resource totals disagree with exclusive owner counts')
     if run['source'] != {'tree': expected_tree, 'worktree_dirty': False}:
         raise ValueError('resource observation does not match the immutable measured source')
     inventory = [{'id': c['id'], 'occurrence': c['occurrence']} for c in run['inventory']]
@@ -443,7 +449,6 @@ def normalize_run(run, identity, *, expected_tree, outcomes=None):
         if outcomes['inventory'] != inventory or outcomes['source'] != run['source']:
             raise ValueError('cost and outcome observations describe different executions')
         outcome_cases = {case_key(c): c for c in outcomes['cases']}
-    owners = {o['owner']: o['counts'] for o in run['owners']}
     cases = []
     for case in run['inventory']:
         selected = {k: case[k] for k in ('id', 'occurrence')}
@@ -462,7 +467,7 @@ def normalize_run(run, identity, *, expected_tree, outcomes=None):
     return result
 
 
-def enroll_baseline(observation, census, runtime, *, owner, reason, revisit):
+def enroll_baseline(observation, census, runtime, *, owner, reason, revisit, declarations=()):
     """Explicit activation only. Routine runs cannot update the pinned budget or add new debt."""
     from selftest_results import validate_shape
     validate_shape(observation, 'test-cost-observation.v1')
@@ -478,17 +483,22 @@ def enroll_baseline(observation, census, runtime, *, owner, reason, revisit):
     if len(runtime_map) != len(runtime):
         raise ValueError('duplicate runtime identity at baseline activation')
     cases = []
+    declared = {case_key(c): c for c in declarations}
     for measured in observation['cases']:
         row = runtime_map.get(case_key(measured['case']))
         definition = definitions.get((row.get('path'), row.get('qualified_name'))) if row else None
         if not definition:
             raise ValueError('legacy activation cannot enroll a new or unmapped case')
+        contract = effective_contract(row, definition, declared.get(case_key(row)))
+        if contract is not None:
+            validate_shape(contract, 'test-cost-contract.v1')
+            continue  # A prospective declaration must never become legacy debt on a later bootstrap.
         cases.append({'case': measured['case'], 'source_digest': definition['ast_digest'],
                       'path': definition['path'], 'qualified_name': definition['qualified_name'],
                       'limits': measured['counts']})
-    if {case_key(c['case']) for c in cases} != set(runtime_map):
+    if {case_key(c['case']) for c in observation['cases']} != set(runtime_map):
         raise ValueError('baseline activation needs cost or observed-skip evidence for every runtime case')
-    if {(c['path'], c['qualified_name']) for c in cases} != set(definitions):
+    if {(c['path'], c['qualified_name']) for c in runtime} != set(definitions):
         raise ValueError('baseline activation needs complete static/runtime coverage')
     result = {'schema_version': 'test-cost-baseline.v1', 'source_commit': identity['source_commit'],
               'observation_digest': digest(observation), 'identity': identity,
@@ -518,6 +528,33 @@ def baseline_status(baseline, *, expected_digest, observer_commit, observer_dige
             'cost_clearance': False, 'reason': reason,
             'required': ['existing correctness checks', 'static test inventory checks',
                          'bounded measurement', 'explicit enrollment review'] if reason else []}
+
+
+def enrollment_context(*, root=ROOT, environment_digest):
+    """Read installed enrollment without ever learning limits from a candidate run.
+
+    Missing or incompatible installations retain their correctness gates and expose
+    the same explicit bootstrap state. Activation is a reviewed tracked artifact.
+    """
+    from selftest_results import read, validate_shape
+    baseline = activation = None
+    try:
+        directory = Path(root) / '.engine/policies'
+        activation = read(directory / 'test-cost-activation.json')
+        validate_shape(activation, 'test-cost-activation.v1')
+        baseline = unpack_enrollment(read(directory / 'test-cost-legacy-baseline.json'))
+        status = baseline_status(baseline, expected_digest=activation['baseline_digest'],
+            observer_commit=activation['identity']['observer_commit'],
+            observer_digest=observer_fingerprint(root), environment_digest=environment_digest)
+        if (baseline['identity'] != activation['identity']
+                or baseline['observation_digest'] != activation['observation_digest']
+                or len(baseline['cases']) != activation['legacy_case_count']
+                or digest(activation['environment']) != environment_digest):
+            raise ValueError('activation and enrollment provenance differ')
+    except (OSError, ValueError, KeyError, TypeError):
+        status = baseline_status(None, expected_digest='', observer_commit='',
+                                 observer_digest='', environment_digest=environment_digest)
+    return {'baseline': baseline, 'activation': activation, **status}
 
 
 def require_outcome_parity(native, observed):
@@ -625,9 +662,30 @@ def main(argv=None):
     observe.add_argument('--source-root', required=True)
     observe.add_argument('--output-directory', required=True)
     observe.add_argument('--pattern', default='test_*.py')
+    inspect_parser = subs.add_parser('inspect', help='show the readable identity and largest enrolled resource costs')
+    inspect_parser.add_argument('--baseline', required=True)
+    inspect_parser.add_argument('--case', help='inspect one exact case id, including all occurrences')
     args = parser.parse_args(argv)
     if args.command == 'observe-retained':
         return observe_retained_source(args.source_root, args.output_directory, pattern=args.pattern)
+    if args.command == 'inspect':
+        from selftest_results import read, validate_shape
+        baseline = read(args.baseline)
+        if baseline.get('schema_version') == 'test-cost-bundle.v1':
+            baseline = unpack_enrollment(baseline)
+        validate_shape(baseline, 'test-cost-baseline.v1')
+        if args.case:
+            result = [c for c in baseline['cases'] if c['case']['id'] == args.case]
+        else:
+            result = {k: baseline[k] for k in ('source_commit', 'identity', 'owner', 'reason', 'revisit', 'totals', 'unknown')}
+            result['baseline_digest'] = digest(baseline)
+            result['legacy_case_count'] = len(baseline['cases'])
+            result['largest_by_resource'] = {resource: [
+                {'case': c['case'], 'ceiling': c['limits'][resource]}
+                for c in sorted(baseline['cases'], key=lambda c: c['limits'][resource], reverse=True)[:5]
+                if c['limits'][resource]] for resource in RESOURCES}
+        print(json.dumps(result, indent=2))
+        return 0
     return 2
 
 

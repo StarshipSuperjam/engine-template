@@ -9,8 +9,9 @@ import selftest_cost as cost
 CONTRACT = {
     'schema_version': 'test-cost-contract.v1', 'supported_fault': 'Silent test loss or unenrolled cost',
     'boundary': 'pure', 'boundary_rationale': 'Source and inventory decisions have no process boundary',
-    'fixture_owner': 'Each case owns fresh dictionaries', 'dependencies': ['jsonschema'],
-    'data_reads': ['.engine/schemas/test-cost-contract.v1.json'], 'cadence': 'pr',
+    'fixture_owner': 'test_selftest_cost', 'dependencies': ['jsonschema', 'selftest_results', 'selftest_support'],
+    'data_reads': ['.engine/schemas/test-cost-*.json', '.engine/tools/test_build_coordinator.py',
+                   '.engine/policies/test-cost-legacy-static.json'], 'cadence': 'pr',
     'limits': {**cost.zeros(), 'schema_decodes': 10}, 'mutable_state': 'Fresh input per case',
     'cache_lifetime': 'module', 'added_cost_risk': 'Bounded AST and dictionary checks', 'families': [],
 }
@@ -112,10 +113,27 @@ class TestInventory(unittest.TestCase):
 
 @cost.declaration({**CONTRACT, 'boundary': 'process',
                    'boundary_rationale': 'Exercise actual audited child launches and the serial launcher',
+                   'fixture_owner': 'test_selftest_cost.TestResourceObservation',
+                   'mutable_state': 'Temporary directories and recorder hooks restored after each case',
                    'limits': {**cost.zeros(), 'processes': 20, 'git_commands': 12,
                               'schema_decodes': 100, 'metaschema_validations': 10,
                               'whole_tree_fixtures': 2, 'nested_journeys': 10}})
 class TestResourceObservation(unittest.TestCase):
+    def test_fresh_and_corrupt_installations_offer_bootstrap_without_cost_clearance(self):
+        import tempfile
+        with tempfile.TemporaryDirectory() as directory:
+            policies = Path(directory) / '.engine/policies'
+            policies.mkdir(parents=True)
+            for corrupt in (False, True):
+                if corrupt:
+                    (policies / 'test-cost-activation.json').write_text('{broken')
+                    (policies / 'test-cost-legacy-baseline.json').write_text('{}')
+                state = cost.enrollment_context(root=directory, environment_digest=cost.digest({}))
+                self.assertEqual(state['mode'], 'measurement-bootstrap')
+                self.assertFalse(state['cost_clearance'])
+                self.assertIn('existing correctness checks', state['required'])
+                self.assertIn('explicit enrollment review', state['required'])
+
     def test_direct_tree_copy_alias_cannot_bypass_the_fixture_counter(self):
         from shutil import copytree
         import tempfile
@@ -263,12 +281,15 @@ def baseline_example():
 @cost.declaration(CONTRACT)
 class TestBaselineEnrollment(unittest.TestCase):
     def test_prospective_declarations_do_not_expand_legacy_or_follow_changed_source(self):
-        _, _, census, runtime = baseline_example()
+        _, observation, census, runtime = baseline_example()
         row = {**runtime[0], 'source_digest': census['definitions'][0]['ast_digest'], 'contract': CONTRACT}
         self.assertEqual(cost.inventory_findings(runtime, census, {}, declarations=[row]), [])
         changed = cost.static_census({'test_example.py': 'class T:\n def test_a(self): return 2\n'}, 'd'*40)
         self.assertTrue(any('stale prospective' in f for f in cost.inventory_findings(runtime, changed, {}, declarations=[row])))
         self.assertTrue(cost.inventory_findings(runtime, census, {}))
+        enrolled = cost.enroll_baseline(observation, census, runtime, declarations=[row],
+                                       owner='team', reason='Explicit activation', revisit='Review')
+        self.assertEqual(enrolled['cases'], [])
 
     def test_compact_enrollment_refuses_changed_digest_expansion_and_trailing_data(self):
         import base64
@@ -339,6 +360,16 @@ class TestBaselineEnrollment(unittest.TestCase):
             cost.normalize_run(raw, observation['identity'], expected_tree='d'*40)
         raw['inventory'][0]['id'] = 'forged'
         with self.assertRaises(ValueError):
+            cost.normalize_run(raw, observation['identity'], expected_tree='c'*40)
+
+    def test_normalization_refuses_double_owned_and_inconsistent_counts(self):
+        raw, observation, _, _ = baseline_example()
+        raw['owners'].append(copy.deepcopy(raw['owners'][0]))
+        with self.assertRaisesRegex(ValueError, 'duplicate owners'):
+            cost.normalize_run(raw, observation['identity'], expected_tree='c'*40)
+        raw['owners'].pop()
+        raw['totals']['processes'] = 1
+        with self.assertRaisesRegex(ValueError, 'totals disagree'):
             cost.normalize_run(raw, observation['identity'], expected_tree='c'*40)
 
 

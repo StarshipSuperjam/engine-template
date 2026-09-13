@@ -24,7 +24,10 @@
     "missing_baseline": "measurement-bootstrap",
     "bootstrap_grants_cost_approval": false,
     "legacy_growth": "refuse above explicitly enrolled limits",
-    "new_authoring_version": "build-plan.v3"
+    "new_authoring_version": "build-plan.v3",
+    "baseline_file": ".engine/policies/test-cost-legacy-baseline.json",
+    "activation_file": ".engine/policies/test-cost-activation.json",
+    "declarations_file": ".engine/policies/test-cost-declarations.json"
   },
   "handoffs": {
     "PROFILE-STAGES": "Preserve node-focused, candidate, full and bootstrap stages; do not substitute them.",
