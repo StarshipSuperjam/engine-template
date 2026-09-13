@@ -1171,6 +1171,12 @@ class MultipartClaudeHook(unittest.TestCase):
     observe = ScopedAgentHookRunner.observe
 
     def test_foreign_early_child_cannot_poison_or_supply_returned_child_evidence(self):
+        self._foreign_child_recovery()
+
+    def test_foreign_whole_original_read_does_not_block_legitimate_piece_recovery(self):
+        self._foreign_child_recovery(whole=True)
+
+    def _foreign_child_recovery(self, whole=False):
         f = self.fixture
         f.packet.write_bytes(b"x" * 77696)
         f.a = f.register("architecture")
@@ -1180,7 +1186,8 @@ class MultipartClaudeHook(unittest.TestCase):
             parts = f.a["transport"]["manifest"]["pieces"]
             for child in ("foreign", "child-a"):
                 self.observe("SubagentStart", child=child)
-                for part in parts:
+                reads = [{"path": f.a["packet_path"]}] if whole and child == "foreign" else parts
+                for part in reads:
                     self.observe("PostToolUse", "Read", {"file_path": part["path"]}, child=child,
                                  response={"file": {"content": Path(part["path"]).read_text()}})
                 self.observe("SubagentStop", child=child, last_assistant_message="[]")

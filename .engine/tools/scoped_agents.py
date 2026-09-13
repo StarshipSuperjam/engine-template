@@ -193,8 +193,9 @@ def _coverage_complete(assignment, record):
     parts = _transport_parts(assignment, record)
     read = record.get("read")
     digest = record.get("file_digest", record.get("digest"))
-    if read and not read.get("transport_digest"):
-        return read.get("child") == assignment["child"] and read.get("file_digest") == digest
+    if (read and not read.get("transport_digest") and
+            read.get("child") == assignment["child"] and read.get("file_digest") == digest):
+        return True
     if not parts:
         return False
     transport = record["transport"]

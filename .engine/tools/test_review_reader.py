@@ -110,6 +110,17 @@ class ReaderTests(unittest.IsolatedAsyncioTestCase):
             await self.read(second["transport"]["manifest_path"])
             await self.denied(pieces[0]["path"])
             damaged.write_bytes(original)
+            transport = entry["transport"]
+            for malformed in (True, {"manifest": {}},
+                              {"manifest_path": transport["manifest_path"], "manifest": None},
+                              {"manifest": {"pieces": [None, "bad"]}}):
+                entry["transport"] = malformed
+                companion.write_text(json.dumps(record))
+                self.assertTrue((await self.read(second["transport"]["manifest"]["pieces"][0]["path"]))["complete"])
+                await self.denied(pieces[0]["path"])
+                await self.denied(transport["manifest_path"])
+            entry["transport"] = transport
+            companion.write_text(json.dumps(record))
         neighbor = packet.with_name("neighbor.txt")
         neighbor.write_text("unregistered")
         await self.denied(neighbor)

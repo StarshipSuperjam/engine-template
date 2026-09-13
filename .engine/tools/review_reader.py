@@ -57,12 +57,15 @@ def _registered_digest(path: Path) -> str:
                 return supplement["digest"]
         for entry in [assignment, *supplements]:
             transport = entry.get("transport")
-            if not transport:
+            if not isinstance(transport, dict):
                 continue
             # Metadata locates a candidate; only that candidate's validated artifacts
             # authorize the read. Damage to another assignment must not block recovery.
-            candidates = [transport["manifest_path"],
-                          *[p["path"] for p in transport["manifest"]["pieces"]]]
+            manifest = transport.get("manifest")
+            pieces = manifest.get("pieces") if isinstance(manifest, dict) else None
+            candidates = [transport.get("manifest_path")]
+            if isinstance(pieces, list):
+                candidates.extend(p.get("path") for p in pieces if isinstance(p, dict))
             if str(path) not in candidates:
                 continue
             import scoped_agents
