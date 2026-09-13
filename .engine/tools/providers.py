@@ -483,8 +483,6 @@ def scoped_reads_path(payload: dict, path: str) -> bool:
     inp = payload.get("tool_input") or {}
     if payload.get("tool_name") in REVIEW_READ_TOOLS:
         return isinstance(inp, dict) and inp.get("path") == path
-    if path in json.dumps(inp):
-        return True
     if not isinstance(inp, dict):
         return False
     cwd = payload.get("cwd")
@@ -503,7 +501,7 @@ def scoped_reads_path(payload: dict, path: str) -> bool:
         if len(operands) != 1 or operands[0].startswith("-"):
             return False
         target = operands[0]
-        if detect(payload) == CODEX:
+        if detect(payload) == CODEX and not Path(target).is_absolute():
             item = _codex_command_completion(payload)
             if not item:
                 return False

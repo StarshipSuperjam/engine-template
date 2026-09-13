@@ -59,6 +59,12 @@ def _registered_digest(path: Path) -> str:
             transport = entry.get("transport")
             if not transport:
                 continue
+            # Metadata locates a candidate; only that candidate's validated artifacts
+            # authorize the read. Damage to another assignment must not block recovery.
+            candidates = [transport["manifest_path"],
+                          *[p["path"] for p in transport["manifest"]["pieces"]]]
+            if str(path) not in candidates:
+                continue
             import scoped_agents
             if record.get("read_protocol") != scoped_agents.READ_PROTOCOL:
                 raise ValueError("Unsupported multipart read protocol")

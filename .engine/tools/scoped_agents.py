@@ -123,12 +123,12 @@ def _transport_parts(assignment, record):
         raise EvidenceError("manifest path differs from the registered original")
     raw = providers.scoped_file_bytes(location, providers.SCOPED_MANIFEST_MAX_BYTES)
     if core.digest(raw) != transport["manifest_digest"] or json.loads(raw) != manifest:
-        raise EvidenceError("immutable review manifest changed")
+        raise EvidenceError(f"immutable review manifest changed: {location}")
     original = providers.scoped_file_bytes(path, providers.SCOPED_READ_MAX_BYTES)
     if (manifest["assignment_id"] != assignment["id"] or manifest["packet_digest"] != target or
             manifest["file_digest"] != digest or core.digest(original) != digest or
             manifest["total_bytes"] != len(original)):
-        raise EvidenceError("review manifest identity differs from its assignment")
+        raise EvidenceError(f"review manifest identity differs from its assignment: {path}")
     parts, offset = [], 0
     if len(manifest["pieces"]) > providers.SCOPED_PIECE_MAX_COUNT:
         raise EvidenceError("too many review pieces")
@@ -140,7 +140,7 @@ def _transport_parts(assignment, record):
         data = providers.scoped_file_bytes(expected, providers.SCOPED_PIECE_MAX_BYTES)
         data.decode("utf-8")
         if data != original[offset:piece["end"]] or core.digest(data) != piece["digest"]:
-            raise EvidenceError("immutable review piece changed")
+            raise EvidenceError(f"immutable review piece changed: {expected}")
         parts.append((piece, data.decode("utf-8")))
         offset = piece["end"]
     if offset != len(original):
@@ -168,6 +168,25 @@ def read_requirements(assignment, record=None):
     return {"paths": [p["path"] for p, _ in parts], "manifest_path": record["transport"]["manifest_path"],
             "complete": complete, "verified_pieces": len(parts) - len(remaining),
             "total_pieces": len(parts), "remaining": remaining}
+
+
+def _read_status(assignment, record=None):
+    """Keep the recovery command usable without turning invalid artifacts into credit."""
+    record = assignment if record is None else record
+    try:
+        return read_requirements(assignment, record)
+    except (OSError, ValueError, core.CoordinatorError) as exc:
+        paths = _read_paths(record)
+        if record.get("transport"):
+            paths = paths[1:]
+        error = str(exc)
+        if isinstance(exc, OSError) and exc.filename:
+            # The no-follow descriptor reader reports a basename relative to its open parent.
+            original = Path(record.get("packet_path", record.get("path")))
+            error = f"{original.parent / exc.filename}: {exc}"
+        return {"complete": False, "status": "unverified", "error": error,
+                "paths": paths, "remaining": paths, "verified_pieces": 0,
+                "recovery": "Restore the exact registered artifacts at the reported path, then rerun status and read remaining pieces; otherwise create a fresh assignment. No coverage is credited while artifact validation fails."}
 
 
 def _coverage_complete(assignment, record):
@@ -208,7 +227,10 @@ def _observe_read(assignment, record, payload, call):
     for piece, body in parts:
         if providers.scoped_piece_read_succeeded(payload, piece["path"], body):
             observation["file_digest"] = piece["digest"]
-            record["transport"]["reads"].setdefault(str(piece["index"]), observation)
+            key = str(piece["index"])
+            previous = record["transport"]["reads"].get(key)
+            if previous is None or previous.get("child") != assignment["child"]:
+                record["transport"]["reads"][key] = observation
             if _coverage_complete(assignment, record):
                 record["read"] = {**observation, "file_digest": digest,
                                   "transport_digest": record["transport"]["manifest_digest"]}
@@ -373,6 +395,16 @@ class Store:
                 # the launch's return, so reconcile on either observation without timing guesses.
                 for assignment in owned:
                     launch = assignment["launch"] or {}
+                    if (assignment.get("transport") and launch.get("provider") == providers.CLAUDE
+                            and launch.get("fresh") and launch.get("successful")):
+                        child = launch.get("returned_child")
+                        start = data["starts"].get(child)
+                        if (start and start.get("root") == root and start.get("role") == assignment["role"]
+                                and not any(other["child"] == child and other["id"] != assignment["id"] for other in owned)):
+                            # Early reads are provisional until Agent returns its actual child.
+                            # Keep old observations, but never transfer their coverage or output.
+                            assignment["child"], assignment["start"] = child, start
+                        continue
                     if not (launch.get("provider") == providers.CODEX and launch.get("fresh") and launch.get("successful")):
                         continue
                     starts = [s for s in data["starts"].values() if s.get("root") == root
@@ -646,6 +678,10 @@ class Store:
                 continue
             if launch.get("provider") == providers.CODEX and a["stops"][-1].get("control_verified") is not True:
                 continue  # old stops are readable but never acquire unobserved traffic evidence
+            if a["stops"][-1]["child"] != a["child"]:
+                continue
+            if any(c["recipient"] != a["child"] for c in a["continuations"]):
+                continue
             if a["stops"][-1]["continuations"] != len(a["continuations"]):
                 continue
             if not a["stops"][-1]["delivered"]:
@@ -1019,8 +1055,8 @@ def main(argv=None):
                                      "capacity-rejected" if a["launch"].get("capacity_rejected") else
                                      "successful" if a["launch"].get("successful") else "unverified"),
                                  "undelivered": sum(not c["delivered"] for c in a["continuations"]),
-                                 "packet_reads": read_requirements(a),
-                                 "supplement_reads": [read_requirements(a, s) for s in a["supplements"]]}
+                                 "packet_reads": _read_status(a),
+                                 "supplement_reads": [_read_status(a, s) for s in a["supplements"]]}
                               for a in data["assignments"].values() if a["root"] == args.session], indent=2))
         elif args.command == "reconcile":
             def reconcile(data):

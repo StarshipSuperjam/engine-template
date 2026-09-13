@@ -458,7 +458,8 @@ class ScopedAssignments(unittest.TestCase):
                  "stdout": body, "aggregated_output": body}}}
         transcript = self.root / "child.jsonl"
         transcript.write_text(json.dumps(meta) + "\n" + json.dumps(event) + "\n")
-        relative = os.path.relpath(self.a["packet_path"], self.root)
+        # /var is a symlink on macOS; cat resolves '..' from the physical cwd.
+        relative = os.path.relpath(self.a["packet_path"], self.root.resolve())
         self.observe("PostToolUse", "Bash", {"command": "cat " + relative}, child="child-a",
                      response=body, tool_use_id="relative-read", turn_id="read-turn",
                      transcript_path=str(transcript), cwd=str(self.root))
@@ -1131,10 +1132,91 @@ class MultipartReads(unittest.TestCase):
             scoped._transport_parts(self.a, self.a)
         part.unlink(); part.write_bytes(body)
 
+    def test_status_survives_damaged_packet_and_supplement_then_recovers(self):
+        import contextlib
+        import io
+        parts = self.large()
+        for part in parts:
+            self.piece(part)
+        supplement = self.store.clarify(self.a["id"], "root-id", "clarify\n" * 5000)
+        def status():
+            output = io.StringIO()
+            with mock.patch.object(plan_store, "PlanLibrary", return_value=self.library), \
+                    mock.patch.object(self.library, "resolve", return_value="test-plan"), \
+                    contextlib.redirect_stdout(output):
+                self.assertEqual(scoped.main(["status", "--plan", "test-plan", "--session", "root-id"]), 0)
+            return next(a for a in json.loads(output.getvalue()) if a["id"] == self.a["id"])
+        for entry, key in ((self.a, "packet_reads"), (supplement, "supplement_reads")):
+            path = Path(entry["transport"]["manifest"]["pieces"][1]["path"])
+            original = path.read_bytes()
+            for damage in (None, b"altered"):
+                if damage is None:
+                    path.unlink()
+                else:
+                    path.write_bytes(damage)
+                result = status()[key]
+                result = result[0] if isinstance(result, list) else result
+                self.assertFalse(result["complete"])
+                self.assertEqual(result["status"], "unverified")
+                self.assertIn(str(path), result["error"])
+                self.assertIn(str(path), result["remaining"])
+                self.assertIn("Restore", result["recovery"])
+                path.write_bytes(original)
+        self.assertTrue(status()["packet_reads"]["complete"])
+        self.assertNotIn("error", status()["supplement_reads"][0])
+
 
 class MultipartClaudeHook(unittest.TestCase):
     setUp = ScopedAgentHookRunner.setUp
     observe = ScopedAgentHookRunner.observe
+
+    def test_foreign_early_child_cannot_poison_or_supply_returned_child_evidence(self):
+        f = self.fixture
+        f.packet.write_bytes(b"x" * 77696)
+        f.a = f.register("architecture")
+        with mock.patch.dict(os.environ, {providers.PROVIDER_ENV: "claude"}):
+            args = {"subagent_type": f.a["role"], "prompt": "Read " + f.a["packet_path"]}
+            self.observe("PreToolUse", "Agent", args)
+            parts = f.a["transport"]["manifest"]["pieces"]
+            for child in ("foreign", "child-a"):
+                self.observe("SubagentStart", child=child)
+                for part in parts:
+                    self.observe("PostToolUse", "Read", {"file_path": part["path"]}, child=child,
+                                 response={"file": {"content": Path(part["path"]).read_text()}})
+                self.observe("SubagentStop", child=child, last_assistant_message="[]")
+            self.observe("PostToolUse", "Agent", args, response={"agentId": "child-a"})
+            self.assertEqual(f.store.read()["assignments"][f.a["id"]]["child"], "child-a")
+            with self.assertRaises(scoped.EvidenceError):
+                f.verified()
+            for part in parts:
+                self.observe("PostToolUse", "Read", {"file_path": part["path"]}, child="child-a",
+                             response={"file": {"content": Path(part["path"]).read_text()}})
+            # Even complete legitimate reads cannot reuse the foreign child's old final.
+            with self.assertRaises(scoped.EvidenceError):
+                f.verified()
+            self.observe("SubagentStop", child="child-a", last_assistant_message="[]")
+            self.assertEqual(f.verified()["child"], "child-a")
+
+    def test_full_original_read_requires_actual_file_path_not_an_incidental_mention(self):
+        f = self.fixture
+        f.packet.write_bytes(b"x" * 77696)
+        f.a = f.register("architecture")
+        with mock.patch.dict(os.environ, {providers.PROVIDER_ENV: "claude"}):
+            args = {"subagent_type": f.a["role"], "prompt": "Read " + f.a["packet_path"]}
+            self.observe("PreToolUse", "Agent", args)
+            self.observe("SubagentStart", child="child-a")
+            self.observe("PostToolUse", "Agent", args, response={"agentId": "child-a"})
+            for inp in ({"file_path": f.a["packet_path"] + ".other"},
+                        {"file_path": "/unregistered", "description": f.a["packet_path"]}):
+                self.observe("PostToolUse", "Read", inp, child="child-a",
+                             response={"file": {"content": f.packet.read_text()}})
+                self.observe("SubagentStop", child="child-a", last_assistant_message="[]")
+                with self.assertRaises(scoped.EvidenceError):
+                    f.verified()
+            self.observe("PostToolUse", "Read", {"file_path": f.a["packet_path"]}, child="child-a",
+                         response={"file": {"content": f.packet.read_text()}})
+            self.observe("SubagentStop", child="child-a", last_assistant_message="[]")
+            f.verified()
 
     def test_multipart_claude_reads_through_real_hook_runner(self):
         f = self.fixture

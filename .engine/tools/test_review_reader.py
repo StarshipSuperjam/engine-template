@@ -80,6 +80,40 @@ class ReaderTests(unittest.IsolatedAsyncioTestCase):
         Path(parts[1]["path"]).write_text("changed")
         await self.denied(parts[0]["path"])
 
+    async def test_damaged_older_artifacts_do_not_block_intact_assignment(self):
+        import scoped_agents
+        import build_coordinator_core as core
+        packet, supplement, companion = self.registered()
+        record = json.loads(companion.read_text())
+        first = record["assignments"]["sa_test"]
+        second_path = packet.with_name("replacement.json")
+        second = {"packet_path": str(second_path), "supplements": []}
+        record["assignments"]["replacement"] = second
+        for index, a in enumerate((first, second)):
+            path = Path(a["packet_path"])
+            path.write_bytes(b"x" * 77696)
+            a.update(id="sa_" + str(index) * 32, file_digest=core.digest(path.read_bytes()),
+                     packet_digest=core.digest(path.read_bytes()))
+            a["transport"] = scoped_agents._freeze_transport(path, path.read_bytes(), a["id"], a["packet_digest"])
+        supplement.write_bytes(b"y" * 40000)
+        s = first["supplements"][0]
+        s["digest"] = core.digest(supplement.read_bytes())
+        s["transport"] = scoped_agents._freeze_transport(supplement, supplement.read_bytes(), first["id"], s["digest"])
+        record["read_protocol"] = scoped_agents.READ_PROTOCOL
+        companion.write_text(json.dumps(record))
+        for entry in (first, s):
+            pieces = entry["transport"]["manifest"]["pieces"]
+            damaged = Path(pieces[1]["path"])
+            original = damaged.read_bytes()
+            damaged.unlink()
+            self.assertTrue((await self.read(second["transport"]["manifest"]["pieces"][0]["path"]))["complete"])
+            await self.read(second["transport"]["manifest_path"])
+            await self.denied(pieces[0]["path"])
+            damaged.write_bytes(original)
+        neighbor = packet.with_name("neighbor.txt")
+        neighbor.write_text("unregistered")
+        await self.denied(neighbor)
+
     async def test_repository_read_is_complete_and_exact(self):
         path = self.repo / "source.py"
         path.write_text("# Unicode café\n")
