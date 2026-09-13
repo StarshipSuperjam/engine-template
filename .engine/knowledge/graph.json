@@ -9431,7 +9431,7 @@
       },
       "slug": "accepted_hook_dispatch",
       "source": {
-        "fingerprint": "sha256:ad778f00fa0a5d005eec928f0fc9abddae3c005f56e29cef2fad4510befefd72",
+        "fingerprint": "sha256:fa33b314407ec03fc739d7beb8050416e2ca541fbde3bfafaa1a9dc1bc04164c",
         "path": ".engine/tools/accepted_hook_dispatch.py"
       },
       "status": "active",
@@ -13202,7 +13202,7 @@
       },
       "slug": "hooks_path_health",
       "source": {
-        "fingerprint": "sha256:f633176efc4810ebaae79539742b120c2b99339d1293a1898ec838785946e1ed",
+        "fingerprint": "sha256:179ecc2fcfd097f203e08322b2188d36bd89cf3e1a11e70e2bb6567c985abeb1",
         "path": ".engine/tools/hooks_path_health.py"
       },
       "status": "active",
@@ -18762,7 +18762,7 @@
       },
       "slug": "test_hooks",
       "source": {
-        "fingerprint": "sha256:13c95f3fd08a3ac3b9da2bfb1fa7eca97905bf5647dfa030a27e71b5c0ce67bf",
+        "fingerprint": "sha256:1d37b0c9560616c078d5d741b745e4de082cbfa96040c12c0ce4ee8412fa1d33",
         "path": ".engine/tools/test_hooks.py"
       },
       "status": "active",
