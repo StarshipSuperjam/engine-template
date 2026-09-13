@@ -768,6 +768,9 @@
   ".engine/check/template-shape-spec.json": [
    "validators-core"
   ],
+  ".engine/check/test-cost.json": [
+   "core"
+  ],
   ".engine/check/untracked-surface.json": [
    "validators-core"
   ],
@@ -1092,6 +1095,9 @@
   ".engine/schemas/build-plan.v2.json": [
    "core"
   ],
+  ".engine/schemas/build-plan.v3.json": [
+   "core"
+  ],
   ".engine/schemas/build-protocol.v1.json": [
    "core"
   ],
@@ -1272,7 +1278,43 @@
   ".engine/schemas/surface-catalog.schema.json": [
    "core"
   ],
+  ".engine/schemas/technical-integrity-review.v1.json": [
+   "core"
+  ],
   ".engine/schemas/template.v1.json": [
+   "core"
+  ],
+  ".engine/schemas/test-cost-activation.v1.json": [
+   "core"
+  ],
+  ".engine/schemas/test-cost-assessment.v1.json": [
+   "core"
+  ],
+  ".engine/schemas/test-cost-baseline.v1.json": [
+   "core"
+  ],
+  ".engine/schemas/test-cost-bundle.v1.json": [
+   "core"
+  ],
+  ".engine/schemas/test-cost-contract.v1.json": [
+   "core"
+  ],
+  ".engine/schemas/test-cost-declarations.v1.json": [
+   "core"
+  ],
+  ".engine/schemas/test-cost-exception.v1.json": [
+   "core"
+  ],
+  ".engine/schemas/test-cost-inventory.v1.json": [
+   "core"
+  ],
+  ".engine/schemas/test-cost-observation.v1.json": [
+   "core"
+  ],
+  ".engine/schemas/test-cost-parity-rule.v1.json": [
+   "core"
+  ],
+  ".engine/schemas/test-cost-run.v1.json": [
    "core"
   ],
   ".engine/schemas/transaction-envelope.v1.json": [
@@ -1648,6 +1690,9 @@
    "core"
   ],
   ".engine/tools/demo_state_cursor_honesty.py": [
+   "core"
+  ],
+  ".engine/tools/demo_test_cost_contracts.py": [
    "core"
   ],
   ".engine/tools/demo_uv_workspace_cache.py": [
@@ -2280,6 +2325,12 @@
   ".engine/tools/selftest.py": [
    "core"
   ],
+  ".engine/tools/selftest_cost.py": [
+   "core"
+  ],
+  ".engine/tools/selftest_cost_check.py": [
+   "core"
+  ],
   ".engine/tools/selftest_performance.py": [
    "core"
   ],
@@ -2380,6 +2431,9 @@
    "core"
   ],
   ".engine/tools/test_build_coordinator_core.py": [
+   "core"
+  ],
+  ".engine/tools/test_build_coordinator_cost.py": [
    "core"
   ],
   ".engine/tools/test_build_coordinator_dag.py": [
@@ -2791,6 +2845,9 @@
    "core"
   ],
   ".engine/tools/test_selftest.py": [
+   "core"
+  ],
+  ".engine/tools/test_selftest_cost.py": [
    "core"
   ],
   ".engine/tools/test_selftest_hermeticity.py": [
