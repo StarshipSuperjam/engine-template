@@ -4,6 +4,11 @@ Replace the concrete contract fields and bounded resource ceilings before admiss
 Use a real disposable process when process/config discovery is the fault under test.
 """
 import unittest
+import os
+import sys
+
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+
 from selftest_cost import declaration, zeros
 
 

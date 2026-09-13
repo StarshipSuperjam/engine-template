@@ -1,4 +1,13 @@
-# Test-cost contracts
+---
+title: Test-cost contracts
+---
+
+## What this covers
+
+Test-cost contracts make the work added by tests visible before a change reaches merge review. This guide
+explains how to declare a test's purpose and limits, inspect measured work, and recognize unavailable proof.
+
+## What you need to know
 
 New `build-plan.v3` nodes declare the fault they protect, the cheapest meaningful boundary, fixture owner, dependencies and data reads, cadence, bounded resources, mutable state, cache lifetime and added-cost risk. A pure boundary cannot request processes or whole-tree fixtures. Old sealed payloads retain their version and bytes.
 
@@ -46,3 +55,64 @@ The initial static census covers all recursively discovered test modules. Existi
 Exceptions are bounded to a source, case occurrence, resource and ceiling. They name the supported fault and its preservation evidence, as well as an owner, reason and revisit condition. Their UTC issuance/expiry interval must be positive and at most 30 days. Every consumer checks current time through `moment.py`; old green evidence cannot extend permission. Expiry removes the allowance, while otherwise compatible raw observations can be re-evaluated against the unwaived rules.
 
 Timing remains advisory. The program's 900-second target and independent 1200-second concern remain separate from deterministic resource ceilings. Comparable samples retain a measured noise envelope; small local calibration samples are not CI speed qualification. Observer overhead must be measured with alternating identical workloads before release.
+
+Representative overhead measurements at clean source `7c2f8957fe8e05e1b5d6e41fd145c88f2e74e9bb`
+used the existing serial launcher, one discarded warm-up pair and three scored pairs per workload,
+ordered off/on, on/off, off/on. All eight runs per workload preserved complete outcome parity through
+the canonical comparator: 16 cases for `test_selftest_results.py`, 235 for `test_project_manager.py`,
+with no skips or failures. Each child starts with fresh process caches; one checkout and runtime keep
+reported environment and topology identical. The warm-up does not prove operating-system cache state.
+
+| Workload | Off child samples (seconds) | On child samples (seconds) | Median child overhead | Median launcher overhead |
+| --- | --- | --- | ---: | ---: |
+| Cheap results controls | 1.416, 1.506, 1.666 | 1.357, 1.473, 1.458 | -3.22% | +0.14% |
+| Expensive plan lifecycle | 87.683, 82.398, 82.507 | 84.776, 83.460, 83.193 | +1.16% | +1.22% |
+
+Both observed medians are within the 2% overhead target. The negative cheap child delta is measurement
+variation, not a speedup claim. The retained sample manifest has SHA-256
+`c7cdcdce8e3d9fb8ba00e94b7e9757b8df941272ff6834cd84db3459b0f875ac`; it records exact source/tree,
+environment, raw outcome/performance hashes, warm-ups and measured launcher intervals. These bounded
+local observations neither qualify Linux nor establish a full-PR performance improvement.
+
+For a prospective v3 Build, the coordinator measures each committed node through `work verify` before
+integration, then measures the complete candidate separately. Node evidence binds the claim base, attempt,
+approved contract and actual artifact. Candidate evidence cannot stand in for a node observation. A cached
+candidate preserves its raw measurements but consumes current exception permission again.
+
+The full `engine-ci` arm retains resource observations alongside outcomes and timing. A blocking assessment
+uses the same consumer as the coordinator; the immutable merge receipt includes its evidence digest.
+Metadata reuse retains the originally measured source identity and reconsumes the evidence at completion.
+The project-only arm keeps its existing Engine-health scope. No new final selector or parallel runner is
+introduced. The required wiring check rejects consumer command, shell and environment substitutions.
+
+CI allowances come from the maintainer-owned `ENGINE_TEST_COST_APPROVED_EXCEPTIONS` repository variable,
+a JSON array of `test-cost-exception.v1` records. The workflow passes it only to the evidence consumers.
+Committed candidate content and previously saved permission cannot grant a current allowance. A local
+operator-decided `cost exception` record does not update that repository variable. An expired allowance
+is refused without treating another full run of identical code as a remedy.
+
+Prospective approvals include technical-integrity review at every depth. Its versioned report carries the
+assessment digest, full identity, status and rationale. The controller records its own disposition
+separately; neither judgment can waive deterministic violations or turn missing timing into qualified
+performance. Existing frozen array-shaped review obligations remain readable and dispatchable under their
+original binding, including Builds sealed before this capability.
+
+Run the bounded behavioral demonstration from either supported runtime:
+
+```sh
+uv run --directory .engine --frozen -- python tools/demo_test_cost_contracts.py --scenario shared-helper
+```
+
+The unchanged test body calls a helper that launches a real child process. The zero-work baseline rejects
+the increase, then a fresh observation after repair passes. Other scenarios cover JSON decoding, metaschema
+validation, canonical fixture cloning, a nested journey, ambient Git, duplicate definitions and stale
+identity. These controls use explicit synthetic fixture identities and grant no project performance credit.
+The registered hard-check-bite fixture exercises all eight through the actual required check; permanent
+regressions also protect standalone imports, workflow wiring and historical reviewer dispatch.
+
+This capability addresses the program's `efficient-tests-at-creation` obligation. The child retains
+`fifteen-minute-feedback`, `preserve-failure-boundaries` and `justified-test-placement-and-selection`:
+the complete legacy relevance audit, cadence decisions, qualified selection and broader optimization still
+belong to their subsequent work. `PROFILE-STAGES`, `ARTIFACT-IDENTITY` and `EVIDENCE-OUTCOME` are applied at
+the existing node/candidate/full producers. `ENV-EXECUTION-HANDOFF` remains limited to observed environment
+facts; counters do not establish sandbox containment, authentic external effects or future product outcomes.

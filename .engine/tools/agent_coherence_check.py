@@ -342,6 +342,16 @@ def result_contract_findings(agents, tier="hard"):
                          if part == "conformance-verdicts.v1" else
                          '{"outcome":"failed","reason":"Cannot complete","evidence":'
                          '{"changed_paths":[],"verification_results":[],"assumptions":[],"unresolved_concerns":[]}}')
+                if part == "technical-integrity-review.v1":
+                    kwargs = {"lens": "technical-integrity"}
+                    identity = {key: "0" * 40 for key in ("source_commit", "base_commit", "observer_commit")}
+                    identity.update({key: rc.digest({}) for key in ("plan_digest", "contract_digest",
+                        "policy_digest", "inventory_digest", "environment_digest", "artifact_digest", "observer_digest")})
+                    identity.update(cache_state="unknown", topology="serial", stage="candidate",
+                                    attempt="coherence-witness", node=None)
+                    valid = json.dumps({"findings": [], "cost_review": {"assessment_digest": rc.digest({}),
+                        "candidate_identity": identity, "status": "unavailable",
+                        "rationale": "Schema and ingress specimen only; no measured candidate."}})
                 positive = handler(valid, bound, **kwargs)
                 if not isinstance(positive, dict) or positive.get("status") == "rejected":
                     rc.reject("positive_witness_failed", category="authority")

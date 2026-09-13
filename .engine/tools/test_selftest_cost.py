@@ -435,15 +435,33 @@ class TestBaselineEnrollment(unittest.TestCase):
 
 
 @cost.declaration({**CONTRACT, 'boundary': 'process',
+    'supported_fault': 'Required cost enforcement or new test discovery silently breaks',
     'boundary_rationale': 'Exercise the actual required-check controls and bounded child work',
     'fixture_owner': 'test_selftest_cost.TestRequiredCostCheck',
     'dependencies': ['selftest_cost_check', 'demo_test_cost_contracts', 'yaml', 'engine_fixture'],
-    'data_reads': ['.github/workflows/engine-ci.yml', '.engine/policies/test-cost.json'],
+    'data_reads': ['.github/workflows/engine-ci.yml', '.engine/policies/test-cost.json',
+                   '.engine/templates/test-authoring.py', '.engine/tools/selftest_cost.py'],
     'mutable_state': 'One temporary workflow file; recorder hooks restored by each control',
     'limits': {**cost.zeros(), 'processes': 6, 'git_commands': 5,
                'schema_decodes': 250, 'metaschema_validations': 1,
                'whole_tree_fixtures': 1, 'nested_journeys': 1}})
 class TestRequiredCostCheck(unittest.TestCase):
+    def test_authoring_template_runs_standalone_with_a_bounded_sibling_closure(self):
+        import subprocess
+        import tempfile
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            tools = root / 'tools'
+            tools.mkdir()
+            template = (cost.ROOT / '.engine/templates/test-authoring.py').read_text()
+            template += '\n    def test_declared_behavior(self):\n        self.assertEqual(2 + 2, 4)\n'
+            (tools / 'test_generated.py').write_text(template)
+            (tools / 'selftest_cost.py').write_text((cost.ROOT / '.engine/tools/selftest_cost.py').read_text())
+            child = subprocess.run([sys.executable, '-m', 'unittest', 'tools.test_generated'],
+                                   cwd=root, capture_output=True, text=True)
+            self.assertEqual(child.returncode, 0, child.stderr)
+            self.assertIn('Ran 1 test', child.stderr)
+
     def test_real_negative_controls_reject_growth_and_accept_repaired_helpers(self):
         import demo_test_cost_contracts as demo
         for scenario in demo.SCENARIOS:
