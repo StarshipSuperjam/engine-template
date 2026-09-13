@@ -9937,7 +9937,7 @@
       },
       "slug": "build_coordinator",
       "source": {
-        "fingerprint": "sha256:fd97c9ffbd6cfce04bee98ff9dc2a6ddb620a768bf9cb5aef8c54b0a63c85f71",
+        "fingerprint": "sha256:baea14d66a42c0a3a0a6da95601db694f205e5a6b25a0d84c2268379811a15e1",
         "path": ".engine/tools/build_coordinator.py"
       },
       "status": "active",
@@ -17130,7 +17130,7 @@
       },
       "slug": "test_build_coordinator",
       "source": {
-        "fingerprint": "sha256:da29a29a0c02871909c9069bb17641328df11c5989898dcb5dae2f8cc1d295a6",
+        "fingerprint": "sha256:ebbb7bd758eb42d716475c54037f16d3472f4469204404f042952cf0811039a1",
         "path": ".engine/tools/test_build_coordinator.py"
       },
       "status": "active",
