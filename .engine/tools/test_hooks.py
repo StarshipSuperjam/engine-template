@@ -2084,11 +2084,12 @@ class TestAmbientActivationLifecycle(unittest.TestCase):
         self.assertTrue(any("does not descend" in notice or "no longer descends" in notice
                             for notice in result["notices"]), result["notices"])
 
-    def test_a_confirmed_loss_lets_a_restart_recover_onto_a_rolled_back_default_branch(self):
-        """Round 3, DH-1: the write hold's own posture says "pull, then restart" clears it. After a force-pushed
-        rollback the branch tip does NOT descend from the activated commit, so the forward-only rule alone
-        would refuse forever. With GitHub's confirmed loss on record, the restart re-activates onto the
-        rolled-back tip as a new epoch (it still needs that tip's own merged-PR proof), and the hold clears."""
+    def test_a_confirmed_loss_does_not_relax_the_forward_only_rule(self):
+        """Round 4, SG-1/DH-1 (reverting round 3's DH-1): a recorded reachability loss holds the helper writes,
+        it never unlocks a non-descendant tip. After a force-pushed rollback, every later session start keeps
+        the activation where it was — even when the rolled-back tip carries its own merged-PR proof — and the
+        'lost' mark stays for that generation. Automatic recovery from a rewritten default branch is a plan
+        non-goal; it is an explicit operator step through an engine issue."""
         self._ambient()                                            # epoch 1 at R
         stale = self._advance_canonical()                          # S, a descendant of R
         result = self._ambient(commit=stale)
@@ -2099,45 +2100,42 @@ class TestAmbientActivationLifecycle(unittest.TestCase):
         self.repo.git("add", "product.txt")
         self.repo.git("commit", "-m", "replacement after rollback")
         replacement = self.repo.git("rev-parse", "HEAD")
-        # Before any confirmed loss, the non-descendant tip is refused, exactly as before (forward-only).
-        refused = self._ambient(commit=replacement, extra_env={"ENGINE_TEST_GH_COMPARE": "identical"})
-        self.assertEqual((refused["activation"]["commit"], refused["activation"]["epoch"]), (stale, 2))
-        self.assertTrue(any("no longer descends" in n for n in refused["notices"]), refused["notices"])
-        # GitHub now confirms S left the default branch: the loss is recorded and the hold is announced.
+        # GitHub confirms S left the default branch: the loss is recorded and the hold is announced.
         import accepted_hook_dispatch
         lost = self._ambient(commit=replacement, extra_env={"ENGINE_TEST_GH_COMPARE": "diverged"})
-        self.assertEqual(lost["activation"]["commit"], stale)
+        self.assertEqual((lost["activation"]["commit"], lost["activation"]["epoch"]), (stale, 2))
         self.assertEqual(accepted_hook_dispatch.reachability_state(str(self.repo.root), lost["activation"]),
                          "lost")
         self.assertTrue(any("through the memory helper" in n for n in lost["notices"]), lost["notices"])
-        # The restart the posture promises: activation moves to T as epoch 3 and the mark stops matching.
-        recovered = self._ambient(commit=replacement)
-        self.assertEqual((recovered["activation"]["commit"], recovered["activation"]["epoch"]),
-                         (replacement, 3))
+        # The restart: with the loss on record AND the tip carrying acceptance proof, the activation still
+        # does not move — the forward-only rule is absolute, and the hold stays exactly as announced.
+        for attempt in range(2):
+            with self.subTest(restart=attempt + 1):
+                again = self._ambient(commit=replacement, extra_env={"ENGINE_TEST_GH_COMPARE": "diverged"})
+                self.assertEqual((again["activation"]["commit"], again["activation"]["epoch"]), (stale, 2))
+                self.assertTrue(any("no longer descends" in n for n in again["notices"]), again["notices"])
+                self.assertEqual(accepted_hook_dispatch.reachability_state(str(self.repo.root),
+                                                                           again["activation"]), "lost")
+                self.assertTrue(accepted_hook_dispatch._reachability_lost(str(self.repo.root),
+                                                                          again["activation"]))
+
+    def test_a_forward_advance_after_a_recorded_loss_clears_the_hold(self):
+        """The posture's honest claim: a restart clears the hold when the default branch moved FORWARD. The
+        activated commit's history is merged onward (a descendant tip), the advance is a normal one, and the
+        'lost' mark — keyed to the old generation — stops matching the new activation."""
+        self._ambient()
+        stale = self._advance_canonical()
+        self._ambient(commit=stale)
+        import accepted_hook_dispatch
+        accepted_hook_dispatch._record_reachability(
+            str(self.repo.root), accepted_hook_dispatch.load_activation(str(self.repo.root)), "lost")
+        newer = self._advance_canonical()                          # a descendant of S: the branch moved forward
+        recovered = self._ambient(commit=newer)
+        self.assertEqual((recovered["activation"]["commit"], recovered["activation"]["epoch"]), (newer, 3))
         self.assertIsNone(accepted_hook_dispatch.reachability_state(str(self.repo.root),
                                                                     recovered["activation"]))
         self.assertFalse(accepted_hook_dispatch._reachability_lost(str(self.repo.root),
                                                                    recovered["activation"]))
-
-    def test_a_confirmed_loss_still_requires_the_tips_own_acceptance_proof(self):
-        """DH-1's exception opens the forward-only rule for a confirmed loss and nothing else: the rolled-back
-        tip must still be a merged pull request on GitHub's default branch, or the activation stays where it
-        was, still held."""
-        self._ambient()
-        stale = self._advance_canonical()
-        self._ambient(commit=stale)
-        self.repo.git("reset", "--hard", self.repo.commit)
-        (self.repo.root / "product.txt").write_text("unreviewed force-push\n", encoding="utf-8")
-        self.repo.git("add", "product.txt")
-        self.repo.git("commit", "-m", "unreviewed")
-        unreviewed = self.repo.git("rev-parse", "HEAD")
-        self._ambient(commit=unreviewed, extra_env={"ENGINE_TEST_GH_COMPARE": "diverged"})
-        import accepted_hook_dispatch
-        result = self._ambient(commit=unreviewed, accepted_proof=False,
-                               extra_env={"ENGINE_TEST_GH_COMPARE": "diverged"})
-        self.assertEqual((result["activation"]["commit"], result["activation"]["epoch"]), (stale, 2))
-        self.assertEqual(accepted_hook_dispatch.reachability_state(str(self.repo.root), result["activation"]),
-                         "lost")                                    # the hold stands until a real acceptance
 
     def test_a_failed_advance_never_costs_the_working_activation(self):
         self._ambient()
@@ -2775,6 +2773,12 @@ class TestReachability(unittest.TestCase):
         self.assertIn("Pull the project's default branch", text)
         self.assertNotIn("back on the project's default branch", text)
         self.assertLess(text.index("Pull the project's default branch"), text.index(refusals.RESTART_ACTION))
+        # Round 4, SG-1/DH-1: the restart clears the hold only when the branch moved forward; a rewound or
+        # rewritten branch is named as the case that stays held, so the sentence promises no recovery the
+        # forward-only rule refuses.
+        self.assertIn("when the branch moved forward", text)
+        self.assertIn("rewound or rewritten, the hold stays", text)
+        self.assertLess(text.index("rewound or rewritten"), text.index(refusals.ESCALATION))
         # The only path is the sanctioned /engine-status in the escalation; no filesystem path leaks.
         self.assertNotIn("/", text.replace(refusals.ESCALATION, ""))
 
@@ -3058,6 +3062,27 @@ class TestExactTreeBindingRejectsForgedCache(unittest.TestCase):
         os.chmod(victim, info.st_mode | stat.S_IXUSR | stat.S_IXGRP | stat.S_IXOTH)
         self._reseal_marker_to_disk(tree)
         self.assertIsNone(self.d._valid_materialization(self.root, self.activation))
+
+    def test_a_file_replaced_by_a_symlink_is_rejected_and_the_tree_is_rebuilt(self):
+        # Round 4, DH-4: the plan's fifth fixture. A regular tracked file (git mode 100644) is swapped for a
+        # symlink pointing at another tracked file. The inventory is re-sealed to agree (it binds the link's
+        # own lstat mode), so only the git manifest — which records 100644 for that path, never 120000 — can
+        # reject it. Then the rebuild under the materialize lock restores a regular file with git's bytes.
+        tree = self._fresh_tree()
+        victim = os.path.join(tree, ".engine", "tools", "helper.py")
+        with open(victim, "rb") as fh:
+            original = fh.read()
+        os.unlink(victim)
+        os.symlink("accepted_hook_dispatch.py", victim)       # a link, in place of the file, to a sibling
+        self.assertTrue(os.path.islink(victim))
+        self._reseal_marker_to_disk(tree)
+        self.assertIsNone(self.d._valid_materialization(self.root, self.activation))
+        rebuilt = self.d._materialize(self.root, self.activation)
+        self.assertEqual(rebuilt, tree)
+        self.assertEqual(self.d._valid_materialization(self.root, self.activation), tree)
+        self.assertFalse(os.path.islink(victim))
+        with open(victim, "rb") as fh:
+            self.assertEqual(fh.read(), original)
 
     def test_the_expected_manifest_is_the_git_manifest_not_the_on_disk_cache(self):
         tree = self._fresh_tree()

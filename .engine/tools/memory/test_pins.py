@@ -42,6 +42,47 @@ class PinTests(_Base):
         self.assertEqual(len(index.search("filing").records), 1)
         self.assertEqual(len(index.search("filing", force_scan=True).records), 1)
 
+    def test_dedup_returns_the_existing_pin_on_the_same_session_lane_instead_of_a_second(self):
+        # Round 4, TI-2: the direct API's dedup path, outside the dispatch child. Same normalized text on the
+        # same session lane is one pin; the same text from another session, or with dedup off, is a new one.
+        first = pins.add("Always  ask before filing an issue.", session_id="s-1", dedup=True)
+        again = pins.add("  Always ask before filing an issue. ", session_id="s-1", dedup=True)
+        self.assertEqual(again[records.RECORD_ID_KEY], first[records.RECORD_ID_KEY])
+        self.assertEqual(len(pins.list_pins()), 1)
+        other = pins.add("Always ask before filing an issue.", session_id="s-2", dedup=True)
+        self.assertNotEqual(other[records.RECORD_ID_KEY], first[records.RECORD_ID_KEY])
+        self.assertEqual(len(pins.list_pins()), 2)
+        pins.add("Always ask before filing an issue.", session_id="s-1")          # dedup off: appends
+        self.assertEqual(len(pins.list_pins()), 3)
+
+    def test_add_honours_a_pre_minted_id_and_emits_begin_then_committed_or_already_pinned(self):
+        # Round 4, TI-2: `accepted_id` becomes the record's own id and `emit` sees "begin" before the lock
+        # and "committed" after the append; a dedup hit emits "already_pinned" carrying the existing record.
+        events = []
+        record = pins.add("Prefer the smallest safe change.", session_id="s-1", accepted_id="acc-pin-1",
+                          dedup=True, emit=lambda e, p: events.append((e, p)))
+        self.assertEqual(record[records.RECORD_ID_KEY], "acc-pin-1")
+        self.assertEqual([e for e, _ in events], ["begin", "committed"])
+        self.assertEqual(events[0][1][records.RECORD_ID_KEY], "acc-pin-1")
+        self.assertEqual(events[1][1]["record"], record)
+        self.assertGreater(events[1][1]["bytes"], 0)
+        events.clear()
+        duplicate = pins.add("Prefer the smallest safe change.", session_id="s-1", accepted_id="acc-pin-2",
+                             dedup=True, emit=lambda e, p: events.append((e, p)))
+        self.assertEqual(duplicate[records.RECORD_ID_KEY], "acc-pin-1")     # the existing pin, not acc-pin-2
+        self.assertEqual([e for e, _ in events], ["begin", "already_pinned"])
+        self.assertEqual(events[1][1]["record"], duplicate)
+        self.assertEqual(len(pins.list_pins()), 1)
+
+    def test_a_failing_emit_never_turns_a_landed_pin_into_a_refusal(self):
+        def broken(event, payload):
+            if event == "committed":
+                raise BrokenPipeError("parent went away")
+
+        record = pins.add("Keep the operator informed.", emit=broken)
+        self.assertEqual(len(pins.list_pins()), 1)
+        self.assertEqual(pins.list_pins()[0][records.RECORD_ID_KEY], record[records.RECORD_ID_KEY])
+
     def test_secret_shaped_text_is_scrubbed_before_it_is_stored(self):
         # A pin does not travel through capture, so capture's scrub never sees it — and a pinned credential
         # would be read into the briefing of every future session. There must be no unscrubbed copy anywhere.

@@ -320,8 +320,8 @@ def render(result: CensusResult) -> str:
                  "excluded-but-present = its text is still on the ledger but withheld from recall; "
                  "absent = the reference points at a record no longer on the ledger.")
     for kind, label in ((EPISODIC_SESSION, "episodic referenced-session"),
-                        (GIST_SESSION, "gist referenced-session   "),
-                        (GIST_SOURCE, "gist source-record        ")):
+                        (GIST_SESSION, "gist referenced-session    "),
+                        (GIST_SOURCE, "gist source-record         ")):
         c = result.counts[kind]
         lines.append(f"{label}: present={c[PRESENT]}  excluded-but-present={c[EXCLUDED_BUT_PRESENT]}  absent={c[ABSENT]}")
     lines.append("denominator: the original turn count is UNKNOWABLE, so coverage as a fraction of all turns is "

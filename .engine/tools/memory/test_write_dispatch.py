@@ -700,6 +700,27 @@ class SpawnReapTests(_Base):
         self.assertNotEqual(proc.returncode, 0)                        # ...by the kill, not a natural exit
         self.assertEqual(recorded, [])                                  # nothing classified, nothing stranded
 
+    def test_an_unknown_project_root_is_not_attempted_and_never_launches_from_the_working_directory(self):
+        # Round 4, SG-2: with no ENGINE_PROJECT_ROOT (or a relative one) the parent must not fall back to the
+        # working directory to pick the launcher. Nothing is spawned; the outcome is the not-attempted class.
+        def must_not_spawn(argv, **kwargs):
+            raise AssertionError(f"a child was launched without a verified root: {argv}")
+
+        for value in (None, "relative/root", ""):
+            with self.subTest(root=value):
+                recorded, recpatch = self._capture_recording()
+                env = {k: v for k, v in os.environ.items() if k != "ENGINE_PROJECT_ROOT"}
+                if value is not None:
+                    env["ENGINE_PROJECT_ROOT"] = value
+                with mock.patch.dict(os.environ, env, clear=True), \
+                     mock.patch.object(subprocess, "Popen", must_not_spawn), recpatch:
+                    outcome = write_dispatch._spawn_accepted_child({"verb": "pin", "text": "x"})
+                self.assertEqual(outcome, {"outcome": "not_attempted"})
+                self.assertEqual(len(recorded), 1)
+                (args, _kwargs) = recorded[0]
+                self.assertEqual(args[0], stranding_log.DispatchOutcome.NOT_ATTEMPTED)
+                self.assertEqual(args[1], stranding_log.EXIT_NOT_LAUNCHED)
+
     def test_a_child_that_never_launches_is_not_attempted_and_recorded(self):
         # not_attempted: Popen itself fails, so no process ever ran — a class distinct from a child that ran
         # and faulted, recorded with the never-launched exit sentinel.

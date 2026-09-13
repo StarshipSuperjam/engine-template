@@ -270,7 +270,15 @@ def _spawn_accepted_child(request: dict) -> dict:
     This cannot succeed from a tree whose accepted materialization does not yet contain this file — a
     pre-merge worktree — where it surfaces the launcher's own refusal. That is expected: write authority
     follows the merge, and the cross-process launch begins working once this change is accepted."""
-    root = os.environ.get("ENGINE_PROJECT_ROOT") or os.getcwd()
+    # The launcher — the gate that verifies and materializes the trusted code — is resolved ONLY from the root
+    # both launchers hand the server (ENGINE_PROJECT_ROOT). It is never picked from the process's working
+    # directory: an unverified directory must not decide which program runs the write. No root, no attempt —
+    # recorded as not-attempted, the same class as a child that never launched (round 4, SG-2).
+    root = os.environ.get("ENGINE_PROJECT_ROOT")
+    if not (isinstance(root, str) and root and os.path.isabs(root)):
+        stranding_log.record_dispatch_outcome(
+            stranding_log.DispatchOutcome.NOT_ATTEMPTED, stranding_log.EXIT_NOT_LAUNCHED)
+        return {"outcome": "not_attempted"}
     launcher = os.path.join(root, ".engine", "tools", "accepted_hook_dispatch.py")
     argv = [sys.executable, "-I", "-S", launcher, "attended",
             "--root", root, "--script", ".engine/tools/memory/write_dispatch.py",

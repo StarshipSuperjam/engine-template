@@ -731,6 +731,78 @@ class WithholdTests(_Base):
             self.assertEqual(forget.main(["restore-record", rid]), 0)
         self.assertEqual(len(list(forget.live_records())), 1)
 
+    def test_cli_withhold_record_withholds_one_record_and_refuses_a_second_time(self):
+        # Round 4, TI-1: the withhold-record verb through main(), the same lane the restore verb is tested on.
+        rid = self._turns("s-cli-w", count=2)[0]
+        output = io.StringIO()
+        with contextlib.redirect_stdout(output):
+            self.assertEqual(forget.main(["withhold-record", rid]), 0)
+        self.assertIn(f"Withheld record {rid}.", output.getvalue())
+        self.assertEqual(len(list(forget.live_records())), 1)
+        # Already out of recall: the refusal reaches the operator as its plain sentence and exit 1, not a
+        # traceback (the ControlNotRecorded translation the handler exists for).
+        output = io.StringIO()
+        with contextlib.redirect_stdout(output):
+            self.assertEqual(forget.main(["withhold-record", rid]), 1)
+        self.assertIn("Not withheld:", output.getvalue())
+        self.assertIn("already out of recall", output.getvalue())
+        self.assertNotIn("Traceback", output.getvalue())
+        self.assertEqual(len(list(forget.live_records())), 1)
+
+    def test_cli_withhold_session_withholds_a_whole_conversation_and_names_a_missing_one(self):
+        # Round 4, TI-1: the withhold-session verb through main(), success and the unknown-identifier refusal.
+        self._turns("s-cli-keep", count=1)
+        self._turns("s-cli-gone", count=3)
+        output = io.StringIO()
+        with contextlib.redirect_stdout(output):
+            self.assertEqual(forget.main(["withhold-session", "s-cli-gone"]), 0)
+        self.assertIn("Withheld session s-cli-gone.", output.getvalue())
+        live = list(forget.live_records())
+        self.assertEqual(len(live), 1)
+        self.assertEqual(live[0]["session_id"], "s-cli-keep")
+        output = io.StringIO()
+        with contextlib.redirect_stdout(output):
+            self.assertEqual(forget.main(["withhold-session", "s-never-existed"]), 1)
+        self.assertIn("Not withheld:", output.getvalue())
+        self.assertIn("no conversation in memory with that identifier", output.getvalue())
+        self.assertEqual(len(list(forget.live_records())), 1)
+
+    def test_withhold_and_restore_honour_a_pre_minted_id_and_emit_begin_then_committed(self):
+        # Round 4, TI-2: the direct API carries the dispatch-child parameters. `accepted_id` becomes the
+        # marker's own id (the parent's read-back key) and `emit` sees "begin" BEFORE the lock and
+        # "committed" after the append lands — the contract test_write_dispatch exercises only through the
+        # child process, pinned here at the function's own layer.
+        rid = self._turns("s-api", count=1)[0]
+        events = []
+        marker = forget.withhold(record_id=rid, accepted_id="acc-withhold-1", emit=lambda e, p: events.append((e, p)))
+        self.assertEqual(marker[records.RECORD_ID_KEY], "acc-withhold-1")
+        self.assertEqual([e for e, _ in events], ["begin", "committed"])
+        self.assertEqual(events[0][1][records.RECORD_ID_KEY], "acc-withhold-1")
+        self.assertEqual(events[1][1]["record"], marker)
+        self.assertGreater(events[1][1]["bytes"], 0)
+        self.assertEqual(len(list(forget.live_records())), 0)
+        events.clear()
+        restored = forget.restore(record_id=rid, accepted_id="acc-restore-1", emit=lambda e, p: events.append((e, p)))
+        self.assertEqual(restored[records.RECORD_ID_KEY], "acc-restore-1")
+        self.assertEqual([e for e, _ in events], ["begin", "committed"])
+        self.assertEqual(len(list(forget.live_records())), 1)
+        stored_ids = [r.get(records.RECORD_ID_KEY) for r in ledger.iter_records()]
+        self.assertIn("acc-withhold-1", stored_ids)
+        self.assertIn("acc-restore-1", stored_ids)
+
+    def test_a_failing_emit_never_turns_a_landed_withhold_into_a_refusal(self):
+        # The confirmation line is best-effort: the marker is durable before it is emitted, so a broken
+        # callback must not surface as "nothing was changed".
+        rid = self._turns("s-api-emit", count=1)[0]
+
+        def broken(event, payload):
+            if event == "committed":
+                raise BrokenPipeError("parent went away")
+
+        marker = forget.withhold(record_id=rid, emit=broken)
+        self.assertIsInstance(marker, dict)
+        self.assertEqual(len(list(forget.live_records())), 0)
+
 
 class AuthorityRefusalTranslationTests(_Base):
     """A refused memory-write authorization on the operator verbs must arrive as ControlNotRecorded plain
