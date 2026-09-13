@@ -78,30 +78,7 @@ reading files. Use an isolated plan-library fixture with the real lookup and rem
 SessionStart `source=compact`, bounded additionalContext and the following model response. Repeat without
 a binding. Keep CLI and Desktop results separate; a replay or self-report alone is not the live event.
 
-### Qualify multipart review delivery
-
-For changes to review delivery, run `tools/demo_review_packet_multipart.py` through the Engine runtime
-first. Its regression fixtures exercise refusal, recovery and both coordinator entry points. Run again
-with `--overcredit-missing-piece`; the deliberate verifier fault must produce assertion failures. Neither
-run is native-provider qualification. The permanent `MultipartDemonstration` regression imports the driver,
-so it remains a tested tool in deployed Engines rather than an unowned construction script.
-
-Then use disposable, clearly labeled synthetic plan and Build fixtures. Record the tested source hashes,
-runtime and host versions, root and actual child IDs, launch/read call IDs, original packet digest and
-observed piece coverage. Prepare an original packet of at least 77,696 UTF-8 bytes through the shared owner;
-the number reproduces the reported incident, not a universal runtime response limit. Launch fresh native
-reviewers under the exact registered roles and names. Have them read the emitted bounded piece paths through
-the qualified reader, deliberately omitting a middle piece initially. The real Project Manager and Build
-review receipt entry points must refuse incomplete evidence. Register clarification, resume the same child,
-read the missing piece and supplement, and verify acceptance without changing the original target. Missing
-or modified frozen artifacts must also refuse. Keep fixture admission, Git and validation assumptions
-explicit; fixture receipts never satisfy production review.
-
-Repeat with actual Claude native Agent, Read and observed hooks. Record provider-specific envelopes and
-actual event ordering; a completed launch result may arrive after child reads and completion. CLI results
-qualify that CLI invocation, not Desktop. An absent native launch surface, authentication or observed hook
-is an unverified live gate, even when synthetic fixtures and another provider pass. Preserve evidence,
-remove disposable source copies, and renew affected witnesses after material implementation changes.
+For multipart delivery, follow [live provider qualification](../docs/result-contracts.md#qualify-multipart-review-delivery).
 
 ## Done when
 
