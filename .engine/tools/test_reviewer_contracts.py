@@ -769,4 +769,54 @@ class HistoricalContracts(unittest.TestCase):
             self.assertTrue(all(p['semantic']['result_contract']['limits']==original for p in panel))
 
 
+import selftest_cost
+
+
+@selftest_cost.declaration({
+    'schema_version': 'test-cost-contract.v1', 'supported_fault': 'Prospective cost review silently changes prior consent',
+    'boundary': 'filesystem', 'boundary_rationale': 'Capture actual versioned personas from a small disposable roster',
+    'fixture_owner': 'test_reviewer_contracts.CostContractTransition', 'dependencies': ['jsonschema', 'reviewer_contracts'],
+    'data_reads': ['.engine/schemas/*.json', '.engine/policies/model-bindings.json', '.engine/build-protocol.json'],
+    'cadence': 'pr', 'limits': {**selftest_cost.zeros(), 'schema_decodes': 200, 'metaschema_validations': 3},
+    'mutable_state': 'Disposable roster and approval envelopes', 'cache_lifetime': 'case',
+    'added_cost_risk': 'No Engine clone, subprocess or nested suite', 'families': []})
+class CostContractTransition(unittest.TestCase):
+    def test_new_cost_approval_requires_the_envelope_and_preserves_the_frozen_predecessor(self):
+        import project_manager as pm
+        import build_coordinator_review as review
+        temporary = tempfile.TemporaryDirectory(); self.addCleanup(temporary.cleanup)
+        root = Path(temporary.name)
+        for relative in ('.claude/agents', '.engine/tools', '.engine/policies'):
+            (root / relative).mkdir(parents=True)
+        (root / '.engine/schemas').symlink_to(ROOT / '.engine/schemas', target_is_directory=True)
+        for relative in ('.engine/policies/model-bindings.json', '.engine/build-protocol.json'):
+            (root / relative).write_bytes((ROOT / relative).read_bytes())
+        path = root / '.claude/agents/engine-qa-review-technical-integrity.md'
+        path.write_text('---\nname: engine-qa-review-technical-integrity\nrole: pre-submission-review\n'
+            'lens: technical-integrity\nmodel-tier: judgment\npermissions: read-only\n'
+            'reviewer-contract: engine:engine-qa-review-technical-integrity\nreviewer-contract-version: 1\n'
+            'output-contract: pre-submission-review-finding.v1\n---\nFrozen fixture obligation.\n')
+        location = patch.object(pm, '__file__', str(root / '.engine/tools/project_manager.py'))
+        location.start(); self.addCleanup(location.stop)
+        ref = {'plan_id': 'pln_0123456789ab', 'revision': 1, 'plan_digest': 'sha256:' + 'a' * 64}
+        record = {'plan_id': ref['plan_id'], 'current': ref}
+        old = contracts.capture(root, ref, 'quick', [], ['technical-integrity'], instructions='Read the frozen obligation.')
+        before = copy.deepcopy(old)
+        with self.assertRaises(pm.ProjectManagerError):
+            pm._capture_review_contract(record, 'quick', cost_applicable=True)
+        text = path.read_text().replace('reviewer-contract-version: 1',
+            'reviewer-contract-version: 2\nsupports-frozen-cost-predecessor: 1').replace(
+            'output-contract: pre-submission-review-finding.v1', 'output-contract: technical-integrity-review.v1')
+        path.write_text(text)
+        new = pm._capture_review_contract(record, 'quick', cost_applicable=True)
+        self.assertEqual(['technical-integrity'], [p['lens'] for p in new['panels']['pre-submission-review']])
+        self.assertEqual([], contracts.drift(old, root)['changed'])
+        binding = old['panels']['pre-submission-review'][0]['semantic']['result_contract']
+        self.assertEqual([], review.ingest_review_report('[]', binding, lens='technical-integrity', retained=True)['report'])
+        self.assertEqual(before, old)
+        # The compatibility promise cannot also waive a tools/permission change.
+        path.write_text(text.replace('permissions: read-only', 'permissions: write'))
+        self.assertEqual(1, len(contracts.drift(old, root)['changed']))
+
+
 if __name__ == '__main__': unittest.main()

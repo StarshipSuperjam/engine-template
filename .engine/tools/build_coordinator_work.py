@@ -2,12 +2,16 @@
 """Attempt machinery for the DAG Build coordinator: bounded packets, claims, results, routing.
 
 This service builds the records the ``work`` verbs write and enforces the attempt-binding and
-output-contract rules. It imports only ``build_coordinator_core`` and ``build_coordinator_dag``; it
-never imports the CLI, reads persona files, or touches git or GitHub. The CLI passes in the plan,
-state, loaded bindings, and git facts; routing is resolved from the bindings alone, so this module
-has no backward dependency on the worker-persona surfaces rendered later.
+output-contract rules. Its explicit-root cost acquisition service reads committed source through Git
+for both the local coordinator and CI; pure assessment consumes the resulting immutable evidence.
+It never imports the CLI or touches GitHub or persona files. Routing uses passed-in bindings.
 """
 from __future__ import annotations
+
+from functools import partial
+import json
+import sys
+from pathlib import Path
 
 import result_contracts
 
@@ -20,6 +24,73 @@ import build_coordinator_dag as dag
 CoordinatorError = core.CoordinatorError
 
 _EVIDENCE_KEYS = ("changed_paths", "verification_results", "assumptions", "unresolved_concerns")
+
+
+def assess_retained_cost(evidence, *, expected_identity, now, exceptions=None):
+    """Re-evaluate immutable controller evidence against the live permission clock.
+
+    The acquisition service owns observation and trusted baseline provenance. A content cache
+    never caches the authority of an expiring exception. This function has no IO or clock.
+    """
+    import selftest_cost
+    if (not isinstance(evidence, dict) or not {"observation", "context", "digest"} <= set(evidence)
+            or set(evidence) - {"observation", "context", "digest", "node_approval", "base_inventory"}):
+        raise CoordinatorError("controller cost observation is missing")
+    material = {key: value for key, value in evidence.items() if key != "digest"}
+    if evidence["digest"] != selftest_cost.digest(material):
+        raise CoordinatorError("retained cost observation or context changed")
+    context = evidence["context"]
+    if context.get("expected_identity") != expected_identity:
+        raise CoordinatorError("cost evidence does not describe this source, scope, plan and attempt")
+    problems = selftest_cost.observation_problems(evidence["observation"], expected_identity)
+    if problems:
+        raise CoordinatorError("cost observation is unusable: " + "; ".join(problems))
+    live = {**context, "now": now}
+    if exceptions is not None:
+        live["exceptions"] = exceptions
+    assessment = selftest_cost.assess_cost(evidence["observation"], **live)
+    if evidence.get("base_inventory") is not None:
+        assessment["violations"] += selftest_cost.inventory_findings(context["runtime"], context["census"],
+            evidence["base_inventory"], context.get("mappings", ()), context.get("declarations", ()))
+        if context.get('base_observation') is None:
+            before = {selftest_cost.case_key(row['case']) for row in evidence['base_inventory']['cases']}
+            after = {selftest_cost.case_key(row) for row in context['runtime']}
+            for field, keys in (('common', before & after), ('added', after - before), ('removed', before - after)):
+                assessment[field] = [{'id': key[0], 'occurrence': key[1]} for key in sorted(keys)]
+    approval = evidence.get("node_approval")
+    if approval:
+        definitions = {(d['path'], d['qualified_name']): d for d in context['census']['definitions']}
+        declarations = {selftest_cost.case_key(c): c for c in context.get('declarations', ())}
+        selected = {selftest_cost.case_key(c) for c in approval['cases']}
+        boundaries = {'pure': 0, 'filesystem': 1, 'process': 2, 'integration': 3}
+        for row in context['runtime']:
+            key = selftest_cost.case_key(row)
+            if key not in selected:
+                continue
+            contract = selftest_cost.effective_contract(row, definitions.get((row['path'], row['qualified_name'])),
+                                                        declarations.get(key))
+            if (not contract or boundaries.get(contract.get('boundary'), 4) > boundaries[approval['contract']['boundary']]
+                    or contract.get('cadence') != approval['contract']['cadence']):
+                assessment['violations'].append('implementation exceeds approved node boundary/cadence: ' + str(key))
+            elif selftest_cost.budget_findings(contract['limits'], approval['contract']['limits']):
+                assessment['violations'].append('implementation declares more cost than the approved node: ' + str(key))
+    if assessment['violations']:
+        assessment['violations'] = list(dict.fromkeys(assessment['violations']))
+        assessment['status'], assessment['cost_clearance'] = 'concerns', False
+    return assessment
+
+
+def retain_cost(observation, context, *, node_approval=None, base_inventory=None):
+    """Only the controller calls this after independently acquiring the measured inputs."""
+    import selftest_cost
+    if "now" in context:
+        raise CoordinatorError("the consumption clock cannot be retained as immutable evidence")
+    material = {"observation": observation, "context": context}
+    if node_approval is not None:
+        material['node_approval'] = node_approval
+    if base_inventory is not None:
+        material['base_inventory'] = base_inventory
+    return {**material, "digest": selftest_cost.digest(material)}
 
 # The plan-wide governing context a worker checks its work against. raw_intent and the plan's evidence
 # array are deliberately NOT here: raw_intent under the operator's standing no-verbatim directive, the
@@ -298,7 +369,8 @@ def build_packet(plan: dict, state: dict, node_id: str, route: dict, base_sha: s
         "node": {"id": node_id, "description": item["description"], "paths": item["paths"],
                  "verification": item["verification"], "depends_on": item.get("depends_on", []),
                  "exclusive_resources": item.get("exclusive_resources", []),
-                 "executor_class": item["executor_class"], "output_contract": item["output_contract"]},
+                 "executor_class": item["executor_class"], "output_contract": item["output_contract"],
+                 **({"test_cost": item["test_cost"]} if "test_cost" in item else {})},
         "objective": plan["objective"], "non_goals": plan.get("non_goals", []),
         "governing_context": governing_context(plan, node_id),
         "base_sha": base_sha, "worktree": worktree, "attempt_id": attempt_id, "route": route,
@@ -386,3 +458,85 @@ def failure_record(attempt_id: str, failure_class: str, reason: str, disposition
                 raise CoordinatorError(f"unknown fail-closed gap {gap!r}")
             record["gap"] = gap
     return record
+
+
+def cost_expected(root, plan, state, *, source, base, node, attempt, inventory, environment, stage=None):
+    import selftest_cost as cost
+    policy = core.json_file(root / ".engine/policies/test-cost.json")
+    contract = node_item(plan, node)["test_cost"] if node else [n["test_cost"] for n in plan["work_items"]]
+    return {"source_commit": source, "base_commit": base, "observer_commit": source,
+            "observer_digest": cost.observer_fingerprint(root), "plan_digest": core.digest(plan),
+            "contract_digest": cost.digest(contract), "policy_digest": cost.digest(policy),
+            "inventory_digest": cost.digest(inventory), "environment_digest": cost.digest(environment),
+            "cache_state": "unknown", "topology": "serial", "stage": stage or ("node-focused" if node else "candidate"),
+            "attempt": attempt, "node": node, "artifact_digest": core.digest(core.must_run(["git", "ls-tree", "-r", "--full-tree", "-z", source], root=root).encode("utf-8"))}
+
+
+def cost_base_inventory(root, base):
+    run = partial(core.run, root=root)
+    must_run = partial(core.must_run, root=root)
+    import tempfile
+    import selftest_cost as cost
+    import selftest_results
+    with tempfile.TemporaryDirectory(prefix="engine-cost-base-") as folder:
+        checkout = Path(folder) / "source"
+        inventory_path = Path(folder) / "inventory.json"
+        must_run(["git", "worktree", "add", "--detach", str(checkout), base])
+        try:
+            must_run([sys.executable, str(root / ".engine/tools/selftest_cost.py"), "inventory",
+                       "--source-root", str(checkout), "--output", str(inventory_path)])
+            duplicate_blob = run(["git", "show", base + ":.engine/policies/test-cost-legacy-static.json"])
+            static_policy = root / ".engine/policies/test-cost-legacy-static.json"
+            duplicates = (json.loads(duplicate_blob.stdout).get("duplicates", []) if duplicate_blob.returncode == 0
+                          else core.json_file(static_policy).get("duplicates", []) if static_policy.exists() else [])
+            # Proposed debt labels grant only exact duplicates independently verified in the old source.
+            return cost.identity_only_inventory(selftest_results.read(inventory_path),
+                expected_commit=base, expected_tree=must_run(["git", "rev-parse", base + "^{tree}"]).strip(),
+                duplicate_enrollment=duplicates)
+        finally:
+            must_run(["git", "worktree", "remove", str(checkout)])
+
+
+def collect_cost_evidence(root, plan, state, *, source, base, node, attempt, raw, outcomes, performance, stage=None):
+    run = partial(core.run, root=root)
+    must_run = partial(core.must_run, root=root)
+    import selftest_cost as cost
+    identity = cost_expected(root, plan, state, source=source, base=base, node=node, attempt=attempt,
+        inventory=outcomes["inventory"], environment=performance["environment"], stage=stage)
+    tree = must_run(["git", "rev-parse", source + "^{tree}"]).strip()
+    observation = cost.normalize_run(raw, identity, expected_tree=tree, outcomes=outcomes)
+    policy = core.json_file(root / ".engine/policies/test-cost.json")
+    # Budget authority is the committed base, not two mutually edited candidate artifacts.
+    baseline = None
+    baseline_digest = None
+    enrollment_base = state["build"]["base_at_bind"]
+    baseline_blob = run(["git", "show", enrollment_base + ":.engine/policies/test-cost-legacy-baseline.json"])
+    activation_blob = run(["git", "show", enrollment_base + ":.engine/policies/test-cost-activation.json"])
+    if baseline_blob.returncode == activation_blob.returncode == 0:
+        baseline = cost.unpack_enrollment(json.loads(baseline_blob.stdout))
+        activation = json.loads(activation_blob.stdout)
+        baseline_digest = activation["baseline_digest"]
+        if cost.digest(baseline) != baseline_digest:
+            raise CoordinatorError("trusted base enrollment and activation disagree")
+    bootstrap = cost_base_inventory(root, base)
+    sources = {p.relative_to(root).as_posix(): p.read_text()
+               for p in (root / ".engine/tools").rglob("test_*.py")}
+    declarations_path = root / ".engine/policies/test-cost-declarations.json"
+    declarations = core.json_file(declarations_path) if declarations_path.exists() else {}
+    context = {"expected_identity": identity, "baseline": baseline, "expected_baseline_digest": baseline_digest,
+               "runtime": raw["inventory"], "census": cost.static_census(sources, source), "policy": policy,
+               "declarations": declarations.get("cases", []), "mappings": declarations.get("mappings", []),
+               "exceptions": [entry["exception"] for entry in state["cost"]["exceptions"]],
+               "expected_cases": outcomes["selected"], "bootstrap_inventory": bootstrap}
+    approval = None
+    if node:
+        old = {cost.case_key(row['case']): row for row in bootstrap['cases']}
+        definitions = {(d['path'], d['qualified_name']): d for d in context['census']['definitions']}
+        changed = []
+        for row in raw['inventory']:
+            prior = old.get(cost.case_key(row))
+            current = definitions.get((row['path'], row['qualified_name']))
+            if not prior or not current or prior['source_digest'] != current['ast_digest']:
+                changed.append({key: row[key] for key in ('id', 'occurrence')})
+        approval = {'contract': node_item(plan, node)['test_cost'], 'cases': changed}
+    return retain_cost(observation, context, node_approval=approval, base_inventory=bootstrap)

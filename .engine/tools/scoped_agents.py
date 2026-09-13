@@ -692,8 +692,13 @@ class Store:
                     output = result_contracts.parse(a["stops"][-1]["output"])
                 except (TypeError, ValueError):
                     continue
-                # Existing finding-array contract. A partial/blocked object or prose is not coverage.
-                if not isinstance(output, list) or any(not isinstance(f, dict) for f in output):
+                if (a.get("result_contract") or {}).get("id") == "technical-integrity-review.v1":
+                    try:
+                        self.review_report(a, owner)
+                    except (EvidenceError, core.CoordinatorError):
+                        continue
+                elif not isinstance(output, list) or any(not isinstance(f, dict) for f in output):
+                    # Historical finding arrays retain their original admission shape.
                     continue
             elif not _text(a["stops"][-1]["output"]):
                 continue
@@ -930,7 +935,9 @@ def validate_initial_build_finding(library, state, receipt, entry):
         raise EvidenceError("initial finding requires verified observed review evidence")
     data = store.read()
     accepted = data["acceptances"][receipt_key(receipt)]
-    reports = [result_contracts.compile_review(accepted["reports"][key], lens=receipt["lens"])
+    reports = [result_contracts.compile_review(accepted["reports"][key], lens=receipt["lens"],
+               contract=(data["assignments"][key].get("result_contract") or {}).get(
+                   "id", "pre-submission-review-finding.v1"))
                for key in accepted["assignments"]]
     originals = [f for report in reports for f in report["findings"]]
     if len(originals) != len(receipt["finding_ids"]):

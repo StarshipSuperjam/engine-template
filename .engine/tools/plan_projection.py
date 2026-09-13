@@ -168,6 +168,14 @@ def _build_half(payload: dict, items: list, chains: dict) -> list:
         add(f"- **Paths**: {', '.join(f'`{p}`' for p in item['paths'])}")
         resources = ", ".join(f"`{r}`" for r in item.get("exclusive_resources", [])) or "—"
         add(f"- **Exclusive resources**: {resources}")
+        cost = item.get("test_cost")
+        if cost is not None:
+            add("- **Test cost contract** (approved with this node):")
+            add("")
+            add("```json")
+            add(json.dumps(cost, indent=2, sort_keys=True))
+            add("```")
+            add("")
         contract = item.get("output_contract")
         if contract:
             add(f"- **Deliverable**: {contract['deliverable']}")
@@ -320,7 +328,7 @@ def render_plan(document: dict, record: dict) -> str:
         add("There is none yet. This plan was imported verbatim from an accepted native plan, and "
             "an import decomposes nothing: the payload it carries is empty by construction, and "
             "nothing here inferred work items from the text above. Authoring a real "
-            "`build-plan.v2` payload and minting it with `revise` is the work between this plan and "
+            "`build-plan.v3` payload and minting it with `revise` is the work between this plan and "
             "a seal.")
         add("")
     else:

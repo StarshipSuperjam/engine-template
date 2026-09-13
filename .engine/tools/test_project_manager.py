@@ -28,7 +28,35 @@ import project_manager
 import plan_projection
 import plan_store
 
-from test_plan_store import _document
+from test_plan_store import _document as _historical_document
+import selftest_cost
+
+
+def _protocol_cost(limit):
+    return selftest_cost.declaration({
+        "schema_version": "test-cost-contract.v1", "supported_fault": "Incorrect prospective plan approval or seal",
+        "boundary": "process", "boundary_rationale": "Existing protocol fixture performs one cold Git origin lookup before real plan-library writes",
+        "fixture_owner": "test_project_manager", "dependencies": ["jsonschema", "project_manager", "plan_store"],
+        "data_reads": [".engine/schemas/*.json", ".engine/policies/model-bindings.json"], "cadence": "pr",
+        "limits": {**selftest_cost.zeros(), "schema_decodes": limit, "metaschema_validations": 3, "processes": 1, "git_commands": 1}, "mutable_state": "Disposable plan library",
+        "cache_lifetime": "case", "added_cost_risk": "Known protocol JSON decoding and at most one shared-fixture origin lookup; no whole-tree fixture",
+        "families": []})
+
+
+def _document(**overrides):
+    """Fresh authoring fixtures use the prospective version; explicit legacy inputs stay literal."""
+    document = _historical_document(**overrides)
+    if "build_plan" not in overrides:
+        import selftest_cost
+        document["build_plan"]["schema_version"] = "build-plan.v3"
+        for node in document["build_plan"]["work_items"]:
+            node["test_cost"] = {
+                "schema_version": "test-cost-contract.v1", "supported_fault": "Broken plan protocol",
+                "boundary": "pure", "boundary_rationale": "Bounded protocol fixture",
+                "fixture_owner": "protocol-example", "dependencies": [], "data_reads": [], "cadence": "pr",
+                "limits": selftest_cost.zeros(), "mutable_state": "Case-local value", "cache_lifetime": "case",
+                "added_cost_risk": "No child work in this declared example", "families": []}
+    return document
 
 
 def observe_review_execution(library, slug, owner, lens, digest, output, **kwargs):
@@ -48,7 +76,10 @@ def observe_review_execution(library, slug, owner, lens, digest, output, **kwarg
 class _Surface(unittest.TestCase):
     def setUp(self):
         from selftest_support import review_fixture
-        review_fixture(self)
+        fixture_root = review_fixture(self)
+        persona = fixture_root / ".claude/agents/engine-qa-review-technical-integrity.md"
+        persona.write_text(persona.read_text().replace("reviewer-contract-version: 1", "reviewer-contract-version: 2\nsupports-frozen-cost-predecessor: 1")
+                           .replace("output-contract: pre-submission-review-finding.v1", "output-contract: technical-integrity-review.v1"))
         self._tmp = tempfile.TemporaryDirectory()
         self.root = Path(self._tmp.name) / "plans"
         self.lib = plan_store.PlanLibrary(self.root)
@@ -753,6 +784,7 @@ class SealRefusals(_Governed):
         self.assertEqual(code, 1)
         self.assertIn("changed before it was ever reviewed", err)
 
+    @_protocol_cost(1000)
     def test_a_payload_the_build_coordinator_would_refuse_refuses_the_seal(self):
         # Delegated, not re-expressed: a v1 payload reads fine and cannot be handed to a DAG Build.
         slug, _ = self._to_reviewed()
@@ -767,7 +799,7 @@ class SealRefusals(_Governed):
         self.lib.append_revision(slug, second, expected_revision=record["current"]["revision"])
         code, _, err = self.run_command("seal", slug, "--operator-decided")
         self.assertEqual(code, 1)
-        self.assertIn("only build-plan.v2 can be sealed", err)
+        self.assertIn("only build-plan.v3 can be sealed", err)
 
     def test_all_refusals_are_reported_together(self):
         slug, _ = self._plan()
@@ -2149,13 +2181,14 @@ class ImportingANativePlan(_Surface):
         self.assertIn("Codex", self.lib.head(arrival["slug"])["intake"]["provenance"])
         self.assertIn("Codex", self.lib.read_record(arrival["slug"])["intake"]["provenance"])
 
+    @_protocol_cost(100)
     def test_an_imported_draft_can_be_revised_into_a_real_plan(self):
         # The whole point of importing rather than restarting: the coordinator continues from here.
         arrival = self._import()
         real = _document(plan_id=arrival["plan_id"], revision=2)
         self.lib.append_revision(arrival["slug"], real, expected_revision=1)
         head = self.lib.head(arrival["slug"])
-        self.assertEqual(head["build_plan"]["schema_version"], "build-plan.v2")
+        self.assertEqual(head["build_plan"]["schema_version"], "build-plan.v3")
         self.assertEqual(len(self.lib.read_record(arrival["slug"])["ledger"]), 2)
 
 
@@ -3050,13 +3083,16 @@ class TestFrozenApproval(_Surface):
         self.assertIn(old_hash, rendered)
         self.assertIn('plan-review/architecture — adopt', rendered)
 
+    @_protocol_cost(200)
     def test_approval_captures_both_panels_and_effort_policy(self):
         slug = self._approved()
         r = self.lib.read_record(slug)
         c = project_manager.reviewer_contracts.effective(r)
         self.assertEqual(r['approval']['plan_digest'], c['referent']['plan_digest'])
         self.assertEqual(4, len(c['panels']['plan-review']))
-        self.assertEqual(3, len(c['panels']['pre-submission-review']))
+        self.assertEqual(4, len(c['panels']['pre-submission-review']))
+        cost_lens = next(p for p in c['panels']['pre-submission-review'] if p['lens'] == 'technical-integrity')
+        self.assertEqual('technical-integrity-review.v1', cost_lens['semantic']['result_contract']['id'])
         for panel in c['panels'].values():
             for persona in panel:
                 self.assertEqual({'mode': 'harness-controlled', 'floor': None},

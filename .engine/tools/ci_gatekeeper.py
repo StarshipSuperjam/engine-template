@@ -88,6 +88,11 @@ WORKFLOW_PATH = ".github/workflows/engine-ci.yml"
 CHECK_CONTEXT = "engine-ci"
 RECEIPT_ARTIFACT_NAME = "engine-ci-receipt"
 RECEIPT_FILENAME = "receipt.json"
+COST_FILENAME = "cost-evidence.json"
+COST_EXCEPTION_ENV = "ENGINE_TEST_COST_APPROVED_EXCEPTIONS"
+COST_REUSE_DIR_ENV = "ENGINE_CI_COST_REUSE_DIR"
+_MAX_COST_BYTES = 64 * 1024 * 1024
+REASON_COST_PERMISSION = "cost-permission-refused"
 RECEIPT_SCHEMA = "engine-ci-receipt/v1"
 
 # A receipt older than this is refused. Retention on the artifact is deliberately longer, so expiry is always
@@ -343,6 +348,8 @@ def find_reusable_receipt(*, repo, token, pr_number, head_sha, expected_tree, ro
     # did not read, so a truncated give-up must not masquerade as an ordinary no-receipt/refused result.
     if progress.get("truncated"):
         reason = REASON_CANDIDATE_LIST_TRUNCATED
+    elif any(r["why"] == REASON_COST_PERMISSION for r in refusals):
+        reason = REASON_COST_PERMISSION
     elif refusals:
         reason = REASON_REFUSED
     else:
@@ -401,16 +408,40 @@ def _receipt_from_run(*, repo, run, pr_number, head_sha, expected_tree, root, to
     try:
         raw = download_artifact(repo=repo, artifact_id=artifact["id"], token=token)
         receipt = json.loads(_extract_receipt(raw))
+        evidence = None
+        exceptions = None
+        if receipt.get("cost"):
+            with zipfile.ZipFile(io.BytesIO(raw)) as archive:
+                info = archive.getinfo(COST_FILENAME)
+                if info.file_size > _MAX_COST_BYTES:
+                    raise ValueError("cost evidence exceeds the artifact cap")
+                evidence = json.loads(archive.read(COST_FILENAME))
+            if COST_EXCEPTION_ENV not in os.environ and (evidence.get("context") or {}).get("exceptions"):
+                status, registry = transport("GET", f"/repos/{repo}/actions/variables/{COST_EXCEPTION_ENV}", None)
+                if status == 404:
+                    exceptions = []
+                elif status == 200 and isinstance(registry, dict) and isinstance(registry.get("value"), str):
+                    exceptions = approved_cost_exceptions({COST_EXCEPTION_ENV: registry["value"]})
+                else:
+                    return False, "cost-exception-registry-unavailable", None
     except Exception as exc:                       # noqa: BLE001 - a bad artifact is a refusal, never a pass
         return False, f"artifact-unreadable: {type(exc).__name__}", None
 
     ok, why = verify_receipt(receipt, repo=repo, pr_number=pr_number, head_sha=head_sha,
-                             expected_tree=expected_tree, run=run, root=root, accept_modes=accept_modes)
+                             expected_tree=expected_tree, run=run, root=root, accept_modes=accept_modes,
+                             cost_evidence=evidence, cost_exceptions=exceptions)
+    if ok and evidence is not None and os.environ.get(COST_REUSE_DIR_ENV):
+        from pathlib import Path
+        from selftest_results import write
+        directory = Path(os.environ[COST_REUSE_DIR_ENV])
+        directory.mkdir(parents=True, exist_ok=True)
+        write(directory / RECEIPT_FILENAME, receipt)
+        write(directory / COST_FILENAME, evidence)
     return ok, why, (receipt if ok else None)
 
 
 def verify_receipt(receipt, *, repo, pr_number, head_sha, expected_tree, run, root=None, now=None,
-                   accept_modes=ACCEPT_FULL_ONLY):
+                   accept_modes=ACCEPT_FULL_ONLY, cost_evidence=None, cost_exceptions=None):
     """`(ok, why)` — every field a receipt must satisfy to authorize reuse. Fails closed on anything unexpected.
 
     The tree hash is the substantive check: it is what makes "the same code, already judged" literally true.
@@ -456,7 +487,72 @@ def verify_receipt(receipt, *, repo, pr_number, head_sha, expected_tree, run, ro
     if receipt.get("test_module_digest") != digest or receipt.get("test_module_count") != count:
         return False, "inventory-mismatch"
 
+    if receipt.get("mode") == MODE_FULL and (_cost_required(root) or receipt.get("cost")):
+        try:
+            verify_cost_evidence(receipt, cost_evidence, root=root, now=now, exceptions=cost_exceptions)
+        except CostPermissionError:
+            return False, REASON_COST_PERMISSION
+        except (ValueError, KeyError, TypeError, OSError) as exc:
+            return False, "cost-evidence-refused:" + type(exc).__name__
+
     return True, None
+
+
+class CostPermissionError(ValueError):
+    """Source evidence still qualifies; only the live allowance fails."""
+
+
+def _cost_required(root):
+    from pathlib import Path
+    return (Path(root or _repo_root()) / ".engine/check/test-cost.json").is_file()
+
+
+def approved_cost_exceptions(env=None):
+    """CI's protected workflow passes the maintainer-owned repository variable here.
+
+    It is intentionally outside candidate Git content. A prior receipt's permission
+    bytes cannot authorize a current run; absence means no current allowance.
+    """
+    environ = os.environ if env is None else env
+    raw = environ.get(COST_EXCEPTION_ENV, "[]") or "[]"
+    if len(raw.encode()) > 48 * 1024:
+        raise ValueError("approved cost exception registry exceeds its bound")
+    entries = json.loads(raw)
+    if not isinstance(entries, list) or len(entries) > 100:
+        raise ValueError("approved cost exception registry must be a bounded array")
+    from selftest_results import validate_shape
+    for entry in entries:
+        validate_shape(entry, "test-cost-exception.v1")
+    return entries
+
+
+def verify_cost_evidence(receipt, evidence, *, root=None, now=None, exceptions=None):
+    """Preserve actual measured source; re-evaluate permissions after receipt association."""
+    from pathlib import Path
+    import selftest_cost as cost
+    import build_coordinator_core as core
+    import build_coordinator_work as work
+    root = Path(root or _repo_root())
+    reference = receipt.get("cost") or {}
+    if not isinstance(evidence, dict) or reference.get("digest") != evidence.get("digest"):
+        raise ValueError("missing or mismatched full-run cost evidence")
+    identity = reference.get("identity") or {}
+    if (identity.get("stage") != "full" or identity.get("node") is not None
+            or reference.get("source_tree") != receipt.get("tree_sha")
+            or reference.get("source_tree") != tree_sha(str(root))
+            or identity.get("artifact_digest") != core.digest(_git(["ls-tree", "-r", "--full-tree", "-z", "HEAD"], str(root)).encode())
+            or identity.get("observer_digest") != cost.observer_fingerprint(root)
+            or identity.get("policy_digest") != cost.digest(json.loads((root / ".engine/policies/test-cost.json").read_text()))):
+        raise ValueError("cost identity differs from the associated immutable checkout")
+    at = moment.to_z(now) if now is not None else moment.utc_now()
+    try:
+        assessment = work.assess_retained_cost(evidence, expected_identity=identity, now=at,
+            exceptions=approved_cost_exceptions() if exceptions is None else exceptions)
+    except core.CoordinatorError as exc:
+        raise ValueError("invalid full-run cost observation") from exc
+    if assessment["violations"]:
+        raise CostPermissionError("resource violations remain under current unwaived policy")
+    return assessment
 
 
 def _age_ok(completed_at, now=None):
@@ -503,7 +599,8 @@ def _default_transport(token):
 # The receipt a full run leaves behind
 # --------------------------------------------------------------------------------------------------
 
-def emit_receipt(event, *, repo, root=None, env=None, now=None, mode=None, classifier=classify_checkout):
+def emit_receipt(event, *, repo, root=None, env=None, now=None, mode=None, classifier=classify_checkout,
+                 cost_evidence=None):
     """The receipt a full or project-only run uploads, as a dict.
 
     Emitted only after the arm's substantive steps have passed — the workflow orders the step that way, so the
@@ -528,7 +625,7 @@ def emit_receipt(event, *, repo, root=None, env=None, now=None, mode=None, class
         if not isinstance(classification, dict) or classification.get("verdict") != "project-only":
             raise GatekeeperError("refusing to write a project-only receipt: the checkout does not classify "
                                   "project-only")
-    return {
+    receipt = {
         "schema": RECEIPT_SCHEMA,
         "mode": mode,
         "classification": classification,
@@ -546,6 +643,17 @@ def emit_receipt(event, *, repo, root=None, env=None, now=None, mode=None, class
         "test_module_digest": digest,
         "completed_at": stamp,
     }
+    if mode == MODE_FULL and (_cost_required(root) or cost_evidence is not None):
+        if not isinstance(cost_evidence, dict):
+            raise GatekeeperError("full receipt requires the current controller cost observation")
+        receipt["cost"] = {"digest": cost_evidence.get("digest"),
+                           "identity": cost_evidence.get("context", {}).get("expected_identity"),
+                           "source_tree": receipt["tree_sha"]}
+        assessment = verify_cost_evidence(receipt, cost_evidence, root=root, now=now,
+                                         exceptions=approved_cost_exceptions(environ))
+        receipt["cost"]["status"] = assessment["status"]
+        receipt["cost"]["cost_clearance"] = assessment["cost_clearance"]
+    return receipt
 
 
 def _int_or_none(value):
@@ -642,9 +750,52 @@ def main(argv):
     repo = os.environ.get("GITHUB_REPOSITORY", "")
     token = os.environ.get("GITHUB_TOKEN", "")
 
+    if verb == "assess-cost":
+        import argparse
+        import build_coordinator_core as core
+        import selftest_results as records
+        import build_coordinator_work as work
+        parser = argparse.ArgumentParser(prog="ci_gatekeeper.py assess-cost")
+        for flag in ("cost-run", "outcomes", "performance", "out"):
+            parser.add_argument("--" + flag, required=True)
+        args = parser.parse_args(argv[1:])
+        records.write(args.out, {"complete": False, "reason": "cost acquisition not complete"})
+        root = _repo_root()
+        source = _git(["rev-parse", "HEAD"], root)
+        _, base = head_and_base(root)
+        if base is None:
+            try:
+                base = _git(["rev-parse", "HEAD^"], root)
+            except GatekeeperError:
+                base = source
+        exceptions = approved_cost_exceptions()
+        # This is CI inventory evidence, not the private approved Build payload or its review.
+        plan = {"purpose": "Full CI inventory resource verification", "work_items": []}
+        state = {"build": {"base_at_bind": base}, "cost": {"exceptions": [{"exception": e} for e in exceptions]}}
+        from pathlib import Path
+        with core.StableCommit(Path(root), "CI cost assessment") as stable_source:
+            if source != stable_source:
+                raise GatekeeperError("CI source moved before cost acquisition")
+            evidence = work.collect_cost_evidence(Path(root), plan, state, source=source, base=base, node=None,
+                attempt=os.environ.get("GITHUB_RUN_ID", "local") + ":" + os.environ.get("GITHUB_RUN_ATTEMPT", "1"),
+                raw=records.read(args.cost_run), outcomes=records.read(args.outcomes),
+                performance=records.read(args.performance), stage="full")
+            assessment = work.assess_retained_cost(evidence,
+                expected_identity=evidence["context"]["expected_identity"], now=moment.utc_now(), exceptions=exceptions)
+        records.write(args.out, evidence)
+        records.write(args.out + ".assessment.json", assessment)
+        print(json.dumps({"cost_status": assessment["status"], "cost_clearance": assessment["cost_clearance"],
+            "violations": assessment["violations"][:20], "violation_count": len(assessment["violations"]),
+            "unknown": assessment["unknown"], "assessment_path": args.out + ".assessment.json"}, sort_keys=True))
+        return 1 if assessment["violations"] else 0
+
     if verb == "decide":
         event = _load_event()
         mode, reason, detail = decide(event, repo=repo, token=token, root=_repo_root())
+        if reason == REASON_COST_PERMISSION:
+            print("engine-ci: retained observations exceed current unwaived limits. Repair the cost or explicitly "
+                  "renew the bounded allowance; the still-valid observations do not need another full run.", file=sys.stderr)
+            return 1
         _publish_mode(mode)
         if mode in (MODE_REUSE, MODE_PROJECT_ONLY):
             line = reuse_disclosure(detail) if mode == MODE_REUSE else project_only_disclosure(detail)
@@ -671,13 +822,20 @@ def main(argv):
 
     if verb == "emit-receipt":
         out = None
+        cost_path = None
         for i, tok in enumerate(argv[1:]):
             if tok == "--out" and i + 2 <= len(argv[1:]):
                 out = argv[1:][i + 1]
+            if tok == "--cost-file" and i + 2 <= len(argv[1:]):
+                cost_path = argv[1:][i + 1]
         if not out:
             print("emit-receipt needs --out <path>", file=sys.stderr)
             return 2
-        receipt = emit_receipt(_load_event(), repo=repo, root=_repo_root())
+        from selftest_results import read
+        receipt = emit_receipt(_load_event(), repo=repo, root=_repo_root(),
+                               cost_evidence=read(cost_path) if cost_path else None)
+        from pathlib import Path
+        Path(out).parent.mkdir(parents=True, exist_ok=True)
         with open(out, "w", encoding="utf-8") as fh:
             json.dump(receipt, fh, indent=2, sort_keys=True)
         print(f"{receipt['mode']} receipt written for tree {receipt['tree_sha']} "
@@ -685,6 +843,20 @@ def main(argv):
         return 0
 
     if verb == "assert-ran":
+        if "--cost-dir" in argv:
+            from pathlib import Path
+            from selftest_results import read
+            index = argv.index("--cost-dir")
+            if index + 1 >= len(argv):
+                return 2
+            directory = Path(argv[index + 1])
+            try:
+                retained = read(directory / RECEIPT_FILENAME)
+                if retained.get("mode") == MODE_FULL:
+                    verify_cost_evidence(retained, read(directory / COST_FILENAME), root=_repo_root())
+            except (OSError, ValueError, KeyError, TypeError):
+                print("engine-ci: live cost permission or its retained observation failed at completion.", file=sys.stderr)
+                return 1
         # The terminal step, which carries no condition of its own. If the gate ever published nothing,
         # published an unexpected value, or a step reference drifted, every substantive step would skip — and
         # the platform treats a skipped step as successful, so the job would report GREEN having proven

@@ -20,6 +20,11 @@ LIMITS = {"bytes": 1048576, "depth": 64, "values": 10000,
 
 # Schema fragments are owned by their durable consumer, not duplicated here.
 CONTRACTS = {
+    "technical-integrity-review.v1": {
+        "mode": "structured", "roles": ["pre-submission-review"],
+        "schema": "technical-integrity-review.v1.json",
+        "handler": "build_coordinator_review.ingest_review_report", "compiler": "compile_review",
+        "enforcement": "canonical-ingress"},
     "plan-review-finding.v1": {
         "mode": "structured", "roles": ["plan-review"],
         "schema": "plan-review-finding.v1.json", "array": True,
@@ -386,6 +391,13 @@ def require_observed_report(supplied, observed):
 
 
 def compile_review(report, *, lens, contract="pre-submission-review-finding.v1"):
+    if contract == "technical-integrity-review.v1":
+        if lens != "technical-integrity":
+            reject("cost_review_lens", category="authority", contract=contract)
+        compiled = compile_review(report["findings"], lens=lens)
+        compiled["report"] = copy.deepcopy(report)
+        compiled["cost_review"] = copy.deepcopy(report["cost_review"])
+        return compiled
     if contract not in ("plan-review-finding.v1", "pre-submission-review-finding.v1"):
         reject("review_compiler_contract", category="authority", contract=contract)
     prefix = "".join(p[0] for p in lens.replace("_", "-").split("-") if p).upper() or "F"

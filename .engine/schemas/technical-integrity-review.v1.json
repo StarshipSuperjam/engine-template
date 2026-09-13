@@ -1,0 +1,20 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "Technical integrity findings and explicit cost judgment",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["findings", "cost_review"],
+  "properties": {
+    "findings": {"type": "array", "maxItems": 1000, "items": {"$ref": "pre-submission-review-finding.v1.json"}},
+    "cost_review": {
+      "type": "object", "additionalProperties": false,
+      "required": ["assessment_digest", "candidate_identity", "status", "rationale"],
+      "properties": {
+        "assessment_digest": {"type": "string", "pattern": "^sha256:[0-9a-f]{64}$"},
+        "candidate_identity": {"$ref": "test-cost-observation.v1.json#/properties/identity"},
+        "status": {"enum": ["acceptable", "concerns", "unavailable", "not-applicable"]},
+        "rationale": {"type": "string", "minLength": 1, "pattern": "\\S"}
+      }
+    }
+  }
+}
