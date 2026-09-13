@@ -4116,7 +4116,8 @@ def _classification_anchor(state: dict, rounds: list, head: str) -> tuple[str, s
                    amend or a local rebase. Routine, and NOT a base change.
       `refreshed`  the deliverable review was re-cut and completed AFTER the previous round's end, so
                    this round is measured from that newer review, not from the round. The commits
-                   after the round's end, up to and including that review, are named as skipped; nothing about the branch changed, so this marking is
+                   after the round's end, up to and including that review, are named as
+                   skipped; nothing about the branch changed, so this marking is
                    disclosure only and does NOT suppress the growth comparison
                    (StarshipSuperjam/engine-template#1306).
 
@@ -4205,9 +4206,9 @@ def _refreshed_note(entry: dict, previous: dict | None) -> str:
     count = _commit_count(previous["final_commit"], anchor) if previous and anchor else None
     # The count includes the refreshed review's own commit, so the span is named as running AFTER the
     # round's end UP TO AND INCLUDING that refresh -- never "from" the round's end, which would describe
-    # one commit more than the count. The refresh is named once and then called "it", and the skipped
-    # commits are "already reviewed" in their own clause, so nothing can read as the review covering
-    # itself, and the sentence stays readable.
+    # one commit more than the count. The span's far end is named outright as "that refreshed review"
+    # (a pronoun attached to the round's end instead), and the skipped commits are "already reviewed" in
+    # their own clause, so nothing can read as the review covering itself, and the sentence stays short.
     if count is None:
         skipped, verb = "an unmeasured number of commits", "are"
     elif count == 1:
@@ -4216,7 +4217,7 @@ def _refreshed_note(entry: dict, previous: dict | None) -> str:
         skipped, verb = f"the {count} commits", "are"
     return (f" (the deliverable review was refreshed at {anchor[:12]} after the previous round ended; this "
             f"round is measured from that refresh, so {skipped} after the previous round's end, up to "
-            f"and including it, {verb} skipped as already reviewed)")
+            f"and including that refreshed review, {verb} skipped as already reviewed)")
 
 
 # Each marking is one fact about WHY a round was not measured from the previous round's end, with the

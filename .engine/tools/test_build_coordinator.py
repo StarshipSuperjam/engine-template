@@ -2544,7 +2544,7 @@ class TestValidationRepairAndStatus(CandidateInventoryFixture):
         self.assertEqual(latest["reviewed_commit"], HEAD_C)
         # The marking is disclosure: it names the review the round is measured from and what was skipped.
         self.assertIn(f"refreshed at {HEAD_C[:12]}", out)
-        self.assertIn("the 2 commits after the previous round's end, up to and including it, are skipped as already reviewed", out)
+        self.assertIn("the 2 commits after the previous round's end, up to and including that refreshed review, are skipped as already reviewed", out)
         self.assertNotIn("the base moved", out)
         self.assertNotIn("no longer on this branch", out)
 
@@ -2667,7 +2667,7 @@ class TestValidationRepairAndStatus(CandidateInventoryFixture):
         self.store.mutate(lambda s: s.update({"repair_rounds": rounds}))
         with mock.patch.object(bc, "_commit_count", return_value=3):
             rendered = "\n".join(bc._repair_round_lines(self.state()))
-        self.assertIn("the 3 commits after the previous round's end, up to and including it, are skipped", rendered)
+        self.assertIn("the 3 commits after the previous round's end, up to and including that refreshed review, are skipped", rendered)
         self.assertIn("widening", rendered)
 
     def test_the_refreshed_disclosure_reads_as_one_sentence_in_every_case(self):
@@ -2682,7 +2682,7 @@ class TestValidationRepairAndStatus(CandidateInventoryFixture):
                 return bc._refreshed_note(entry, previous)
         head = (f" (the deliverable review was refreshed at {HEAD_C[:12]} after the previous round ended; "
                 "this round is measured from that refresh, so ")
-        tail = " after the previous round's end, up to and including it, {} skipped as already reviewed)"
+        tail = " after the previous round's end, up to and including that refreshed review, {} skipped as already reviewed)"
         self.assertEqual(head + "the 2 commits" + tail.format("are"), rendered(2))
         self.assertEqual(head + "the 1 commit" + tail.format("is"), rendered(1))
         self.assertEqual(head + "an unmeasured number of commits" + tail.format("are"), rendered(None))
@@ -2691,11 +2691,13 @@ class TestValidationRepairAndStatus(CandidateInventoryFixture):
             self.assertNotIn("the an ", text)
             self.assertNotIn("and it that", text)
             # The count includes the refreshed review's own commit, so "between" understated it by one;
-            # "which" bound to the review, reading as a review covering itself; and a sentence that said
-            # "review" four times was too dense to read (#1306 repair rounds 1 and 2).
+            # "which" bound to the review, reading as a review covering itself; a sentence that said
+            # "review" four times was too dense to read; and "it" attached to the round's end instead of
+            # the refresh (#1306 repair rounds 1 to 3). The whole word is counted, whatever follows it.
             self.assertNotIn("between", text)
             self.assertNotIn("review, which", text)
-            self.assertEqual(1, text.count("review "), text)
+            self.assertNotIn(" it,", text)
+            self.assertEqual(2, len(re.findall(r"\breview\b", text)), text)
 
     def test_a_branch_reset_cannot_delete_a_dispatched_round_and_refund_its_slot(self):
         # Matching ANY round with this commit pair let a reset back to an older round's head erase that
