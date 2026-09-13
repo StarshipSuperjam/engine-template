@@ -183,7 +183,70 @@ class PinTests(_Base):
         self.assertEqual(code, 0)
         self.assertIn("Pinned [", buffer.getvalue())
         self.assertNotIn("Not saved", buffer.getvalue())
+        # R9 DH-1: saved, but never reported as a CLEAN save — the failed flush step is named.
+        self.assertIn(pins.UNFLUSHED_NOTE, buffer.getvalue())
         self.assertEqual([r["text"] for r in pins.list_pins()], ["a command-line pin whose flush failed"])
+
+    def test_a_clean_save_carries_no_flush_note_and_a_landed_despite_fault_save_carries_the_fault(self):
+        # R9 DH-1: the disclosure travels on the committed line, so every route (the dispatched child, the
+        # command line) can tell a clean save from one whose flush failed after the bytes landed.
+        import io
+        from contextlib import redirect_stdout
+        lines = []
+        pins.add("a clean pin", emit=lambda kind, payload: lines.append((kind, payload)))
+        self.assertEqual([k for k, _ in lines], ["begin", "committed"])
+        self.assertNotIn("fault", lines[1][1])
+        buffer = io.StringIO()
+        with redirect_stdout(buffer):
+            self.assertEqual(pins.main(["add", "another clean pin"]), 0)
+        self.assertNotIn("not cleanly", buffer.getvalue())
+        lines.clear()
+        with self._flush_fails_after_the_bytes_land():
+            record = pins.add("a pin whose flush failed", emit=lambda kind, payload: lines.append((kind, payload)))
+        self.assertEqual([k for k, _ in lines], ["begin", "committed"])
+        self.assertEqual(lines[1][1]["record"], record)
+        self.assertIsNone(lines[1][1]["bytes"])                      # the byte length is unknown
+        self.assertIn("injected: the flush failed", lines[1][1]["fault"])
+
+    def test_landed_despite_answers_from_the_real_ledger_in_all_three_states(self):
+        # R9 DH-3: the writer-side helper against a real ledger — a record that is there, one that is not
+        # (searched, absent), and a ledger that cannot be read (None, never "absent").
+        record = pins.add("a pin that is there")
+        target = ledger.ledger_path()
+        self.assertIs(pins._landed_despite(record, target), True)
+        self.assertIs(pins._landed_despite({records.RECORD_ID_KEY: "never-written"}, target), False)
+        self.assertIs(pins._landed_despite(None, target), False)
+        unreadable = os.path.join(os.path.dirname(target), "a-directory")
+        os.mkdir(unreadable)
+        self.assertIsNone(pins._landed_despite(record, unreadable))
+
+    def test_removing_a_pin_from_the_command_line_tells_the_truth_about_its_own_flush(self):
+        # R9 DH-2: the remove headline. Only the flush failed: removed, with the flush note. The ledger cannot
+        # be read back: "Not confirmed", never "Not removed" over a sentence that says it is not known.
+        import io
+        from contextlib import redirect_stdout
+        from unittest import mock
+        rid = pins.add("a pin to remove")[records.RECORD_ID_KEY]
+        buffer = io.StringIO()
+        with self._flush_fails_after_the_bytes_land(), redirect_stdout(buffer):
+            code = pins.main(["remove", rid])
+        self.assertEqual(code, 0)
+        self.assertTrue(buffer.getvalue().startswith("Removed from recall."))
+        self.assertIn(forget.UNFLUSHED_NOTE, buffer.getvalue())
+        self.assertEqual(pins.list_pins(), [])
+        other = pins.add("a pin nobody can confirm removing")[records.RECORD_ID_KEY]
+        unreadable = mock.patch.object(ledger, "find_raw_record",
+                                       side_effect=ledger.LedgerUnreadable("injected: cannot read back"))
+        buffer = io.StringIO()
+        with self._flush_fails_after_the_bytes_land(), unreadable, redirect_stdout(buffer):
+            code = pins.main(["remove", other])
+        self.assertEqual(code, 1)
+        self.assertTrue(buffer.getvalue().startswith("Not confirmed: "))
+        self.assertNotIn("Not removed", buffer.getvalue())
+        buffer = io.StringIO()
+        with redirect_stdout(buffer):
+            self.assertEqual(pins.main(["remove", "no-such-pin"]), 1)
+        self.assertTrue(buffer.getvalue().startswith("Not removed: "))
 
     def test_a_flush_failure_with_an_unreadable_ledger_is_unconfirmed_never_nothing_saved(self):
         import io

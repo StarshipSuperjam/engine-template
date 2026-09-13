@@ -275,6 +275,21 @@ class ClassifyOutcomeTests(unittest.TestCase):
         self.assertEqual(out["response"]["id"], "r1")
         self.assertEqual(out["response"]["unconfirmed"], write_dispatch._STILL_UNCONFIRMED_NOTE)
         self.assertNotIn("nothing was saved", json.dumps(out).lower())
+        # R9 DH-4: the same outer rule as the begin-line branch — a begun write with a live child is held open
+        # even when the begin id is unusable or no read-back is available; without a begin line the refusal
+        # is still taken at its word.
+        for begin, read_back in (({"event": "begin", "id": ""}, self._forbidden_read_back),
+                                 ({"event": "begin", "id": "r1"}, None)):
+            with self.subTest(begin=begin, read_back=read_back):
+                out = self._classify(
+                    self._stdout(begin, {"event": "response", "response": {"refused": "nothing was saved."}}),
+                    returncode=None, verb="pin", read_back=read_back, child_alive=True)
+                self.assertEqual(out["outcome"], "unconfirmed")
+                self.assertEqual(out["response"]["unconfirmed"], write_dispatch._STILL_UNCONFIRMED_NOTE)
+        out = self._classify(
+            self._stdout({"event": "response", "response": {"refused": "writing is held"}}),
+            returncode=None, verb="pin", read_back=self._forbidden_read_back, child_alive=True)
+        self.assertEqual(out, {"outcome": "refused", "sentence": "writing is held"})
 
     def test_a_refusal_after_a_begin_line_with_no_read_back_available_stands(self):
         # No read-back was handed in (nothing to reconcile with): the refusal is relayed as the child said it.
@@ -1105,6 +1120,12 @@ class MainRoundTripTests(_Base):
         stored = self._pins()
         self.assertEqual([r[records.RECORD_ID_KEY] for r in stored], [begin_id])  # readable on disk
         self.assertEqual(stored[0]["text"], "a note the flush failed on")
+        # R9 DH-1: saved, but never reported as a CLEAN save. The committed line carries the fact (not the
+        # raw fault text) and the child's own response carries the operator-facing note.
+        self.assertIs(events[1]["unflushed"], True)
+        self.assertNotIn("bytes", events[1])                      # unknown, so the line is not a receipt
+        self.assertNotIn("injected", printed)                     # the raw fault never reaches the stream
+        self.assertEqual(events[2]["response"]["note"], pins.UNFLUSHED_NOTE)
         outcome = write_dispatch._classify_outcome(
             printed, returncode=code, verb="pin", request=request,
             read_back=write_dispatch._ledger_read_back, child_alive=False)
@@ -1112,9 +1133,28 @@ class MainRoundTripTests(_Base):
         self.assertEqual(outcome["response"]["id"], begin_id)
         self.assertEqual(outcome["response"]["text"], "a note the flush failed on")
         self.assertEqual(outcome["response"]["total"], 1)
-        # And through the relay: the operator gets the saved note back, never a refusal.
+        self.assertEqual(outcome["response"]["note"], pins.UNFLUSHED_NOTE)
+        # And through the relay: the operator gets the saved note back, with the disclosure, never a refusal.
         out = write_dispatch.dispatch(request, run=lambda req: outcome)
         self.assertEqual(out["id"], begin_id)
+        self.assertEqual(out["note"], pins.UNFLUSHED_NOTE)
+        # A clean save carries no such note.
+        clean = write_dispatch.run_child({"verb": "pin", "text": "a clean note"})
+        self.assertNotIn("note", clean)
+
+    def test_a_withhold_whose_flush_failed_is_reported_changed_with_the_flush_note(self):
+        # R9 DH-1, the control verbs through the real child entry.
+        pinned = write_dispatch.run_child({"verb": "pin", "text": "a note to withhold"})
+        request = {"verb": "withhold", "record_id": pinned["id"]}
+        with self._flush_fails_after_the_bytes_land():
+            code, printed = self._run_main(request)
+        events = [json.loads(line) for line in printed.splitlines() if line.strip()]
+        self.assertEqual([e["event"] for e in events], ["begin", "committed", "response"])
+        self.assertIs(events[1]["unflushed"], True)
+        self.assertIn("withheld", events[2]["response"])
+        self.assertEqual(events[2]["response"]["note"], write_dispatch.forget.UNFLUSHED_NOTE)
+        self.assertEqual(pins.list_pins(), [])                    # out of recall; the raw record stays
+        self.assertEqual(len(self._pins()), 1)
 
     def test_a_child_that_cannot_confirm_its_own_landed_pin_is_reconciled_by_the_dispatcher(self):
         # The dispatcher-side reconciliation the operator asked for, end to end: the flush fails after the

@@ -347,6 +347,24 @@ UNCONFIRMED_SENTENCE = ("the change's save step did not complete and memory coul
                         "search before repeating it. " + refusals.ESCALATION)
 
 
+#: The note for a withhold/restore marker whose bytes landed but whose flush step then failed (R9 DH-1; parity
+#: with pins.UNFLUSHED_NOTE): the change is real, and the failed step is named rather than swallowed.
+UNFLUSHED_NOTE = ("Changed, but not cleanly: the change is on disk and readable, but the save step after its "
+                  "bytes landed (the ledger flush) reported an I/O error, so it may not survive a crash until the "
+                  "next write completes cleanly. Nothing was retried. " + refusals.ESCALATION)
+
+
+def _fault_collector():
+    """A line sink for the command line (parity with pins._fault_collector): records whether the marker landed
+    despite a fault, so the success line carries `UNFLUSHED_NOTE` instead of reading as a clean change."""
+    faults = []
+
+    def collect(kind: str, payload: dict) -> None:
+        if kind == "committed" and payload.get("fault") is not None:
+            faults.append(payload["fault"])
+    return collect, faults
+
+
 def _landed_despite(marker, target: str):
     """After an exception inside the append step: True when the marker is readable in the ledger (the bytes
     landed before the fault), False when the ledger was searched and holds no such marker, None when the
@@ -467,6 +485,7 @@ def _write_control(kind: str, *, record_id=None, session_id=None,
         )
     committed_bytes = None
     attempted = None
+    landed_despite_fault = None
     try:
         marker = {
             "v": capture.RECORD_VERSION,
@@ -499,12 +518,17 @@ def _write_control(kind: str, *, record_id=None, session_id=None,
             raise ControlNotRecorded("the change could not be saved — an internal memory-write step did not "
                                      "complete, so nothing was changed. " + refusals.ESCALATION,
                                      raw_detail=str(exc)) from exc
+        # Landed, but not cleanly: carried on the committed line so every route discloses it (R9 DH-1).
+        landed_despite_fault = exc
     finally:
         capture._release_lock(lock_fd)
     # The marker has LANDED and the lock is released. The forensic confirmation line is best-effort telemetry
     # for the dispatch parent — its failure must NEVER be reported as a lost change, so it is emitted OUTSIDE
     # the catch-all above (whose sentence says "nothing was changed"). Parity with pins.add.
-    _emit_confirmation(emit, "committed", {"record": marker, "bytes": committed_bytes})
+    receipt = {"record": marker, "bytes": committed_bytes}
+    if landed_despite_fault is not None:
+        receipt["fault"] = str(landed_despite_fault)
+    _emit_confirmation(emit, "committed", receipt)
     return marker
 
 
@@ -1150,36 +1174,40 @@ def main(argv: list) -> int:
     # which already catches and prints. `str(exc)` is plain by construction (any raw authority detail lives on
     # exc.raw_detail, off the message), so nothing backstage is printed.
     if args.cmd == "withhold-record":
+        collect, faults = _fault_collector()
         try:
-            withhold(record_id=args.record_id)
+            withhold(record_id=args.record_id, emit=collect)
         except ControlNotRecorded as exc:
             print(_cli_refusal_line(exc, "Not withheld"))
             return 1
-        print(f"Withheld record {args.record_id}.")
+        print(f"Withheld record {args.record_id}." + (f" {UNFLUSHED_NOTE}" if faults else ""))
         return 0
     if args.cmd == "withhold-session":
+        collect, faults = _fault_collector()
         try:
-            withhold(session_id=args.session_id)
+            withhold(session_id=args.session_id, emit=collect)
         except ControlNotRecorded as exc:
             print(_cli_refusal_line(exc, "Not withheld"))
             return 1
-        print(f"Withheld session {args.session_id}.")
+        print(f"Withheld session {args.session_id}." + (f" {UNFLUSHED_NOTE}" if faults else ""))
         return 0
     if args.cmd == "restore-record":
+        collect, faults = _fault_collector()
         try:
-            restore(record_id=args.record_id)
+            restore(record_id=args.record_id, emit=collect)
         except ControlNotRecorded as exc:
             print(_cli_refusal_line(exc, "Not restored"))
             return 1
-        print(f"Restored record {args.record_id}.")
+        print(f"Restored record {args.record_id}." + (f" {UNFLUSHED_NOTE}" if faults else ""))
         return 0
     if args.cmd == "restore-session":
+        collect, faults = _fault_collector()
         try:
-            restore(session_id=args.session_id)
+            restore(session_id=args.session_id, emit=collect)
         except ControlNotRecorded as exc:
             print(_cli_refusal_line(exc, "Not restored"))
             return 1
-        print(f"Restored session {args.session_id}.")
+        print(f"Restored session {args.session_id}." + (f" {UNFLUSHED_NOTE}" if faults else ""))
         return 0
     return 2
 

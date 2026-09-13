@@ -112,7 +112,7 @@ def run_child(request: dict, *, emit=None) -> dict:
         # Not an operator-facing refusal: a malformed request is our bug, so it faults rather than refuses.
         raise DispatchFaulted(f"write dispatch received an unknown verb {verb!r}")
     accepted_id = records.new_record_id()
-    seen = {"already_pinned": False}
+    seen = {"already_pinned": False, "fault": None}
 
     def on_event(kind: str, payload: dict) -> None:
         record = payload.get("record")
@@ -122,6 +122,11 @@ def run_child(request: dict, *, emit=None) -> dict:
             line = {"record": _safe_record(record)}
             if payload.get("bytes") is not None:
                 line["bytes"] = payload.get("bytes")
+            if payload.get("fault") is not None:
+                # Landed despite a fault after the bytes (R9 DH-1): the forensic line carries the FACT, never
+                # the raw detail (a fault string can name paths the scrubber has not passed).
+                seen["fault"] = payload["fault"]
+                line["unflushed"] = True
             _emit_line(emit, "committed", line)
         elif kind == "already_pinned":
             seen["already_pinned"] = True
@@ -162,6 +167,11 @@ def run_child(request: dict, *, emit=None) -> dict:
             response = {"restored": f"{what} is back in recall."}
     except refusals.EngineRefusal as exc:
         return {"refused": str(exc)}
+    if seen["fault"] is not None:
+        # The write landed but its flush step failed: the reply says so (R9 DH-1) rather than reading as a
+        # clean success, on top of any note the verb already carries.
+        unflushed = pins.UNFLUSHED_NOTE if verb == "pin" else forget.UNFLUSHED_NOTE
+        response["note"] = f"{response['note']} {unflushed}" if response.get("note") else unflushed
     return response
 
 
@@ -453,7 +463,8 @@ def _classify_outcome(stdout, *, returncode, verb, request, read_back, child_ali
         if _valid_response(verb, payload):
             if "refused" in payload:
                 return _reconcile_refusal(payload["refused"], verb=verb, request=request,
-                                          begin_id=begin_id, read_back=read_back, child_alive=child_alive)
+                                          begun=begin is not None, begin_id=begin_id,
+                                          read_back=read_back, child_alive=child_alive)
             return {"outcome": "committed", "response": payload}
 
     # 2. A WELL-FORMED committed/already_pinned receipt for THIS write. A malformed receipt is not trusted
@@ -501,7 +512,8 @@ def _classify_outcome(stdout, *, returncode, verb, request, read_back, child_ali
     return {"outcome": "faulted", "returncode": returncode}
 
 
-def _reconcile_refusal(sentence: str, *, verb: str, request: dict, begin_id, read_back, child_alive) -> dict:
+def _reconcile_refusal(sentence: str, *, verb: str, request: dict, begun: bool, begin_id, read_back,
+                       child_alive) -> dict:
     """Decide whether a child's refusal may be believed. A refusal sentence is the child's WORD, not the
     disk's: the writer's catch-all says "nothing was saved" for any exception inside its critical section,
     including one raised AFTER the record's bytes were appended (an I/O error in the ledger flush is the
@@ -510,18 +522,23 @@ def _reconcile_refusal(sentence: str, *, verb: str, request: dict, begin_id, rea
     without touching the ledger. After a begin line the ledger decides, three-state like every other read-back:
     the record is found -> `committed`, rebuilt from the stored record with the honest `_RECONCILED_NOTE`; the
     ledger could not be read -> `unconfirmed` (absence was never established, so nothing-saved cannot be
-    claimed); searched and absent -> the refusal stands, unless the child is not confirmed dead, in which
-    case it is held open as `unconfirmed` like every other begun write with a live child (the same rule the
-    begin-line branch follows; R8 DH-2). Never writes, never retries."""
-    if begin_id is not None and read_back is not None:
-        try:
-            found = read_back(begin_id)
-        except ReadBackUnavailable:
-            return {"outcome": "unconfirmed",
-                    "response": _still_unconfirmed_response(verb, request, begin_id, note=_UNRESOLVED_NOTE)}
-        if found is not None:
-            return {"outcome": "committed",
-                    "response": _committed_response(verb, request, found, note=_RECONCILED_NOTE)}
+    claimed); searched and absent -> the refusal stands only for a child confirmed dead.
+
+    The live-child rule mirrors the begin-line branch's OUTER structure (R8 DH-2, R9 DH-4): once the write has
+    begun, a child that is not confirmed dead is held open as `unconfirmed` whether the ledger was searched and
+    empty, the begin id was unusable, or no read-back was available. This is defence in depth for a stream the
+    current launcher cannot hand over: an unreaped child's salvaged output is discarded (`stdout = ""`), so
+    `child_alive=True` arrives here today with no events at all. Never writes, never retries."""
+    if begun:
+        if begin_id is not None and read_back is not None:
+            try:
+                found = read_back(begin_id)
+            except ReadBackUnavailable:
+                return {"outcome": "unconfirmed",
+                        "response": _still_unconfirmed_response(verb, request, begin_id, note=_UNRESOLVED_NOTE)}
+            if found is not None:
+                return {"outcome": "committed",
+                        "response": _committed_response(verb, request, found, note=_RECONCILED_NOTE)}
         if child_alive:
             return {"outcome": "unconfirmed",
                     "response": _still_unconfirmed_response(verb, request, begin_id)}

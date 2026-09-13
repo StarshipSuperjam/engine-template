@@ -85,6 +85,24 @@ UNCONFIRMED_SENTENCE = ("the pin's save step did not complete and memory could n
                         "saving it again. " + refusals.ESCALATION)
 
 
+#: The note that rides with a pin whose bytes landed but whose flush step then failed (R9 DH-1): the save is
+#: real and readable, and the operator is told so, but never as a clean success — the failed step is named.
+UNFLUSHED_NOTE = ("Saved, but not cleanly: the pin is on disk and readable, but the save step after its bytes "
+                  "landed (the ledger flush) reported an I/O error, so it may not survive a crash until the next "
+                  "write completes cleanly. Nothing was retried. " + refusals.ESCALATION)
+
+
+def _fault_collector():
+    """A line sink for the command line: records whether the write landed despite a fault, so the success
+    line can carry `UNFLUSHED_NOTE` instead of reading as a clean save (R9 DH-1)."""
+    faults = []
+
+    def collect(kind: str, payload: dict) -> None:
+        if kind == "committed" and payload.get("fault") is not None:
+            faults.append(payload["fault"])
+    return collect, faults
+
+
 def _landed_despite(record, target: str):
     """After an exception inside the append step: True when the record is readable in the ledger (the bytes
     landed before the fault — an I/O error in the flush is the observed case), False when the ledger was
@@ -199,6 +217,7 @@ def add(text: str, *, session_id: "str | None" = None, via: str = records.PIN_VI
     committed_record = None
     committed_bytes = None
     attempted = None
+    landed_despite_fault = None
     try:
         if dedup:
             duplicate = _find_duplicate_pin(cleaned, session_identity, path=target)
@@ -231,7 +250,10 @@ def add(text: str, *, session_id: "str | None" = None, via: str = records.PIN_VI
         # saved"; searched and absent -> nothing was saved.
         landed = _landed_despite(attempted, target)
         if landed is True:
+            # Landed, but not cleanly: the fault is carried on the committed line (R9 DH-1) so every route
+            # discloses it, never swallowed into a plain "Pinned".
             committed_record = attempted
+            landed_despite_fault = exc
         elif landed is None:
             raise PinUnconfirmed(UNCONFIRMED_SENTENCE, raw_detail=str(exc)) from exc
         else:
@@ -246,7 +268,10 @@ def add(text: str, *, session_id: "str | None" = None, via: str = records.PIN_VI
     if duplicate_record is not None:
         _emit_confirmation(emit, "already_pinned", {"record": duplicate_record})
         return duplicate_record
-    _emit_confirmation(emit, "committed", {"record": committed_record, "bytes": committed_bytes})
+    receipt = {"record": committed_record, "bytes": committed_bytes}
+    if landed_despite_fault is not None:
+        receipt["fault"] = str(landed_despite_fault)
+    _emit_confirmation(emit, "committed", receipt)
     return committed_record
 
 
@@ -265,10 +290,10 @@ def list_pins(*, path: "str | None" = None, limit: "int | None" = None) -> list:
     return out[:limit] if isinstance(limit, int) and limit >= 0 else out
 
 
-def remove(record_id: str, *, path: "str | None" = None) -> dict:
+def remove(record_id: str, *, path: "str | None" = None, emit=None) -> dict:
     """Stop surfacing one pin. Withholds it (module docstring) — nothing is deleted and `forget.restore` on the
-    same id brings it back."""
-    return forget.withhold(record_id=record_id, path=path)
+    same id brings it back. `emit` is the same line sink `forget.withhold` takes."""
+    return forget.withhold(record_id=record_id, path=path, emit=emit)
 
 
 def _print_list(path: "str | None" = None) -> int:
@@ -304,12 +329,13 @@ def main(argv: list) -> int:
     rm.add_argument("record_id", help="the pin's id, as shown by `list`")
     args = parser.parse_args(argv)
     if args.cmd == "add":
+        collect, faults = _fault_collector()
         try:
-            record = add(args.text, session_id=args.session, via=records.PIN_VIA_CLI)
+            record = add(args.text, session_id=args.session, via=records.PIN_VIA_CLI, emit=collect)
         except PinRefused as exc:
             print(_cli_refusal_line(exc))
             return 1
-        print(f"Pinned [{record[records.RECORD_ID_KEY]}].")
+        print(f"Pinned [{record[records.RECORD_ID_KEY]}]." + (f" {UNFLUSHED_NOTE}" if faults else ""))
         return 0
     if args.cmd == "add-base64":
         try:
@@ -321,16 +347,18 @@ def main(argv: list) -> int:
         except (UnicodeEncodeError, UnicodeDecodeError, binascii.Error, ValueError):
             print("Not saved: the pin transport must be canonical URL-safe Base64 of UTF-8 text.")
             return 1
+        collect, faults = _fault_collector()
         try:
-            record = add(text, session_id=args.session, via=records.PIN_VIA_CLI)
+            record = add(text, session_id=args.session, via=records.PIN_VIA_CLI, emit=collect)
         except PinRefused as exc:
             print(_cli_refusal_line(exc))
             return 1
-        print(f"Pinned [{record[records.RECORD_ID_KEY]}].")
+        print(f"Pinned [{record[records.RECORD_ID_KEY]}]." + (f" {UNFLUSHED_NOTE}" if faults else ""))
         return 0
     if args.cmd == "remove":
+        collect, faults = _fault_collector()
         try:
-            remove(args.record_id)
+            remove(args.record_id, emit=collect)
         except forget.ControlNotRecorded as exc:
             # The shared verb speaks of "a single note, or a whole session" because it serves both; this
             # command takes a pin id and nothing else, so offering a session here names a choice the operator
@@ -339,9 +367,11 @@ def main(argv: list) -> int:
                                       "no pin identifier was given.")
             reason = reason.replace("there is no note in memory with that identifier",
                                     "there is no pin with that identifier")
-            print(f"Not removed: {reason}")
+            # "Not removed" only when nothing was changed; an unconfirmed outcome says so (R9 DH-2).
+            print(f"{'Not confirmed' if isinstance(exc, forget.ControlUnconfirmed) else 'Not removed'}: {reason}")
             return 1
-        print("Removed from recall. It is still saved — ask to restore it any time.")
+        print("Removed from recall. It is still saved — ask to restore it any time."
+              + (f" {forget.UNFLUSHED_NOTE}" if faults else ""))
         return 0
     if args.cmd == "list":
         return _print_list()

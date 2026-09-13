@@ -836,6 +836,40 @@ class FlushFailureReconciliationTests(_Base):
         self.assertEqual(code, 0)
         self.assertIn(f"Withheld record {rid}.", buffer.getvalue())
         self.assertNotIn("Not withheld", buffer.getvalue())
+        self.assertIn(forget.UNFLUSHED_NOTE, buffer.getvalue())        # R9 DH-1: never a CLEAN "Withheld"
+        buffer = io.StringIO()
+        with self._flush_fails_after_the_bytes_land(), contextlib.redirect_stdout(buffer):
+            self.assertEqual(forget.main(["restore-record", rid]), 0)
+        self.assertIn(f"Restored record {rid}. {forget.UNFLUSHED_NOTE}", buffer.getvalue())
+        buffer = io.StringIO()
+        with contextlib.redirect_stdout(buffer):
+            self.assertEqual(forget.main(["withhold-record", rid]), 0)
+        self.assertEqual(buffer.getvalue().strip(), f"Withheld record {rid}.")   # a clean change carries no note
+
+    def test_a_marker_that_landed_despite_a_fault_carries_the_fault_on_its_committed_line(self):
+        rid = self._seed_one()
+        lines = []
+        with self._flush_fails_after_the_bytes_land():
+            marker = forget.withhold(record_id=rid, emit=lambda kind, payload: lines.append((kind, payload)))
+        self.assertEqual([k for k, _ in lines], ["begin", "committed"])
+        self.assertEqual(lines[1][1]["record"], marker)
+        self.assertIsNone(lines[1][1]["bytes"])
+        self.assertIn("injected: the flush failed", lines[1][1]["fault"])
+        lines.clear()
+        forget.restore(record_id=rid, emit=lambda kind, payload: lines.append((kind, payload)))
+        self.assertNotIn("fault", lines[1][1])
+
+    def test_landed_despite_answers_from_the_real_ledger_in_all_three_states(self):
+        # R9 DH-3: against a real ledger, not a stub.
+        rid = self._seed_one()
+        marker = forget.withhold(record_id=rid)
+        target = ledger.ledger_path()
+        self.assertIs(forget._landed_despite(marker, target), True)
+        self.assertIs(forget._landed_despite({records.RECORD_ID_KEY: "never-written"}, target), False)
+        self.assertIs(forget._landed_despite(None, target), False)
+        unreadable = os.path.join(os.path.dirname(target), "a-directory")
+        os.mkdir(unreadable)
+        self.assertIsNone(forget._landed_despite(marker, unreadable))
 
     def test_a_flush_failure_with_an_unreadable_ledger_is_unconfirmed_never_nothing_changed(self):
         from unittest import mock
