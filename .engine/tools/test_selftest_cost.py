@@ -153,7 +153,7 @@ class TestResourceObservation(unittest.TestCase):
         import subprocess
         from subprocess import Popen
         import sys
-        original = json.JSONDecoder.decode
+        original = json.JSONDecoder.raw_decode
         prior_schema = vars(Validator)['check_schema']
         observer = cost.Recorder()
         with self.assertRaisesRegex(RuntimeError, 'stop'):
@@ -163,11 +163,14 @@ class TestResourceObservation(unittest.TestCase):
                 Validator.check_schema({'type': 'object'})
                 with Popen([sys.executable, '-c', 'pass'], stdout=subprocess.PIPE) as child:
                     child.communicate()
+                with Popen([b'git', b'--version'], stdout=subprocess.PIPE) as child:
+                    child.communicate()
                 raise RuntimeError('stop')
-        self.assertIs(json.JSONDecoder.decode, original)
+        self.assertIs(json.JSONDecoder.raw_decode, original)
         self.assertIs(vars(Validator)['check_schema'], prior_schema)
         record = observer.document(source={}, scope='full', complete=True, process_exit=0)
-        self.assertEqual(record['totals']['processes'], 1)
+        self.assertEqual(record['totals']['processes'], 2)
+        self.assertEqual(record['totals']['git_commands'], 1)
         self.assertGreaterEqual(record['totals']['schema_decodes'], 1)
         self.assertEqual(record['totals']['metaschema_validations'], 1)
         self.assertIn('descendant work is not instrumented', record['unknown'])
@@ -197,6 +200,9 @@ class TestResourceObservation(unittest.TestCase):
         observer.count('processes')
         self.assertEqual(len(observer.unknown), 2)
         self.assertEqual(observer.owners['unattributed']['processes'], 2)
+        observer.count('processes', -5)
+        self.assertEqual(observer.owners['unattributed']['processes'], 2)
+        self.assertIn('invalid resource counter event', observer.unknown)
 
     def test_real_launcher_keeps_outcomes_with_observation_on_and_off(self):
         import subprocess
@@ -245,6 +251,14 @@ def baseline_example():
 
 @cost.declaration(CONTRACT)
 class TestBaselineEnrollment(unittest.TestCase):
+    def test_prospective_declarations_do_not_expand_legacy_or_follow_changed_source(self):
+        _, _, census, runtime = baseline_example()
+        row = {**runtime[0], 'source_digest': census['definitions'][0]['ast_digest'], 'contract': CONTRACT}
+        self.assertEqual(cost.inventory_findings(runtime, census, {}, declarations=[row]), [])
+        changed = cost.static_census({'test_example.py': 'class T:\n def test_a(self): return 2\n'}, 'd'*40)
+        self.assertTrue(any('stale prospective' in f for f in cost.inventory_findings(runtime, changed, {}, declarations=[row])))
+        self.assertTrue(cost.inventory_findings(runtime, census, {}))
+
     def test_compact_enrollment_refuses_changed_digest_expansion_and_trailing_data(self):
         import base64
         raw, _, _, _ = baseline_example()

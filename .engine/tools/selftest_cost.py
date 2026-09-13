@@ -165,7 +165,20 @@ def case_key(case):
     return (case['id'], case['occurrence'])
 
 
-def inventory_findings(runtime, census, legacy, mappings=()):
+def effective_contract(case, definition, explicit=None):
+    """Resolve embedded or separately reviewed declarations against the actual source."""
+    contract = case.get('contract')
+    if explicit:
+        if (not definition or any(explicit.get(k) != definition[k] for k in ('path', 'qualified_name'))
+                or explicit.get('source_digest') != definition['ast_digest']):
+            raise ValueError('stale prospective declaration: ' + str(case_key(case)))
+        if contract and contract != explicit.get('contract'):
+            raise ValueError('conflicting prospective declarations: ' + str(case_key(case)))
+        contract = explicit.get('contract')
+    return contract
+
+
+def inventory_findings(runtime, census, legacy, mappings=(), declarations=()):
     """Classify every runtime occurrence without silently broadening the old source census.
 
     A generated source mapping needs an exact runtime identity and fault-preservation rationale.
@@ -175,6 +188,9 @@ def inventory_findings(runtime, census, legacy, mappings=()):
     from build_coordinator_dag import CoordinatorError, validate_test_cost_contracts
     definitions = {(d['path'], d['qualified_name']): d for d in census['definitions']}
     old = {case_key(c.get('case', c)): c for c in legacy.get('cases', [])}
+    declared = {case_key(c): c for c in declarations}
+    if len(declared) != len(declarations):
+        return ['duplicate prospective declaration identity']
     mapped = {case_key(m['target']): m for m in mappings if m.get('target')}
     if len(mapped) != sum(bool(m.get('target')) for m in mappings):
         return ['duplicate runtime mapping']
@@ -198,7 +214,11 @@ def inventory_findings(runtime, census, legacy, mappings=()):
         unchanged = (prior and definition and prior.get('source_digest') == definition['ast_digest']
                      and prior.get('path') == definition['path']
                      and prior.get('qualified_name') == definition['qualified_name'])
-        contract = case.get('contract')
+        try:
+            contract = effective_contract(case, definition, declared.get(key))
+        except ValueError as exc:
+            findings.append(str(exc))
+            contract = None
         if contract:
             try:
                 validate_shape(contract, 'test-cost-contract.v1')
@@ -210,6 +230,8 @@ def inventory_findings(runtime, census, legacy, mappings=()):
     for target in mapped:
         if target not in seen:
             findings.append('orphan runtime mapping: ' + str(target))
+    for key in declared.keys() - seen:
+        findings.append('orphan prospective declaration: ' + str(key))
     for key in definitions.keys() - used_definitions:
         findings.append('orphan test definition: ' + ':'.join(key))
     removed = set(old) - seen
@@ -260,15 +282,20 @@ def _audit(name, args):
     if recorder is None or recorder.suspended:
         return
     if name == 'subprocess.Popen':
+        import os
         recorder.count('processes')
         executable, argv = args[:2]
-        if Path(str(executable)).name in ('git', 'git.exe'):
+        executable_name = Path(os.fsdecode(executable)).name if isinstance(executable, (str, bytes)) else None
+        if executable_name is None:
+            recorder.unknown.add('process executable kind is unclassified')
+        if executable_name in ('git', 'git.exe'):
             recorder.count('git_commands')
         # No command strings or environments are retained. Child-internal work is
         # unknown unless a future observer returns qualified descendant evidence.
         recorder.unknown.add('descendant work is not instrumented')
         if isinstance(argv, (list, tuple)) and any(
-                str(a) == 'unittest' or Path(str(a)).name.startswith(('demo_', 'selftest.py')) for a in argv):
+                os.fsdecode(a) == 'unittest' or Path(os.fsdecode(a)).name.startswith(('demo_', 'selftest.py'))
+                for a in argv if isinstance(a, (str, bytes))):
             recorder.count('nested_journeys')
     elif name in ('os.system', 'os.exec', 'os.posix_spawn', 'os.fork') and not recorder.popen_depth:
         recorder.count('processes')
@@ -293,6 +320,9 @@ class Recorder:
     def count(self, resource, amount=1):
         import threading
         if self.suspended:
+            return
+        if resource not in RESOURCES or type(amount) is not int or amount < 0:
+            self.unknown.add('invalid resource counter event')
             return
         owner = self.owner
         if threading.get_ident() != self.thread_id:
