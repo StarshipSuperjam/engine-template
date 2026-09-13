@@ -263,6 +263,19 @@ class ClassifyOutcomeTests(unittest.TestCase):
         self.assertEqual(out, {"outcome": "refused",
                                "sentence": "another memory write is in progress, so nothing was saved."})
 
+    def test_a_refusal_after_a_begin_line_with_nothing_on_disk_and_a_live_child_is_held_open(self):
+        # R8 DH-2: searched-and-absent lets the refusal through only for a child confirmed dead. A child that
+        # is not confirmed dead could still be finishing the write, so the same rule as the begin-line branch
+        # applies: unconfirmed, never nothing-saved.
+        out = self._classify(
+            self._stdout({"event": "begin", "id": "r1"},
+                         {"event": "response", "response": {"refused": "nothing was saved."}}),
+            returncode=None, verb="pin", read_back=lambda rid: None, child_alive=True)
+        self.assertEqual(out["outcome"], "unconfirmed")
+        self.assertEqual(out["response"]["id"], "r1")
+        self.assertEqual(out["response"]["unconfirmed"], write_dispatch._STILL_UNCONFIRMED_NOTE)
+        self.assertNotIn("nothing was saved", json.dumps(out).lower())
+
     def test_a_refusal_after_a_begin_line_with_no_read_back_available_stands(self):
         # No read-back was handed in (nothing to reconcile with): the refusal is relayed as the child said it.
         out = self._classify(
@@ -1072,15 +1085,22 @@ class MainRoundTripTests(_Base):
         return mock.patch.object(write_dispatch.ledger.os, "fsync",
                                  side_effect=OSError(errno.EIO, "injected: the flush failed"))
 
+    def _child_cannot_read_its_own_ledger(self):
+        """The writer's own reconciliation (pins._landed_despite) finds the ledger unreadable, so the child
+        falls back to its refusal line — the shape the dispatcher's reconciliation exists for."""
+        return mock.patch.object(pins.ledger, "find_raw_record",
+                                 side_effect=ledger.LedgerUnreadable("injected: cannot read back"))
+
     def test_an_io_error_in_the_ledger_flush_that_leaves_a_readable_pin_is_reported_saved_not_refused(self):
-        # The observed defect: the child's catch-all reports "nothing was saved" over a record that IS on disk.
-        # The parent must reconcile against the ledger before believing that, and report the pin as saved.
+        # The observed defect: the catch-all reported "nothing was saved" over a record that IS on disk. The
+        # writer now reconciles against the ledger before choosing its sentence (round 8), so the child itself
+        # reports the pin saved and nothing in the stream says otherwise.
         request = {"verb": "pin", "text": "a note the flush failed on"}
         with self._flush_fails_after_the_bytes_land():
             code, printed = self._run_main(request)
         events = [json.loads(line) for line in printed.splitlines() if line.strip()]
-        self.assertEqual([e["event"] for e in events], ["begin", "response"])   # a refusal, no receipt
-        self.assertIn("nothing was saved", events[-1]["response"]["refused"])   # the child's own (false) word
+        self.assertEqual([e["event"] for e in events], ["begin", "committed", "response"])
+        self.assertNotIn("nothing was saved", printed.lower())
         begin_id = events[0]["id"]
         stored = self._pins()
         self.assertEqual([r[records.RECORD_ID_KEY] for r in stored], [begin_id])  # readable on disk
@@ -1091,17 +1111,42 @@ class MainRoundTripTests(_Base):
         self.assertEqual(outcome["outcome"], "committed")
         self.assertEqual(outcome["response"]["id"], begin_id)
         self.assertEqual(outcome["response"]["text"], "a note the flush failed on")
+        self.assertEqual(outcome["response"]["total"], 1)
+        # And through the relay: the operator gets the saved note back, never a refusal.
+        out = write_dispatch.dispatch(request, run=lambda req: outcome)
+        self.assertEqual(out["id"], begin_id)
+
+    def test_a_child_that_cannot_confirm_its_own_landed_pin_is_reconciled_by_the_dispatcher(self):
+        # The dispatcher-side reconciliation the operator asked for, end to end: the flush fails after the
+        # bytes landed AND the child cannot read the ledger back, so it prints a refusal — one that says
+        # unconfirmed, never nothing-saved. The parent reads the real ledger, finds the pin, and reports it
+        # saved with the note that the write itself had reported otherwise.
+        request = {"verb": "pin", "text": "a note only the parent can confirm"}
+        with self._flush_fails_after_the_bytes_land(), self._child_cannot_read_its_own_ledger():
+            code, printed = self._run_main(request)
+        events = [json.loads(line) for line in printed.splitlines() if line.strip()]
+        self.assertEqual([e["event"] for e in events], ["begin", "response"])   # a refusal, no receipt
+        sentence = events[-1]["response"]["refused"]
+        self.assertIn("not confirmed", sentence)
+        self.assertNotIn("nothing was saved", sentence.lower())
+        begin_id = events[0]["id"]
+        self.assertEqual([r[records.RECORD_ID_KEY] for r in self._pins()], [begin_id])  # readable on disk
+        outcome = write_dispatch._classify_outcome(
+            printed, returncode=code, verb="pin", request=request,
+            read_back=write_dispatch._ledger_read_back, child_alive=False)
+        self.assertEqual(outcome["outcome"], "committed")
+        self.assertEqual(outcome["response"]["id"], begin_id)
+        self.assertEqual(outcome["response"]["text"], "a note only the parent can confirm")
         self.assertEqual(outcome["response"]["unconfirmed"], write_dispatch._RECONCILED_NOTE)
         self.assertNotIn("nothing was saved", json.dumps(outcome).lower())
-        # And through the relay: the operator gets the saved note back, never a refusal.
         out = write_dispatch.dispatch(request, run=lambda req: outcome)
         self.assertEqual(out["id"], begin_id)
 
     def test_the_same_injected_flush_error_with_an_unreadable_ledger_stays_unconfirmed(self):
         # Uncertain outcomes remain unconfirmed: the record may be on disk, but with the ledger unreadable at
-        # read-back time neither "saved" nor "nothing was saved" is honest.
+        # the parent's read-back too, neither "saved" nor "nothing was saved" is honest.
         request = {"verb": "pin", "text": "a note nobody can confirm"}
-        with self._flush_fails_after_the_bytes_land():
+        with self._flush_fails_after_the_bytes_land(), self._child_cannot_read_its_own_ledger():
             code, printed = self._run_main(request)
         begin_id = json.loads(printed.splitlines()[0])["id"]
         with mock.patch.object(write_dispatch.ledger, "read", side_effect=PermissionError("denied")):

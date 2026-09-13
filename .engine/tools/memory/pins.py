@@ -73,6 +73,38 @@ class PinRefused(refusals.EngineRefusal, ValueError):
         self.raw_detail = raw_detail
 
 
+class PinUnconfirmed(PinRefused):
+    """The save step failed after the record's bytes may already have landed, and the ledger could not be read
+    back to tell: neither "saved" nor "nothing was saved" is honest, so this says so. A PinRefused, so every
+    existing handler still catches it; the command line prints it as "Not confirmed", never "Not saved"."""
+
+
+#: The sentence for `PinUnconfirmed`: it names what is not known and what to do, and never says nothing was saved.
+UNCONFIRMED_SENTENCE = ("the pin's save step did not complete and memory could not be read back to confirm "
+                        "whether it landed, so this is not confirmed either way. Check with a search before "
+                        "saving it again. " + refusals.ESCALATION)
+
+
+def _landed_despite(record, target: str):
+    """After an exception inside the append step: True when the record is readable in the ledger (the bytes
+    landed before the fault — an I/O error in the flush is the observed case), False when the ledger was
+    searched and holds no such record, None when the ledger could not be read. Called under the single-writer
+    lock, before the catch-all decides its sentence (round 7)."""
+    if record is None:
+        return False
+    try:
+        return ledger.find_raw_record(record[records.RECORD_ID_KEY], path=target,
+                                      id_key=records.RECORD_ID_KEY) is not None
+    except ledger.LedgerUnreadable:
+        return None
+
+
+def _cli_refusal_line(exc: "PinRefused") -> str:
+    """The command line's one-line report of a refusal: "Not saved" only when nothing was saved, "Not
+    confirmed" when that is not known."""
+    return f"{'Not confirmed' if isinstance(exc, PinUnconfirmed) else 'Not saved'}: {exc}"
+
+
 #: The one explicit identity an omitted session_id collapses to, so a dispatched pin with no session and a
 #: second call that also carries none are recognised as the same lane by the under-lock duplicate check.
 _NO_SESSION_IDENTITY = "\x00no-session"
@@ -166,6 +198,7 @@ def add(text: str, *, session_id: "str | None" = None, via: str = records.PIN_VI
     duplicate_record = None
     committed_record = None
     committed_bytes = None
+    attempted = None
     try:
         if dedup:
             duplicate = _find_duplicate_pin(cleaned, session_identity, path=target)
@@ -184,14 +217,26 @@ def add(text: str, *, session_id: "str | None" = None, via: str = records.PIN_VI
             if isinstance(session_id, str) and session_id:
                 record[records.PIN_SOURCE_SESSION_KEY] = session_id
             ledger.bump_index_epoch(for_path=target)
+            attempted = record
             appended = ledger.append(record, path=path)
             committed_record = record
             committed_bytes = appended.length
     except PinRefused:
         raise
     except Exception as exc:
-        raise PinRefused("the pin could not be saved — an internal memory-write step did not complete, so nothing "
-                         "was saved. " + refusals.ESCALATION, raw_detail=str(exc)) from exc
+        # The append may have LANDED before this was raised: `ledger.append` flushes after its write loop, so
+        # an I/O error in the flush leaves a readable record on disk. Reconcile against the ledger — still
+        # under the lock — before the sentence is chosen (round 7): readable -> the pin is saved and is
+        # returned as such (its byte length is unknown); unreadable -> unconfirmed, never "nothing was
+        # saved"; searched and absent -> nothing was saved.
+        landed = _landed_despite(attempted, target)
+        if landed is True:
+            committed_record = attempted
+        elif landed is None:
+            raise PinUnconfirmed(UNCONFIRMED_SENTENCE, raw_detail=str(exc)) from exc
+        else:
+            raise PinRefused("the pin could not be saved — an internal memory-write step did not complete, so "
+                             "nothing was saved. " + refusals.ESCALATION, raw_detail=str(exc)) from exc
     finally:
         capture._release_lock(lock_fd)
     # The append (if any) has LANDED and the lock is released. The forensic confirmation line is best-effort
@@ -262,7 +307,7 @@ def main(argv: list) -> int:
         try:
             record = add(args.text, session_id=args.session, via=records.PIN_VIA_CLI)
         except PinRefused as exc:
-            print(f"Not saved: {exc}")
+            print(_cli_refusal_line(exc))
             return 1
         print(f"Pinned [{record[records.RECORD_ID_KEY]}].")
         return 0
@@ -279,7 +324,7 @@ def main(argv: list) -> int:
         try:
             record = add(text, session_id=args.session, via=records.PIN_VIA_CLI)
         except PinRefused as exc:
-            print(f"Not saved: {exc}")
+            print(_cli_refusal_line(exc))
             return 1
         print(f"Pinned [{record[records.RECORD_ID_KEY]}].")
         return 0

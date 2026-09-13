@@ -453,7 +453,7 @@ def _classify_outcome(stdout, *, returncode, verb, request, read_back, child_ali
         if _valid_response(verb, payload):
             if "refused" in payload:
                 return _reconcile_refusal(payload["refused"], verb=verb, request=request,
-                                          begin_id=begin_id, read_back=read_back)
+                                          begin_id=begin_id, read_back=read_back, child_alive=child_alive)
             return {"outcome": "committed", "response": payload}
 
     # 2. A WELL-FORMED committed/already_pinned receipt for THIS write. A malformed receipt is not trusted
@@ -501,7 +501,7 @@ def _classify_outcome(stdout, *, returncode, verb, request, read_back, child_ali
     return {"outcome": "faulted", "returncode": returncode}
 
 
-def _reconcile_refusal(sentence: str, *, verb: str, request: dict, begin_id, read_back) -> dict:
+def _reconcile_refusal(sentence: str, *, verb: str, request: dict, begin_id, read_back, child_alive) -> dict:
     """Decide whether a child's refusal may be believed. A refusal sentence is the child's WORD, not the
     disk's: the writer's catch-all says "nothing was saved" for any exception inside its critical section,
     including one raised AFTER the record's bytes were appended (an I/O error in the ledger flush is the
@@ -510,7 +510,9 @@ def _reconcile_refusal(sentence: str, *, verb: str, request: dict, begin_id, rea
     without touching the ledger. After a begin line the ledger decides, three-state like every other read-back:
     the record is found -> `committed`, rebuilt from the stored record with the honest `_RECONCILED_NOTE`; the
     ledger could not be read -> `unconfirmed` (absence was never established, so nothing-saved cannot be
-    claimed); searched and absent -> the refusal stands. Never writes, never retries."""
+    claimed); searched and absent -> the refusal stands, unless the child is not confirmed dead, in which
+    case it is held open as `unconfirmed` like every other begun write with a live child (the same rule the
+    begin-line branch follows; R8 DH-2). Never writes, never retries."""
     if begin_id is not None and read_back is not None:
         try:
             found = read_back(begin_id)
@@ -520,6 +522,9 @@ def _reconcile_refusal(sentence: str, *, verb: str, request: dict, begin_id, rea
         if found is not None:
             return {"outcome": "committed",
                     "response": _committed_response(verb, request, found, note=_RECONCILED_NOTE)}
+        if child_alive:
+            return {"outcome": "unconfirmed",
+                    "response": _still_unconfirmed_response(verb, request, begin_id)}
     return {"outcome": "refused", "sentence": sentence}
 
 

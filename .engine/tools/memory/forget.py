@@ -335,6 +335,37 @@ def _target_state(src: str, rid, sid) -> tuple:
     return exists, (rid in withheld_ids if rid is not None else sid in withheld_sessions)
 
 
+class ControlUnconfirmed(ControlNotRecorded):
+    """The marker's save step failed after its bytes may already have landed, and the ledger could not be read
+    back to tell: neither "changed" nor "nothing was changed" is honest, so this says so. A ControlNotRecorded,
+    so every existing handler still catches it; the command line prints it as "Not confirmed"."""
+
+
+#: The sentence for `ControlUnconfirmed`: names what is not known and what to do; never says nothing was changed.
+UNCONFIRMED_SENTENCE = ("the change's save step did not complete and memory could not be read back to confirm "
+                        "whether it landed, so this is not confirmed either way. Check with list-withheld or a "
+                        "search before repeating it. " + refusals.ESCALATION)
+
+
+def _landed_despite(marker, target: str):
+    """After an exception inside the append step: True when the marker is readable in the ledger (the bytes
+    landed before the fault), False when the ledger was searched and holds no such marker, None when the
+    ledger could not be read. Called under the single-writer lock (round 7; parity with pins.add)."""
+    if marker is None:
+        return False
+    try:
+        return ledger.find_raw_record(marker[records.RECORD_ID_KEY], path=target,
+                                      id_key=records.RECORD_ID_KEY) is not None
+    except ledger.LedgerUnreadable:
+        return None
+
+
+def _cli_refusal_line(exc: "ControlNotRecorded", not_done: str) -> str:
+    """The command line's one-line report: `not_done` ("Not withheld"/"Not restored") only when nothing was
+    changed, "Not confirmed" when that is not known."""
+    return f"{'Not confirmed' if isinstance(exc, ControlUnconfirmed) else not_done}: {exc}"
+
+
 def _authority_refused(exc: Exception) -> "ControlNotRecorded":
     """Translate a refused memory-write authorization into the operator-facing ControlNotRecorded.
 
@@ -435,6 +466,7 @@ def _write_control(kind: str, *, record_id=None, session_id=None,
             "not clear on its own — check the folder's permissions and that its disk is mounted and has room."
         )
     committed_bytes = None
+    attempted = None
     try:
         marker = {
             "v": capture.RECORD_VERSION,
@@ -448,6 +480,7 @@ def _write_control(kind: str, *, record_id=None, session_id=None,
         else:
             marker[records.TARGET_SESSION_KEY] = sid
         ledger.bump_index_epoch(for_path=target)
+        attempted = marker
         appended = ledger.append(marker, path=path)
         committed_bytes = appended.length
     except ControlNotRecorded:
@@ -455,8 +488,17 @@ def _write_control(kind: str, *, record_id=None, session_id=None,
     except _mutation_authority.MutationAuthorityError as exc:
         raise _authority_refused(exc) from exc
     except Exception as exc:
-        raise ControlNotRecorded("the change could not be saved — an internal memory-write step did not complete, "
-                                 "so nothing was changed. " + refusals.ESCALATION, raw_detail=str(exc)) from exc
+        # The append may have LANDED before this was raised (an I/O error in the flush comes after the bytes).
+        # Reconcile against the ledger under the lock before the sentence is chosen (round 7; parity with
+        # pins.add): readable -> the marker is recorded and returned; unreadable -> unconfirmed; searched and
+        # absent -> nothing was changed.
+        landed = _landed_despite(attempted, target)
+        if landed is None:
+            raise ControlUnconfirmed(UNCONFIRMED_SENTENCE, raw_detail=str(exc)) from exc
+        if landed is False:
+            raise ControlNotRecorded("the change could not be saved — an internal memory-write step did not "
+                                     "complete, so nothing was changed. " + refusals.ESCALATION,
+                                     raw_detail=str(exc)) from exc
     finally:
         capture._release_lock(lock_fd)
     # The marker has LANDED and the lock is released. The forensic confirmation line is best-effort telemetry
@@ -1111,7 +1153,7 @@ def main(argv: list) -> int:
         try:
             withhold(record_id=args.record_id)
         except ControlNotRecorded as exc:
-            print(f"Not withheld: {exc}")
+            print(_cli_refusal_line(exc, "Not withheld"))
             return 1
         print(f"Withheld record {args.record_id}.")
         return 0
@@ -1119,7 +1161,7 @@ def main(argv: list) -> int:
         try:
             withhold(session_id=args.session_id)
         except ControlNotRecorded as exc:
-            print(f"Not withheld: {exc}")
+            print(_cli_refusal_line(exc, "Not withheld"))
             return 1
         print(f"Withheld session {args.session_id}.")
         return 0
@@ -1127,7 +1169,7 @@ def main(argv: list) -> int:
         try:
             restore(record_id=args.record_id)
         except ControlNotRecorded as exc:
-            print(f"Not restored: {exc}")
+            print(_cli_refusal_line(exc, "Not restored"))
             return 1
         print(f"Restored record {args.record_id}.")
         return 0
@@ -1135,7 +1177,7 @@ def main(argv: list) -> int:
         try:
             restore(session_id=args.session_id)
         except ControlNotRecorded as exc:
-            print(f"Not restored: {exc}")
+            print(_cli_refusal_line(exc, "Not restored"))
             return 1
         print(f"Restored session {args.session_id}.")
         return 0

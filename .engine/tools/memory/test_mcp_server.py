@@ -629,7 +629,9 @@ class RefusalTranslationTests(unittest.IsolatedAsyncioTestCase):
                         and value is not refusals.EngineRefusal and value.__module__ == module.__name__):
                     derived.add(f"{module.__name__}.{name}")
         self.assertEqual(derived, {"memory.mutation_authority.MutationRefusal", "memory.pins.PinRefused",
-                                   "memory.forget.ControlNotRecorded"})
+                                   "memory.pins.PinUnconfirmed",             # round 8: a PinRefused whose
+                                   "memory.forget.ControlNotRecorded",       # outcome is not known either way
+                                   "memory.forget.ControlUnconfirmed"})      # (same seam, same translation)
         source = inspect.getsource(mutation_authority)
         # Every raise site that mints an operator sentence raises the refusal type...
         for minted in ("mutation_contract.degraded_refusal(", "_stale_refusal(stale)"):

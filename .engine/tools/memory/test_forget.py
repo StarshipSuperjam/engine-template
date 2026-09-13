@@ -804,6 +804,69 @@ class WithholdTests(_Base):
         self.assertEqual(len(list(forget.live_records())), 0)
 
 
+class FlushFailureReconciliationTests(_Base):
+    """Round 8 (R8 DH-1): a withhold/restore marker whose flush fails AFTER its bytes landed is recorded, not
+    reported as "nothing was changed"; one whose ledger cannot be read back is unconfirmed; one that never
+    reached the disk keeps the plain refusal. Parity with pins.add."""
+
+    def _seed_one(self) -> str:
+        rid = records.new_record_id()
+        ledger.append({"v": capture.RECORD_VERSION, "kind": records.AMBIENT_CAPTURE_KIND,
+                       records.RECORD_ID_KEY: rid, "session_id": "s-flush", "seq": 0,
+                       "speaker": "user", "ts": int(time.time()), "text": "a note about pastry"})
+        return rid
+
+    def _flush_fails_after_the_bytes_land(self):
+        import errno
+        from unittest import mock
+        return mock.patch.object(ledger.os, "fsync", side_effect=OSError(errno.EIO, "injected: the flush failed"))
+
+    def test_a_withhold_whose_flush_failed_after_the_bytes_landed_is_recorded(self):
+        rid = self._seed_one()
+        with self._flush_fails_after_the_bytes_land():
+            marker = forget.withhold(record_id=rid)
+        self.assertEqual(marker[records.TARGET_KEY], rid)
+        self.assertEqual([r[records.RECORD_ID_KEY] for r in forget.live_records()], [])   # out of recall
+
+    def test_the_command_line_says_withheld_not_nothing_changed_when_only_the_flush_failed(self):
+        rid = self._seed_one()
+        buffer = io.StringIO()
+        with self._flush_fails_after_the_bytes_land(), contextlib.redirect_stdout(buffer):
+            code = forget.main(["withhold-record", rid])
+        self.assertEqual(code, 0)
+        self.assertIn(f"Withheld record {rid}.", buffer.getvalue())
+        self.assertNotIn("Not withheld", buffer.getvalue())
+
+    def test_a_flush_failure_with_an_unreadable_ledger_is_unconfirmed_never_nothing_changed(self):
+        from unittest import mock
+        rid = self._seed_one()
+        unreadable = mock.patch.object(ledger, "find_raw_record",
+                                       side_effect=ledger.LedgerUnreadable("injected: cannot read back"))
+        with self._flush_fails_after_the_bytes_land(), unreadable:
+            with self.assertRaises(forget.ControlUnconfirmed) as caught:
+                forget.withhold(record_id=rid)
+        message = str(caught.exception)
+        self.assertIsInstance(caught.exception, forget.ControlNotRecorded)
+        self.assertIn("not confirmed", message)
+        self.assertNotIn("nothing was changed", message.lower())
+        buffer = io.StringIO()
+        with self._flush_fails_after_the_bytes_land(), unreadable, contextlib.redirect_stdout(buffer):
+            code = forget.main(["restore-record", rid])
+        self.assertEqual(code, 1)
+        self.assertTrue(buffer.getvalue().startswith("Not confirmed: "))
+        self.assertNotIn("Not restored", buffer.getvalue())
+
+    def test_a_fault_before_the_append_still_says_nothing_was_changed(self):
+        from unittest import mock
+        rid = self._seed_one()
+        with mock.patch.object(ledger, "append", side_effect=OSError("disk went away")):
+            with self.assertRaises(forget.ControlNotRecorded) as caught:
+                forget.withhold(record_id=rid)
+        self.assertNotIsInstance(caught.exception, forget.ControlUnconfirmed)
+        self.assertIn("nothing was changed", str(caught.exception))
+        self.assertEqual([r[records.RECORD_ID_KEY] for r in forget.live_records()], [rid])   # still in recall
+
+
 class AuthorityRefusalTranslationTests(_Base):
     """A refused memory-write authorization on the operator verbs must arrive as ControlNotRecorded plain
     language, with the raw registry-boundary text kept OFF the operator-facing message — preserved only on the
