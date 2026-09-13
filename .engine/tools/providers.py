@@ -29,10 +29,16 @@ import os
 import re
 import shlex
 import sys
+import stat
+from pathlib import Path
 import tempfile
 import time
 
 SCOPED_READ_MAX_BYTES = 1024 * 1024
+SCOPED_PIECE_MAX_BYTES = 16 * 1024
+# A UTF-8 boundary backs up by at most three bytes.
+SCOPED_PIECE_MAX_COUNT = (SCOPED_READ_MAX_BYTES + SCOPED_PIECE_MAX_BYTES - 4) // (SCOPED_PIECE_MAX_BYTES - 3)
+SCOPED_MANIFEST_MAX_BYTES = 64 * 1024
 
 CLAUDE = "claude"
 CODEX = "codex"
@@ -549,6 +555,39 @@ def scoped_read_succeeded(payload: dict, content: str) -> bool:
     return any(isinstance(value, str) and content in value for value in values)
 
 
+def scoped_piece_read_succeeded(payload: dict, path: str, content: str) -> bool:
+    """Narrow multipart proof to an exact requested path on qualified reader surfaces."""
+    inp = payload.get("tool_input") or {}
+    if payload.get("tool_name") in REVIEW_READ_TOOLS:
+        return inp.get("path") == path and _review_reader_succeeded(payload, content)
+    if payload.get("tool_name") != "Read" or payload.get("is_error"):
+        return False
+    requested = inp.get("file_path")
+    if not isinstance(requested, str) or not requested:
+        return False
+    requested = Path(requested)
+    if not requested.is_absolute():
+        cwd = payload.get("cwd")
+        if not isinstance(cwd, str) or not Path(cwd).is_absolute():
+            return False
+        requested = Path(cwd) / requested
+    if str(requested) != path:
+        return False
+    response = payload.get("tool_response")
+    if isinstance(response, str):
+        try:
+            decoded = json.loads(response)
+        except ValueError:
+            return bool(content) and content in response
+        response = decoded
+    if not isinstance(response, dict) or any(response.get(k) for k in ("isError", "is_error", "truncated")):
+        return False
+    file = response.get("file")
+    if isinstance(file, dict):
+        return not file.get("truncated") and file.get("content") == content
+    return response.get("content") == content
+
+
 def _review_reader_succeeded(payload: dict, content: str) -> bool:
     """Only a complete successful result from the named reader earns packet-read evidence."""
     response = payload.get("tool_response")
@@ -771,3 +810,42 @@ def resolve_session(payload: dict | None = None, explicit: str | None = None) ->
 if __name__ != "_engine_accepted_provider_authority":
     import mutation_guards as _mutation_guards  # noqa: E402
     _mutation_guards.install(globals(), {"write_live_session": "automatic-live-session"})
+
+
+def scoped_file_bytes(path: Path, maximum: int) -> bytes:
+    """Open every canonical path component without following links, then read a bounded regular file.
+
+    Descriptor-relative traversal prevents swapping an ancestor for a symlink between checking and
+    opening. O_NONBLOCK prevents a substituted FIFO from blocking before the regular-file check.
+    """
+    fd = os.open(path.anchor, os.O_RDONLY | os.O_DIRECTORY)
+    try:
+        for part in path.parts[1:-1]:
+            child = os.open(part, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW, dir_fd=fd)
+            os.close(fd)
+            fd = child
+        leaf = os.open(path.name, os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK, dir_fd=fd)
+        try:
+            before = os.fstat(leaf)
+            if not stat.S_ISREG(before.st_mode):
+                raise ValueError("Only regular text files are readable")
+            if before.st_size > maximum:
+                raise ValueError(f"File exceeds {maximum} byte read limit")
+            chunks, length = [], 0
+            while length <= maximum:
+                chunk = os.read(leaf, min(65536, maximum + 1 - length))
+                if not chunk:
+                    break
+                chunks.append(chunk)
+                length += len(chunk)
+            after = os.fstat(leaf)
+            if length > maximum:
+                raise ValueError(f"File exceeds {maximum} byte read limit")
+            if (before.st_size, before.st_mtime_ns, before.st_ctime_ns) != (
+                    after.st_size, after.st_mtime_ns, after.st_ctime_ns):
+                raise ValueError("File changed during read; retry")
+            return b"".join(chunks)
+        finally:
+            os.close(leaf)
+    finally:
+        os.close(fd)

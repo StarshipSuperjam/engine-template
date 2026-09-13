@@ -59,6 +59,27 @@ class ReaderTests(unittest.IsolatedAsyncioTestCase):
         self.assertTrue(tools[0].annotations.idempotent_hint)
         self.assertFalse(tools[0].annotations.open_world_hint)
 
+    async def test_registered_multipart_paths_are_exact_and_integrity_checked(self):
+        import scoped_agents
+        import build_coordinator_core as core
+        packet, _, companion = self.registered()
+        packet.write_bytes(("α\r\n" * 20000).encode())
+        record = json.loads(companion.read_text())
+        a = record["assignments"]["sa_test"]
+        a.update(id="sa_" + "a" * 32, packet_digest=core.digest(packet.read_bytes()),
+                 file_digest=core.digest(packet.read_bytes()))
+        a["transport"] = scoped_agents._freeze_transport(packet, packet.read_bytes(), a["id"], a["packet_digest"])
+        record["read_protocol"] = scoped_agents.READ_PROTOCOL
+        companion.write_text(json.dumps(record))
+        parts = a["transport"]["manifest"]["pieces"]
+        bodies = [(await self.read(p["path"]))["content"] for p in parts]
+        self.assertEqual("".join(bodies).encode(), packet.read_bytes())
+        await self.read(a["transport"]["manifest_path"])
+        neighbor = packet.with_name("neighbor.txt"); neighbor.write_text("not registered")
+        await self.denied(neighbor)
+        Path(parts[1]["path"]).write_text("changed")
+        await self.denied(parts[0]["path"])
+
     async def test_repository_read_is_complete_and_exact(self):
         path = self.repo / "source.py"
         path.write_text("# Unicode café\n")

@@ -936,5 +936,178 @@ class ScopedAgentHookRunner(unittest.TestCase):
                     packet_digest=f.a["packet_digest"], assignment_id=f.a["id"])["child"], child)
 
 
+class MultipartReads(unittest.TestCase):
+    setUp = ScopedAssignments.setUp
+    register = ScopedAssignments.register
+    observe = ScopedAssignments.observe
+    launch = ScopedAssignments.launch
+    stop = ScopedAssignments.stop
+    verified = ScopedAssignments.verified
+
+    def large(self, content=None):
+        self.packet.write_bytes(content if content is not None else b"x" * 77695 + b"\n")
+        self.a = self.register("architecture")
+        self.launch()
+        self.observe("SubagentStart", child="child-a")
+        return self.a["transport"]["manifest"]["pieces"]
+
+    def piece(self, piece, child="child-a", body=None, tool="Read", **kw):
+        body = Path(piece["path"]).read_bytes().decode() if body is None else body
+        transcript = {"child": child, "root": "root-id", "name": "/root/" + self.a["id"]}
+        inp = {"file_path": piece["path"]}
+        response = {"file": {"content": body}}
+        if tool in providers.REVIEW_READ_TOOLS:
+            inp = {"path": piece["path"]}
+            response = {"content": [{"type": "text", "text": json.dumps({
+                "file_path": piece["path"], "content": body, "complete": True, "offset": 0,
+                "sha256": core.digest(body.encode())})}]}
+        with mock.patch.object(providers, "scoped_transcript", return_value=transcript):
+            self.observe("PostToolUse", tool, inp, child=child, response=response,
+                         tool_use_id="read-" + str(piece["index"]), **kw)
+
+    def test_restart_out_of_order_duplicates_and_complete_single_read(self):
+        parts = self.large()
+        for p in parts[1:][::-1]:
+            self.piece(p)
+            self.piece(p)
+        self.store = scoped.Store(self.library, "test-plan")
+        self.stop()
+        with self.assertRaises(scoped.EvidenceError):
+            self.verified()
+        self.assertEqual(len(self.store.read()["assignments"][self.a["id"]]["transport"]["reads"]), len(parts)-1)
+        self.piece(parts[0], tool=next(iter(providers.REVIEW_READ_TOOLS)))
+        self.stop()
+        self.assertEqual(self.verified()["id"], self.a["id"])
+        # A full successful original read remains a supported route.
+        self.store.change(lambda d: d["assignments"][self.a["id"]].update(read=None, transport={**self.a["transport"], "reads": {}}))
+        original = {"path": self.a["packet_path"], "index": 99}
+        self.piece(original)
+        self.stop()
+        self.assertEqual(self.verified()["id"], self.a["id"])
+
+    def test_failed_foreign_unknown_and_partial_reads_cannot_fill_missing_piece(self):
+        parts = self.large()
+        for p in parts[:-1]:
+            self.piece(p)
+        for kwargs in ({"body": "partial"}, {"is_error": True}, {"child": "other-child"},
+                       {"tool": "unknown"}, {"tool": "Bash"}, {"session_id": "other-root"}):
+            self.piece(parts[-1], **kwargs)
+            self.stop()
+            with self.subTest(kwargs=kwargs), self.assertRaises(scoped.EvidenceError):
+                self.verified()
+        self.piece(parts[-1])
+        self.stop()
+        self.assertEqual(self.verified()["id"], self.a["id"])
+
+    def test_utf8_crlf_long_lines_and_total_ceiling_reassemble_exactly(self):
+        for content in (b"a" * 1048576, ("😀α\r\n" * 10000).encode(), b" " * 40000,
+                        ("é" * 9000 + "no final newline").encode()):
+            self.packet.write_bytes(content)
+            a = self.register("feasibility")
+            parts = scoped._transport_parts(a, a)
+            self.assertEqual(b"".join(body.encode() for _, body in parts), content)
+            self.assertLessEqual(len(parts), providers.SCOPED_PIECE_MAX_COUNT)
+            self.assertTrue(all(len(body.encode()) <= providers.SCOPED_PIECE_MAX_BYTES for _, body in parts))
+        self.packet.write_bytes(b"a" * 1048577)
+        with self.assertRaises(scoped.EvidenceError):
+            self.register("feasibility")
+
+    def test_damaged_piece_manifest_or_missing_protocol_refuses_and_can_recover(self):
+        parts = self.large()
+        for p in parts:
+            self.piece(p)
+        self.stop()
+        self.verified()
+
+        path = Path(parts[2]["path"])
+        original = path.read_bytes()
+        for damaged in (b"changed", None):
+            if damaged is None:
+                path.unlink()
+            else:
+                path.write_bytes(damaged)
+            with self.assertRaises(scoped.EvidenceError):
+                self.verified()
+            path.write_bytes(original)
+        record = self.store.read()
+        for mutate in (lambda d: d.pop("read_protocol"),
+                       lambda d: d.update(read_protocol="future"),
+                       lambda d: d["assignments"][self.a["id"]]["transport"]["manifest"].update(assignment_id="sa_"+"b"*32)):
+            bad = copy.deepcopy(record); mutate(bad)
+            self.store.write_locked(bad)
+            with self.assertRaises((scoped.EvidenceError, core.CoordinatorError)):
+                self.verified()
+            self.store.write_locked(record)
+        self.verified()
+
+    def test_large_clarification_needs_all_piece_reads_despite_delivered_message(self):
+        parts = self.large()
+        for p in parts:
+            self.piece(p)
+        supplement = self.store.clarify(self.a["id"], "root-id", "clarify é\n" * 5000)
+        args = {"target": "child-a", "message": "Read " + supplement["path"]}
+        self.observe("PreToolUse", "followup_task", args, tool_use_id="clarify")
+        self.observe("PostToolUse", "followup_task", args, tool_use_id="clarify", response={"ok": True})
+        pieces = supplement["transport"]["manifest"]["pieces"]
+        for p in pieces[:-1]:
+            self.piece(p)
+        self.stop()
+        with self.assertRaises(scoped.EvidenceError):
+            self.verified()
+        self.store = scoped.Store(self.library, "test-plan")
+        self.piece(pieces[-1])
+        self.stop()
+        self.verified()
+
+    def test_metadata_range_and_symlink_failures(self):
+        self.large()
+        for field, value in (("start", 1), ("end", 16385), ("index", 2),
+                             ("path", "/outside"), ("digest", core.digest(b"wrong"))):
+            a = copy.deepcopy(self.a)
+            a["transport"]["manifest"]["pieces"][0][field] = value
+            # Even a consistently re-hashed manifest cannot grant a different byte layout.
+            body = json.dumps(a["transport"]["manifest"]).encode()
+            manifest = Path(a["transport"]["manifest_path"])
+            original = manifest.read_bytes()
+            manifest.write_bytes(body)
+            a["transport"]["manifest_digest"] = core.digest(body)
+            with self.subTest(field=field), self.assertRaises((ValueError, core.CoordinatorError)):
+                scoped._transport_parts(a, a)
+            manifest.write_bytes(original)
+        part = Path(self.a["transport"]["manifest"]["pieces"][0]["path"])
+        body = part.read_bytes(); adjacent = part.with_name("unregistered.txt"); adjacent.write_bytes(body)
+        part.unlink(); part.symlink_to(adjacent)
+        with self.assertRaises(OSError):
+            scoped._transport_parts(self.a, self.a)
+        part.unlink(); part.write_bytes(body)
+
+
+class MultipartClaudeHook(unittest.TestCase):
+    setUp = ScopedAgentHookRunner.setUp
+    observe = ScopedAgentHookRunner.observe
+
+    def test_multipart_claude_reads_through_real_hook_runner(self):
+        f = self.fixture
+        f.packet.write_text("actual hook fixture\r\n" * 4500)
+        f.a = f.register("architecture")
+        with mock.patch.dict(os.environ, {providers.PROVIDER_ENV: "claude"}):
+            args = {"subagent_type": f.a["role"], "prompt": "Read " + f.a["packet_path"]}
+            self.observe("PreToolUse", "Agent", args)
+            self.observe("PostToolUse", "Agent", args, response={"agentId": "child-a"})
+            self.observe("SubagentStart", child="child-a")
+            for part in f.a["transport"]["manifest"]["pieces"][:-1]:
+                self.observe("PostToolUse", "Read", {"file_path": part["path"]}, child="child-a",
+                             response={"file": {"content": Path(part["path"]).read_bytes().decode()}})
+            self.observe("SubagentStop", child="child-a", last_assistant_message="[]")
+            with self.assertRaises(scoped.EvidenceError):
+                f.verified()
+            part = f.a["transport"]["manifest"]["pieces"][-1]
+            self.observe("PostToolUse", "Read", {"file_path": part["path"]}, child="child-a",
+                         response={"file": {"content": Path(part["path"]).read_bytes().decode()}})
+            self.observe("SubagentStop", child="child-a", last_assistant_message="[]")
+            f.verified()
+
+
+
 if __name__ == "__main__":
     unittest.main()

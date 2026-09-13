@@ -28,44 +28,7 @@ COMPANION_MAX_BYTES = 16 * MAX_BYTES
 server = MCPServer("engine-review-reader")
 
 
-def _bytes(path: Path, maximum: int) -> bytes:
-    """Open every canonical path component without following links, then read a bounded regular file.
-
-    Descriptor-relative traversal prevents swapping an ancestor for a symlink between checking and
-    opening. O_NONBLOCK prevents a substituted FIFO from blocking before the regular-file check.
-    """
-    fd = os.open(path.anchor, os.O_RDONLY | os.O_DIRECTORY)
-    try:
-        for part in path.parts[1:-1]:
-            child = os.open(part, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW, dir_fd=fd)
-            os.close(fd)
-            fd = child
-        leaf = os.open(path.name, os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK, dir_fd=fd)
-        try:
-            before = os.fstat(leaf)
-            if not stat.S_ISREG(before.st_mode):
-                raise ValueError("Only regular text files are readable")
-            if before.st_size > maximum:
-                raise ValueError(f"File exceeds {maximum} byte read limit")
-            chunks, length = [], 0
-            while length <= maximum:
-                chunk = os.read(leaf, min(65536, maximum + 1 - length))
-                if not chunk:
-                    break
-                chunks.append(chunk)
-                length += len(chunk)
-            after = os.fstat(leaf)
-            if length > maximum:
-                raise ValueError(f"File exceeds {maximum} byte read limit")
-            if (before.st_size, before.st_mtime_ns, before.st_ctime_ns) != (
-                    after.st_size, after.st_mtime_ns, after.st_ctime_ns):
-                raise ValueError("File changed during read; retry")
-            return b"".join(chunks)
-        finally:
-            os.close(leaf)
-    finally:
-        os.close(fd)
-
+_bytes = providers.scoped_file_bytes
 
 def _registered_digest(path: Path) -> str:
     library = plan_store.PlanLibrary(plan_store.library_root(cwd=str(ROOT)))
@@ -92,6 +55,19 @@ def _registered_digest(path: Path) -> str:
                 raise ValueError("Malformed scoped supplement")
             if supplement.get("path") == str(path):
                 return supplement["digest"]
+        for entry in [assignment, *supplements]:
+            transport = entry.get("transport")
+            if not transport:
+                continue
+            import scoped_agents
+            if record.get("read_protocol") != scoped_agents.READ_PROTOCOL:
+                raise ValueError("Unsupported multipart read protocol")
+            parts = scoped_agents._transport_parts(assignment, entry)
+            if transport["manifest_path"] == str(path):
+                return transport["manifest_digest"]
+            for piece, _ in parts:
+                if piece["path"] == str(path):
+                    return piece["digest"]
     raise ValueError("External file is not a registered packet or supplement")
 
 

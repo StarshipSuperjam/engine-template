@@ -630,6 +630,18 @@ class TestScopedAgentBaseline(unittest.TestCase):
 
 
 class TestReviewReaderEvidence(unittest.TestCase):
+    def test_piece_credit_requires_exact_native_path_and_known_success_envelope(self):
+        path, body = "/packet.part", "exact bytes"
+        payload = {"tool_name": "Read", "tool_input": {"file_path": path},
+                   "tool_response": {"file": {"content": body}}}
+        self.assertTrue(providers.scoped_piece_read_succeeded(payload, path, body))
+        for changed in ({"tool_input": {"file_path": "/different", "note": path}},
+                        {"tool_name": "Bash"}, {"is_error": True},
+                        {"tool_response": {"stdout": body}},
+                        {"tool_response": {"file": {"content": body, "truncated": True}}},
+                        {"tool_response": {"file": {"content": body[:-1]}}}):
+            self.assertFalse(providers.scoped_piece_read_succeeded({**payload, **changed}, path, body))
+
     def test_77696_byte_packet_requires_more_than_a_capped_response(self):
         # A reported incident shape, not a claim about any universal provider cap.
         packet = "x" * 77695 + "\n"

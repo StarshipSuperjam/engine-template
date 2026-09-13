@@ -76,6 +76,146 @@ def _bounded_input(path, label):
         return content
 
 
+READ_PROTOCOL = "registered-pieces.v1"
+
+
+def _freeze_transport(path, content, assignment_id, packet_digest):
+    """Derive bounded artifacts; the unchanged original remains authoritative."""
+    if len(content) <= providers.SCOPED_PIECE_MAX_BYTES:
+        return None
+    pieces, offset = [], 0
+    while offset < len(content):
+        end = min(offset + providers.SCOPED_PIECE_MAX_BYTES, len(content))
+        while end < len(content) and content[end] & 0xc0 == 0x80:
+            end -= 1
+        part = content[offset:end]
+        part.decode("utf-8")
+        location = path.with_name(path.name + f".part-{len(pieces):03d}.txt")
+        core.atomic_write(location, part.decode("utf-8"), durable=True, mode=0o600)
+        pieces.append({"index": len(pieces), "start": offset, "end": end,
+                       "path": str(location), "digest": core.digest(part)})
+        offset = end
+    manifest = {"schema_version": "review-read-manifest.v1", "assignment_id": assignment_id,
+                "packet_digest": packet_digest, "file_digest": core.digest(content),
+                "total_bytes": len(content), "pieces": pieces}
+    body = json.dumps(manifest, ensure_ascii=False, sort_keys=True, separators=(",", ":"))
+    if len(body.encode()) > providers.SCOPED_MANIFEST_MAX_BYTES:
+        raise EvidenceError("review manifest exceeds its bounded transport allowance")
+    location = path.with_name(path.name + ".manifest.json")
+    core.atomic_write(location, body, durable=True, mode=0o600)
+    return {"manifest_path": str(location), "manifest_digest": core.digest(body.encode()),
+            "manifest": manifest, "reads": {}}
+
+
+def _transport_parts(assignment, record):
+    """Validate frozen metadata AND artifacts before granting path or read authority."""
+    transport = record.get("transport")
+    if not transport:
+        return []
+    path = Path(record.get("packet_path", record.get("path", "")))
+    digest = record.get("file_digest", record.get("digest"))
+    target = assignment["packet_digest"] if record is assignment else digest
+    manifest = transport["manifest"]
+    schema = Path(__file__).resolve().parents[1] / "schemas/review-read-manifest.v1.json"
+    core.validate(manifest, schema)
+    location = path.with_name(path.name + ".manifest.json")
+    if transport["manifest_path"] != str(location):
+        raise EvidenceError("manifest path differs from the registered original")
+    raw = providers.scoped_file_bytes(location, providers.SCOPED_MANIFEST_MAX_BYTES)
+    if core.digest(raw) != transport["manifest_digest"] or json.loads(raw) != manifest:
+        raise EvidenceError("immutable review manifest changed")
+    original = providers.scoped_file_bytes(path, providers.SCOPED_READ_MAX_BYTES)
+    if (manifest["assignment_id"] != assignment["id"] or manifest["packet_digest"] != target or
+            manifest["file_digest"] != digest or core.digest(original) != digest or
+            manifest["total_bytes"] != len(original)):
+        raise EvidenceError("review manifest identity differs from its assignment")
+    parts, offset = [], 0
+    if len(manifest["pieces"]) > providers.SCOPED_PIECE_MAX_COUNT:
+        raise EvidenceError("too many review pieces")
+    for index, piece in enumerate(manifest["pieces"]):
+        expected = path.with_name(path.name + f".part-{index:03d}.txt")
+        if (piece["index"] != index or piece["start"] != offset or piece["path"] != str(expected) or
+                not offset < piece["end"] <= offset + providers.SCOPED_PIECE_MAX_BYTES):
+            raise EvidenceError("review pieces have conflicting indices, paths or byte ranges")
+        data = providers.scoped_file_bytes(expected, providers.SCOPED_PIECE_MAX_BYTES)
+        data.decode("utf-8")
+        if data != original[offset:piece["end"]] or core.digest(data) != piece["digest"]:
+            raise EvidenceError("immutable review piece changed")
+        parts.append((piece, data.decode("utf-8")))
+        offset = piece["end"]
+    if offset != len(original):
+        raise EvidenceError("review pieces do not cover the original bytes")
+    return parts
+
+
+def _read_paths(record):
+    path = record.get("packet_path", record.get("path"))
+    return [path] + [p["path"] for p in record.get("transport", {}).get("manifest", {}).get("pieces", [])]
+
+
+def read_requirements(assignment, record=None):
+    """Controller-facing exact read inventory and verified progress; never self-attestation."""
+    record = assignment if record is None else record
+    parts = _transport_parts(assignment, record)
+    path = record.get("packet_path", record.get("path"))
+    if not parts:
+        return {"paths": [path], "complete": bool(record.get("read")), "remaining": [path] if not record.get("read") else []}
+    reads = record["transport"]["reads"]
+    complete = _coverage_complete(assignment, record)
+    remaining = [p["path"] for p, _ in parts if not complete and (
+        reads.get(str(p["index"]), {}).get("file_digest") != p["digest"] or
+        reads.get(str(p["index"]), {}).get("child") != assignment["child"])]
+    return {"paths": [p["path"] for p, _ in parts], "manifest_path": record["transport"]["manifest_path"],
+            "complete": complete, "verified_pieces": len(parts) - len(remaining),
+            "total_pieces": len(parts), "remaining": remaining}
+
+
+def _coverage_complete(assignment, record):
+    parts = _transport_parts(assignment, record)
+    read = record.get("read")
+    digest = record.get("file_digest", record.get("digest"))
+    if read and not read.get("transport_digest"):
+        return read.get("child") == assignment["child"] and read.get("file_digest") == digest
+    if not parts:
+        return False
+    transport = record["transport"]
+    reads = transport["reads"]
+    if set(reads) != {str(p["index"]) for p, _ in parts}:
+        return False
+    return all(reads[str(p["index"])].get("child") == assignment["child"] and
+               reads[str(p["index"])].get("file_digest") == p["digest"] and
+               _text(reads[str(p["index"])].get("call_id")) for p, _ in parts)
+
+
+def _observe_read(assignment, record, payload, call):
+    parts = _transport_parts(assignment, record)
+    original_path = record.get("packet_path", record.get("path"))
+    digest = record.get("file_digest", record.get("digest"))
+    observation = {"call_id": call.get("call_id"), "child": call["child"],
+                   "file_digest": digest, "response_digest": core.digest(payload.get("tool_response"))}
+    if not _text(observation["call_id"]):
+        return False
+    if (providers.scoped_reads_path(payload, original_path) and
+            not any(providers.scoped_reads_path(payload, piece["path"]) for piece, _ in parts)):
+        body = providers.scoped_file_bytes(Path(original_path), providers.SCOPED_READ_MAX_BYTES).decode("utf-8")
+        if core.digest(body.encode()) != digest or not providers.scoped_read_succeeded(payload, body):
+            return False
+        record["read"] = observation
+        return True
+    # Multipart evidence admits only the qualified native reader surfaces, never shell output.
+    if payload.get("tool_name") not in providers.REVIEW_READ_TOOLS | {"Read"}:
+        return False
+    for piece, body in parts:
+        if providers.scoped_piece_read_succeeded(payload, piece["path"], body):
+            observation["file_digest"] = piece["digest"]
+            record["transport"]["reads"].setdefault(str(piece["index"]), observation)
+            if _coverage_complete(assignment, record):
+                record["read"] = {**observation, "file_digest": digest,
+                                  "transport_digest": record["transport"]["manifest_digest"]}
+                return True
+    return False
+
+
 class Store:
     """A companion beside one plan, locked by that plan's existing record lock.
 
@@ -98,6 +238,10 @@ class Store:
             core.validate(value, schema, local_refs=True)
         except core.CoordinatorError as exc:
             raise EvidenceError("damaged scoped-assignment companion; review is unverified: " + str(exc)) from exc
+        multipart = any(a.get("transport") or any(s.get("transport") for s in a["supplements"])
+                        for a in value["assignments"].values())
+        if multipart and value.get("read_protocol") != READ_PROTOCOL:
+            raise EvidenceError("multipart companion is missing its required read protocol")
         return value
 
     def write_locked(self, value):
@@ -150,7 +294,7 @@ class Store:
         token = "sa_" + uuid.uuid4().hex
         directory = self.path.parent / "scoped-packets"
         self.library._mkdir(directory)
-        location = directory / (token + source.suffix)
+        location = (directory / (token + source.suffix)).resolve()
         core.atomic_write(location, content.decode("utf-8"), durable=True, mode=0o600)
         assignment = {"id": token, "owner": copy.deepcopy(owner), "root": root,
                       "purpose": purpose, "lens": lens, "role": role,
@@ -161,7 +305,14 @@ class Store:
                       "continuations": [], "supplements": [], "stops": [], "faults": [], "accepted": False}
         if review_contract:
             assignment["review_contract"] = copy.deepcopy(review_contract)
-        self.change(lambda data: data["assignments"].__setitem__(token, assignment))
+        transport = _freeze_transport(location, content, token, packet_digest)
+        if transport:
+            assignment["transport"] = transport
+        def register(data):
+            if transport:
+                data["read_protocol"] = READ_PROTOCOL
+            data["assignments"][token] = assignment
+        self.change(register)
         return assignment
 
     def clarify(self, assignment_id, root, content):
@@ -176,9 +327,13 @@ class Store:
                 raise EvidenceError("clarification requires the owning root and an open observed assignment")
             if any(not s.get("call_id") for s in a["supplements"]) or any(not c["delivered"] for c in a["continuations"]):
                 raise EvidenceError("reconcile the outstanding clarification before preparing another")
-            path = self.path.parent / "scoped-packets" / (uuid.uuid4().hex + ".clarification.txt")
+            path = (self.path.parent / "scoped-packets" / (uuid.uuid4().hex + ".clarification.txt")).resolve()
             core.atomic_write(path, content, durable=True, mode=0o600)
             supplement = {"path": str(path), "digest": core.digest(content.encode()), "call_id": None}
+            transport = _freeze_transport(path, content.encode(), a["id"], supplement["digest"])
+            if transport:
+                supplement["transport"] = transport
+                data["read_protocol"] = READ_PROTOCOL
             a["supplements"].append(supplement)
             return supplement
         return self.change(update)
@@ -349,7 +504,9 @@ class Store:
             # Packet reads supply the non-timing identity join. Parent reads never satisfy it.
             if not _text(actor):
                 return hooks.proceed()
-            packet_read = event == "PostToolUse" and any(providers.scoped_reads_path(payload, a["packet_path"]) for a in owned)
+            packet_read = event == "PostToolUse" and any(
+                providers.scoped_reads_path(payload, path) for a in owned
+                for record in [a, *a["supplements"]] for path in _read_paths(record))
             transcript = providers.scoped_transcript(payload, call["provider"]) if packet_read or event == "SubagentStop" else {}
             for a in owned:
                 # A blocked Codex child can identify its assignment before it can read. This
@@ -363,37 +520,45 @@ class Store:
                         and not any(b["child"] == actor and b["id"] != a["id"] for b in owned)):
                     a["child"] = actor
                     a["start"] = data["starts"].get(actor)
-                if event == "PostToolUse" and providers.scoped_reads_path(payload, a["packet_path"]):
+                if event == "PostToolUse" and any(providers.scoped_reads_path(payload, path) for path in _read_paths(a)):
                     if not a["launch"] or not a["launch"]["fresh"]:
                         a["faults"].append("packet read without observed fresh dispatch")
                         continue
+                    if a.get("transport") and (a["launch"]["provider"] != call["provider"] or
+                            (call["provider"] == providers.CLAUDE and a["launch"].get("returned_child") != actor)):
+                        continue
                     if a["child"] not in (None, actor) or any(b["child"] == actor and b["id"] != a["id"] for b in owned):
-                        a["faults"].append("child reused across assignments")
+                        if not a.get("transport"):
+                            a["faults"].append("child reused across assignments")
                         continue
                     if call.get("role") != a["role"]:
-                        a["faults"].append("packet read by wrong role")
+                        if not a.get("transport"):
+                            a["faults"].append("packet read by wrong role")
                         continue
                     if call["provider"] == providers.CODEX and (
                             transcript.get("child") != actor or transcript.get("root") != root or
                             transcript.get("name") != "/root/" + a["id"]):
-                        a["faults"].append("child transcript does not match the registered launch name and root")
+                        if not a.get("transport"):
+                            a["faults"].append("child transcript does not match the registered launch name and root")
                         continue
-                    content = Path(a["packet_path"]).read_text(encoding="utf-8")
+                    content = Path(a["packet_path"]).read_bytes().decode("utf-8")
                     response = payload.get("tool_response")
                     if core.digest(content.encode()) != a["file_digest"]:
                         a["faults"].append("immutable packet digest changed")
                         continue
                     a["child"] = actor
                     a["start"] = data["starts"].get(actor)
-                    if not providers.scoped_read_succeeded(payload, content):
+                    try:
+                        complete = _observe_read(a, a, payload, call)
+                    except (OSError, ValueError, core.CoordinatorError):
+                        complete = False
+                    if not complete:
                         failure = {"call_id": call.get("call_id"), "child": actor,
                                    "response_digest": core.digest(response)}
                         failures = a.setdefault("read_failures", [])
                         if failure not in failures:
                             failures.append(failure)
                         continue  # no read credit; a later exact successful read may repair access
-                    a["read"] = {"call_id": call.get("call_id"), "child": actor,
-                                 "file_digest": a["file_digest"], "response_digest": core.digest(response)}
                 if a["child"] != actor:
                     continue
                 if a["launch"]["provider"] != call["provider"]:
@@ -403,9 +568,13 @@ class Store:
                     a["start"] = {"child": actor, "role": call.get("role")}
                 for c in a["continuations"]:
                     for s in a["supplements"]:
-                        if event == "PostToolUse" and s["call_id"] == c["call_id"] and providers.scoped_reads_path(payload, s["path"]):
-                            body = Path(s["path"]).read_text(encoding="utf-8")
-                            if core.digest(body.encode()) == s["digest"] and providers.scoped_read_succeeded(payload, body):
+                        if (event == "PostToolUse" and s["call_id"] == c["call_id"] and
+                                call.get("role") == a["role"] and any(providers.scoped_reads_path(payload, path) for path in _read_paths(s))):
+                            try:
+                                complete = _observe_read(a, s, payload, call)
+                            except (OSError, ValueError, core.CoordinatorError):
+                                complete = False
+                            if complete:
                                 c["delivered"] = True
                                 c["supplement_digest"] = s["digest"]
                     matches = providers.scoped_deliveries(transcript, c["content"], a["id"])
@@ -455,6 +624,11 @@ class Store:
         for a in candidates:
             launch = a["launch"] or {}
             if a["faults"] or not launch.get("fresh") or not launch.get("successful") or not a["read"] or not a["stops"] or not a["start"]:
+                continue
+            try:
+                if not _coverage_complete(a, a) or any(s.get("transport") and not _coverage_complete(a, s) for s in a["supplements"]):
+                    continue
+            except (OSError, ValueError, core.CoordinatorError):
                 continue
             if launch.get("provider") not in (providers.CLAUDE, providers.CODEX):
                 continue
@@ -828,7 +1002,9 @@ def main(argv=None):
                                  "launch_outcome": ("not-launched" if not a["launch"] else
                                      "capacity-rejected" if a["launch"].get("capacity_rejected") else
                                      "successful" if a["launch"].get("successful") else "unverified"),
-                                 "undelivered": sum(not c["delivered"] for c in a["continuations"])}
+                                 "undelivered": sum(not c["delivered"] for c in a["continuations"]),
+                                 "packet_reads": read_requirements(a),
+                                 "supplement_reads": [read_requirements(a, s) for s in a["supplements"]]}
                               for a in data["assignments"].values() if a["root"] == args.session], indent=2))
         elif args.command == "reconcile":
             def reconcile(data):
