@@ -1,0 +1,73 @@
+{
+  "schema_version": "test-cost-activation.v1",
+  "parity_rules_digest": "sha256:d7c57478d312a1f61913cd69d83393eddcc9b1a95bf38b44b78e065132cb477b",
+  "baseline_digest": "sha256:6012abd10f8ce068f97a19fff2f738bde2687a76c491efbc48e8496ff20315dc",
+  "source_tree": "0ba587dfba8d4037ead4841bba804f6116f6087b",
+  "identity": {
+    "source_commit": "c434b4771efb94bce36894287b8ffeda2555b651",
+    "base_commit": "c434b4771efb94bce36894287b8ffeda2555b651",
+    "observer_commit": "2a9874346451096cb890567562b142de6c89c14f",
+    "observer_digest": "sha256:3550d60a263e0f785256a8bf388bddba1ffdf6c0c434aaa1639631614d7b20f0",
+    "plan_digest": "sha256:8d08a9bae4c8609422821a43552b68b860d0b156c617f4b706267f7ef05b0560",
+    "contract_digest": "sha256:25b53928f2c3645a9639773669f61a4f9fb8bf923fb66090c93d0f43f7f150ec",
+    "policy_digest": "sha256:7c4e2d3fdb8f7fd8aa3efaf17af3302a2a499c226dc0878c5c18533a57ae24dd",
+    "inventory_digest": "sha256:568bfeb4eeeda774c808d90626aa8afd182041c45104200c5f7364fe1151c738",
+    "environment_digest": "sha256:4e9ebfd3c6503f53222004c3f394815112bfd0dcbd1492d3032f7a12ae76561d",
+    "cache_state": "unknown",
+    "topology": "serial",
+    "stage": "bootstrap",
+    "attempt": "b090b176d159dcc0e127764cdf4d9c9b",
+    "node": "baseline",
+    "artifact_digest": "sha256:80ce279df20a1f044ff14910cb4d58bf4627258ad5abff5dc819c09365b15339"
+  },
+  "native_outcomes_digest": "sha256:51222b7f84e130c384e407ba0d030d5e747bad8f8aacc6029a229b9011c1c22b",
+  "observed_outcomes_digest": "sha256:10bf43496672eae91392c0f3c411910e4ea88ff1dc251ba61d7415431f565bd1",
+  "observation_digest": "sha256:168d9e7692c0add6a62708bf9210fa6a70be75f6ce8e8166d1681acecc92326c",
+  "outcomes_parity": true,
+  "legacy_case_count": 10093,
+  "static_definition_count": 10024,
+  "owner": "prg_1276f4a3c217",
+  "reason": "Explicit initial enrollment of the unchanged pre-prevention suite; this records observed debt, not acceptable new authoring.",
+  "revisit": "Review during the program relevance audit and fixture repair; adapter or environment changes require explicit requalification.",
+  "environment": {
+    "os": "Darwin",
+    "release": "25.6.0",
+    "architecture": "arm64",
+    "python": "3.12.13",
+    "cpu_count": 15,
+    "runner_os": null,
+    "runner_arch": null,
+    "uv": "uv 0.11.8 (Homebrew 2026-04-27 aarch64-apple-darwin)",
+    "memory_bytes": 25769803776,
+    "worktree_count": 30,
+    "cache": "unknown"
+  },
+  "unknown": [
+    "alternate process boundary has unknown descendant work",
+    "background-thread resource ownership is unattributed",
+    "descendant work is not instrumented",
+    "tree-copy source is unclassified"
+  ],
+  "native_environment": {
+    "os": "Darwin",
+    "release": "25.6.0",
+    "architecture": "arm64",
+    "python": "3.12.13",
+    "cpu_count": 15,
+    "runner_os": null,
+    "runner_arch": null,
+    "uv": "uv 0.11.8 (Homebrew 2026-04-27 aarch64-apple-darwin)",
+    "memory_bytes": 25769803776,
+    "worktree_count": 29,
+    "cache": "unknown"
+  },
+  "environment_differences": [
+    "worktree_count"
+  ],
+  "timing": {
+    "native_child_seconds": 2391.6920308750123,
+    "observed_child_seconds": 2448.1285074170446,
+    "qualification": "unavailable: one sequential pair, uncontrolled cache and different worktree populations; no overhead or program-target claim"
+  },
+  "cost_clearance": false
+}

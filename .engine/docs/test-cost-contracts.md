@@ -26,6 +26,21 @@ uv run --directory .engine --frozen -- python tools/selftest_cost.py observe-ret
 
 This command measures only; it never writes an activation or changes enrolled limits. Enrollment requires complete passing native/observed outcome parity, the exact static/runtime census, independently resolved identities and explicit review of the resulting debt. A focused `--pattern` is a diagnostic, not full bootstrap evidence. Requalify an incompatible adapter or environment before activating its measurements; a local enrollment cannot qualify a different CI environment.
 
+Initial enrollment observes source `c434b4771efb94bce36894287b8ffeda2555b651` with adapter `2a9874346451096cb890567562b142de6c89c14f`. Both complete runs pass all 10,093 cases with zero skips; the static census has 10,024 definitions, including inherited/runtime mappings and the two separately retained overwritten definitions. Exact raw outcome digests remain in the activation record. Seven source-bound parity rules cover reviewed UUID4 fixture IDs, disposable Git commit IDs, and one test's set iteration. They preserve token equality relationships, substantive inputs, counts and outcomes. Changes to the tree or defining source invalidate those rules; they are not general permission to ignore differing subtests.
+
+| Observed resource | Initial count |
+| --- | ---: |
+| Process launches | 67,410 |
+| Git launches (included in processes) | 66,317 |
+| JSON decodes (conservative schema-work proxy) | 9,469,084 |
+| Metaschema validations | 119 |
+| Classified whole-tree fixtures | 49 |
+| Classified nested journeys | 88 |
+
+The 101-operation recovery test alone records 6,868 Git launches. This is measured legacy debt for the later fixture/relevance work, not an acceptable new-test template. Descendant work, alternate process boundaries, background-thread ownership and unclassified tree-copy paths remain explicit gaps; the table is not a complete operating-system trace.
+
+The native child interval is 2,391.692 seconds and the observed interval is 2,448.129 seconds. Timing qualification is unavailable: only one sequential pair exists, cache state is unknown, and the shared worktree population changed from 29 to 30. The activation retains both environments and binds budgets to the observed one; it makes no 2% overhead, CI-platform, causal-PR or 15-minute program claim.
+
 The initial static census covers all recursively discovered test modules. Existing overwritten definitions have separate source/AST-bound enrollment; they are not runtime cases and are not a completed relevance audit. Generated runtime identities need explicit source mappings and fault-preservation rationale. Line numbers aid diagnosis but do not grant an allowance.
 
 Exceptions are bounded to a source, case occurrence, resource and ceiling. They name the supported fault and its preservation evidence, as well as an owner, reason and revisit condition. Their UTC issuance/expiry interval must be positive and at most 30 days. Every consumer checks current time through `moment.py`; old green evidence cannot extend permission. Expiry removes the allowance, while otherwise compatible raw observations can be re-evaluated against the unwaived rules.

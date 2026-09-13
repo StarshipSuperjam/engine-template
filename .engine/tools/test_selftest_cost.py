@@ -287,6 +287,54 @@ def baseline_example():
 
 @cost.declaration(CONTRACT)
 class TestBaselineEnrollment(unittest.TestCase):
+    def test_volatile_parity_rules_are_source_bound_and_preserve_id_relationships(self):
+        import types
+        import selftest_results
+        raw, _, census, runtime = baseline_example()
+        case = types.SimpleNamespace(id=lambda: runtime[0]['id'])
+        def report(first, second, repeated):
+            observed = selftest_results.Observation([case], [case], source=raw['source'], scope='full',
+                         invocation={'start_dir': 'fixture', 'pattern': 'test_*.py', 'selection_digest': None})
+            observed.start(case)
+            for label in (f'targets=[{first},{second}]', f'target={repeated}; generation=1'):
+                observed.subtest(case, types.SimpleNamespace(id=lambda label=label: label), None)
+            observed.outcome(case, 'passed')
+            observed.stop(case)
+            return observed.document(finalized=True)
+        a, b = 'a'*12+'4'+'a'*3+'8'+'a'*15, 'b'*12+'4'+'b'*3+'9'+'b'*15
+        x, y = 'c'*12+'4'+'c'*3+'a'+'c'*15, 'd'*12+'4'+'d'*3+'b'+'d'*15
+        native, observed = report(a, b, a), report(x, y, x)
+        rule = {'case': {k: runtime[0][k] for k in ('id', 'occurrence')},
+                'path': 'test_example.py', 'qualified_name': 'T.test_a',
+                'source_tree': 'c'*40, 'source_digest': census['definitions'][0]['ast_digest'],
+                'mode': 'opaque-uuid4', 'owner': 'team', 'reason': 'Explicit random fixture IDs'}
+        with self.assertRaises(ValueError):
+            cost.require_outcome_parity(native, observed)
+        cost.require_outcome_parity(native, observed, normalizations=[rule], census=census, runtime=runtime)
+        for changed, rules in ((report(x, y, y), [rule]),
+                               (observed, [{**rule, 'source_tree': 'd'*40}])):
+            with self.assertRaises(ValueError):
+                cost.require_outcome_parity(native, changed, normalizations=rules, census=census, runtime=runtime)
+        observed['cases'][0]['subtests'][1]['id'] = observed['cases'][0]['subtests'][1]['id'].replace('generation=1', 'generation=2')
+        with self.assertRaises(ValueError):
+            cost.require_outcome_parity(native, observed, normalizations=[rule], census=census, runtime=runtime)
+
+    def test_resource_exit_cannot_override_failed_or_incomplete_outcomes(self):
+        import types
+        import selftest_results
+        raw, observation, _, runtime = baseline_example()
+        case = types.SimpleNamespace(id=lambda: runtime[0]['id'])
+        for outcome in ('passed', 'failed', None):
+            report = selftest_results.Observation([case], [case], source=raw['source'], scope='full',
+                         invocation={'start_dir': 'fixture', 'pattern': 'test_*.py', 'selection_digest': None})
+            if outcome:
+                report.start(case)
+                report.outcome(case, outcome)
+                report.stop(case)
+            normalized = cost.normalize_run(raw, observation['identity'], expected_tree='c'*40,
+                                            outcomes=report.document(finalized=True))
+            self.assertEqual(normalized['complete'], outcome == 'passed')
+
     def test_prospective_declarations_do_not_expand_legacy_or_follow_changed_source(self):
         _, observation, census, runtime = baseline_example()
         row = {**runtime[0], 'source_digest': census['definitions'][0]['ast_digest'], 'contract': CONTRACT}

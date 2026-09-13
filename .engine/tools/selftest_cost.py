@@ -447,9 +447,10 @@ def normalize_run(run, identity, *, expected_tree, outcomes=None):
     if digest(inventory) != identity['inventory_digest']:
         raise ValueError('resource inventory does not match the controller identity')
     outcome_cases = {}
+    outcomes_passed = True
     if outcomes is not None:
         from selftest_results import validate
-        validate(outcomes)
+        outcomes_passed = all(validate(outcomes))
         if outcomes['inventory'] != inventory or outcomes['source'] != run['source']:
             raise ValueError('cost and outcome observations describe different executions')
         outcome_cases = {case_key(c): c for c in outcomes['cases']}
@@ -465,7 +466,7 @@ def normalize_run(run, identity, *, expected_tree, outcomes=None):
             cases.append({'case': selected, 'owner': owner, 'counts': owners.get(owner, zeros()),
                           'family': case.get('family'), 'input_size': case.get('input_size')})
     result = {'schema_version': 'test-cost-observation.v1', 'identity': identity,
-              'complete': bool(run['complete'] and run['process_exit'] == 0),
+              'complete': bool(run['complete'] and run['process_exit'] == 0 and outcomes_passed),
               'unknown': run['unknown'], 'totals': run['totals'], 'owners': run['owners'], 'cases': cases}
     validate_shape(result, 'test-cost-observation.v1')
     return result
@@ -566,6 +567,8 @@ def enrollment_context(*, root=ROOT, environment_digest):
         directory = Path(root) / '.engine/policies'
         activation = read(directory / 'test-cost-activation.json')
         validate_shape(activation, 'test-cost-activation.v1')
+        if digest(read(directory / 'test-cost-parity.json')) != activation['parity_rules_digest']:
+            raise ValueError('reviewed parity rules differ from activation')
         baseline = unpack_enrollment(read(directory / 'test-cost-legacy-baseline.json'))
         status = baseline_status(baseline, expected_digest=activation['baseline_digest'],
             observer_commit=activation['identity']['observer_commit'],
@@ -581,9 +584,9 @@ def enrollment_context(*, root=ROOT, environment_digest):
     return {'baseline': baseline, 'activation': activation, **status}
 
 
-def require_outcome_parity(native, observed):
+def require_outcome_parity(native, observed, *, normalizations=(), census=None, runtime=()):
     """An adapter cannot qualify itself by changing the workload or its outcome accounting."""
-    from selftest_results import validate
+    from selftest_results import validate, validate_shape
     for result in (native, observed):
         complete, passed = validate(result)
         if not complete or not passed:
@@ -591,6 +594,20 @@ def require_outcome_parity(native, observed):
     for key in ('source', 'inventory', 'selected', 'executed_count'):
         if native[key] != observed[key]:
             raise ValueError('adapter changed ' + key)
+    rules = {}
+    definitions = {(d['path'], d['qualified_name']): d for d in (census or {}).get('definitions', [])}
+    known_cases = {case_key(c) for c in native['cases']}
+    runtime_map = {case_key(c): c for c in runtime}
+    for rule in normalizations:
+        validate_shape(rule, 'test-cost-parity-rule.v1')
+        definition = definitions.get((rule['path'], rule['qualified_name']))
+        key = case_key(rule['case'])
+        mapped = runtime_map.get(key, {})
+        if (key in rules or key not in known_cases or rule['source_tree'] != native['source']['tree']
+                or not definition or rule['source_digest'] != definition['ast_digest']
+                or any(mapped.get(k) != rule[k] for k in ('path', 'qualified_name'))):
+            raise ValueError('parity normalization does not match the reviewed source and case')
+        rules[key] = rule
     def outcomes(result):
         import re
         rows = []
@@ -598,6 +615,25 @@ def require_outcome_parity(native, observed):
             row = {k: case[k] for k in ('id', 'occurrence', 'outcome', 'started', 'stopped', 'reason')}
             row['subtests'] = [{**sub, 'id': re.sub(r' at 0x[0-9a-fA-F]+(?=>)', ' at [address]', sub['id'])}
                               for sub in case['subtests']]
+            rule = rules.get(case_key(case))
+            if rule:
+                mode = rule['mode']
+                if mode == 'unordered-subtests':
+                    row['subtests'].sort(key=lambda sub: json.dumps(sub, sort_keys=True))
+                else:
+                    pattern = (r'(?<![0-9a-f])[0-9a-f]{12}4[0-9a-f]{3}[89ab][0-9a-f]{15}(?![0-9a-f])'
+                               if mode == 'opaque-uuid4' else r'(?<![0-9a-f])[0-9a-f]{40}(?![0-9a-f])')
+                    tokens = {}
+                    def replace(match):
+                        value = match.group()
+                        if value not in tokens:
+                            tokens[value] = '[opaque-' + str(len(tokens)) + ']'
+                        return tokens[value]
+                    # Preserve distinctness and repeated references across the entire case.
+                    # Only the explicitly reviewed volatile token kind changes; outcomes,
+                    # input structure, other values and subtest order remain significant.
+                    row['subtests'] = [{**sub, 'id': re.sub(pattern, replace, sub['id'])}
+                                      for sub in row['subtests']]
             rows.append(row)
         return rows
     if outcomes(native) != outcomes(observed) or native['fixtures'] != observed['fixtures']:

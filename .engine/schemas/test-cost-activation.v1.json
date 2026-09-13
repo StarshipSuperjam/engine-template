@@ -19,7 +19,10 @@
     "environment",
     "unknown",
     "timing",
-    "cost_clearance"
+    "cost_clearance",
+    "parity_rules_digest",
+    "native_environment",
+    "environment_differences"
   ],
   "properties": {
     "schema_version": {
@@ -298,6 +301,122 @@
     },
     "cost_clearance": {
       "const": false
+    },
+    "parity_rules_digest": {
+      "type": "string",
+      "pattern": "^sha256:[0-9a-f]{64}$"
+    },
+    "native_environment": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "os": {
+          "type": "string",
+          "maxLength": 4096
+        },
+        "release": {
+          "type": "string",
+          "maxLength": 4096
+        },
+        "architecture": {
+          "type": "string",
+          "maxLength": 4096
+        },
+        "python": {
+          "type": "string",
+          "maxLength": 4096
+        },
+        "cpu_count": {
+          "anyOf": [
+            {
+              "type": "integer",
+              "minimum": 1
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "runner_os": {
+          "anyOf": [
+            {
+              "type": "string",
+              "maxLength": 4096
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "runner_arch": {
+          "anyOf": [
+            {
+              "type": "string",
+              "maxLength": 4096
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "uv": {
+          "anyOf": [
+            {
+              "type": "string",
+              "maxLength": 4096
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "memory_bytes": {
+          "anyOf": [
+            {
+              "type": "integer",
+              "minimum": 1
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "worktree_count": {
+          "anyOf": [
+            {
+              "type": "integer",
+              "minimum": 0
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "cache": {
+          "type": "string",
+          "maxLength": 4096
+        }
+      },
+      "required": [
+        "os",
+        "release",
+        "architecture",
+        "python",
+        "cpu_count",
+        "runner_os",
+        "runner_arch",
+        "uv",
+        "memory_bytes",
+        "worktree_count",
+        "cache"
+      ]
+    },
+    "environment_differences": {
+      "type": "array",
+      "items": {
+        "type": "string",
+        "minLength": 1
+      }
     }
   }
 }
