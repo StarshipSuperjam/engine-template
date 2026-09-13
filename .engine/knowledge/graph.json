@@ -13067,7 +13067,7 @@
       },
       "slug": "forget",
       "source": {
-        "fingerprint": "sha256:ecbd6e3b1d6943f5dd8de83afd1c755806488683ab1f4ea640d9191e0d424644",
+        "fingerprint": "sha256:cffd48a28a6a80b292f344f5d01ef641e91b7c050f37001b0aac1a2ca1fce988",
         "path": ".engine/tools/memory/forget.py"
       },
       "status": "active",
@@ -13812,7 +13812,7 @@
       },
       "slug": "ledger",
       "source": {
-        "fingerprint": "sha256:4bd8112481d80b9813e4a5f06528c8eb48b83856f40102508b3eb781ed9480e8",
+        "fingerprint": "sha256:44d00f7687eda1b8cce2853f4f83384c07f87724816fb40dd4cdfd0969cba4ef",
         "path": ".engine/tools/memory/ledger.py"
       },
       "status": "active",
@@ -14740,7 +14740,7 @@
       },
       "slug": "pins",
       "source": {
-        "fingerprint": "sha256:1a5294ef6106acfb6e4e5885b432db3d1b57783f015efd53123a03eabc6da17e",
+        "fingerprint": "sha256:5ab46b6303dd7fe99df777632af742220888e6e0423edc8940dc20c24857e475",
         "path": ".engine/tools/memory/pins.py"
       },
       "status": "active",
@@ -18657,7 +18657,7 @@
       },
       "slug": "test_forget",
       "source": {
-        "fingerprint": "sha256:f8c65718205399b43fcd48e6ceaa32536d684bf033c03814704420be40d239c1",
+        "fingerprint": "sha256:b836a4aaed8a5a06dc326420590c6a65b9e51eb55df8cb12562ee7b19d13dbe1",
         "path": ".engine/tools/memory/test_forget.py"
       },
       "status": "active",
@@ -19624,7 +19624,7 @@
       },
       "slug": "test_mcp_server",
       "source": {
-        "fingerprint": "sha256:f58da353d46254214e3f56a897f25b130f68692d143989a0f9a3df19817b7ea1",
+        "fingerprint": "sha256:8ec471f76eb9a2670e87f58c097aaac1d0ad346166269df50eb26eda05c6a3f4",
         "path": ".engine/tools/memory/test_mcp_server.py"
       },
       "status": "active",
@@ -20276,7 +20276,7 @@
       },
       "slug": "test_pins",
       "source": {
-        "fingerprint": "sha256:371d17773c5788439c821cfcce987780aa5f67f24e37c2afa642d1616c4118ea",
+        "fingerprint": "sha256:49a0bf909b2a8fedad8794654393f974cfad3c9e8b88925b974ef9d46d641064",
         "path": ".engine/tools/memory/test_pins.py"
       },
       "status": "active",
@@ -22772,7 +22772,7 @@
       },
       "slug": "test_write_dispatch",
       "source": {
-        "fingerprint": "sha256:9612abc245145a99fe23fc5294e4cadf037e7ac6f30b54eacee815ad01de62a6",
+        "fingerprint": "sha256:28e48b8ed3b7e790947f5ed01a285b452a39997b77211527be81ab4ad8448e2b",
         "path": ".engine/tools/memory/test_write_dispatch.py"
       },
       "status": "active",
@@ -23258,7 +23258,7 @@
       },
       "slug": "write_dispatch",
       "source": {
-        "fingerprint": "sha256:ee81a73dcea4972b3da67894a9f5b2a7b1392a835f64de5671f69ce6bbf214ce",
+        "fingerprint": "sha256:d725fb132427096f9fa9c308a8b8565177acb4648382f22a916231053954a0fb",
         "path": ".engine/tools/memory/write_dispatch.py"
       },
       "status": "active",
