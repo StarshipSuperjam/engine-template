@@ -300,6 +300,14 @@ def _audit(name, args):
     elif name in ('os.system', 'os.exec', 'os.posix_spawn', 'os.fork') and not recorder.popen_depth:
         recorder.count('processes')
         recorder.unknown.add('alternate process boundary has unknown descendant work')
+    elif name == 'shutil.copytree':
+        import os
+        source = args[0]
+        if isinstance(source, (str, bytes)):
+            if Path(os.fsdecode(source)).name == '.engine':
+                recorder.count('whole_tree_fixtures')
+        else:
+            recorder.unknown.add('tree-copy source is unclassified')
 
 
 class Recorder:
@@ -419,7 +427,7 @@ class Recorder:
                 'inventory': self.runtime}
 
 
-def normalize_run(run, identity, *, expected_tree):
+def normalize_run(run, identity, *, expected_tree, outcomes=None):
     """Join controller-derived identities to raw observations; a raw file is never a receipt."""
     from selftest_results import validate_shape
     validate_shape(run, 'test-cost-run.v1')
@@ -428,6 +436,13 @@ def normalize_run(run, identity, *, expected_tree):
     inventory = [{'id': c['id'], 'occurrence': c['occurrence']} for c in run['inventory']]
     if digest(inventory) != identity['inventory_digest']:
         raise ValueError('resource inventory does not match the controller identity')
+    outcome_cases = {}
+    if outcomes is not None:
+        from selftest_results import validate
+        validate(outcomes)
+        if outcomes['inventory'] != inventory or outcomes['source'] != run['source']:
+            raise ValueError('cost and outcome observations describe different executions')
+        outcome_cases = {case_key(c): c for c in outcomes['cases']}
     owners = {o['owner']: o['counts'] for o in run['owners']}
     cases = []
     for case in run['inventory']:
@@ -435,8 +450,10 @@ def normalize_run(run, identity, *, expected_tree):
         owner = 'case:' + json.dumps(selected, sort_keys=True, separators=(',', ':'))
         # Inventory may include unselected cases in a focused run. Absence is unknown,
         # not an invented zero cost: only observed owners become measured case rows.
-        if owner in owners:
-            cases.append({'case': selected, 'owner': owner, 'counts': owners[owner],
+        outcome = outcome_cases.get(case_key(case))
+        known_not_started = outcome and outcome['outcome'] == 'skipped' and not outcome['started']
+        if owner in owners or known_not_started:
+            cases.append({'case': selected, 'owner': owner, 'counts': owners.get(owner, zeros()),
                           'family': case.get('family'), 'input_size': case.get('input_size')})
     result = {'schema_version': 'test-cost-observation.v1', 'identity': identity,
               'complete': bool(run['complete'] and run['process_exit'] == 0),
@@ -469,6 +486,10 @@ def enroll_baseline(observation, census, runtime, *, owner, reason, revisit):
         cases.append({'case': measured['case'], 'source_digest': definition['ast_digest'],
                       'path': definition['path'], 'qualified_name': definition['qualified_name'],
                       'limits': measured['counts']})
+    if {case_key(c['case']) for c in cases} != set(runtime_map):
+        raise ValueError('baseline activation needs cost or observed-skip evidence for every runtime case')
+    if {(c['path'], c['qualified_name']) for c in cases} != set(definitions):
+        raise ValueError('baseline activation needs complete static/runtime coverage')
     result = {'schema_version': 'test-cost-baseline.v1', 'source_commit': identity['source_commit'],
               'observation_digest': digest(observation), 'identity': identity,
               'owner': owner, 'reason': reason, 'revisit': revisit, 'cases': cases,

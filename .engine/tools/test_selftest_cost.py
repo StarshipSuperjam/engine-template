@@ -116,6 +116,17 @@ class TestInventory(unittest.TestCase):
                               'schema_decodes': 100, 'metaschema_validations': 10,
                               'whole_tree_fixtures': 2, 'nested_journeys': 10}})
 class TestResourceObservation(unittest.TestCase):
+    def test_direct_tree_copy_alias_cannot_bypass_the_fixture_counter(self):
+        from shutil import copytree
+        import tempfile
+        with tempfile.TemporaryDirectory() as directory:
+            source = Path(directory) / '.engine'
+            (source / 'nested').mkdir(parents=True)
+            (source / 'nested' / 'data').write_text('bounded fixture')
+            with cost.Recorder() as observer:
+                copytree(str(source), str(Path(directory) / 'copy'))
+            self.assertEqual(observer.owners['unattributed']['whole_tree_fixtures'], 1)
+
     def test_direct_decoder_and_background_work_cannot_disappear_or_borrow_main_owner(self):
         import threading
         decoder = json.JSONDecoder()
