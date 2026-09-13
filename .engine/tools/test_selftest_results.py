@@ -13,6 +13,7 @@ from unittest import mock
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
 import selftest
+import selftest_cost
 import selftest_results as records
 
 
@@ -217,6 +218,12 @@ class ResultAccounting(unittest.TestCase):
         with self.assertRaises(ValueError): records.text("x"*(records.MAX_STRING+1))
         self.assertEqual(records.text("skip /Users/private/key.txt"),"skip [path]")
 
+    @selftest_cost.declaration({
+        "schema_version": "test-cost-contract.v1", "supported_fault": "Oversized artifacts and incomplete focused outcomes escape rejection",
+        "boundary": "filesystem", "boundary_rationale": "Actual bounded writer and result validator on a tiny disposable file",
+        "fixture_owner": "test_selftest_results.ResultAccounting", "dependencies": ["selftest_results"],
+        "data_reads": [], "cadence": "pr", "limits": {**selftest_cost.zeros(), "schema_decodes": 5},
+        "mutable_state": "One temporary artifact", "cache_lifetime": "case", "added_cost_risk": "Two in-process case callbacks; no nested launcher", "families": []})
     def test_artifact_byte_limit_and_focused_missing_reports_fail(self):
         class Cases(unittest.TestCase):
             def runTest(self): pass
@@ -226,7 +233,7 @@ class ResultAccounting(unittest.TestCase):
         with self.assertRaises(ValueError): records.validate(doc)
         with tempfile.TemporaryDirectory() as tmp, mock.patch.object(records,"MAX_BYTES",32):
             path=Path(tmp)/"results.json"
-            with self.assertRaises(ValueError): records.write(path,{"x":"a"*33})
+            with self.assertRaises(ValueError): records.write(path,{"x":"a"*33},max_bytes=32)
             path.write_text("x"*33)
             self.assertFalse(records.finalize(path,0))
 
