@@ -76,6 +76,10 @@
           }
         }
       }
+    },
+    "read_protocol": {
+      "const": "registered-pieces.v1",
+      "description": "Required before creating multipart assignments; old clients reject this unknown top-level field rather than rewriting partial evidence."
     }
   },
   "$defs": {
@@ -254,7 +258,12 @@
               "path",
               "digest",
               "call_id"
-            ]
+            ],
+            "properties": {
+              "transport": {
+                "$ref": "#/$defs/transport"
+              }
+            }
           }
         },
         "stops": {
@@ -359,6 +368,9 @@
         },
         "review_contract": {
           "$ref": "reviewer-contract.v1.json"
+        },
+        "transport": {
+          "$ref": "#/$defs/transport"
         }
       }
     },
@@ -410,6 +422,64 @@
             "null"
           ],
           "pattern": "^sha256:[0-9a-f]{64}$"
+        }
+      }
+    },
+    "transport": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "manifest_path",
+        "manifest_digest",
+        "manifest",
+        "reads"
+      ],
+      "properties": {
+        "manifest_path": {
+          "type": "string",
+          "minLength": 1
+        },
+        "manifest_digest": {
+          "type": "string",
+          "pattern": "^sha256:[0-9a-f]{64}$"
+        },
+        "manifest": {
+          "$ref": "review-read-manifest.v1.json"
+        },
+        "reads": {
+          "type": "object",
+          "maxProperties": 65,
+          "patternProperties": {
+            "^(0|[1-9][0-9]?)$": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": [
+                "call_id",
+                "child",
+                "file_digest",
+                "response_digest"
+              ],
+              "properties": {
+                "call_id": {
+                  "type": "string",
+                  "minLength": 1
+                },
+                "child": {
+                  "type": "string",
+                  "minLength": 1
+                },
+                "file_digest": {
+                  "type": "string",
+                  "pattern": "^sha256:[0-9a-f]{64}$"
+                },
+                "response_digest": {
+                  "type": "string",
+                  "pattern": "^sha256:[0-9a-f]{64}$"
+                }
+              }
+            }
+          },
+          "additionalProperties": false
         }
       }
     }

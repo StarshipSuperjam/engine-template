@@ -630,6 +630,15 @@ class TestScopedAgentBaseline(unittest.TestCase):
 
 
 class TestReviewReaderEvidence(unittest.TestCase):
+    def test_77696_byte_packet_requires_more_than_a_capped_response(self):
+        # A reported incident shape, not a claim about any universal provider cap.
+        packet = "x" * 77695 + "\n"
+        for cap in (16384, 66000, 70000):
+            payload = {"tool_name": "Read", "tool_response": packet[:cap]}
+            self.assertFalse(providers.scoped_read_succeeded(payload, packet))
+        self.assertTrue(providers.scoped_read_succeeded(
+            {"tool_name": "Read", "tool_response": packet}, packet))
+
     def test_only_exact_complete_successful_reader_output_counts(self):
         import copy
         import hashlib

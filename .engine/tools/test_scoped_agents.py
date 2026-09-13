@@ -18,6 +18,26 @@ import scoped_agents as scoped
 import result_contracts
 
 
+class MultipartContract(unittest.TestCase):
+    def test_manifest_bounds_and_required_identity(self):
+        schema = Path(__file__).resolve().parents[1] / "schemas/review-read-manifest.v1.json"
+        digest = core.digest(b"x")
+        value = {"schema_version": "review-read-manifest.v1", "assignment_id": "sa_" + "a" * 32,
+                 "packet_digest": digest, "file_digest": digest, "total_bytes": 1,
+                 "pieces": [{"index": 0, "start": 0, "end": 1, "path": "/packet.part", "digest": digest}]}
+        core.validate(value, schema)
+        for key, replacement in (("schema_version", "future"), ("assignment_id", "another"),
+                                 ("total_bytes", 1048577), ("pieces", []),
+                                 ("pieces", value["pieces"] * 66)):
+            with self.subTest(key=key), self.assertRaises(core.CoordinatorError):
+                core.validate({**value, key: replacement}, schema)
+        for key in ("packet_digest", "file_digest", "pieces"):
+            bad = copy.deepcopy(value)
+            del bad[key]
+            with self.subTest(missing=key), self.assertRaises(core.CoordinatorError):
+                core.validate(bad, schema)
+
+
 class ScopedAssignments(unittest.TestCase):
     def setUp(self):
         from selftest_support import review_fixture
