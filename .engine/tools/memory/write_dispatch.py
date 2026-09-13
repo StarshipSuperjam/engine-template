@@ -453,6 +453,7 @@ def _classify_outcome(stdout, *, returncode, verb, request, read_back, child_ali
     begin_id = begin.get("id") if begin is not None else None
     if not isinstance(begin_id, str) or not begin_id:
         begin_id = None  # a begin line without a usable id: the child reached the body, but nothing to read back
+    unflushed = _unflushed_seen(events, begin_id=begin_id)
 
     # 1. The authoritative response line the child prints last: a COMPLETE committed response for the verb,
     #    or a refusal sentence. A malformed one (null, empty, missing the stored text) is not believed and
@@ -478,7 +479,8 @@ def _classify_outcome(stdout, *, returncode, verb, request, read_back, child_ali
     if committed is not None:
         return {"outcome": "committed",
                 "response": _committed_response(verb, request, committed.get("record"),
-                                                already_pinned=committed.get("event") == "already_pinned")}
+                                                already_pinned=committed.get("event") == "already_pinned",
+                                                unflushed=unflushed)}
 
     # 3. A begin line: the child reached the write body. Decide on disk first, then on liveness. The
     #    read-back is three-state: found, searched-and-absent, or could-not-read — only the middle one is
@@ -492,8 +494,10 @@ def _classify_outcome(stdout, *, returncode, verb, request, read_back, child_ali
             except ReadBackUnavailable:
                 unresolved = True
         if found is not None:
-            # Physically on disk: the write committed; only its confirmation was lost.
-            return {"outcome": "committed", "response": _committed_response(verb, request, found)}
+            # Physically on disk: the write committed; only its confirmation was lost. If the child had said
+            # its flush failed before it died, that disclosure travels with the rebuilt reply (R10 DH-1).
+            return {"outcome": "committed",
+                    "response": _committed_response(verb, request, found, unflushed=unflushed)}
         if unresolved:
             # Absence could not be established: neither a success nor nothing-saved can be claimed.
             return {"outcome": "unconfirmed",
@@ -510,6 +514,23 @@ def _classify_outcome(stdout, *, returncode, verb, request, read_back, child_ali
     if child_alive:
         return {"outcome": "unconfirmed", "response": _still_unconfirmed_response(verb, request, None)}
     return {"outcome": "faulted", "returncode": returncode}
+
+
+def _unflushed_seen(events: list, *, begin_id) -> bool:
+    """True iff the child said, on a `committed` line for THIS write, that the record landed but its flush
+    step failed (`unflushed: true`, printed by `run_child`). Such a line is never a receipt (it carries no
+    byte length, since the writer could not measure what it did not flush), so on its own it cannot mint a
+    success — but once the disk or a receipt proves the write landed, the parent must not quietly drop the
+    fact that the save was not clean (R10 DH-1). Read for that one bit only; a stray flag on a line for some
+    other record is ignored."""
+    for event in events:
+        if event.get("event") != "committed" or event.get("unflushed") is not True:
+            continue
+        record = event.get("record")
+        record_id = record.get(records.RECORD_ID_KEY) if isinstance(record, dict) else None
+        if begin_id is None or record_id == begin_id:
+            return True
+    return False
 
 
 def _reconcile_refusal(sentence: str, *, verb: str, request: dict, begun: bool, begin_id, read_back,
@@ -550,31 +571,37 @@ def _target_phrase(request: dict) -> str:
 
 
 def _committed_response(verb: str, request: dict, record, *, already_pinned: bool = False,
-                        note: str = _UNCONFIRMED_NOTE) -> dict:
+                        note: str = _UNCONFIRMED_NOTE, unflushed: bool = False) -> dict:
     """Rebuild the operator-facing response for a write we KNOW committed (a committed receipt or a positive
     read-back) when the child's authoritative response line did not make it back — or, with
     `note=_RECONCILED_NOTE`, when that line was a refusal the disk contradicts. Shaped per verb, so a lost
     confirmation reads like the verb that actually ran rather than defaulting to a pin, and always carries an
-    honest note about how the reply was recovered."""
+    honest note about how the reply was recovered. With `unflushed=True` (the child's committed line said
+    the flush step failed) the same plain not-clean note the child's own reply carries is appended, so a
+    save whose confirmation was lost is never upgraded to a clean one on the way back (R10 DH-1)."""
     record = record if isinstance(record, dict) else {}
     if verb == "withhold":
-        return {"withheld": f"{_target_phrase(request)} is out of recall now. It is still saved — say the "
-                            "word and it comes back.", "unconfirmed": note}
-    if verb == "restore":
-        return {"restored": f"{_target_phrase(request)} is back in recall.", "unconfirmed": note}
-    # pin (and any unknown verb, which run_child would already have faulted): return what identity we have.
-    response = {"unconfirmed": note}
-    if record.get(records.RECORD_ID_KEY) is not None:
-        response["id"] = record.get(records.RECORD_ID_KEY)
-    if record.get("text") is not None:
-        response["text"] = record.get("text")
-    if record.get(records.PIN_VIA_KEY) is not None:
-        response[records.PIN_VIA_KEY] = record.get(records.PIN_VIA_KEY)
-    if already_pinned:
-        # An already-pinned receipt is a landed write too, but the reply must still say which existing
-        # note it is rather than reading as a fresh save.
-        response["already_pinned"] = True
-        response["note"] = _already_pinned_note(record)
+        response = {"withheld": f"{_target_phrase(request)} is out of recall now. It is still saved — say "
+                                "the word and it comes back.", "unconfirmed": note}
+    elif verb == "restore":
+        response = {"restored": f"{_target_phrase(request)} is back in recall.", "unconfirmed": note}
+    else:
+        # pin (and any unknown verb, which run_child would already have faulted): return what identity we have.
+        response = {"unconfirmed": note}
+        if record.get(records.RECORD_ID_KEY) is not None:
+            response["id"] = record.get(records.RECORD_ID_KEY)
+        if record.get("text") is not None:
+            response["text"] = record.get("text")
+        if record.get(records.PIN_VIA_KEY) is not None:
+            response[records.PIN_VIA_KEY] = record.get(records.PIN_VIA_KEY)
+        if already_pinned:
+            # An already-pinned receipt is a landed write too, but the reply must still say which existing
+            # note it is rather than reading as a fresh save.
+            response["already_pinned"] = True
+            response["note"] = _already_pinned_note(record)
+    if unflushed:
+        flush_note = pins.UNFLUSHED_NOTE if verb == "pin" else forget.UNFLUSHED_NOTE
+        response["note"] = f"{response['note']} {flush_note}" if response.get("note") else flush_note
     return response
 
 

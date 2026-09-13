@@ -334,6 +334,51 @@ class ClassifyOutcomeTests(unittest.TestCase):
         self.assertIn("r9", out["response"]["note"])
         self.assertIn("dup", out["response"]["note"])
 
+    # -- a landed-but-unflushed write keeps its disclosure through the parent (R10 DH-1) --------------------
+    def test_an_unflushed_committed_line_carries_the_flush_note_into_a_reply_rebuilt_from_the_disk(self):
+        # The child said its flush failed, then died before its response line. The disk proves the write
+        # landed; the rebuilt reply must still say the save was not clean, per verb.
+        for verb, expected in (("pin", pins.UNFLUSHED_NOTE), ("withhold", write_dispatch.forget.UNFLUSHED_NOTE),
+                               ("restore", write_dispatch.forget.UNFLUSHED_NOTE)):
+            with self.subTest(verb=verb):
+                out = self._classify(
+                    self._stdout({"event": "begin", "id": "r1"},
+                                 {"event": "committed", "record": {"id": "r1", "text": "t"}, "unflushed": True}),
+                    verb=verb, read_back=lambda rid: {"id": rid, "text": "t"}, child_alive=False)
+                self.assertEqual(out["outcome"], "committed")
+                self.assertEqual(out["response"]["unconfirmed"], write_dispatch._UNCONFIRMED_NOTE)
+                self.assertEqual(out["response"]["note"], expected)
+                self.assertNotIn("nothing was saved", json.dumps(out).lower())
+
+    def test_an_unflushed_flag_on_a_wellformed_receipt_is_carried_too(self):
+        out = self._classify(
+            self._stdout({"event": "begin", "id": "r1"},
+                         {"event": "committed", "record": {"id": "r1", "text": "t"}, "bytes": 64,
+                          "unflushed": True}),
+            verb="pin", read_back=self._forbidden_read_back)
+        self.assertEqual(out["outcome"], "committed")
+        self.assertEqual(out["response"]["note"], pins.UNFLUSHED_NOTE)
+
+    def test_a_clean_lost_confirmation_carries_no_flush_note_and_a_foreign_flag_is_ignored(self):
+        clean = self._classify(
+            self._stdout({"event": "begin", "id": "r1"},
+                         {"event": "committed", "record": {"id": "r1", "text": "t"}, "bytes": 64}),
+            verb="pin", read_back=self._forbidden_read_back)
+        self.assertNotIn("note", clean["response"])
+        # A flag on a committed line for some OTHER record is not this write's disclosure.
+        foreign = self._classify(
+            self._stdout({"event": "begin", "id": "r1"},
+                         {"event": "committed", "record": {"id": "other", "text": "x"}, "unflushed": True}),
+            verb="pin", read_back=lambda rid: {"id": rid, "text": "t"}, child_alive=False)
+        self.assertEqual(foreign["outcome"], "committed")
+        self.assertNotIn("note", foreign["response"])
+        # The flag alone still cannot mint a success: no disk, dead child -> a fault, as before.
+        alone = self._classify(
+            self._stdout({"event": "begin", "id": "r1"},
+                         {"event": "committed", "record": {"id": "r1", "text": "t"}, "unflushed": True}),
+            returncode=1, verb="pin", read_back=lambda rid: None, child_alive=False)
+        self.assertEqual(alone, {"outcome": "faulted", "returncode": 1})
+
     # -- a forged or corrupt receipt cannot mint a success (SC-3) ------------------------------------------
     def test_a_receipt_without_a_record_id_is_not_trusted_and_falls_through(self):
         # SC-3: a fabricated or corrupt committed line cannot by itself mint a success. With no id on the
@@ -1155,6 +1200,40 @@ class MainRoundTripTests(_Base):
         self.assertEqual(events[2]["response"]["note"], write_dispatch.forget.UNFLUSHED_NOTE)
         self.assertEqual(pins.list_pins(), [])                    # out of recall; the raw record stays
         self.assertEqual(len(self._pins()), 1)
+
+    def test_a_child_that_dies_after_an_unflushed_commit_still_yields_the_flush_note(self):
+        # R10 DH-1, end to end: the real flush fails after the bytes land, the child prints its committed
+        # line with the fact, and dies before its response line (simulated by dropping that line). The
+        # parent rebuilds the reply from the real ledger and keeps the not-clean disclosure.
+        for request in ({"verb": "pin", "text": "a note whose child died unflushed"},):
+            with self._flush_fails_after_the_bytes_land():
+                code, printed = self._run_main(request)
+            lines = [line for line in printed.splitlines() if line.strip()]
+            self.assertEqual(json.loads(lines[-1])["event"], "response")
+            truncated = "\n".join(lines[:-1]) + "\n"
+            begin_id = json.loads(lines[0])["id"]
+            outcome = write_dispatch._classify_outcome(
+                truncated, returncode=-9, verb="pin", request=request,
+                read_back=write_dispatch._ledger_read_back, child_alive=False)
+            self.assertEqual(outcome["outcome"], "committed")
+            self.assertEqual(outcome["response"]["id"], begin_id)
+            self.assertEqual(outcome["response"]["unconfirmed"], write_dispatch._UNCONFIRMED_NOTE)
+            self.assertEqual(outcome["response"]["note"], pins.UNFLUSHED_NOTE)
+            out = write_dispatch.dispatch(request, run=lambda req: outcome)
+            self.assertEqual(out["note"], pins.UNFLUSHED_NOTE)
+        # The withhold route, the same way.
+        pinned = write_dispatch.run_child({"verb": "pin", "text": "a note to withhold, child dying"})
+        request = {"verb": "withhold", "record_id": pinned["id"]}
+        with self._flush_fails_after_the_bytes_land():
+            code, printed = self._run_main(request)
+        lines = [line for line in printed.splitlines() if line.strip()]
+        truncated = "\n".join(lines[:-1]) + "\n"
+        outcome = write_dispatch._classify_outcome(
+            truncated, returncode=-9, verb="withhold", request=request,
+            read_back=write_dispatch._ledger_read_back, child_alive=False)
+        self.assertEqual(outcome["outcome"], "committed")
+        self.assertIn("withheld", outcome["response"])
+        self.assertEqual(outcome["response"]["note"], write_dispatch.forget.UNFLUSHED_NOTE)
 
     def test_a_child_that_cannot_confirm_its_own_landed_pin_is_reconciled_by_the_dispatcher(self):
         # The dispatcher-side reconciliation the operator asked for, end to end: the flush fails after the
