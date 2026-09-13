@@ -5,7 +5,8 @@
   "provides": {
     "check": [
       ".engine/check/guardrail-weakening.json",
-      ".engine/check/protection.json"
+      ".engine/check/protection.json",
+      ".engine/check/test-cost.json"
     ],
     "schema": [
       ".engine/schemas/*.json"

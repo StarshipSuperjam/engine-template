@@ -63,6 +63,38 @@ finding change invalidates the PR contract and preflight. Historical receipt rec
 backup, packet and source proof. Never replace missing observed companion evidence with historical credit.
 
 
+### Cost evidence and live permission
+
+Whole-Build candidate validation produces a distinct cost assessment after all nodes integrate. Full CI
+still executes every test; it acquires costs from that same execution, evaluates them before emitting the
+existing merge receipt, and retains the original observation beside it. Reuse and terminal completion
+re-evaluate permission without rerunning still-eligible observations. Candidate cache acceptance, final
+proof import and submission preview/apply also recheck expiry through `moment.py`.
+
+For new cost-applicable approvals, the technical-integrity reviewer returns its bound versioned envelope
+with an explicit assessment digest, candidate identity, status and rationale. Record the actual observed
+report through native ingress, then use `cost dispose --input <json>` for the separate controller object
+`{assessment_digest, decision, rationale}`. Only qualified acceptable evidence permits `accept`; concerns
+or unavailable coverage require `accept-with-limitations`. Deterministic violations require repair or a
+live explicitly approved bounded exception. Missing, stale or invented evidence cannot be disposed away.
+Historical array-bound approvals remain arrays and do not silently acquire a new obligation.
+
+Exceptions name exact case, resource, immutable source, ceiling, owner, supported-fault proof, reason,
+revisit and issue/expiry times (at most 30 days). `cost exception --input <json> --operator-decided --reason
+<decision>` records actual operator authority locally. CI receives the current list from the maintainer-owned
+repository variable `ENGINE_TEST_COST_APPROVED_EXCEPTIONS`, injected only into evidence-consumption steps;
+never put waiver authority into candidate Git or a test-controlled job environment. A maintainer explicitly
+updates that variable when approving CI permission. Withdrawal/expiry invalidates permission, not raw counts.
+No exception was granted merely because an old receipt was green.
+
+A missing or incompatible legacy baseline uses bounded measurement bootstrap and grants no qualified cost
+success. New declarations, duplicate controls and correctness still apply. Unavailable actual-base resource
+comparisons, descendant coverage and noisy timing remain visible for disposition. Every observed required
+path of at least 1,200 seconds needs investigation; 900 seconds remains the program target, not this child's
+completion promise. Qualification of observer overhead retains the <=2% median target and alternating
+comparable samples. Do not create hard wall-clock assertions or claim the broader relevance/cadence audit
+is complete. See [Test-cost contracts](../docs/test-cost-contracts.md) for baseline evidence and limitations.
+
 ## Done when
 The final head has green candidate and imported CI evidence, every finding has a disposition, and every divergence has its proportional judgment and required receipts.
 Status reports submission-preflight and names [Build submission](build-submission.md).

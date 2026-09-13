@@ -64,6 +64,18 @@ Reconcile the target branch before final validation; if it advanced, resolve by 
 `build_coordinator.py sync-artifacts` — it regenerates every registered generated surface (`.engine/knowledge/graph.json` and the rest) in dependency order from the reconciled tree, resolving a derived conflict by regeneration, never a side-pick, and validation refuses until they are current.
 This reconcile is no longer the sole guarantee: the merge floor requires freshness, so GitHub backstops it at the merge boundary.
 
+### Measure before node integration
+
+For prospective v3 Builds, after the returned work is committed, run `work verify --item <id> --attempt
+<attempt> --plan <payload>` through the coordinator with its normal identity/revision flags. It invokes
+the existing serial runner, binds observations to the immutable node artifact, actual claim base, approved
+contract, inventory and attempt, and retains them before `work integrate` consumes them. Candidate/full
+reports cannot substitute for this focused producer. Repaired or stale artifacts need matching evidence.
+New or changed test cases declare their costs; unchanged cases and shared fixtures remain measured.
+Use the smallest meaningful fixture. The bounded demo `demo_test_cost_contracts.py --scenario shared-helper`
+shows unchanged test source turning red when its helper adds a process, and passing after repair. Its
+identities are synthetic fixture identities and grant no project or merge performance credit.
+
 ## Done when
 
 Every node is integrated, each commit carries an `aligned` checkpoint, the target branch is reconciled and the

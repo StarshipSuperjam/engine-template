@@ -132,6 +132,14 @@ GUARDRAIL_PREFIXES = (".github/workflows/", ".engine/check/")
 # The PERMANENT FLOOR — exact paths that constitute or configure an enforcement gate and are NOT discoverable as
 # a check rule's `params.script`. Grouped by why each is guarded.
 _FLOOR_ENFORCEMENT_CONFIG = (
+    '.engine/policies/test-cost-activation.json',
+    '.engine/policies/test-cost-calibration.json',
+    '.engine/policies/test-cost-declarations.json',
+    '.engine/policies/test-cost-legacy-baseline.json',
+    '.engine/policies/test-cost-legacy-static.json',
+    '.engine/policies/test-cost-parity.json',
+    '.engine/policies/test-cost.json',
+
     ".github/CODEOWNERS",         # the review-ownership wall (reserved)
     ".engine/pyproject.toml",     # the tool-runtime the validator + every guard execute in
     ".engine/uv.lock",            # (foundation artifacts — a change here changes what code runs)
@@ -424,6 +432,7 @@ _HARD_SCRIPT_ROOTS = {
     "engine/check/build-protocol": ".engine/tools/build_protocol_check.py",
     "engine/check/catalog-completeness": ".engine/tools/catalog_completeness_check.py",
     "engine/check/census-completeness": ".engine/tools/census_completeness_check.py",
+    "engine/check/test-cost": ".engine/tools/selftest_cost_check.py",
     "engine/check/ci-assurance-drift": ".engine/tools/ci_assurance_check.py",
     "engine/check/codex-agent-coherence": ".engine/tools/codex_agent_coherence_check.py",
     "engine/check/codex-provider-parity": ".engine/tools/provider_parity_check.py",
@@ -1377,36 +1386,8 @@ ENFORCEMENT_SOURCE_INVENTORY = {'.engine/tools/agent_bindings.py': {'dependencie
                                       'exclusions': {}},
  '.engine/tools/wiring.py': {'dependencies': ('.engine/tools/validate.py',), 'exclusions': {}},
  '.engine/tools/build_coordinator_core.py': {'dependencies': ('.engine/tools/result_contracts.py',), 'exclusions': {}},
- '.engine/tools/build_coordinator_review.py': {'dependencies': ('.engine/tools/reviewer_contracts.py', '.engine/tools/build_coordinator_core.py',
-                                                                '.engine/tools/result_contracts.py'),
-                                               'exclusions': {'.engine/tools/scoped_agents.py': 'Agent coherence invokes pure ingest_review_report only; historical receipt-key lookup is outside that hard-check path.', '.engine/tools/close_linkage_preflight.py': 'agent_coherence '
-                                                                                                          'invokes '
-                                                                                                          'pure '
-                                                                                                          'ingest_review_report '
-                                                                                                          'only; '
-                                                                                                          'close-linkage '
-                                                                                                          'validation '
-                                                                                                          'is '
-                                                                                                          'outside '
-                                                                                                          'that '
-                                                                                                          'hard-check '
-                                                                                                          'path.'}},
- '.engine/tools/build_coordinator_work.py': {'dependencies': ('.engine/tools/build_coordinator_core.py',
-                                                              '.engine/tools/result_contracts.py'),
-                                             'exclusions': {'.engine/tools/build_coordinator_dag.py': 'agent_coherence '
-                                                                                                      'invokes '
-                                                                                                      'pure '
-                                                                                                      'ingest_worker_report '
-                                                                                                      'only; '
-                                                                                                      'DAG '
-                                                                                                      'planning '
-                                                                                                      'and '
-                                                                                                      'integration '
-                                                                                                      'are '
-                                                                                                      'outside '
-                                                                                                      'that '
-                                                                                                      'hard-check '
-                                                                                                      'path.'}},
+ '.engine/tools/build_coordinator_review.py': {'dependencies': ('.engine/tools/reviewer_contracts.py', '.engine/tools/build_coordinator_core.py', '.engine/tools/result_contracts.py', '.engine/tools/selftest_cost.py'), 'exclusions': {'.engine/tools/scoped_agents.py': 'Agent coherence invokes pure ingest_review_report only; historical receipt-key lookup is outside that hard-check path.', '.engine/tools/close_linkage_preflight.py': 'agent_coherence invokes pure ingest_review_report only; close-linkage validation is outside that hard-check path.'}},
+ '.engine/tools/build_coordinator_work.py': {'dependencies': ('.engine/tools/build_coordinator_core.py', '.engine/tools/result_contracts.py', '.engine/tools/selftest_cost.py', '.engine/tools/selftest_results.py'), 'exclusions': {'.engine/tools/build_coordinator_dag.py': 'agent_coherence invokes pure ingest_worker_report only; DAG planning and integration are outside that hard-check path.'}},
  '.engine/tools/conformance_sweep.py': {'dependencies': ('.engine/tools/result_contracts.py',),
                                         'exclusions': {'.engine/tools/github_client.py': 'agent_coherence '
                                                                                          'invokes pure '
@@ -1526,7 +1507,13 @@ ENFORCEMENT_SOURCE_INVENTORY = {'.engine/tools/agent_bindings.py': {'dependencie
          '.engine/tools/scoped_agents.py': 'Agent coherence validates declarations only; scoped evidence and historical adoption are separate lifecycle operations.',
          '.engine/tools/build_coordinator_review.py': 'Agent coherence validates declarations only; historical packet reconstruction is not invoked.',
          '.engine/tools/plan_contract.py': 'Agent coherence validates declarations only; historical plan validation is not invoked.'}},
- '.engine/tools/result_contracts.py': {'dependencies': (), 'exclusions': {}}}
+ '.engine/tools/result_contracts.py': {'dependencies': (), 'exclusions': {}},
+'.engine/tools/selftest_cost_check.py': {'dependencies': ('.engine/tools/selftest_cost.py', '.engine/tools/validate.py', '.engine/tools/demo_test_cost_contracts.py'), 'exclusions': {}},
+'.engine/tools/demo_test_cost_contracts.py': {'dependencies': ('.engine/tools/selftest_cost.py', '.engine/tools/build_coordinator_core.py', '.engine/tools/build_coordinator_work.py', '.engine/tools/engine_fixture.py'), 'exclusions': {}},
+'.engine/tools/selftest_cost.py': {'dependencies': ('.engine/tools/selftest_results.py', '.engine/tools/build_coordinator_dag.py', '.engine/tools/moment.py'), 'exclusions': {'.engine/tools/selftest.py': 'Only standalone retained-source inventory/observation acquisition imports the runner; required check and resource assessment do not launch it.', '.engine/tools/providers.py': 'Only standalone retained-source acquisition scrubs session variables.', '.engine/tools/engine_fixture.py': 'Only standalone retained-source observation replaces the clone source; actual negative fixture cloning is owned by the guarded demo.'}},
+'.engine/tools/engine_fixture.py': {'dependencies': ('.engine/tools/selftest_cost.py',), 'exclusions': {}},
+'.engine/tools/selftest_results.py': {'dependencies': (), 'exclusions': {}},
+'.engine/tools/build_coordinator_dag.py': {'dependencies': ('.engine/tools/build_coordinator_core.py',), 'exclusions': {}}}
 
 
 ENFORCEMENT_DYNAMIC_LOADERS = {'.engine/tools/close.py': {'calls': ("Call(func=Name(id='real_import', ctx=Load()), args=[Name(id='name', "
@@ -1574,7 +1561,8 @@ ENFORCEMENT_DYNAMIC_LOADERS = {'.engine/tools/close.py': {'calls': ("Call(func=N
                                          'construction/execution are runtime-selected; literal paths are '
                                          'unavailable. Module-kind files remain independently guarded by the '
                                          'existing kind path floor.',
-                               'source': '.engine/tools/validate.py'}}
+                               'source': '.engine/tools/validate.py'},
+'.engine/tools/selftest_cost.py': {'source': '.engine/tools/selftest_cost.py', 'calls': ("Call(func=Attribute(value=Attribute(value=Name(id='importlib', ctx=Load()), attr='util', ctx=Load()), attr='module_from_spec', ctx=Load()), args=[Name(id='spec', ctx=Load())], keywords=[])", "Call(func=Attribute(value=Attribute(value=Name(id='importlib', ctx=Load()), attr='util', ctx=Load()), attr='spec_from_file_location', ctx=Load()), args=[Constant(value='test_cost_adapter_results'), BinOp(left=Name(id='observer_root', ctx=Load()), op=Div(), right=Constant(value='.engine/tools/selftest_results.py'))], keywords=[])", "Call(func=Attribute(value=Attribute(value=Name(id='spec', ctx=Load()), attr='loader', ctx=Load()), attr='exec_module', ctx=Load()), args=[Name(id='results', ctx=Load())], keywords=[])", "Call(func=Name(id='exec', ctx=Load()), args=[Call(func=Name(id='compile', ctx=Load()), args=[Call(func=Attribute(value=Name(id='ast', ctx=Load()), attr='Module', ctx=Load()), args=[], keywords=[keyword(arg='body', value=Name(id='functions', ctx=Load())), keyword(arg='type_ignores', value=List(elts=[], ctx=Load()))]), Constant(value='<cost-observer-adapter>'), Constant(value='exec')], keywords=[]), Attribute(value=Name(id='selftest', ctx=Load()), attr='__dict__', ctx=Load())], keywords=[])"), 'reason': 'Reviewed retained-source observer adapter only: load the local selftest_results.py from the pinned observer checkout and compile exactly the two named runner functions into the retained runner. Source cleanliness and the observer fingerprint are checked by acquisition; normal cost checking and assessment do not execute these loaders. No caller-selected module name or remote source is loaded.'}}
 _DRIFT_EXTERNAL_MODULES = frozenset({"yaml", "jsonschema"})
 
 

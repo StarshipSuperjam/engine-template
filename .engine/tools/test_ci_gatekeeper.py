@@ -39,17 +39,23 @@ _RUNNER_CONTROL_FILES = ("GITHUB_ENV", "GITHUB_OUTPUT", "GITHUB_PATH", "GITHUB_S
 _ISOLATION_CHILD_ENV = "ENGINE_CI_GATEKEEPER_ISOLATION_CHILD"
 
 _CONTROL_FILE_ISOLATION = None
+_LEGACY_COST_REQUIREMENT = None
 
 
 def setUpModule():
-    global _CONTROL_FILE_ISOLATION
+    global _CONTROL_FILE_ISOLATION, _LEGACY_COST_REQUIREMENT
     _CONTROL_FILE_ISOLATION = mock.patch.dict(os.environ, {}, clear=False)
     _CONTROL_FILE_ISOLATION.start()
+    # Historical receipt fixtures retain their original protocol; cost cases bind explicit evidence.
+    _LEGACY_COST_REQUIREMENT = mock.patch.object(gk, "_cost_required", return_value=False)
+    _LEGACY_COST_REQUIREMENT.start()
     for var in _RUNNER_CONTROL_FILES:
         os.environ.pop(var, None)
 
 
 def tearDownModule():
+    if _LEGACY_COST_REQUIREMENT is not None:
+        _LEGACY_COST_REQUIREMENT.stop()
     if _CONTROL_FILE_ISOLATION is not None:
         _CONTROL_FILE_ISOLATION.stop()
 
@@ -113,6 +119,17 @@ ENGINE_AFFECTING = {"schema_version": "change-classification.v1", "verdict": "en
 PROJECT_ONLY = {"schema_version": "change-classification.v1", "verdict": "project-only",
                 "reason": {"code": "project-only", "detail": "fixture"},
                 "changed_paths": ["src/app.py"], "engine_paths": [], "project_paths": ["src/app.py"]}
+
+
+import selftest_cost as cost
+
+WIRING_COST = {
+    "schema_version": "test-cost-contract.v1", "supported_fault": "Required CI proof wiring is silently removed",
+    "boundary": "filesystem", "boundary_rationale": "Parse the checked-in workflow without executing it",
+    "fixture_owner": "test_ci_gatekeeper", "dependencies": ["yaml"],
+    "data_reads": [".github/workflows/engine-ci.yml"], "cadence": "pr",
+    "limits": cost.zeros(), "mutable_state": "Case-local workflow dictionaries",
+    "cache_lifetime": "case", "added_cost_risk": "One small YAML document; no subprocess", "families": []}
 
 
 class DecideMatrix(unittest.TestCase):
@@ -802,6 +819,7 @@ class WorkflowShape(unittest.TestCase):
                    or "tools/selftest.py" in str(step.get("run", ""))]
         self.assertEqual(runners, ["selftests"])
 
+    @cost.declaration(WIRING_COST)
     def test_the_receipt_takes_its_mode_from_the_gate_and_never_runs_on_reuse(self):
         emit, upload = self.steps["Write the receipt"], self.steps["Upload the receipt"]
         self.assertEqual(emit["env"][gk.RECEIPT_MODE_ENV], "${{ steps.gate.outputs.mode }}")
@@ -809,7 +827,7 @@ class WorkflowShape(unittest.TestCase):
             self.assertIn("steps.gate.outputs.mode != 'reuse'", step["if"])
         self.assertEqual(upload["with"]["name"], gk.RECEIPT_ARTIFACT_NAME)
         uploads = [key for key, step in self.steps.items() if "upload-artifact" in str(step.get("uses", ""))]
-        self.assertEqual(uploads, ["Upload test outcomes", "Upload test timing", "Upload the receipt"])
+        self.assertEqual(uploads, ["Upload test outcomes", "Upload test timing", "Upload test cost diagnostics", "Upload the receipt"])
         for key,prefix in [("Upload test outcomes","engine-selftest-results"),
                            ("Upload test timing","engine-selftest-performance")]:
             step=self.steps[key]
@@ -844,6 +862,7 @@ class WorkflowShape(unittest.TestCase):
         self.assertEqual(terminal, len(order) - 1, "the terminal assertion is the last word")
         self.assertLess(order.index("metadata"), terminal)
 
+    @cost.declaration(WIRING_COST)
     def test_the_terminal_step_reads_all_three_outcomes_and_carries_no_condition(self):
         terminal = self.steps["Refuse a run in which no arm did any work"]
         self.assertNotIn("if", terminal)
@@ -851,6 +870,7 @@ class WorkflowShape(unittest.TestCase):
             gk.FULL_RAN_ENV: "${{ steps.selftests.outcome }}",
             gk.REUSE_RAN_ENV: "${{ steps.metadata.outcome }}",
             gk.PROJECT_ONLY_RAN_ENV: "${{ steps.project.outcome }}",
+            gk.COST_EXCEPTION_ENV: "${{ vars.ENGINE_TEST_COST_APPROVED_EXCEPTIONS }}",
         })
 
     def test_the_gate_reads_the_off_switch_and_the_checkout_fetches_the_parent(self):
@@ -1007,6 +1027,11 @@ class CostReceiptPermission(unittest.TestCase):
             self.assertFalse(found)
             self.assertEqual(gk.REASON_COST_PERMISSION, detail["reason"])
             self.assertEqual(retained, selftest_results.read(Path(folder) / gk.COST_FILENAME))
+
+    def test_required_full_receipt_cannot_omit_cost_evidence(self):
+        value = dict(self.receipt); value.pop("cost")
+        with mock.patch.object(gk, "_cost_required", return_value=True):
+            self.assertFalse(self.verify(1, value=value)[0])
 
     def test_permission_refusal_does_not_publish_a_full_rerun(self):
         with mock.patch.object(gk, "_load_event", return_value=event("edited")), \

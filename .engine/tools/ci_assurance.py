@@ -192,16 +192,18 @@ def discover_test_modules(root: str, steps: list[dict]) -> list[dict]:
                     raise ValueError("full selftest launcher must use the explicit pinned runtime")
                 args = tokens[len(prefix):]
                 options = {}
-                allowed = {"--start-dir", "--pattern", "--results-path", "--performance-path"}
+                required = {"--start-dir", "--pattern", "--results-path", "--performance-path"}
+                allowed = required | {"--cost-path"}
                 if len(args) % 2:
                     raise ValueError("ambiguous full selftest launcher arguments")
                 for flag, value in zip(args[::2], args[1::2]):
                     if flag not in allowed or flag in options or not value or value.startswith("--"):
                         raise ValueError("unsupported or duplicate full selftest launcher option")
                     options[flag] = value
-                if set(options) != allowed or options["--start-dir"] != "tools" or options["--pattern"] != "test_*.py":
+                if not required <= set(options) or options["--start-dir"] != "tools" or options["--pattern"] != "test_*.py":
                     raise ValueError("full selftest launcher must name complete discovery and both artifacts")
-                if options["--results-path"] == options["--performance-path"]:
+                artifacts = [value for flag, value in options.items() if flag.endswith('-path')]
+                if len(set(artifacts)) != len(artifacts):
                     raise ValueError("selftest artifact paths must differ")
                 discoveries.append((options["--start-dir"], options["--pattern"]))
                 continue

@@ -2,6 +2,11 @@
 import copy
 import unittest
 
+import os
+import sys
+
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+
 import build_coordinator_work as work
 import selftest_cost as cost
 from test_selftest_performance import cost_example, cost_counts
@@ -299,9 +304,22 @@ class NativeCostReview(coordinator_fixtures.CoordinatorCase):
         self.seed(); self.approve("thorough"); self.integrate_all()
         fixture_root = Path(scoped_agents.__file__).resolve().parents[2]
         persona = fixture_root / ".claude/agents/engine-qa-review-technical-integrity.md"
-        persona.write_text(persona.read_text().replace("reviewer-contract-version: 1", "reviewer-contract-version: 2")
+        record = self.review_library.read_record(self.review_slug)
+        referent = {"plan_id": coordinator_fixtures.PLAN_ID, "revision": 1, "plan_digest": record["current"]["plan_digest"]}
+        historical = reviewer_contracts.capture(fixture_root, referent, "thorough", [], self.DELIVERABLE_LENSES,
+            instructions="The original frozen array obligation.")
+        historical_bytes = json.dumps(historical, sort_keys=True)
+        persona.write_text(persona.read_text().replace("reviewer-contract-version: 1", "reviewer-contract-version: 2\nsupports-frozen-cost-predecessor: 1")
                            .replace("output-contract: pre-submission-review-finding.v1", "output-contract: technical-integrity-review.v1"))
         record = self.review_library.read_record(self.review_slug)
+        historical_path = Path(self.temp.name) / "historical-packet.txt"
+        historical_path.write_text("Original frozen assignment fixture")
+        old_assignment = scoped_agents.Store(self.review_library, self.review_slug).register(
+            owner=scoped_agents.build_owner(self.store.read()), root="fixture-root", purpose="review", lens="technical-integrity",
+            role="engine-qa-review-technical-integrity", packet=historical_path,
+            packet_digest=cost.digest("original packet"), review_contract=historical)
+        self.assertEqual("pre-submission-review-finding.v1", old_assignment["result_contract"]["id"])
+        self.assertEqual(historical_bytes, json.dumps(historical, sort_keys=True))
         frozen = reviewer_contracts.capture(fixture_root,
             {"plan_id": coordinator_fixtures.PLAN_ID, "revision": 1, "plan_digest": record["current"]["plan_digest"]},
             "thorough", [], self.DELIVERABLE_LENSES, instructions="Read the frozen cost assessment.")

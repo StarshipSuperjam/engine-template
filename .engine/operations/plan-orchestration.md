@@ -135,6 +135,18 @@ Restating its order here would only give you a second answer, free to drift from
   everything after it, to the phase runbooks [Build orchestration](build-orchestration.md) names.
 
 Approval freezes both reviewer panels. Editorial drift preserves credit; semantic changes use explicit per-lens retain/adopt renewal, with supplemental findings joining disposition and presentation. Historical adoption is a separate decision and never manufactures fresh execution. See [Executable persona result contracts](../docs/result-contracts.md) for renewal, historical recovery, ingress and demonstrations.
+### Test-cost contracts before approval
+
+New authoring uses `build-plan.v3` at every depth. Every node carries a complete `test_cost` contract:
+supported fault, cheapest meaningful boundary and rationale, fixture owner, dependencies/data reads,
+proposed cadence, bounded resource limits, mutable-state and cache lifetime, expected added cost and
+scaling families. Use `.engine/templates/test-authoring.py` for test declarations. Pure work declares
+zero ambient processes/Git, fixture clones and nested journeys; real boundary faults keep bounded real
+processes. A larger declared limit needs evidence and review, not automatic enrollment as legacy debt.
+The Project Manager discloses the mandatory technical-integrity cost judgment before new approvals,
+including quick depth. Old sealed payloads and frozen reviewer contracts retain their original bytes.
+Changed scope uses the existing explicit amendment route; a legacy version is not a new-authoring bypass.
+
 ## Done when
 
 The operator has discussed the shape, seen the drafted plan and had the chance to revise it, chosen its

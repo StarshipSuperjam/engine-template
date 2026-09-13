@@ -3,6 +3,10 @@ import copy
 import json
 from pathlib import Path
 import unittest
+import os
+import sys
+
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
 import selftest_cost as cost
 
@@ -428,6 +432,68 @@ class TestBaselineEnrollment(unittest.TestCase):
         raw['totals']['processes'] = 1
         with self.assertRaisesRegex(ValueError, 'totals disagree'):
             cost.normalize_run(raw, observation['identity'], expected_tree='c'*40)
+
+
+@cost.declaration({**CONTRACT, 'boundary': 'process',
+    'boundary_rationale': 'Exercise the actual required-check controls and bounded child work',
+    'fixture_owner': 'test_selftest_cost.TestRequiredCostCheck',
+    'dependencies': ['selftest_cost_check', 'demo_test_cost_contracts', 'yaml', 'engine_fixture'],
+    'data_reads': ['.github/workflows/engine-ci.yml', '.engine/policies/test-cost.json'],
+    'mutable_state': 'One temporary workflow file; recorder hooks restored by each control',
+    'limits': {**cost.zeros(), 'processes': 6, 'git_commands': 5,
+               'schema_decodes': 250, 'metaschema_validations': 1,
+               'whole_tree_fixtures': 1, 'nested_journeys': 1}})
+class TestRequiredCostCheck(unittest.TestCase):
+    def test_real_negative_controls_reject_growth_and_accept_repaired_helpers(self):
+        import demo_test_cost_contracts as demo
+        for scenario in demo.SCENARIOS:
+            with self.subTest(scenario=scenario):
+                report = demo.demonstrate(scenario)
+                self.assertTrue(report['violations'])
+                self.assertEqual(report['repair_violations'], [])
+                self.assertTrue(report['passed'])
+                self.assertFalse(report['cost_clearance'])
+
+    def test_workflow_cannot_drop_observation_permission_or_terminal_consumption(self):
+        import tempfile
+        import yaml
+        import selftest_cost_check as check
+        workflow = yaml.safe_load((cost.ROOT / '.github/workflows/engine-ci.yml').read_text())
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            path = root / '.github/workflows/engine-ci.yml'
+            path.parent.mkdir(parents=True)
+            path.write_text(yaml.safe_dump(workflow))
+            self.assertEqual(check.check(root), [])
+            mutations = [
+                ('selftests', 'run', "python tools/selftest.py --pattern 'test_*.py'"),
+                ('cost', 'continue-on-error', True),
+                ('cost', 'if', 'false'),
+                ('cost', 'env', {}),
+                ('cost', 'env', {'PATH': './attacker-bin:$PATH'}),
+                ('Write the receipt', 'if', "github.event_name == 'pull_request'"),
+                ('Write the receipt', 'run', 'python tools/ci_gatekeeper.py emit-receipt'),
+                ('Refuse a run in which no arm did any work', 'if', 'false'),
+                ('Refuse a run in which no arm did any work', 'shell', "bash -c 'true # {0}'"),
+                ('Refuse a run in which no arm did any work', 'run', 'python tools/ci_gatekeeper.py assert-ran'),
+                ('Upload the receipt', 'if', 'false'),
+            ]
+            for name, field, value in mutations:
+                with self.subTest(step=name, field=field):
+                    changed = copy.deepcopy(workflow)
+                    step = next(s for s in changed['jobs']['engine-ci']['steps'] if s.get('id', s.get('name')) == name)
+                    step[field] = value
+                    path.write_text(yaml.safe_dump(changed))
+                    self.assertTrue(check.check(root))
+            changed = copy.deepcopy(workflow)
+            for step in changed['jobs']['engine-ci']['steps']:
+                if step.get('id') == 'cost' or step.get('name') in ('Write the receipt', 'Refuse a run in which no arm did any work'):
+                    step['run'] += '\ntrue'
+                    step['shell'] = 'bash {0}'
+                if step.get('name') == 'Upload the receipt':
+                    step['if'] = 'false'
+            path.write_text(yaml.safe_dump(changed))
+            self.assertTrue(check.check(root))
 
 
 if __name__ == '__main__':

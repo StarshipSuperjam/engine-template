@@ -17,7 +17,19 @@ import hard_check_bite_check as hcb
 import validate
 
 
+import selftest_cost as cost
+
+WIRING_COST = {
+    "schema_version": "test-cost-contract.v1", "supported_fault": "Required CI proof wiring is silently removed",
+    "boundary": "filesystem", "boundary_rationale": "Parse the checked-in workflow without executing it",
+    "fixture_owner": "test_ci_assurance", "dependencies": ["yaml"],
+    "data_reads": [".github/workflows/engine-ci.yml"], "cadence": "pr",
+    "limits": cost.zeros(), "mutable_state": "Case-local workflow dictionaries",
+    "cache_lifetime": "case", "added_cost_risk": "One small YAML document; no subprocess", "families": []}
+
+
 class TestWorkflowExtraction(unittest.TestCase):
+    @cost.declaration(WIRING_COST)
     def test_live_workflow_extracts_main_push_pr_and_each_executable_step(self):
         triggers, steps = assurance.workflow_facts(assurance.load_workflow())
         self.assertEqual({row["event"] for row in triggers}, {"push", "pull_request"})
@@ -27,11 +39,11 @@ class TestWorkflowExtraction(unittest.TestCase):
         # reuse-arm validator, project-only-arm validator, terminal assert-ran — eleven executable steps. It
         # was ten before the project-only arm, and twelve before the two hand-rolled completion markers were
         # replaced by the runner's own per-step outcomes (StarshipSuperjam/engine-template#1043).
-        # Three advisory publication steps augment the eleven original gating/receipt steps.
-        self.assertEqual(len(steps), 14)
+        # Four advisory publications and the cost gate augment the original eleven steps.
+        self.assertEqual(len(steps), 16)
         self.assertIn("validate.py --suite CI", " ".join(str(row["command"]) for row in steps))
         self.assertEqual({row['name'] for row in steps if row['continue']},
-                         {'Publish observed self-test summary','Upload test outcomes','Upload test timing'})
+                         {'Publish observed self-test summary','Upload test outcomes','Upload test timing','Upload test cost diagnostics'})
         self.assertIn("version=0.11.8", " ".join(row["details"] for row in steps))
         # A step id is rendered, not merely tolerated: the condition column prints references like
         # `steps.gate.outputs.mode`, so a catalogue that declined to print which step `gate` is would show a

@@ -307,7 +307,9 @@ class Store:
                 raise EvidenceError("review lens/role is outside the frozen approval contract")
             obligation = obligations[0]
             available = reviewer_contracts.discover(Path(__file__).resolve().parents[2], panel_role)
-            matching = [p for p in available if p["lens"] == lens and p["semantic_digest"] == obligation["semantic_digest"]]
+            matching = [p for p in available if p["lens"] == lens and
+                        (p["semantic_digest"] == obligation["semantic_digest"] or
+                         reviewer_contracts.supports_frozen_cost_predecessor(obligation, p))]
             if not matching:
                 raise EvidenceError(f"{lens}: installed capability differs from the frozen mandate; restore it or explicitly renew this lens")
             binding = obligation["semantic"]["result_contract"]
