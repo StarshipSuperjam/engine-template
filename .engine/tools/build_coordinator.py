@@ -6816,14 +6816,14 @@ def reground_pointer(state: dict, slug: "str | None" = None) -> str:
             "",
             "Only if you decide to RESUME this Build: read its state with `build_coordinator.py status`",
             "first — then that durable record, not this session's summary, is the authority, and every",
-            "mutating coordinator verb re-verifies this session against it and refuses on a mismatch, so a",
+            "mutating coordinator verb re-verifies this worktree against it and refuses on a mismatch, so a",
             "wrong assumption fails closed rather than corrupting the Build.",
         ]
     else:
         lines += [
             "",
             "Read the Build's state with `build_coordinator.py status` before changing anything. Every",
-            "mutating coordinator verb re-verifies this session against that record and refuses on a",
+            "mutating coordinator verb re-verifies this worktree against that record and refuses on a",
             "mismatch, so a wrong assumption here fails closed rather than corrupting the Build.",
             "",
             "A progress report is not a handoff. If the record shows actionable work,",

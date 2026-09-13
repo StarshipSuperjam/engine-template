@@ -67,7 +67,7 @@ REGISTRY = (
            "records", "append-lock", ["memory.capture.capture_turn_delta"]),
     _entry("automatic-compaction", "memory.compact.compact", "ledger", "destructive-irreversible", _BOTH,
            None, "records", "operator-merged-consent",
-           ["memory.compact._pre_compact_handler", "memory.compact.run"]),
+           ["memory.compact._pre_compact_handler", "memory.compact.maybe_compact"]),
     _entry("automatic-erasure-observer", "memory.erasure_observer.enact_from_merged_prs", "ledger",
            "durable-append", _AUTO, None, "records", "operator-merged-consent",
            ["memory.erasure_observer._session_start_handler"]),
@@ -98,6 +98,12 @@ REGISTRY = (
     _entry("accepted-tree-materialize", "accepted_hook_dispatch._materialize", "ephemeral-staging",
            "reversible-mutation", _AUTO, None, "files", "derived-rebuild",
            ["accepted_hook_dispatch.dispatch"]),
+    # The materializer's file writer: the accepted commit's blobs, read straight from git's object store
+    # (never `git archive`, whose .gitattributes handling can diverge from the ls-tree manifest the exact
+    # binding compares against), written into the staging directory `_materialize` then publishes.
+    _entry("accepted-tree-object-write", "accepted_hook_dispatch._write_tree_from_objects",
+           "ephemeral-staging", "reversible-mutation", _AUTO, None, "files", "derived-rebuild",
+           ["accepted_hook_dispatch._materialize"]),
     _entry("accepted-dispatch-operation", "accepted_hook_dispatch.dispatch", "ephemeral-staging",
            "reversible-mutation", _AUTO, None, "files", "derived-rebuild",
            ["accepted_hook_dispatch.main"]),
@@ -113,13 +119,13 @@ REGISTRY = (
 
     # Public attended operations (CLI, MCP, setup, or maintenance).
     _entry("attended-pin-add", "memory.pins.add", "ledger", "durable-append", _ATTENDED, 1, "records",
-           "append-lock", ["memory.mcp_server.pin", "memory.pins.main"]),
+           "append-lock", ["memory.write_dispatch.run_child", "memory.pins.main"]),
     _entry("attended-pin-remove", "memory.pins.remove", "ledger", "reversible-mutation", _ATTENDED, 1,
            "records", "append-lock", ["memory.pins.main"]),
     _entry("attended-withhold", "memory.forget.withhold", "ledger", "reversible-mutation", _ATTENDED, 1,
-           "records", "append-lock", ["memory.mcp_server.withhold", "memory.pins.remove"]),
+           "records", "append-lock", ["memory.write_dispatch.run_child", "memory.pins.remove", "memory.forget.main"]),
     _entry("attended-restore-withheld", "memory.forget.restore", "ledger", "reversible-mutation", _ATTENDED,
-           1, "records", "append-lock", ["memory.mcp_server.restore"]),
+           1, "records", "append-lock", ["memory.write_dispatch.run_child", "memory.forget.main"]),
     _entry("attended-backup-setup", "memory.backup_vault.setup", "project-repository",
            "reversible-mutation", _ATTENDED, None, "repositories", "compare-and-set",
            ["memory.backup_vault.main"]),
@@ -163,6 +169,16 @@ REGISTRY = (
            ["memory.semantic.store.main"], schema_cutover=True),
     _entry("attended-memory-mcp", "memory.mcp_server.main", "ledger", "semantic-read", _ATTENDED,
            1, "servers", "none", ["configured MCP launchers"]),
+    # The write dispatcher: a fresh accepted process the memory server launches per durable write, so
+    # every pin/withhold/restore lands on the activation current on disk rather than the one the
+    # long-lived server bound at start. Semantic-read here (it marshals a request and relays the
+    # child's reply); the durable ledger writes are the three entries reachable through its boundary.
+    # The one source-level caller is the parent-side launcher: it execs `write_dispatch.py` under this
+    # operation through the accepted-tree dispatcher. The memory server's pin/withhold/restore tools reach it
+    # only through `write_dispatch.dispatch` -> `_spawn_accepted_child`, never by calling main() directly.
+    _entry("attended-write-dispatch", "memory.write_dispatch.main", "ledger", "semantic-read", _ATTENDED,
+           1, "servers", "none",
+           ["memory.write_dispatch._spawn_accepted_child"]),
     _entry("read-memory-health", "memory.mcp_server.health", "degraded-health", "semantic-read", _ATTENDED,
            1, "status-records", "none", ["memory.mcp_server.main"]),
     _entry("read-recall-window", "memory.mcp_server.recall_window", "ledger", "semantic-read", _ATTENDED,
@@ -294,6 +310,9 @@ REGISTRY = (
     _entry("accepted-lock-create", "accepted_hook_dispatch._exclusive_lock", "lifecycle-marker",
            "reversible-mutation", _BOTH, 1, "files", "compare-and-set",
            ["accepted_hook_dispatch.activate", "accepted_hook_dispatch._materialize"]),
+    _entry("accepted-reachability-mark", "accepted_hook_dispatch._record_reachability", "lifecycle-marker",
+           "reversible-mutation", _AUTO, 1, "status-records", "atomic-replace",
+           ["accepted_hook_dispatch.measure_reachability"]),
     _entry("checkout-preference-write", "checkout_auto_update._atomic_write", "project-repository",
            "reversible-mutation", _ATTENDED, 1, "files", "atomic-replace",
            ["checkout_auto_update.set_preference"]),
@@ -399,7 +418,8 @@ AUTOMATIC_COMMON_EFFECTS = (
 # coverage tests before authority can be minted for an incomplete operation.
 TRANSITIVE_BOUNDARIES = MappingProxyType({
     "accepted_hook_dispatch.dispatch": (
-        "accepted-tree-materialize", "accepted-metadata-write", "accepted-lock-create",
+        "accepted-tree-materialize", "accepted-tree-object-write", "accepted-metadata-write",
+        "accepted-lock-create",
     ),
     "boot.handler": (
         "automatic-checkout-catch-up", "automatic-restore-reconcile",
@@ -414,10 +434,13 @@ TRANSITIVE_BOUNDARIES = MappingProxyType({
         "hook-crash-debug", "hook-fail-open-promote", "telemetry-finding-emit",
     ),
     "memory.mcp_server.main": (
-        "attended-pin-add", "attended-withhold", "attended-restore-withheld",
         "attended-keyword-mcp-search", "attended-semantic-mcp-search",
         "read-memory-health", "read-recall-window", "read-pins", "read-withheld",
         "stranding-log-append",
+    ),
+    # The dispatched child reaches exactly the three durable writes, on the merge-current activation.
+    "memory.write_dispatch.main": (
+        "attended-pin-add", "attended-restore-withheld", "attended-withhold",
     ),
     "memory.mcp_server.search": (
         "attended-keyword-mcp-search", "attended-keyword-search-heal", "index-stale-heal", "index-rebuild",
@@ -613,21 +636,20 @@ DEGRADED_REFUSAL_GUIDANCE = MappingProxyType({
     "attended-pin-add": (
         "I can't pin that yet: this session isn't qualified to write memory, and a pin is standing "
         "instruction from you — I won't stash it now and replay it later as if you had said it then. "
-        "Qualification converges by itself at a session start that can reach GitHub; ask me again then and "
-        "it will stick."
+        "Qualification converges by itself at a session start that can reach GitHub and finds this project's merged commit still on its default branch; ask me "
+        "again then and it will stick."
     ),
     "attended-withhold": (
-        "I can't set that aside yet: this session isn't qualified to write memory. The note is still "
-        "there and still findable, nothing changed, and "
-        "nothing was registered — if you asked in order to erase it, not even the first step has happened. "
-        "Qualification converges by itself at the next session start that can reach GitHub; ask me again "
-        "then and this will stick. Erasing for good is separate and yours end to end: you run it in a "
-        "terminal, and it takes effect when you merge the pull request it opens."
+        "I can't set that aside yet: this session isn't qualified to write memory. The note is still there "
+        "and findable, and nothing was registered — if you asked so as to erase it, not even the first step "
+        "has happened. Qualification converges by itself at a session start that reaches GitHub and finds "
+        "this project's merged commit on its default branch; ask me again then. Erasing for good is separate "
+        "and yours: you run it in a terminal, and it lands when you merge the pull request it opens."
     ),
     "attended-restore-withheld": (
         "I can't restore that yet: this session isn't qualified to write memory. The note is still set aside "
         "and nothing was lost; ask again once qualification has converged, which happens by itself at a "
-        "session start that can reach GitHub."
+        "session start that can reach GitHub and finds this project's merged commit still on its default branch."
     ),
 })
 
@@ -661,7 +683,8 @@ def degraded_refusal(entry) -> str:
     # dotted code name is neither plain nor actionable there.
     return (
         "This session is not yet qualified to write memory, so nothing was changed. Qualification converges "
-        "by itself at a session start that can reach GitHub; reading and recall work in the meantime."
+        "by itself at a session start that can reach GitHub and finds this project's merged commit still on its default branch; reading and recall work in "
+        "the meantime."
     )
 
 

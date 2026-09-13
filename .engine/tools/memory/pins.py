@@ -40,6 +40,7 @@ import binascii
 import os
 import sys
 import time
+import unicodedata
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
@@ -72,8 +73,48 @@ class PinRefused(refusals.EngineRefusal, ValueError):
         self.raw_detail = raw_detail
 
 
+#: The one explicit identity an omitted session_id collapses to, so a dispatched pin with no session and a
+#: second call that also carries none are recognised as the same lane by the under-lock duplicate check.
+_NO_SESSION_IDENTITY = "\x00no-session"
+
+
+def _normalized_pin_text(text: str) -> str:
+    """The decisive key the duplicate check compares on: NFC-folded, outer whitespace stripped, inner runs
+    collapsed to one space. Two requests that differ only in those land as the same pin, never two."""
+    return " ".join(unicodedata.normalize("NFC", text).split())
+
+
+def _session_identity(session_id: "str | None") -> str:
+    return session_id if (isinstance(session_id, str) and session_id) else _NO_SESSION_IDENTITY
+
+
+def _find_duplicate_pin(cleaned: str, session_identity: str, *, path: str):
+    """The live pin already carrying this exact normalized text on this exact session lane, or None. Called
+    only under the write lock, so what it reads is the committed state the append would extend."""
+    key = _normalized_pin_text(cleaned)
+    for record in list_pins(path=path):
+        if (_normalized_pin_text(record.get("text") or "") == key
+                and _session_identity(record.get(records.PIN_SOURCE_SESSION_KEY)) == session_identity):
+            return record
+    return None
+
+
+def _emit_confirmation(emit, event: str, payload: dict) -> None:
+    """Emit a post-commit forensic line as BEST EFFORT: the write is already durable, so a failure here
+    (a broken pipe to a parent that closed, or any callback error) is swallowed rather than allowed to
+    masquerade as a lost write. The parent's read-back of the pre-minted id is the backstop that still
+    resolves the outcome to `committed` when this line never arrives."""
+    if emit is None:
+        return
+    try:
+        emit(event, payload)
+    except Exception:
+        pass
+
+
 def add(text: str, *, session_id: "str | None" = None, via: str = records.PIN_VIA_ASSISTANT,
-        path: "str | None" = None, now: "int | None" = None) -> dict:
+        path: "str | None" = None, now: "int | None" = None, accepted_id: "str | None" = None,
+        emit=None, dedup: bool = False) -> dict:
     """Save one pin and return the record as written. Raises PinRefused on empty or over-long text.
 
     A pin is standing OPERATOR intent — call this when the operator asked for something to be remembered,
@@ -85,9 +126,11 @@ def add(text: str, *, session_id: "str | None" = None, via: str = records.PIN_VI
     the conversation around the request stays reachable with the window reader; a pin minted outside a session
     simply carries none. `via` records the route, never an authority claim.
 
-    Appends under the single-writer lock and bumps the ledger generation, exactly as the withhold verbs do and
-    for the same reason: without it the fast index stays stamped current and the pin the operator just saved is
-    missing from the next search, answered as though the index were authoritative."""
+    Appends under the single-writer lock and bumps the ledger's INDEX EPOCH (membership changed: a record the
+    index has not seen), exactly as the withhold verbs do and for the same reason: without it the fast index
+    stays stamped current and the pin the operator just saved is missing from the next search, answered as
+    though the index were authoritative. It does not bump the ledger GENERATION — that counter means content
+    was rewritten or removed, which an append never does — and the two have different recovery meanings."""
     if not isinstance(text, str) or not text.strip():
         raise PinRefused("there was nothing to save — a pin needs some words.")
     cleaned = scrub.scrub_text(text.strip())
@@ -103,6 +146,12 @@ def add(text: str, *, session_id: "str | None" = None, via: str = records.PIN_VI
     target = path if path is not None else ledger.ledger_path()
     data_dir = os.path.dirname(target) or "."
     os.makedirs(data_dir, exist_ok=True)
+    record_id = accepted_id if (isinstance(accepted_id, str) and accepted_id) else records.new_record_id()
+    session_identity = _session_identity(session_id)
+    if emit is not None:
+        # Forensic: the pre-minted id crosses to the parent BEFORE the lock, so a child that dies mid-write
+        # leaves the parent a record id to reason about rather than a silent gap.
+        emit("begin", {records.RECORD_ID_KEY: record_id})
     lock_fd = capture._acquire_lock(os.path.join(data_dir, capture.LOCK_FILENAME))
     if lock_fd is None:
         # `None` is not proof of contention: the same value comes back when the store cannot be opened at all.
@@ -114,21 +163,30 @@ def add(text: str, *, session_id: "str | None" = None, via: str = records.PIN_VI
             "memory could not be written to (the memory folder is not writable), so nothing was saved. This will "
             "not clear on its own — check the folder's permissions and that its disk is mounted and has room."
         )
+    duplicate_record = None
+    committed_record = None
+    committed_bytes = None
     try:
-        record = {
-            "v": capture.RECORD_VERSION,
-            "kind": records.PIN_KIND,
-            records.RECORD_ID_KEY: records.new_record_id(),
-            "text": cleaned,
-            "ts": int(time.time()) if now is None else now,
-            "tags": [records.PIN_TAG],
-            records.PIN_VIA_KEY: via,
-        }
-        if isinstance(session_id, str) and session_id:
-            record[records.PIN_SOURCE_SESSION_KEY] = session_id
-        ledger.bump_index_epoch(for_path=target)
-        ledger.append(record, path=path)
-        return record
+        if dedup:
+            duplicate = _find_duplicate_pin(cleaned, session_identity, path=target)
+            if duplicate is not None:
+                duplicate_record = duplicate
+        if duplicate_record is None:
+            record = {
+                "v": capture.RECORD_VERSION,
+                "kind": records.PIN_KIND,
+                records.RECORD_ID_KEY: record_id,
+                "text": cleaned,
+                "ts": int(time.time()) if now is None else now,
+                "tags": [records.PIN_TAG],
+                records.PIN_VIA_KEY: via,
+            }
+            if isinstance(session_id, str) and session_id:
+                record[records.PIN_SOURCE_SESSION_KEY] = session_id
+            ledger.bump_index_epoch(for_path=target)
+            appended = ledger.append(record, path=path)
+            committed_record = record
+            committed_bytes = appended.length
     except PinRefused:
         raise
     except Exception as exc:
@@ -136,6 +194,15 @@ def add(text: str, *, session_id: "str | None" = None, via: str = records.PIN_VI
                          "was saved. " + refusals.ESCALATION, raw_detail=str(exc)) from exc
     finally:
         capture._release_lock(lock_fd)
+    # The append (if any) has LANDED and the lock is released. The forensic confirmation line is best-effort
+    # telemetry for the dispatch parent — its failure (e.g. a BrokenPipeError writing to a parent that already
+    # closed the pipe) must NEVER be reported as a lost write, so it is emitted OUTSIDE the catch-all above,
+    # whose sentence says "nothing was saved". The record is durable and is returned regardless.
+    if duplicate_record is not None:
+        _emit_confirmation(emit, "already_pinned", {"record": duplicate_record})
+        return duplicate_record
+    _emit_confirmation(emit, "committed", {"record": committed_record, "bytes": committed_bytes})
+    return committed_record
 
 
 def list_pins(*, path: "str | None" = None, limit: "int | None" = None) -> list:

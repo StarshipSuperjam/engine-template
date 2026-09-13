@@ -688,18 +688,21 @@ def _stale_refusal(exc: "execution_context.ContextError") -> str:
 
     Keyed on the exception TYPE, never its text: the raw `ContextError` message names paths, fingerprints
     and commits, none of which belong in an operator- or client-facing refusal (obligation: no path,
-    fingerprint or commit reaches the caller for any refusal). Every branch says what held the write, that
-    nothing changed, what reads do under the SAME class - and that clause is true for its branch: under the
-    two MOVED classes reads answer from disk and say so; under the UNBOUND classes reads are held too and say
-    so (StarshipSuperjam/engine-template#1211's over-promise was one sentence for both) - then the one restart
-    action and the one escalation
+    fingerprint or commit reaches the caller for any refusal). Each branch says what became of the write and
+    what reads do under the SAME class - and that clause is true for its branch: under the two MOVED classes
+    memory writing continues on the activation now on disk (canonical writes dispatch to a fresh child) while
+    only the derived search indexes lag, and reads answer from disk and say so; under the UNBOUND classes
+    writing is held and reads are held too and say so (StarshipSuperjam/engine-template#1211's over-promise
+    was one sentence for both) - then the one restart action and the one escalation
     pointer reads and writes share (memory/refusals.py)."""
     tail = " " + refusals.RESTART_ACTION + " " + refusals.ESCALATION
     if isinstance(exc, (execution_context.ActivationStale, execution_context.AcceptedTreeStale)):
         return (
             "This project moved to a new commit while this memory server was running, so its write context no "
-            "longer matches the project on disk. Nothing was changed, and writing is held. Recall keeps working, "
-            "and every read answer says how it was resolved." + tail
+            "longer matches the project on disk. Memory writing continues - each canonical write runs on the "
+            "activation now on disk - and only the derived search indexes could not be updated here, so they "
+            "may lag until this server reconnects. Recall keeps working, and every read answer says how it was "
+            "resolved." + tail
         )
     if isinstance(exc, execution_context.ArtifactUnreadable):
         return (
@@ -716,6 +719,27 @@ def _stale_refusal(exc: "execution_context.ContextError") -> str:
         "This session's memory context could not be confirmed against the store, so writing is held and "
         "nothing was changed. Reads from this store are held too, and each read answer says so." + tail
     )
+
+
+#: The composite operation the accepted write child runs under; the backstop below fires only for it.
+_WRITE_DISPATCH_OPERATION = "attended-write-dispatch"
+
+
+def _refuse_if_reachability_lost(base_context) -> None:
+    """Backstop the launcher's reachability hold (accepted_hook_dispatch place b) from INSIDE the accepted
+    write child, reading the reachability mark independently so a dispatched write is still refused if the
+    launcher check were ever bypassed. Only the dispatched-write root reaches here; ordinary reads never do.
+    The mark, its never-raising reader, and the posture sentence all live in ``accepted_hook_dispatch`` — a
+    top-level tool, not part of this package — imported lazily so this stays free of an import cycle."""
+    if base_context["operation"]["registry_id"] != _WRITE_DISPATCH_OPERATION:
+        return
+    try:
+        import accepted_hook_dispatch as _ahd
+    except ImportError:  # pragma: no cover - the accepted child always has .engine/tools on sys.path
+        return
+    activation = base_context["activation"]
+    if _ahd._reachability_lost(base_context["project"]["root"], activation):
+        raise MutationRefusal(_ahd._reachability_posture(activation["epoch"]))
 
 
 @contextmanager
@@ -807,11 +831,14 @@ def mutation_scope(entry_id: str, args: tuple, kwargs: dict, *, supplied_capabil
         return
 
     base_context = context
+    # Reachability backstop (place a): refuse a dispatched write whose activation left the default branch,
+    # read independently of the launcher's place (b) so the hold survives even if that check were bypassed.
+    _refuse_if_reachability_lost(base_context)
     handle = _open_store_lock(base_context)
     try:
         stale = None
-        if (base_context["operation"]["registry_id"] == "attended-memory-mcp"
-                and entry_id != "attended-memory-mcp"):
+        if (base_context["operation"]["registry_id"] in execution_context.RENEWABLE_ROOT
+                and entry_id not in execution_context.RENEWABLE_ROOT):
             try:
                 context = execution_context.refresh_for_operation(base_context, entry_id)
             except execution_context.ContextError as exc:
@@ -864,7 +891,7 @@ def mutation_scope(entry_id: str, args: tuple, kwargs: dict, *, supplied_capabil
             yield _consume(context, entry, measured, supplied_capability)
         finally:
             _THREAD.state = None
-        if base_context["operation"]["registry_id"] == "attended-memory-mcp":
+        if base_context["operation"]["registry_id"] in execution_context.RENEWABLE_ROOT:
             try:
                 execution_context.refresh_current_context(base_context)
             except Exception:  # noqa: BLE001 — the durable writer already committed; never invite a retry
