@@ -18,6 +18,12 @@ CONTRACT = {
 
 @cost.declaration(CONTRACT)
 class TestInventory(unittest.TestCase):
+    def test_unreachable_definitions_and_shadowed_classes_are_not_silently_lost(self):
+        source = 'class T:\n def test_a(self): pass\nclass T:\n def test_a(self): return 1\n'
+        census = cost.static_census({'test_example.py': source}, 'a'*40)
+        self.assertTrue(cost.duplicate_findings(census, {}))
+        self.assertTrue(any('orphan test definition' in f for f in cost.inventory_findings([], census, {})))
+
     def test_budget_growth_and_exception_expiry_cannot_reuse_old_permission(self):
         from selftest_support import TestClock
         counts = {**cost.zeros(), 'processes': 3}
@@ -110,6 +116,22 @@ class TestInventory(unittest.TestCase):
                               'schema_decodes': 100, 'metaschema_validations': 10,
                               'whole_tree_fixtures': 2, 'nested_journeys': 10}})
 class TestResourceObservation(unittest.TestCase):
+    def test_direct_decoder_and_background_work_cannot_disappear_or_borrow_main_owner(self):
+        import threading
+        decoder = json.JSONDecoder()
+        decode = decoder.decode
+        with cost.Recorder() as observer:
+            observer.start_case({'id': 'main', 'occurrence': 1})
+            decode('{"type": "object"}')
+            thread = threading.Thread(target=lambda: decoder.raw_decode('{"type": "array"}'))
+            thread.start()
+            thread.join()
+            observer.stop_case()
+        record = observer.document(source={}, scope='full', complete=True, process_exit=0)
+        self.assertEqual(record['totals']['schema_decodes'], 2)
+        self.assertEqual(observer.owners['unattributed:thread']['schema_decodes'], 1)
+        self.assertIn('background-thread resource ownership is unattributed', record['unknown'])
+
     def test_nested_journey_counts_once_and_keeps_work_owned_by_outer_case(self):
         import io
         class Inner(unittest.TestCase):

@@ -114,6 +114,13 @@ def static_census(sources, source_commit):
             visit(cls.body, (*prefix, cls.name), path)
     for path, source in sorted(sources.items()):
         visit(ast.parse(source, filename=path).body, (), path)
+    shadowed = {}
+    for definition in definitions:
+        shadowed.setdefault((definition['path'], definition['qualified_name']), []).append(definition)
+    for (path, name), group in shadowed.items():
+        if len(group) > 1:
+            duplicates.append({'path': path, 'qualified_name': name, 'source_commit': source_commit,
+                               'occurrences': len(group), 'ast_digest': digest([d['ast_digest'] for d in group])})
     return {'source_commit': source_commit, 'definitions': definitions, 'duplicates': duplicates}
 
 
@@ -136,9 +143,10 @@ def duplicate_findings(census, enrollment):
 
 def runtime_inventory(cases, root=ROOT):
     """Map real cases to defining functions, including inherited methods; unknown stays explicit."""
+    from selftest_results import text
     records, occurrences = [], Counter()
     for case in cases:
-        name = case.id()
+        name = text(case.id())
         occurrences[name] += 1
         method = getattr(case, getattr(case, '_testMethodName', ''), None)
         try:
@@ -170,7 +178,7 @@ def inventory_findings(runtime, census, legacy, mappings=()):
     mapped = {case_key(m['target']): m for m in mappings if m.get('target')}
     if len(mapped) != sum(bool(m.get('target')) for m in mappings):
         return ['duplicate runtime mapping']
-    findings, seen = [], set()
+    findings, seen, used_definitions = [], set(), set()
     for case in runtime:
         key = case_key(case)
         if key in seen:
@@ -184,6 +192,8 @@ def inventory_findings(runtime, census, legacy, mappings=()):
             definition = definitions.get((mapping.get('path'), mapping.get('qualified_name')))
         if not definition:
             findings.append('unmapped runtime case: ' + str(key))
+        else:
+            used_definitions.add((definition['path'], definition['qualified_name']))
         prior = old.get(key)
         unchanged = (prior and definition and prior.get('source_digest') == definition['ast_digest']
                      and prior.get('path') == definition['path']
@@ -200,6 +210,8 @@ def inventory_findings(runtime, census, legacy, mappings=()):
     for target in mapped:
         if target not in seen:
             findings.append('orphan runtime mapping: ' + str(target))
+    for key in definitions.keys() - used_definitions:
+        findings.append('orphan test definition: ' + ':'.join(key))
     removed = set(old) - seen
     for key in removed:
         allowed = [m for m in mappings if m.get('source') and case_key(m['source']) == key
@@ -266,6 +278,8 @@ def _audit(name, args):
 class Recorder:
     """Bounded exclusive counters; no full traces, sleeps, subprocess rewriting or test mocks."""
     def __init__(self, *, max_owners=200000, max_counter=2147483647):
+        import threading
+        self.thread_id = threading.get_ident()
         self.max_owners, self.max_counter = max_owners, max_counter
         self.owners = {}
         self.owner = 'unattributed'
@@ -277,14 +291,19 @@ class Recorder:
         self.popen_depth = 0
 
     def count(self, resource, amount=1):
+        import threading
         if self.suspended:
             return
-        if self.owner not in self.owners:
+        owner = self.owner
+        if threading.get_ident() != self.thread_id:
+            owner = 'unattributed:thread'
+            self.unknown.add('background-thread resource ownership is unattributed')
+        if owner not in self.owners:
             if len(self.owners) >= self.max_owners:
                 self.unknown.add('owner counter capacity exceeded')
                 return
-            self.owners[self.owner] = zeros()
-        counts = self.owners[self.owner]
+            self.owners[owner] = zeros()
+        counts = self.owners[owner]
         value = counts[resource] + amount
         if value > self.max_counter:
             self.unknown.add('resource counter capacity exceeded')
@@ -341,7 +360,7 @@ class Recorder:
                 return prior_run(*args, **kwargs)
             unittest.TextTestRunner.run = nested_run
             self.restores.append((unittest.TextTestRunner, 'run', prior_run))
-            self._wrap(json.JSONDecoder, 'decode', 'schema_decodes')
+            self._wrap(json.JSONDecoder, 'raw_decode', 'schema_decodes')
             for name in ('Draft3Validator', 'Draft4Validator', 'Draft6Validator', 'Draft7Validator',
                          'Draft201909Validator', 'Draft202012Validator'):
                 cls = getattr(jsonschema, name)
