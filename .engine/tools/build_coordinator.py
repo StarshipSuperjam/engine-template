@@ -4116,7 +4116,7 @@ def _classification_anchor(state: dict, rounds: list, head: str) -> tuple[str, s
                    amend or a local rebase. Routine, and NOT a base change.
       `refreshed`  the deliverable review was re-cut and completed AFTER the previous round's end, so
                    this round is measured from that newer review, not from the round. The commits
-                   between are named as skipped; nothing about the branch changed, so this marking is
+                   after the round's end, up to and including that review, are named as skipped; nothing about the branch changed, so this marking is
                    disclosure only and does NOT suppress the growth comparison
                    (StarshipSuperjam/engine-template#1306).
 
@@ -4203,18 +4203,20 @@ def _refreshed_note(entry: dict, previous: dict | None) -> str:
     text is the ledger's only account of why the round did not start where the previous one ended."""
     anchor = entry.get("anchor") or entry.get("reviewed_commit") or ""
     count = _commit_count(previous["final_commit"], anchor) if previous and anchor else None
-    # The count includes the refreshed review's own commit, so the span is named as running UP TO AND
-    # INCLUDING that review, and the covered-commits clause is its own statement so it cannot read as
-    # the review covering itself.
+    # The count includes the refreshed review's own commit, so the span is named as running AFTER the
+    # round's end UP TO AND INCLUDING that refresh -- never "from" the round's end, which would describe
+    # one commit more than the count. The refresh is named once and then called "it", and the skipped
+    # commits are "already reviewed" in their own clause, so nothing can read as the review covering
+    # itself, and the sentence stays readable.
     if count is None:
-        skipped, covered = "an unmeasured number of commits", "them"
+        skipped, verb = "an unmeasured number of commits", "are"
     elif count == 1:
-        skipped, covered = "the 1 commit", "it"
+        skipped, verb = "the 1 commit", "is"
     else:
-        skipped, covered = f"the {count} commits", "them"
-    return (f" (the deliverable review was refreshed at {anchor[:12]} after the previous round ended, so "
-            f"this round is measured from that review, skipping {skipped} from the previous round's end "
-            f"up to and including the refreshed review; that review already covered {covered})")
+        skipped, verb = f"the {count} commits", "are"
+    return (f" (the deliverable review was refreshed at {anchor[:12]} after the previous round ended; this "
+            f"round is measured from that refresh, so {skipped} after the previous round's end, up to "
+            f"and including it, {verb} skipped as already reviewed)")
 
 
 # Each marking is one fact about WHY a round was not measured from the previous round's end, with the
