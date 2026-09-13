@@ -2544,7 +2544,7 @@ class TestValidationRepairAndStatus(CandidateInventoryFixture):
         self.assertEqual(latest["reviewed_commit"], HEAD_C)
         # The marking is disclosure: it names the review the round is measured from and what was skipped.
         self.assertIn(f"refreshed at {HEAD_C[:12]}", out)
-        self.assertIn("skipping 2 commits between the previous round's end and the refreshed review", out)
+        self.assertIn("skipping the 2 commits from the previous round's end up to and including the refreshed review", out)
         self.assertNotIn("the base moved", out)
         self.assertNotIn("no longer on this branch", out)
 
@@ -2667,7 +2667,7 @@ class TestValidationRepairAndStatus(CandidateInventoryFixture):
         self.store.mutate(lambda s: s.update({"repair_rounds": rounds}))
         with mock.patch.object(bc, "_commit_count", return_value=3):
             rendered = "\n".join(bc._repair_round_lines(self.state()))
-        self.assertIn("skipping 3 commits between", rendered)
+        self.assertIn("skipping the 3 commits from the previous round's end", rendered)
         self.assertIn("widening", rendered)
 
     def test_the_refreshed_disclosure_reads_as_one_sentence_in_every_case(self):
@@ -2682,14 +2682,18 @@ class TestValidationRepairAndStatus(CandidateInventoryFixture):
                 return bc._refreshed_note(entry, previous)
         head = (f" (the deliverable review was refreshed at {HEAD_C[:12]} after the previous round ended, "
                 "so this round is measured from that review, skipping ")
-        tail = " between the previous round's end and the refreshed review, which that review already covered)"
-        self.assertEqual(head + "2 commits" + tail, rendered(2))
-        self.assertEqual(head + "1 commit" + tail, rendered(1))
-        self.assertEqual(head + "an unmeasured number of commits" + tail, rendered(None))
+        tail = " from the previous round's end up to and including the refreshed review; that review already covered "
+        self.assertEqual(head + "the 2 commits" + tail + "them)", rendered(2))
+        self.assertEqual(head + "the 1 commit" + tail + "it)", rendered(1))
+        self.assertEqual(head + "an unmeasured number of commits" + tail + "them)", rendered(None))
         for text in (rendered(2), rendered(1), rendered(None)):
             self.assertNotIn("commit(s)", text)
             self.assertNotIn("the an ", text)
             self.assertNotIn("and it that", text)
+            # The count includes the refreshed review's own commit, so "between" understated it by one;
+            # and "which" bound to the review, reading as a review covering itself (#1306 repair round).
+            self.assertNotIn("between", text)
+            self.assertNotIn("review, which", text)
 
     def test_a_branch_reset_cannot_delete_a_dispatched_round_and_refund_its_slot(self):
         # Matching ANY round with this commit pair let a reset back to an older round's head erase that
@@ -8337,6 +8341,18 @@ class TestFrozenBuildContracts(CoordinatorCase):
         self.assertTrue(entry["contribution_identical"], entry)
         self.assertEqual(rewritten, state["reviews"]["deliverable"]["reviewed_commit"])
         self.assertEqual(target, state["reviews"]["deliverable"]["base_commit"])
+        # One step further: the reconcile was recorded FROM the refreshed review, and that retires the
+        # round behind it. The next anchor is the re-anchored review on the branch, marked `reconcile`
+        # -- never the round's orphaned end, and never "rewritten" with a reconcile on record.
+        after = repo.commit("src.py", "fix after the rebase")
+        with mock.patch.object(bc, "ROOT", repo.repo):
+            self.assertTrue(bc._reconciled_past(state, previous_end))
+            self.assertFalse(bc._reconciled_past(state, after))
+            self.assertEqual(rewritten, bc._effective_reviewed(state, after))
+            self.assertEqual(rewritten, bc._effective_reviewed(state))
+            self.assertEqual((rewritten, "reconcile"),
+                             bc._classification_anchor(state, state["repair_rounds"], after))
+            self.assertFalse(bc._history_was_rewritten(state, after))
 
     def test_a_carried_original_receipt_earns_the_scoped_round_exemption_over_real_git(self):
         repo, original, _, refreshed, lens = self._real_refreshed_review(round_first=False)

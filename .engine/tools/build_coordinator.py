@@ -3755,7 +3755,7 @@ def _effective_reviewed(state: dict, head: str | None = None) -> str | None:
         # Once a reconcile has re-anchored past that commit, the deliverable binding it wrote is newer and
         # the repair record is history; anchoring on it there made `repair assess` measure `orphan..head`,
         # a span carrying the upstream commits the rebase pulled in, and burn a fabricated round.
-        superseded = any(item["from_commit"] == final for item in state.get("reconciles", []))
+        superseded = _reconciled_past(state, final)
         # A deliverable review REFRESHED past the completed round is newer than the round, and the
         # whole panel read up to it; the review stands there, not at the round's end. Read off the
         # evidence (receipts at the refreshed commit, panel complete) rather than off commit shape, so
@@ -3763,6 +3763,26 @@ def _effective_reviewed(state: dict, head: str | None = None) -> str | None:
         if not superseded and not _refreshed_after(state, final, head):
             return final
     return reviewed
+
+
+def _reconciled_past(state: dict, commit: str) -> bool:
+    """Whether a recorded reconcile re-anchored the review FROM `commit`, or from a commit after it.
+
+    A reconcile measures a rewrite from whatever was last reviewed. After a REFRESHED deliverable
+    review that is the refreshed commit, not the completed round's end behind it, so a round is retired
+    by a reconcile recorded from its own final commit or from any commit descending from it. Matching
+    the round's end alone left a round that a refresh had already moved past looking live after the
+    rebase: `_effective_reviewed` then fell back to its orphaned end and `_classification_anchor` called
+    the rewrite routine with "no reconcile recorded" -- a false statement about the operator's branch
+    (StarshipSuperjam/engine-template#1306). Ancestry is only consulted when both commits are readable,
+    so an unreadable object never passes as a descendant."""
+    for item in state.get("reconciles", []):
+        source = item["from_commit"]
+        if source == commit:
+            return True
+        if _commit_present(commit) and _commit_present(source) and _is_ancestor(commit, source):
+            return True
+    return False
 
 
 def _refreshed_after(state: dict, commit: str, head: str | None = None) -> bool:
@@ -4090,7 +4110,8 @@ def _classification_anchor(state: dict, rounds: list, head: str) -> tuple[str, s
     telling an operator "after a base change" when a session merely amended a commit is a false statement
     about their branch:
 
-      `reconcile`  a recorded reconcile re-anchored the review; the base really did move.
+      `reconcile`  a recorded reconcile re-anchored the review, from the previous round's end or from
+                   a refreshed review after it; the base really did move.
       `rewritten`  the previous round's commit is no longer reachable, with no reconcile recorded — an
                    amend or a local rebase. Routine, and NOT a base change.
       `refreshed`  the deliverable review was re-cut and completed AFTER the previous round's end, so
@@ -4115,7 +4136,7 @@ def _classification_anchor(state: dict, rounds: list, head: str) -> tuple[str, s
                        for item in state.get("reconciles", []))
         return reviewed, ("reconcile" if spanning else None)
     prior_final = rounds[-1]["final_commit"]
-    if any(item["from_commit"] == prior_final for item in state.get("reconciles", [])):
+    if _reconciled_past(state, prior_final):
         return reviewed, "reconcile"
     if not _commit_present(prior_final) or not _is_ancestor(prior_final, head):
         return reviewed, "rewritten"
@@ -4182,13 +4203,18 @@ def _refreshed_note(entry: dict, previous: dict | None) -> str:
     text is the ledger's only account of why the round did not start where the previous one ended."""
     anchor = entry.get("anchor") or entry.get("reviewed_commit") or ""
     count = _commit_count(previous["final_commit"], anchor) if previous and anchor else None
+    # The count includes the refreshed review's own commit, so the span is named as running UP TO AND
+    # INCLUDING that review, and the covered-commits clause is its own statement so it cannot read as
+    # the review covering itself.
     if count is None:
-        skipped = "an unmeasured number of commits"
+        skipped, covered = "an unmeasured number of commits", "them"
+    elif count == 1:
+        skipped, covered = "the 1 commit", "it"
     else:
-        skipped = f"{count} commit" + ("" if count == 1 else "s")
+        skipped, covered = f"the {count} commits", "them"
     return (f" (the deliverable review was refreshed at {anchor[:12]} after the previous round ended, so "
-            f"this round is measured from that review, skipping {skipped} between the previous round's "
-            "end and the refreshed review, which that review already covered)")
+            f"this round is measured from that review, skipping {skipped} from the previous round's end "
+            f"up to and including the refreshed review; that review already covered {covered})")
 
 
 # Each marking is one fact about WHY a round was not measured from the previous round's end, with the
