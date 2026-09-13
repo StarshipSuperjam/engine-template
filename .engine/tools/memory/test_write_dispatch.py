@@ -19,6 +19,7 @@ module docstring says.
 
 from __future__ import annotations
 
+import errno
 import io
 import json
 import os
@@ -180,10 +181,103 @@ class ClassifyOutcomeTests(unittest.TestCase):
         self.assertEqual(out, {"outcome": "committed", "response": {"id": "r1", "text": "t", "total": 1}})
 
     def test_a_response_carrying_a_refusal_is_the_refused_outcome(self):
+        # No begin line: the child was held BEFORE the write body, so no bytes can have landed and the refusal
+        # is taken at its word without consulting the disk.
         out = self._classify(
             self._stdout({"event": "response", "response": {"refused": "writing is held"}}),
             read_back=self._forbidden_read_back)
         self.assertEqual(out, {"outcome": "refused", "sentence": "writing is held"})
+
+    # -- round 7 (operator-raised): a refusal after a begin line is reconciled against the ledger ---------
+    def test_a_refusal_after_a_begin_line_whose_record_is_on_disk_is_committed_not_refused(self):
+        # The writer's catch-all says "nothing was saved" for any exception in its critical section, including
+        # one raised AFTER the bytes were appended (an I/O error in the ledger flush). The disk is the
+        # authority: a readable record under a refusal is a LANDED write, reported saved with an honest note.
+        stored = {"id": "r1", "text": "t", records.PIN_VIA_KEY: records.PIN_VIA_ASSISTANT}
+        consulted = []
+
+        def found(rid):
+            consulted.append(rid)
+            return stored
+
+        out = self._classify(
+            self._stdout({"event": "begin", "id": "r1"},
+                         {"event": "response", "response": {"refused": "the pin could not be saved — an internal "
+                                                                       "memory-write step did not complete, so "
+                                                                       "nothing was saved."}}),
+            returncode=0, verb="pin", read_back=found)
+        self.assertEqual(consulted, ["r1"])                            # reconciled against the begin id
+        self.assertEqual(out["outcome"], "committed")
+        self.assertEqual(out["response"]["id"], "r1")
+        self.assertEqual(out["response"]["text"], "t")
+        self.assertEqual(out["response"]["unconfirmed"], write_dispatch._RECONCILED_NOTE)
+        self.assertNotIn("nothing was saved", json.dumps(out).lower())
+        self.assertNotIn("sentence", out)
+
+    def test_a_refusal_after_a_begin_line_is_reconciled_per_verb(self):
+        # A withhold or restore marker found on disk under a refusal is that verb's landed write, not a pin's.
+        for verb, key in (("withhold", "withheld"), ("restore", "restored")):
+            with self.subTest(verb=verb):
+                marker = {"id": "m1", "kind": verb}
+                out = self._classify(
+                    self._stdout({"event": "begin", "id": "m1"},
+                                 {"event": "response", "response": {"refused": "so nothing was changed."}}),
+                    verb=verb, request={"verb": verb, "record_id": "r9"}, read_back=lambda rid: marker)
+                self.assertEqual(out["outcome"], "committed")
+                self.assertIn(key, out["response"])
+                self.assertEqual(out["response"]["unconfirmed"], write_dispatch._RECONCILED_NOTE)
+
+    def test_a_refusal_after_a_begin_line_with_an_unreadable_ledger_is_unconfirmed_never_refused(self):
+        # Absence was never established, so "nothing was saved" cannot be claimed: the write stays
+        # unconfirmed, whether or not the child is alive, and the reply says the ledger could not be read.
+        def unreadable(rid):
+            raise write_dispatch.ReadBackUnavailable("permission denied")
+
+        for child_alive in (False, True):
+            with self.subTest(child_alive=child_alive):
+                out = self._classify(
+                    self._stdout({"event": "begin", "id": "r1"},
+                                 {"event": "response", "response": {"refused": "nothing was saved."}}),
+                    returncode=0, verb="pin", read_back=unreadable, child_alive=child_alive)
+                self.assertEqual(out["outcome"], "unconfirmed")
+                self.assertEqual(out["response"]["id"], "r1")
+                self.assertEqual(out["response"]["unconfirmed"], write_dispatch._UNRESOLVED_NOTE)
+                self.assertNotIn("nothing was saved", json.dumps(out).lower())
+                self.assertNotIn("returncode", out)
+
+    def test_a_refusal_after_a_begin_line_stands_when_the_ledger_was_searched_and_holds_nothing(self):
+        # Searched-and-absent is the ONE read-back answer that lets the child's refusal through unchanged:
+        # a held lock, a bad target, or an exception before the append all leave nothing on disk.
+        consulted = []
+
+        def absent(rid):
+            consulted.append(rid)
+            return None
+
+        out = self._classify(
+            self._stdout({"event": "begin", "id": "r1"},
+                         {"event": "response",
+                          "response": {"refused": "another memory write is in progress, so nothing was saved."}}),
+            returncode=0, verb="pin", read_back=absent)
+        self.assertEqual(consulted, ["r1"])
+        self.assertEqual(out, {"outcome": "refused",
+                               "sentence": "another memory write is in progress, so nothing was saved."})
+
+    def test_a_refusal_after_a_begin_line_with_no_read_back_available_stands(self):
+        # No read-back was handed in (nothing to reconcile with): the refusal is relayed as the child said it.
+        out = self._classify(
+            self._stdout({"event": "begin", "id": "r1"},
+                         {"event": "response", "response": {"refused": "held"}}),
+            returncode=0, verb="pin", read_back=None)
+        self.assertEqual(out, {"outcome": "refused", "sentence": "held"})
+
+    def test_a_refusal_after_a_begin_line_without_a_usable_id_stands(self):
+        # A begin line with no usable id gives the reconciliation nothing to look for; the disk is not consulted.
+        out = self._classify(
+            self._stdout({"event": "begin", "id": ""},
+                         {"event": "response", "response": {"refused": "held"}}),
+            returncode=0, verb="pin", read_back=self._forbidden_read_back)
+        self.assertEqual(out, {"outcome": "refused", "sentence": "held"})
 
     # -- a well-formed receipt is a landed write (DH-1) ----------------------------------------------------
     def test_a_wellformed_committed_receipt_is_trusted_without_a_read_back(self):
@@ -608,6 +702,43 @@ class SpawnReapTests(_Base):
         self.assertEqual(outcome["response"]["id"], rid)
         self.assertEqual(recorded, [])                                  # a recovered write is not stranded
 
+    def test_a_child_that_refuses_after_its_record_landed_is_committed_by_read_back_and_not_stranded(self):
+        # Round 7: the child's stdout is a begin line and a "nothing was saved" refusal, but the record with
+        # the begin id IS in the ledger (the flush failed after the append). The launcher reconciles through
+        # the real read-back and reports committed; nothing is written to the stranding log.
+        landed = write_dispatch.run_child({"verb": "pin", "text": "landed before the flush failed"})
+        rid = landed["id"]
+        stdout = "\n".join(json.dumps(e, sort_keys=True, separators=(",", ":")) for e in (
+            {"event": "begin", "id": rid},
+            {"event": "response", "response": {"refused": "the pin could not be saved — an internal memory-write "
+                                                          "step did not complete, so nothing was saved."}},
+        ))
+        proc = _FakeProc(stdout=stdout, returncode=0)
+        captured = {}
+        recorded, recpatch = self._capture_recording()
+        with self._patch_popen(proc, captured), recpatch:
+            outcome = write_dispatch._spawn_accepted_child({"verb": "pin", "text": "landed before the flush failed"})
+        self.assertEqual(outcome["outcome"], "committed")
+        self.assertEqual(outcome["response"]["id"], rid)
+        self.assertEqual(outcome["response"]["text"], "landed before the flush failed")
+        self.assertEqual(outcome["response"]["unconfirmed"], write_dispatch._RECONCILED_NOTE)
+        self.assertEqual(recorded, [])                                  # a recovered write is not stranded
+
+    def test_a_child_that_refuses_after_a_begin_line_with_nothing_on_disk_is_refused_and_not_stranded(self):
+        # The lock-contention shape: begin printed, then a refusal, and the ledger searched holds no such id.
+        stdout = "\n".join(json.dumps(e, sort_keys=True, separators=(",", ":")) for e in (
+            {"event": "begin", "id": "never-appended"},
+            {"event": "response", "response": {"refused": "another memory write is in progress, so nothing was saved."}},
+        ))
+        proc = _FakeProc(stdout=stdout, returncode=0)
+        captured = {}
+        recorded, recpatch = self._capture_recording()
+        with self._patch_popen(proc, captured), recpatch:
+            outcome = write_dispatch._spawn_accepted_child({"verb": "pin", "text": "x"})
+        self.assertEqual(outcome["outcome"], "refused")
+        self.assertIn("another memory write is in progress", outcome["sentence"])
+        self.assertEqual(recorded, [])                                  # a refusal is not a stranding
+
     def test_a_stuck_child_with_nothing_on_disk_is_faulted_and_recorded(self):
         # DH-2/DH-3: begin-only, killed and reaped, and nothing on disk — a genuine fault, recorded to the
         # stranding log with the child's signalled exit threaded through.
@@ -932,6 +1063,69 @@ class MainRoundTripTests(_Base):
         self.assertEqual(outcome["outcome"], "committed")
         self.assertEqual(outcome["response"]["text"], "a round trip")
         self.assertEqual([r[records.RECORD_ID_KEY] for r in self._pins()], [outcome["response"]["id"]])
+
+    # -- round 7 (operator-raised): an I/O error in the ledger flush after the bytes landed ----------------
+    def _flush_fails_after_the_bytes_land(self):
+        """Inject an I/O error into the ledger flush (`os.fsync` on the ledger fd) AFTER the record's bytes have
+        been written. `ledger.append` fsyncs once, after its write loop, so the failure lands exactly there; the
+        sidecar writes use the guarded durable fsync, which degrades rather than raises."""
+        return mock.patch.object(write_dispatch.ledger.os, "fsync",
+                                 side_effect=OSError(errno.EIO, "injected: the flush failed"))
+
+    def test_an_io_error_in_the_ledger_flush_that_leaves_a_readable_pin_is_reported_saved_not_refused(self):
+        # The observed defect: the child's catch-all reports "nothing was saved" over a record that IS on disk.
+        # The parent must reconcile against the ledger before believing that, and report the pin as saved.
+        request = {"verb": "pin", "text": "a note the flush failed on"}
+        with self._flush_fails_after_the_bytes_land():
+            code, printed = self._run_main(request)
+        events = [json.loads(line) for line in printed.splitlines() if line.strip()]
+        self.assertEqual([e["event"] for e in events], ["begin", "response"])   # a refusal, no receipt
+        self.assertIn("nothing was saved", events[-1]["response"]["refused"])   # the child's own (false) word
+        begin_id = events[0]["id"]
+        stored = self._pins()
+        self.assertEqual([r[records.RECORD_ID_KEY] for r in stored], [begin_id])  # readable on disk
+        self.assertEqual(stored[0]["text"], "a note the flush failed on")
+        outcome = write_dispatch._classify_outcome(
+            printed, returncode=code, verb="pin", request=request,
+            read_back=write_dispatch._ledger_read_back, child_alive=False)
+        self.assertEqual(outcome["outcome"], "committed")
+        self.assertEqual(outcome["response"]["id"], begin_id)
+        self.assertEqual(outcome["response"]["text"], "a note the flush failed on")
+        self.assertEqual(outcome["response"]["unconfirmed"], write_dispatch._RECONCILED_NOTE)
+        self.assertNotIn("nothing was saved", json.dumps(outcome).lower())
+        # And through the relay: the operator gets the saved note back, never a refusal.
+        out = write_dispatch.dispatch(request, run=lambda req: outcome)
+        self.assertEqual(out["id"], begin_id)
+
+    def test_the_same_injected_flush_error_with_an_unreadable_ledger_stays_unconfirmed(self):
+        # Uncertain outcomes remain unconfirmed: the record may be on disk, but with the ledger unreadable at
+        # read-back time neither "saved" nor "nothing was saved" is honest.
+        request = {"verb": "pin", "text": "a note nobody can confirm"}
+        with self._flush_fails_after_the_bytes_land():
+            code, printed = self._run_main(request)
+        begin_id = json.loads(printed.splitlines()[0])["id"]
+        with mock.patch.object(write_dispatch.ledger, "read", side_effect=PermissionError("denied")):
+            outcome = write_dispatch._classify_outcome(
+                printed, returncode=code, verb="pin", request=request,
+                read_back=write_dispatch._ledger_read_back, child_alive=False)
+        self.assertEqual(outcome["outcome"], "unconfirmed")
+        self.assertEqual(outcome["response"]["id"], begin_id)
+        self.assertEqual(outcome["response"]["unconfirmed"], write_dispatch._UNRESOLVED_NOTE)
+        self.assertNotIn("nothing was saved", json.dumps(outcome).lower())
+
+    def test_a_refusal_before_the_write_body_is_relayed_without_a_ledger_read(self):
+        # Contrast: a request refused BEFORE the write body (a rejected verb payload, here an empty pin text)
+        # prints no begin line and is relayed as refused with nothing on disk.
+        code, printed = self._run_main({"verb": "pin", "text": "   "})
+        events = [json.loads(line) for line in printed.splitlines() if line.strip()]
+        self.assertEqual([e["event"] for e in events], ["response"])
+        self.assertIn("refused", events[0]["response"])
+        outcome = write_dispatch._classify_outcome(
+            printed, returncode=code, verb="pin", request={"verb": "pin", "text": "   "},
+            read_back=lambda rid: self.fail("no begin line: the ledger must not be consulted"),
+            child_alive=False)
+        self.assertEqual(outcome["outcome"], "refused")
+        self.assertEqual(self._pins(), [])
 
     def test_empty_stdin_is_read_as_an_empty_request_and_faults_on_the_missing_verb(self):
         with mock.patch.object(sys, "stdin", io.StringIO("")):

@@ -199,6 +199,13 @@ _STILL_UNCONFIRMED_NOTE = (
     "This may still be completing and was not confirmed. Nothing was retried. Give it a moment, then check "
     "with a search before saving it again.")
 
+#: A write the child REPORTED as refused after it had begun, whose record is nonetheless on disk: the bytes
+#: landed and a later step (the flush, the lock release) failed inside the writer's catch-all, whose sentence
+#: says "nothing was saved". The disk is the authority; the reply is rebuilt from the stored record.
+_RECONCILED_NOTE = (
+    "This was saved — the note is on disk — although the write reported that it was not: a step after the "
+    "bytes landed did not complete. Nothing was retried.")
+
 #: A write that reached its commit step whose outcome could not be confirmed because the memory ledger could
 #: not be read back: neither a success nor "nothing saved" can honestly be claimed.
 _UNRESOLVED_NOTE = (
@@ -414,7 +421,9 @@ def _classify_outcome(stdout, *, returncode, verb, request, read_back, child_ali
 
       committed   — a COMPLETE response line, OR a well-formed committed/already_pinned receipt, OR a
                     positive read-back of the pre-minted id: the write LANDED.
-      refused     — a response line carrying the child's plain refusal sentence.
+      refused     — a response line carrying the child's plain refusal sentence — but a refusal printed
+                    AFTER a begin line is reconciled against the ledger first (found -> committed, could
+                    not read -> unconfirmed) and stands only when the ledger was searched and holds nothing.
       unconfirmed — a begin line, no commit evidence, and either the child is still alive (it may yet
                     commit) or the read-back could not be performed (absence cannot be established): this
                     is NEVER reported as nothing-saved.
@@ -443,7 +452,8 @@ def _classify_outcome(stdout, *, returncode, verb, request, read_back, child_ali
         payload = response_event.get("response")
         if _valid_response(verb, payload):
             if "refused" in payload:
-                return {"outcome": "refused", "sentence": payload["refused"]}
+                return _reconcile_refusal(payload["refused"], verb=verb, request=request,
+                                          begin_id=begin_id, read_back=read_back)
             return {"outcome": "committed", "response": payload}
 
     # 2. A WELL-FORMED committed/already_pinned receipt for THIS write. A malformed receipt is not trusted
@@ -491,23 +501,47 @@ def _classify_outcome(stdout, *, returncode, verb, request, read_back, child_ali
     return {"outcome": "faulted", "returncode": returncode}
 
 
+def _reconcile_refusal(sentence: str, *, verb: str, request: dict, begin_id, read_back) -> dict:
+    """Decide whether a child's refusal may be believed. A refusal sentence is the child's WORD, not the
+    disk's: the writer's catch-all says "nothing was saved" for any exception inside its critical section,
+    including one raised AFTER the record's bytes were appended (an I/O error in the ledger flush is the
+    observed case) — so a readable record can sit on disk under a reply that denies it. Before a begin line
+    (the child was held before the write body) no bytes can have landed and the refusal is taken at its word,
+    without touching the ledger. After a begin line the ledger decides, three-state like every other read-back:
+    the record is found -> `committed`, rebuilt from the stored record with the honest `_RECONCILED_NOTE`; the
+    ledger could not be read -> `unconfirmed` (absence was never established, so nothing-saved cannot be
+    claimed); searched and absent -> the refusal stands. Never writes, never retries."""
+    if begin_id is not None and read_back is not None:
+        try:
+            found = read_back(begin_id)
+        except ReadBackUnavailable:
+            return {"outcome": "unconfirmed",
+                    "response": _still_unconfirmed_response(verb, request, begin_id, note=_UNRESOLVED_NOTE)}
+        if found is not None:
+            return {"outcome": "committed",
+                    "response": _committed_response(verb, request, found, note=_RECONCILED_NOTE)}
+    return {"outcome": "refused", "sentence": sentence}
+
+
 def _target_phrase(request: dict) -> str:
     return "that conversation" if request.get("session_id") else "that note"
 
 
-def _committed_response(verb: str, request: dict, record, *, already_pinned: bool = False) -> dict:
+def _committed_response(verb: str, request: dict, record, *, already_pinned: bool = False,
+                        note: str = _UNCONFIRMED_NOTE) -> dict:
     """Rebuild the operator-facing response for a write we KNOW committed (a committed receipt or a positive
-    read-back) when the child's authoritative response line did not make it back. Shaped per verb, so a lost
-    confirmation reads like the verb that actually ran rather than defaulting to a pin, and always carries the
-    honest `_UNCONFIRMED_NOTE`."""
+    read-back) when the child's authoritative response line did not make it back — or, with
+    `note=_RECONCILED_NOTE`, when that line was a refusal the disk contradicts. Shaped per verb, so a lost
+    confirmation reads like the verb that actually ran rather than defaulting to a pin, and always carries an
+    honest note about how the reply was recovered."""
     record = record if isinstance(record, dict) else {}
     if verb == "withhold":
         return {"withheld": f"{_target_phrase(request)} is out of recall now. It is still saved — say the "
-                            "word and it comes back.", "unconfirmed": _UNCONFIRMED_NOTE}
+                            "word and it comes back.", "unconfirmed": note}
     if verb == "restore":
-        return {"restored": f"{_target_phrase(request)} is back in recall.", "unconfirmed": _UNCONFIRMED_NOTE}
+        return {"restored": f"{_target_phrase(request)} is back in recall.", "unconfirmed": note}
     # pin (and any unknown verb, which run_child would already have faulted): return what identity we have.
-    response = {"unconfirmed": _UNCONFIRMED_NOTE}
+    response = {"unconfirmed": note}
     if record.get(records.RECORD_ID_KEY) is not None:
         response["id"] = record.get(records.RECORD_ID_KEY)
     if record.get("text") is not None:
