@@ -31,6 +31,8 @@ class TestInventory(unittest.TestCase):
         self.assertTrue(cost.budget_findings(counts, {**cost.zeros(), 'processes': 2}))
         case = {'id': 'case', 'occurrence': 1}
         exception = {'id': 'debt', 'owner': 'team', 'reason': 'Repair pending',
+                     'supported_fault': 'Preserve a process boundary while its fixture is repaired',
+                     'fault_preservation_evidence': 'The unchanged boundary regression still passes',
                      'revisit': 'Fixture repair', 'issued_at': '2026-09-13T00:00:00Z',
                      'expires_at': '2026-09-14T00:00:00Z', 'case': case, 'resource': 'processes',
                      'ceiling': 3, 'source_commit': 'a'*40}
@@ -42,6 +44,11 @@ class TestInventory(unittest.TestCase):
         self.assertFalse(cost.exception_applies(exception, case, 'processes', 'a'*40, now=now))
         exception['expires_at'] = '2026-09-15T00:00:00Z'
         exception['revisit'] = ''
+        self.assertFalse(cost.exception_applies(exception, case, 'processes', 'a'*40, now=now))
+        exception['revisit'] = 'Fixture repair'
+        exception['fault_preservation_evidence'] = ' '
+        self.assertFalse(cost.exception_applies(exception, case, 'processes', 'a'*40, now=now))
+        del exception['fault_preservation_evidence']
         self.assertFalse(cost.exception_applies(exception, case, 'processes', 'a'*40, now=now))
 
     def test_duplicate_allowance_is_exact_and_does_not_follow_changes_or_growth(self):
@@ -290,6 +297,7 @@ class TestBaselineEnrollment(unittest.TestCase):
         enrolled = cost.enroll_baseline(observation, census, runtime, declarations=[row],
                                        owner='team', reason='Explicit activation', revisit='Review')
         self.assertEqual(enrolled['cases'], [])
+        self.assertIsNone(cost.enrolled_observation(enrolled))
 
     def test_compact_enrollment_refuses_changed_digest_expansion_and_trailing_data(self):
         import base64
@@ -324,6 +332,7 @@ class TestBaselineEnrollment(unittest.TestCase):
         baseline = cost.enroll_baseline(observation, census, runtime, owner='team', reason='Initial debt', revisit='Audit')
         self.assertEqual(baseline['source_commit'], 'a'*40)
         self.assertEqual(baseline['identity']['observer_commit'], 'b'*40)
+        self.assertEqual(cost.enrolled_observation(baseline), observation)
         status = cost.baseline_status(baseline, expected_digest=cost.digest(baseline), observer_commit='b'*40,
                                       observer_digest=observation['identity']['observer_digest'], environment_digest=observation['identity']['environment_digest'])
         self.assertEqual(status['mode'], 'enforced')

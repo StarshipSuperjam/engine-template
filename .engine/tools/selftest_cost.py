@@ -252,6 +252,10 @@ def exception_applies(exception, case, resource, source_commit, *, now, max_seco
         validate_shape(exception, 'test-cost-exception.v1')
     except ValueError:
         return False
+    # Reading an older record is compatible; authorizing it still requires proof.
+    if any(not exception.get(key, '').strip() for key in
+           ('id', 'owner', 'reason', 'revisit', 'supported_fault', 'fault_preservation_evidence')):
+        return False
     start, end, at = (moment.parse_z(value) for value in
                       (exception['issued_at'], exception['expires_at'], now))
     return bool(start and end and at and start <= at < end
@@ -528,6 +532,26 @@ def baseline_status(baseline, *, expected_digest, observer_commit, observer_dige
             'cost_clearance': False, 'reason': reason,
             'required': ['existing correctness checks', 'static test inventory checks',
                          'bounded measurement', 'explicit enrollment review'] if reason else []}
+
+
+def enrolled_observation(baseline):
+    """Recover initial all-legacy evidence only when its recorded digest proves equality.
+
+    Later enrollments may exclude prospective cases or carry scaling observations.
+    Those need their original observation artifact; absent data is not manufactured.
+    """
+    from selftest_results import validate_shape
+    validate_shape(baseline, 'test-cost-baseline.v1')
+    cases = [{'case': row['case'],
+              'owner': 'case:' + json.dumps(row['case'], sort_keys=True, separators=(',', ':')),
+              'counts': row['limits'], 'family': None, 'input_size': None}
+             for row in baseline['cases']]
+    observation = {'schema_version': 'test-cost-observation.v1', 'identity': baseline['identity'],
+                   'complete': True, 'unknown': baseline['unknown'], 'totals': baseline['totals'],
+                   'owners': baseline['owners'], 'cases': cases}
+    if digest(observation) != baseline['observation_digest']:
+        return None
+    return observation
 
 
 def enrollment_context(*, root=ROOT, environment_digest):

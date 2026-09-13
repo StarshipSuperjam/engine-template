@@ -74,6 +74,15 @@
     "source_commit": {
       "type": "string",
       "pattern": "^[0-9a-f]{40}$"
+    },
+    "supported_fault": {
+      "type": "string",
+      "minLength": 1
+    },
+    "fault_preservation_evidence": {
+      "type": "string",
+      "minLength": 1
     }
-  }
+  },
+  "$comment": "Historical records remain readable. Authorization additionally requires nonblank supported_fault and fault_preservation_evidence in selftest_cost.exception_applies."
 }
