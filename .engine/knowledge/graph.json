@@ -222,7 +222,7 @@
       "role": "pre-submission-review",
       "slug": "engine-qa-review-technical-integrity",
       "source": {
-        "fingerprint": "sha256:5a3b32b53b2e4800501ba84061f47637de90e03963b4e8a2b3da1a60a90235db",
+        "fingerprint": "sha256:eb42d7c23282d522b0b7744ba3a9afaeb5525a63f2f04b55f8fc5b2d3d50e6d8",
         "path": ".claude/agents/engine-qa-review-technical-integrity.md"
       },
       "status": "active",
@@ -2995,6 +2995,34 @@
       "type": "check"
     },
     {
+      "id": "check:test-cost",
+      "kind": "custom/script",
+      "name": ".engine/check/test-cost.json",
+      "owner": "core",
+      "predicates": {
+        "enforced_by": [
+          "tool:selftest_cost_check"
+        ],
+        "governed_by": [
+          "schema:check.v1"
+        ],
+        "provided_by": [
+          "module:core"
+        ]
+      },
+      "slug": "test-cost",
+      "source": {
+        "fingerprint": "sha256:9007d9a8d039a7e86d28b338b2499e271e449ec60b816268eae22e97378a16bd",
+        "path": ".engine/check/test-cost.json"
+      },
+      "status": "active",
+      "suites": [
+        "CI"
+      ],
+      "tier": "hard",
+      "type": "check"
+    },
+    {
       "id": "check:untracked-surface",
       "kind": "custom/script",
       "name": ".engine/check/untracked-surface.json",
@@ -3251,7 +3279,7 @@
       },
       "slug": "engine-qa-review-technical-integrity",
       "source": {
-        "fingerprint": "sha256:dc821ebf67e5176c178b70c9bfd0974979e29540700c39db8a5a652a3624eda3",
+        "fingerprint": "sha256:db68fa657b93b61f599cb9271a350568b511c4a51825bc5e24d204869387f153",
         "path": ".codex/agents/engine-qa-review-technical-integrity.toml"
       },
       "status": "active",
@@ -5533,7 +5561,7 @@
       },
       "slug": "core",
       "source": {
-        "fingerprint": "sha256:4615b8b502620ea08de57d2779c95273804f2826e52ada714f9290c9c908240a",
+        "fingerprint": "sha256:2396fc011b9e282bbbabaa1241202c16d5460a9f3c373ed62783628eb02f959a",
         "path": ".engine/modules/core/manifest.json"
       },
       "status": "required",
@@ -5824,7 +5852,7 @@
       },
       "slug": "build-implementation",
       "source": {
-        "fingerprint": "sha256:ea8593b251cd325f3d0cddbf19a60eb615d1361395aafd6a3e98ca51e08eefb4",
+        "fingerprint": "sha256:9fb0f56ee6639149e933357b8fb8614683421ab3e3eb528d1c12b62063533d53",
         "path": ".engine/operations/build-implementation.md"
       },
       "status": "active",
@@ -5944,7 +5972,7 @@
       },
       "slug": "build-validation-and-review",
       "source": {
-        "fingerprint": "sha256:c5185b6a6dff63f109e6033801d95aa25d4510320ecf6e23ab4d9c0b432122f7",
+        "fingerprint": "sha256:177544384a320942bf130a3a13599026efee3b176019731f446bf8d02f9f05d4",
         "path": ".engine/operations/build-validation-and-review.md"
       },
       "status": "active",
@@ -6504,7 +6532,7 @@
       },
       "slug": "plan-orchestration",
       "source": {
-        "fingerprint": "sha256:8d9ba61f8d922dc5c714d16c75ee5a1dc9eabc31452b095802304aeba4728bbb",
+        "fingerprint": "sha256:2ab8b3086932f8d7d44276aa3203d2867e036b5b373726f920a43b9696e53a90",
         "path": ".engine/operations/plan-orchestration.md"
       },
       "status": "active",
@@ -7030,7 +7058,7 @@
       },
       "slug": "agent.v1",
       "source": {
-        "fingerprint": "sha256:4a50e168bf221822fd8745180463d2588f3e94d2274a390f0750ec8374400f19",
+        "fingerprint": "sha256:0145ad598328353acfa881b1006b8be8d98fc51fb5bb2990bc2cd605d36b34c2",
         "path": ".engine/schemas/agent.v1.json"
       },
       "status": "active",
@@ -7190,6 +7218,23 @@
       "type": "schema"
     },
     {
+      "id": "schema:build-plan.v3",
+      "name": ".engine/schemas/build-plan.v3.json",
+      "owner": "core",
+      "predicates": {
+        "provided_by": [
+          "module:core"
+        ]
+      },
+      "slug": "build-plan.v3",
+      "source": {
+        "fingerprint": "sha256:5dd0e4a0672c66d7333bf082e6c1fc649456b1e369142702687df8881d6143e8",
+        "path": ".engine/schemas/build-plan.v3.json"
+      },
+      "status": "active",
+      "type": "schema"
+    },
+    {
       "id": "schema:build-protocol.v1",
       "name": ".engine/schemas/build-protocol.v1.json",
       "owner": "core",
@@ -7217,7 +7262,7 @@
       },
       "slug": "build-state.v2",
       "source": {
-        "fingerprint": "sha256:c45826dcefc61735f4d6339a5bb7124196bc08ad40d3fb5d706e2953f826c135",
+        "fingerprint": "sha256:ff91168a81a6725b0f60e304fef0dbc70d686889efb85e9f3af4dd651c254d69",
         "path": ".engine/schemas/build-state.v2.json"
       },
       "status": "active",
@@ -8016,7 +8061,7 @@
       },
       "slug": "scoped-agent-evidence.v1",
       "source": {
-        "fingerprint": "sha256:568a9cd63c9e155aa0cd5a297cbd5661252fdee761d5df435abbb51cd121b972",
+        "fingerprint": "sha256:3b168b5f16685e9f443ceb55b9937424f30b881dacff64fe9074434f9f9a388e",
         "path": ".engine/schemas/scoped-agent-evidence.v1.json"
       },
       "status": "active",
@@ -8210,6 +8255,23 @@
       "type": "schema"
     },
     {
+      "id": "schema:technical-integrity-review.v1",
+      "name": ".engine/schemas/technical-integrity-review.v1.json",
+      "owner": "core",
+      "predicates": {
+        "provided_by": [
+          "module:core"
+        ]
+      },
+      "slug": "technical-integrity-review.v1",
+      "source": {
+        "fingerprint": "sha256:17115fa700fd0181178f5e97552713beb7e55a11e56d768610e4866e59bc8613",
+        "path": ".engine/schemas/technical-integrity-review.v1.json"
+      },
+      "status": "active",
+      "type": "schema"
+    },
+    {
       "id": "schema:template.v1",
       "name": ".engine/schemas/template.v1.json",
       "owner": "core",
@@ -8222,6 +8284,193 @@
       "source": {
         "fingerprint": "sha256:591cd0e6caaca59b6aea66689dd68b0efe64b73a27c47abd0698ae31916f5279",
         "path": ".engine/schemas/template.v1.json"
+      },
+      "status": "active",
+      "type": "schema"
+    },
+    {
+      "id": "schema:test-cost-activation.v1",
+      "name": ".engine/schemas/test-cost-activation.v1.json",
+      "owner": "core",
+      "predicates": {
+        "provided_by": [
+          "module:core"
+        ]
+      },
+      "slug": "test-cost-activation.v1",
+      "source": {
+        "fingerprint": "sha256:626b3b365d68d9b5c7880cfb785faf2884dd77b9b12aeb321d4450b5778ea256",
+        "path": ".engine/schemas/test-cost-activation.v1.json"
+      },
+      "status": "active",
+      "type": "schema"
+    },
+    {
+      "id": "schema:test-cost-assessment.v1",
+      "name": ".engine/schemas/test-cost-assessment.v1.json",
+      "owner": "core",
+      "predicates": {
+        "provided_by": [
+          "module:core"
+        ]
+      },
+      "slug": "test-cost-assessment.v1",
+      "source": {
+        "fingerprint": "sha256:6daccac0bfe3541f1e032eb68a02a2b4a0766fbe9b35ffba98af07138ee3f30f",
+        "path": ".engine/schemas/test-cost-assessment.v1.json"
+      },
+      "status": "active",
+      "type": "schema"
+    },
+    {
+      "id": "schema:test-cost-baseline.v1",
+      "name": ".engine/schemas/test-cost-baseline.v1.json",
+      "owner": "core",
+      "predicates": {
+        "provided_by": [
+          "module:core"
+        ]
+      },
+      "slug": "test-cost-baseline.v1",
+      "source": {
+        "fingerprint": "sha256:ea4d50d6ebd5975f5264ec6a86a3860e0f21580d90161c70f8a5e3b411c3ca01",
+        "path": ".engine/schemas/test-cost-baseline.v1.json"
+      },
+      "status": "active",
+      "type": "schema"
+    },
+    {
+      "id": "schema:test-cost-bundle.v1",
+      "name": ".engine/schemas/test-cost-bundle.v1.json",
+      "owner": "core",
+      "predicates": {
+        "provided_by": [
+          "module:core"
+        ]
+      },
+      "slug": "test-cost-bundle.v1",
+      "source": {
+        "fingerprint": "sha256:5aecd4e648c2588c53deb1a01ede62dadc03665b18f7aa260c1bf79f639997f9",
+        "path": ".engine/schemas/test-cost-bundle.v1.json"
+      },
+      "status": "active",
+      "type": "schema"
+    },
+    {
+      "id": "schema:test-cost-contract.v1",
+      "name": ".engine/schemas/test-cost-contract.v1.json",
+      "owner": "core",
+      "predicates": {
+        "provided_by": [
+          "module:core"
+        ]
+      },
+      "slug": "test-cost-contract.v1",
+      "source": {
+        "fingerprint": "sha256:cfbc1bbd04deee715d41c51d9247fc6efb61fca763e7575c6e6316c015dd16c6",
+        "path": ".engine/schemas/test-cost-contract.v1.json"
+      },
+      "status": "active",
+      "type": "schema"
+    },
+    {
+      "id": "schema:test-cost-declarations.v1",
+      "name": ".engine/schemas/test-cost-declarations.v1.json",
+      "owner": "core",
+      "predicates": {
+        "provided_by": [
+          "module:core"
+        ]
+      },
+      "slug": "test-cost-declarations.v1",
+      "source": {
+        "fingerprint": "sha256:a415319b8622b51f081886888d12d6964babf6ff1eac401f9a13692bf307e7c6",
+        "path": ".engine/schemas/test-cost-declarations.v1.json"
+      },
+      "status": "active",
+      "type": "schema"
+    },
+    {
+      "id": "schema:test-cost-exception.v1",
+      "name": ".engine/schemas/test-cost-exception.v1.json",
+      "owner": "core",
+      "predicates": {
+        "provided_by": [
+          "module:core"
+        ]
+      },
+      "slug": "test-cost-exception.v1",
+      "source": {
+        "fingerprint": "sha256:bbfa60837ad6bdf505313a311f5fdc028486dda6c498a4b8edcc5b42339282af",
+        "path": ".engine/schemas/test-cost-exception.v1.json"
+      },
+      "status": "active",
+      "type": "schema"
+    },
+    {
+      "id": "schema:test-cost-inventory.v1",
+      "name": ".engine/schemas/test-cost-inventory.v1.json",
+      "owner": "core",
+      "predicates": {
+        "provided_by": [
+          "module:core"
+        ]
+      },
+      "slug": "test-cost-inventory.v1",
+      "source": {
+        "fingerprint": "sha256:462c17def3aebe11c670ae78d23a339369a9c4ed2e28b20c75225bdfd9c344d9",
+        "path": ".engine/schemas/test-cost-inventory.v1.json"
+      },
+      "status": "active",
+      "type": "schema"
+    },
+    {
+      "id": "schema:test-cost-observation.v1",
+      "name": ".engine/schemas/test-cost-observation.v1.json",
+      "owner": "core",
+      "predicates": {
+        "provided_by": [
+          "module:core"
+        ]
+      },
+      "slug": "test-cost-observation.v1",
+      "source": {
+        "fingerprint": "sha256:14eb7f626c99625071b1dcfd03be2ab28101af216c32e5ccbe8a2acf001fbc3e",
+        "path": ".engine/schemas/test-cost-observation.v1.json"
+      },
+      "status": "active",
+      "type": "schema"
+    },
+    {
+      "id": "schema:test-cost-parity-rule.v1",
+      "name": ".engine/schemas/test-cost-parity-rule.v1.json",
+      "owner": "core",
+      "predicates": {
+        "provided_by": [
+          "module:core"
+        ]
+      },
+      "slug": "test-cost-parity-rule.v1",
+      "source": {
+        "fingerprint": "sha256:491f0af85c41e2d1f1480f409b037c413bdc7c5c9398059ac3b50331961954bc",
+        "path": ".engine/schemas/test-cost-parity-rule.v1.json"
+      },
+      "status": "active",
+      "type": "schema"
+    },
+    {
+      "id": "schema:test-cost-run.v1",
+      "name": ".engine/schemas/test-cost-run.v1.json",
+      "owner": "core",
+      "predicates": {
+        "provided_by": [
+          "module:core"
+        ]
+      },
+      "slug": "test-cost-run.v1",
+      "source": {
+        "fingerprint": "sha256:331475f186eb8fca8da6977257b1c769ca0860cd4e222e450bb95ab51a6497ef",
+        "path": ".engine/schemas/test-cost-run.v1.json"
       },
       "status": "active",
       "type": "schema"
@@ -9533,7 +9782,7 @@
       },
       "slug": "agent_coherence_check",
       "source": {
-        "fingerprint": "sha256:99b17a13de65d16dee1178c75543928390442c2d23ac85d347eeee17d766fb0d",
+        "fingerprint": "sha256:46682511b573f7363dc16cfc00e6d1e6b7e58b049ee1c2f50609dc6b69e58003",
         "path": ".engine/tools/agent_coherence_check.py"
       },
       "status": "active",
@@ -9926,6 +10175,8 @@
           "tool:review_integrity",
           "tool:reviewer_contracts",
           "tool:scoped_agents",
+          "tool:selftest_cost",
+          "tool:selftest_results",
           "tool:session_relay",
           "tool:spec_referent",
           "tool:validate",
@@ -9937,7 +10188,7 @@
       },
       "slug": "build_coordinator",
       "source": {
-        "fingerprint": "sha256:454f5d5d1c08edb11b78e0e8d0f88d0f52f5c7e71ecc74c2ee5cdf4eba65bfe7",
+        "fingerprint": "sha256:c7b95f29019c24e7f5058782d8422690d3545cdc25c26112f5f35b0ce3b878a1",
         "path": ".engine/tools/build_coordinator.py"
       },
       "status": "active",
@@ -9993,7 +10244,7 @@
     },
     {
       "entrypoint": "library",
-      "guarded": false,
+      "guarded": true,
       "id": "tool:build_coordinator_dag",
       "name": ".engine/tools/build_coordinator_dag.py",
       "owner": "core",
@@ -10007,7 +10258,7 @@
       },
       "slug": "build_coordinator_dag",
       "source": {
-        "fingerprint": "sha256:a8751d384daa04af8e97da417319fb031020344357d0df17d235bdc4d04883a0",
+        "fingerprint": "sha256:52d96b560f6dc287b32f724aa242bdcf75557b977ce6ba9c2399b131816eae78",
         "path": ".engine/tools/build_coordinator_dag.py"
       },
       "status": "active",
@@ -10074,7 +10325,8 @@
           "tool:close_linkage_preflight",
           "tool:result_contracts",
           "tool:reviewer_contracts",
-          "tool:scoped_agents"
+          "tool:scoped_agents",
+          "tool:selftest_cost"
         ],
         "provided_by": [
           "module:core"
@@ -10082,7 +10334,7 @@
       },
       "slug": "build_coordinator_review",
       "source": {
-        "fingerprint": "sha256:542d1aa3363bb44a95a803b398c3d6e5e4a8bfbed2f1c128517d99e32f07d264",
+        "fingerprint": "sha256:146b76a1a49fc63db2912a59295a53694893b0a77d616d66e037e961cf16a30f",
         "path": ".engine/tools/build_coordinator_review.py"
       },
       "status": "active",
@@ -10124,7 +10376,9 @@
         "imports": [
           "tool:build_coordinator_core",
           "tool:build_coordinator_dag",
-          "tool:result_contracts"
+          "tool:result_contracts",
+          "tool:selftest_cost",
+          "tool:selftest_results"
         ],
         "provided_by": [
           "module:core"
@@ -10132,7 +10386,7 @@
       },
       "slug": "build_coordinator_work",
       "source": {
-        "fingerprint": "sha256:b14c64d48ad2389455a79891c74670ea0cf2c09dec0b3617bcacf9b36e1e0f8a",
+        "fingerprint": "sha256:79f7b5ae13037a38ba2cf32dde23ee674820c9d0961a050bfeb573ebd3ce6351",
         "path": ".engine/tools/build_coordinator_work.py"
       },
       "status": "active",
@@ -10495,7 +10749,7 @@
       },
       "slug": "ci_assurance",
       "source": {
-        "fingerprint": "sha256:791856d66cffdf8d10049e62e16463e02b3612e6c3521cc3fb210f59ca78f25c",
+        "fingerprint": "sha256:b47b0e865524c8eab65d0b19aa65445bbc25389335f998b66fcccf11aa6e71d3",
         "path": ".engine/tools/ci_assurance.py"
       },
       "status": "active",
@@ -10534,11 +10788,15 @@
       "owner": "core",
       "predicates": {
         "imports": [
+          "tool:build_coordinator_core",
+          "tool:build_coordinator_work",
           "tool:change_classification",
           "tool:ci_assurance",
           "tool:github_client",
           "tool:issue_event",
           "tool:moment",
+          "tool:selftest_cost",
+          "tool:selftest_results",
           "tool:validate"
         ],
         "provided_by": [
@@ -10547,7 +10805,7 @@
       },
       "slug": "ci_gatekeeper",
       "source": {
-        "fingerprint": "sha256:34dc31bcff90f490c88711a0bae8ab580bd9bef7e98c8730822b0732e05527e2",
+        "fingerprint": "sha256:02a7a45ef0b78308b8425e3c3c968c893809a35f52318c11a85c6f1499f0bb44",
         "path": ".engine/tools/ci_gatekeeper.py"
       },
       "status": "active",
@@ -12428,6 +12686,32 @@
     },
     {
       "entrypoint": "demo",
+      "guarded": true,
+      "id": "tool:demo_test_cost_contracts",
+      "name": ".engine/tools/demo_test_cost_contracts.py",
+      "owner": "core",
+      "predicates": {
+        "imports": [
+          "tool:build_coordinator_core",
+          "tool:build_coordinator_work",
+          "tool:engine_fixture",
+          "tool:selftest_cost"
+        ],
+        "provided_by": [
+          "module:core"
+        ]
+      },
+      "slug": "demo_test_cost_contracts",
+      "source": {
+        "fingerprint": "sha256:e55ba7c695fc15a2b83e2e656e2435e6eec648f525525a6f5d01abd42c157ac9",
+        "path": ".engine/tools/demo_test_cost_contracts.py"
+      },
+      "status": "active",
+      "summary": "Demonstrate actual resource growth with an unchanged test body, then its repair.",
+      "type": "tool"
+    },
+    {
+      "entrypoint": "demo",
       "guarded": false,
       "id": "tool:demo_uv_workspace_cache",
       "name": ".engine/tools/demo_uv_workspace_cache.py",
@@ -12666,18 +12950,21 @@
     },
     {
       "entrypoint": "library",
-      "guarded": false,
+      "guarded": true,
       "id": "tool:engine_fixture",
       "name": ".engine/tools/engine_fixture.py",
       "owner": "core",
       "predicates": {
+        "imports": [
+          "tool:selftest_cost"
+        ],
         "provided_by": [
           "module:core"
         ]
       },
       "slug": "engine_fixture",
       "source": {
-        "fingerprint": "sha256:68cf6127d1339b17e8949a25661e10e7702d0cf72604e340289fb215a78c271f",
+        "fingerprint": "sha256:4b1662ad052b702fef2e98ed7d4d4b06c04a5cdbc85c178db61c3b6d663c44b6",
         "path": ".engine/tools/engine_fixture.py"
       },
       "status": "active",
@@ -14739,7 +15026,7 @@
       },
       "slug": "plan_contract",
       "source": {
-        "fingerprint": "sha256:e9fd8071f9abffc4194ad560bddc66b44a1178b8734be61de05aa7b96074c3ee",
+        "fingerprint": "sha256:d4cf7ebfdf8e2385d089529b2faec2ca48274adc083636b469bd38c4d5ddb594",
         "path": ".engine/tools/plan_contract.py"
       },
       "status": "active",
@@ -14816,7 +15103,7 @@
       },
       "slug": "plan_projection",
       "source": {
-        "fingerprint": "sha256:0453d0232d7b4d494b105b0d6df5118a3c40e9f64c630b4094ac4052dc18cc3a",
+        "fingerprint": "sha256:4b2740b50c0c7fea36f493a9f048808f61eab9a5cdf92952892d326dd7d4ac56",
         "path": ".engine/tools/plan_projection.py"
       },
       "status": "active",
@@ -15024,7 +15311,7 @@
       },
       "slug": "project_manager",
       "source": {
-        "fingerprint": "sha256:45fccc3c85dd34e07389caad18939098e6e01a7ac1e5a85ae14fed65651578b6",
+        "fingerprint": "sha256:ee858365eb351fd41a80970b6d48bcee8621e373b4b53269995c141036dc98d4",
         "path": ".engine/tools/project_manager.py"
       },
       "status": "active",
@@ -15674,7 +15961,7 @@
       },
       "slug": "result_contracts",
       "source": {
-        "fingerprint": "sha256:42b53faf58e92f910ee37d64a2564bb1de6bf9929fabb383ad7293dd920cae13",
+        "fingerprint": "sha256:f6c092fd7764a3acc0ec355db5f384a49957c7178bdbc18788018196e3c24393",
         "path": ".engine/tools/result_contracts.py"
       },
       "status": "active",
@@ -15771,7 +16058,7 @@
       },
       "slug": "reviewer_contracts",
       "source": {
-        "fingerprint": "sha256:25e35aab210ed6cdfbb4fcfe546f5a577a5dfd8b69eeb48683f1e1067346e0f3",
+        "fingerprint": "sha256:f8f587d65d6998cf26e1763b9f4968ae680ae20af08cf1a54914caa949478e59",
         "path": ".engine/tools/reviewer_contracts.py"
       },
       "status": "active",
@@ -15948,7 +16235,7 @@
       },
       "slug": "scoped_agents",
       "source": {
-        "fingerprint": "sha256:ecdf779c4f91bbfff0e0fccf004bf8ab4d0e19259380dcc082172b4ea6a31f9b",
+        "fingerprint": "sha256:cc776f2d05b6bdfb7471a9d52c8b6b59be2f7b454abfa1b9ae834b2bfd54c7ba",
         "path": ".engine/tools/scoped_agents.py"
       },
       "status": "active",
@@ -16058,6 +16345,7 @@
       "predicates": {
         "imports": [
           "tool:providers",
+          "tool:selftest_cost",
           "tool:selftest_results",
           "tool:selftest_select"
         ],
@@ -16067,11 +16355,64 @@
       },
       "slug": "selftest",
       "source": {
-        "fingerprint": "sha256:d6ecd1e542e3a0d75184e674e10667de87d70454f5448e80b0b266f139c45f6b",
+        "fingerprint": "sha256:6289a38a8934b84a2e9142cc831f309f6f0ae316341ed602b211c3cf2de6b9b0",
         "path": ".engine/tools/selftest.py"
       },
       "status": "active",
       "summary": "Run the full self-test suite once, legibly — the canonical local full-suite launcher.",
+      "type": "tool"
+    },
+    {
+      "entrypoint": "cli",
+      "guarded": true,
+      "id": "tool:selftest_cost",
+      "name": ".engine/tools/selftest_cost.py",
+      "owner": "core",
+      "predicates": {
+        "imports": [
+          "tool:build_coordinator_dag",
+          "tool:engine_fixture",
+          "tool:moment",
+          "tool:providers",
+          "tool:selftest",
+          "tool:selftest_results"
+        ],
+        "provided_by": [
+          "module:core"
+        ]
+      },
+      "slug": "selftest_cost",
+      "source": {
+        "fingerprint": "sha256:7d73ab47377474cc576cfa2efdf9980d31ba6f9e88d253cf943565eab1dbd849",
+        "path": ".engine/tools/selftest_cost.py"
+      },
+      "status": "active",
+      "summary": "Test-cost declarations and evidence at the existing serial selftest boundary.",
+      "type": "tool"
+    },
+    {
+      "entrypoint": "ci",
+      "guarded": true,
+      "id": "tool:selftest_cost_check",
+      "name": ".engine/tools/selftest_cost_check.py",
+      "owner": "core",
+      "predicates": {
+        "imports": [
+          "tool:demo_test_cost_contracts",
+          "tool:selftest_cost",
+          "tool:validate"
+        ],
+        "provided_by": [
+          "module:core"
+        ]
+      },
+      "slug": "selftest_cost_check",
+      "source": {
+        "fingerprint": "sha256:0d75434ed03c2993ed882de29c7edbdda39348c568c48a9231d0d7540e6d68aa",
+        "path": ".engine/tools/selftest_cost_check.py"
+      },
+      "status": "active",
+      "summary": "Required test-cost wiring and static-inventory checks, with actual resource negative controls.",
       "type": "tool"
     },
     {
@@ -16083,6 +16424,7 @@
       "predicates": {
         "imports": [
           "tool:moment",
+          "tool:selftest_cost",
           "tool:selftest_results"
         ],
         "provided_by": [
@@ -16091,7 +16433,7 @@
       },
       "slug": "selftest_performance",
       "source": {
-        "fingerprint": "sha256:9bf5757a50a57dbe0072f558f639005181b2808f40f2ecfde08f23f81b57e983",
+        "fingerprint": "sha256:b40fbc5bf10eab888bb81dc0dc7c66e330e65cf8da953663af3c7445ecb8b2c9",
         "path": ".engine/tools/selftest_performance.py"
       },
       "status": "active",
@@ -16100,7 +16442,7 @@
     },
     {
       "entrypoint": "library",
-      "guarded": false,
+      "guarded": true,
       "id": "tool:selftest_results",
       "name": ".engine/tools/selftest_results.py",
       "owner": "core",
@@ -16111,7 +16453,7 @@
       },
       "slug": "selftest_results",
       "source": {
-        "fingerprint": "sha256:67c9aa969ec1e89ddeb01ac2b993740b32175ec7c3e90021eec83064337d4bd0",
+        "fingerprint": "sha256:ac25dd944cd9baac392a830601864540f6472ecf9f6abf1da528147720c71d7e",
         "path": ".engine/tools/selftest_results.py"
       },
       "status": "active",
@@ -16155,6 +16497,7 @@
           "tool:build_coordinator",
           "tool:hooks_path_health",
           "tool:module_coherence",
+          "tool:moment",
           "tool:project_manager",
           "tool:repo_identity",
           "tool:scoped_agents",
@@ -16166,7 +16509,7 @@
       },
       "slug": "selftest_support",
       "source": {
-        "fingerprint": "sha256:03d6a5750c45cbcb49edd75bda6bb00206ebd87efe94ed226ef571be3fcac2b3",
+        "fingerprint": "sha256:fe8aa7193c5ba4fe2d9fa8d3bd4793ddd7bb5d73dab9cc580cd408349084e97a",
         "path": ".engine/tools/selftest_support.py"
       },
       "status": "active",
@@ -17193,6 +17536,37 @@
     {
       "entrypoint": "test",
       "guarded": false,
+      "id": "tool:test_build_coordinator_cost",
+      "name": ".engine/tools/test_build_coordinator_cost.py",
+      "owner": "core",
+      "predicates": {
+        "provided_by": [
+          "module:core"
+        ],
+        "tests": [
+          "tool:build_coordinator",
+          "tool:build_coordinator_core",
+          "tool:build_coordinator_review",
+          "tool:build_coordinator_work",
+          "tool:reviewer_contracts",
+          "tool:scoped_agents",
+          "tool:selftest_cost",
+          "tool:test_build_coordinator",
+          "tool:test_selftest_performance"
+        ]
+      },
+      "slug": "test_build_coordinator_cost",
+      "source": {
+        "fingerprint": "sha256:96e8809564cb8c9a4994055f9c869f73ddcab15aa47423a334ccb3cc6df4e505",
+        "path": ".engine/tools/test_build_coordinator_cost.py"
+      },
+      "status": "active",
+      "summary": "Bounded lifecycle permission controls over the production cost assessment owner.",
+      "type": "tool"
+    },
+    {
+      "entrypoint": "test",
+      "guarded": false,
       "id": "tool:test_build_coordinator_dag",
       "name": ".engine/tools/test_build_coordinator_dag.py",
       "owner": "core",
@@ -17616,12 +17990,13 @@
         "tests": [
           "tool:ci_assurance",
           "tool:hard_check_bite_check",
+          "tool:selftest_cost",
           "tool:validate"
         ]
       },
       "slug": "test_ci_assurance",
       "source": {
-        "fingerprint": "sha256:5d22b0eb385fe0031911962db15aeb255a2df40569764ace65ecabb20fc12a7d",
+        "fingerprint": "sha256:7a8bd22bba3d61e8424ff245eb49c922f4dc8366d64fea64633df68eeaec501e",
         "path": ".engine/tools/test_ci_assurance.py"
       },
       "status": "active",
@@ -17639,13 +18014,18 @@
           "module:core"
         ],
         "tests": [
+          "tool:build_coordinator_core",
+          "tool:build_coordinator_work",
           "tool:ci_gatekeeper",
-          "tool:github_client"
+          "tool:github_client",
+          "tool:selftest_cost",
+          "tool:selftest_results",
+          "tool:test_selftest_performance"
         ]
       },
       "slug": "test_ci_gatekeeper",
       "source": {
-        "fingerprint": "sha256:226ca38a896ccaac14cba4ac1aac71e3c87c8e941827207da34efc4bce30eaf6",
+        "fingerprint": "sha256:a24bd8c5089bc05847ffc8f41f0f8d52d03e50c20f2b42f2eb9654a88e2b3ff0",
         "path": ".engine/tools/test_ci_gatekeeper.py"
       },
       "status": "active",
@@ -20215,13 +20595,14 @@
           "module:core"
         ],
         "tests": [
+          "tool:build_coordinator_core",
           "tool:build_coordinator_dag",
           "tool:plan_contract"
         ]
       },
       "slug": "test_plan_contract",
       "source": {
-        "fingerprint": "sha256:327abb1700a79de0fb771820184861c88240fc2652d78a5979da9dc74a8ee585",
+        "fingerprint": "sha256:62cb438b4994d34755a17422fa9be82bf20e8a02cb6d63be3912cfa5d2a759d0",
         "path": ".engine/tools/test_plan_contract.py"
       },
       "status": "active",
@@ -20549,6 +20930,7 @@
           "tool:project_manager",
           "tool:result_contracts",
           "tool:scoped_agents",
+          "tool:selftest_cost",
           "tool:selftest_support",
           "tool:test_build_coordinator",
           "tool:test_plan_store",
@@ -20557,7 +20939,7 @@
       },
       "slug": "test_project_manager",
       "source": {
-        "fingerprint": "sha256:1190b766c2c7e1888f89de739bfda08aa3ee846f798186359b07ca95ba0ff7ee",
+        "fingerprint": "sha256:3307a6a59195519bde4a58070b1c032a9afc92b9508fd16925237b054e3ed79c",
         "path": ".engine/tools/test_project_manager.py"
       },
       "status": "active",
@@ -21074,14 +21456,16 @@
           "module:core"
         ],
         "tests": [
+          "tool:build_coordinator_review",
           "tool:demo_result_contracts",
           "tool:quiet_call",
-          "tool:result_contracts"
+          "tool:result_contracts",
+          "tool:selftest_cost"
         ]
       },
       "slug": "test_result_contracts",
       "source": {
-        "fingerprint": "sha256:ee33b4e794998f7ff984d241a424ef58b0a967f36ed938af0c763fd05a721812",
+        "fingerprint": "sha256:26ecd93f205e3dceec13d80fdcb6e6a4d63531cd0c62ec5eb27d8504d0df1ad9",
         "path": ".engine/tools/test_result_contracts.py"
       },
       "status": "active",
@@ -21292,13 +21676,14 @@
           "tool:result_contracts",
           "tool:reviewer_contracts",
           "tool:scoped_agents",
+          "tool:selftest_cost",
           "tool:test_build_coordinator",
           "tool:test_plan_store"
         ]
       },
       "slug": "test_reviewer_contracts",
       "source": {
-        "fingerprint": "sha256:ff84cac104c5bb30949b93aaa0646a894a4494b93a63e837d4ee9b00bf10d537",
+        "fingerprint": "sha256:dd03d3bad39772cae8768855d4ef7ca396245c1f9a7bad32b947f1358037b421",
         "path": ".engine/tools/test_reviewer_contracts.py"
       },
       "status": "active",
@@ -21731,6 +22116,34 @@
     {
       "entrypoint": "test",
       "guarded": false,
+      "id": "tool:test_selftest_cost",
+      "name": ".engine/tools/test_selftest_cost.py",
+      "owner": "core",
+      "predicates": {
+        "provided_by": [
+          "module:core"
+        ],
+        "tests": [
+          "tool:demo_test_cost_contracts",
+          "tool:engine_fixture",
+          "tool:moment",
+          "tool:selftest_cost",
+          "tool:selftest_cost_check",
+          "tool:selftest_results"
+        ]
+      },
+      "slug": "test_selftest_cost",
+      "source": {
+        "fingerprint": "sha256:949e0749f77df40b12f8a9d2b3b743779e882379bab9790e7bf753ea977aea2c",
+        "path": ".engine/tools/test_selftest_cost.py"
+      },
+      "status": "active",
+      "summary": "Bounded fault controls for declaration and source/runtime identity accounting.",
+      "type": "tool"
+    },
+    {
+      "entrypoint": "test",
+      "guarded": false,
       "id": "tool:test_selftest_hermeticity",
       "name": ".engine/tools/test_selftest_hermeticity.py",
       "owner": "core",
@@ -21766,13 +22179,14 @@
           "module:core"
         ],
         "tests": [
+          "tool:selftest_cost",
           "tool:selftest_performance",
           "tool:selftest_results"
         ]
       },
       "slug": "test_selftest_performance",
       "source": {
-        "fingerprint": "sha256:7077c49346897d9b8b572505f96404ec69da2ec26ee26181609e2d5fdbac60e9",
+        "fingerprint": "sha256:960b5c46bd4bf9385fbce81a8e368192df6eb70b221e50e2f54e0619114f0ffd",
         "path": ".engine/tools/test_selftest_performance.py"
       },
       "status": "active",
@@ -21791,12 +22205,13 @@
         ],
         "tests": [
           "tool:selftest",
+          "tool:selftest_cost",
           "tool:selftest_results"
         ]
       },
       "slug": "test_selftest_results",
       "source": {
-        "fingerprint": "sha256:dc0cdea2678643d7beca9f7de17220f0c740268b140bb456ce0c6ce0bf40afb3",
+        "fingerprint": "sha256:6909d52513be92ece7aa3ea651783aead24b32d4bd8aea2ec4b07158a4b97cc8",
         "path": ".engine/tools/test_selftest_results.py"
       },
       "status": "active",
@@ -21854,7 +22269,7 @@
       },
       "slug": "test_selftest_support",
       "source": {
-        "fingerprint": "sha256:af3133cab31f7cf8453e35563769cf7ad827721ec83ddc5986eaefee0504d724",
+        "fingerprint": "sha256:da8dfd6c78b0016cd1553dcdc1f06ae2394073fd70d89d55f0a10d9bd950e753",
         "path": ".engine/tools/test_selftest_support.py"
       },
       "status": "active",
@@ -23052,7 +23467,7 @@
       },
       "slug": "weakening_guard",
       "source": {
-        "fingerprint": "sha256:2c391ba54f3ab8f5b8d7f3723e591982f37edba864da1195225403325f98fd08",
+        "fingerprint": "sha256:8cc3e734fc91202da7e8e51ba8b9afb8883b437f27a89fd172ccefee352ec334",
         "path": ".engine/tools/weakening_guard.py"
       },
       "status": "active",
