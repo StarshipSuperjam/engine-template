@@ -525,7 +525,7 @@ class Store:
                         a["faults"].append("packet read without observed fresh dispatch")
                         continue
                     if a.get("transport") and (a["launch"]["provider"] != call["provider"] or
-                            (call["provider"] == providers.CLAUDE and a["launch"].get("returned_child") != actor)):
+                            (call["provider"] == providers.CLAUDE and a["launch"].get("returned_child") not in (None, actor))):
                         continue
                     if a["child"] not in (None, actor) or any(b["child"] == actor and b["id"] != a["id"] for b in owned):
                         if not a.get("transport"):

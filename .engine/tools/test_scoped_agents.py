@@ -1093,7 +1093,6 @@ class MultipartClaudeHook(unittest.TestCase):
         with mock.patch.dict(os.environ, {providers.PROVIDER_ENV: "claude"}):
             args = {"subagent_type": f.a["role"], "prompt": "Read " + f.a["packet_path"]}
             self.observe("PreToolUse", "Agent", args)
-            self.observe("PostToolUse", "Agent", args, response={"agentId": "child-a"})
             self.observe("SubagentStart", child="child-a")
             for part in f.a["transport"]["manifest"]["pieces"][:-1]:
                 self.observe("PostToolUse", "Read", {"file_path": part["path"]}, child="child-a",
@@ -1105,8 +1104,19 @@ class MultipartClaudeHook(unittest.TestCase):
             self.observe("PostToolUse", "Read", {"file_path": part["path"]}, child="child-a",
                          response={"file": {"content": Path(part["path"]).read_bytes().decode()}})
             self.observe("SubagentStop", child="child-a", last_assistant_message="[]")
+            self.observe("PostToolUse", "Agent", args, response={"agentId": "child-a"})
             f.verified()
 
+
+
+class MultipartDemonstration(unittest.TestCase):
+    def test_demo_passes_and_detects_deliberate_overcredit(self):
+        import contextlib
+        import io
+        import demo_review_packet_multipart
+        with contextlib.redirect_stdout(io.StringIO()), contextlib.redirect_stderr(io.StringIO()):
+            self.assertEqual(demo_review_packet_multipart.main([]), 0)
+            self.assertEqual(demo_review_packet_multipart.main(["--overcredit-missing-piece"]), 1)
 
 
 if __name__ == "__main__":

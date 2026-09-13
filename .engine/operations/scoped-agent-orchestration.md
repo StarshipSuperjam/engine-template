@@ -26,6 +26,24 @@ through a successful native read tool before working. Registration refuses packe
 supplements over 1 MiB before dispatch; narrow their contents first. A digest repeated in prose, a start event, or a caller's
 provider label cannot establish that read. Do not pass sibling findings or the controller's verdict.
 
+Packets over 16 KiB also have registered immutable UTF-8 pieces, each at most 16 KiB. Packet commands emit
+the exact read paths. Ask the child to read every piece completely, without line limits, or to read the
+complete original if its runtime can return it. The original packet digest remains authoritative; do not
+summarize or remove obligations. Piece order may vary and repeated reads count once. A bounded manifest
+records the assignment, original digest, contiguous byte ranges and piece digests. Paths in a manifest
+confer no general filesystem access. The shared owner verifies all artifacts before acceptance.
+
+Use `scoped_agents.py status` with the original plan/session to see remaining packet and supplement reads.
+A failed or truncated result earns no piece. Recover with successful reads by the same assigned child;
+reads from the controller or another child do not fill a gap. Ordinary clarification delivery alone does
+not prove its multipart supplement was read. A damaged manifest or piece stays unverified until the exact
+registered bytes are restored. Never edit the evidence record or reassign its progress to another child.
+
+Multipart companions carry `read_protocol: registered-pieces.v1`. Older clients reject the new top-level
+field instead of silently rewriting it. Existing valid single-read receipts remain supported, and no old
+failed read is promoted into evidence. Finish mixed-version work with a runtime using the new owner;
+do not remove the protocol field to make an old client accept the file.
+
 Codex registers the compact `engine-review-reader` at project level. The installed 0.153.4 role loader
 ignores role-local MCP registration, so availability cannot be restricted through reviewer TOMLs.
 Other sessions can discover the same reader; do not claim zero context overhead. Its single `read_file` tool reads complete

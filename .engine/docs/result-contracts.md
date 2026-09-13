@@ -282,3 +282,22 @@ The controls suppress the unchanged-commit hold, discard retained originals, or 
 The normal scenario runs once in the permanent suite; fault controls reuse it and stop at their violated
 assertions. Native reviewer transport, GitHub and candidate/final CI inputs are explicitly synthetic.
 This demonstration does not qualify live review execution or replace the Build's real validation and QA.
+
+## Multipart packet evidence
+
+The shared scoped-agent owner can freeze review packets and clarification supplements into registered
+UTF-8 pieces of at most 16 KiB. The original packet and its digest remain authoritative, with the existing
+1 MiB total limit. The manifest has a 64 KiB limit and at most 65 pieces (the count accounts for backing up
+at UTF-8 boundaries). Each piece records its index, byte range, exact path and digest. A complete original
+read remains valid. Multipart credit comes only from complete successful native reads by the assigned child;
+duplicates are idempotent, and out-of-order reads are allowed. It is transport evidence, not proof of the
+reviewer's judgment. Missing, changed, unregistered or mixed-identity data cannot complete coverage.
+
+`read_protocol: registered-pieces.v1` marks new companion state so older schema-validating clients refuse
+it instead of silently dropping progress. Old valid single-read records remain supported without fabricated
+new observations. Restarted controllers consult the stored piece observations and original assignment.
+
+Run `uv run --directory .engine --frozen -- python tools/demo_review_packet_multipart.py` to see the disposable
+refusal/recovery and coordinator-ingress witnesses. Adding `--overcredit-missing-piece` deliberately breaks
+the fixture's verifier and must make the demonstration fail. These are synthetic transport observations;
+actual Claude and Codex native launch/read/acceptance demonstrations are separate qualification evidence.
