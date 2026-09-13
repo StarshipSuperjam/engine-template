@@ -21474,6 +21474,7 @@
           "tool:demo_review_packet_multipart",
           "tool:plan_store",
           "tool:providers",
+          "tool:quiet_call",
           "tool:reader_health_history_fixture",
           "tool:result_contracts",
           "tool:scoped_agents",
@@ -21484,7 +21485,7 @@
       },
       "slug": "test_scoped_agents",
       "source": {
-        "fingerprint": "sha256:5fa0dbe393f6e1eef5c4bb77d05b125e1badeef93f06ad7b60a05f68eb3e997d",
+        "fingerprint": "sha256:9aeda81fda939f57c72980ff96124aa0ef9e4e47d7384f8e46697f1027552d77",
         "path": ".engine/tools/test_scoped_agents.py"
       },
       "status": "active",
