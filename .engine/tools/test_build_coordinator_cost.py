@@ -126,7 +126,10 @@ class CostAcquisition(unittest.TestCase):
                 if path.name.startswith(('selftest-', 'test-cost-')):
                     shutil.copyfile(path, schemas / path.name)
             shutil.copyfile(cost.ROOT / '.engine/policies/test-cost.json', policies / 'test-cost.json')
-            test_source = 'import unittest, helper\nclass C(unittest.TestCase):\n def test_behavior(self): helper.run()\n'
+            test_source = ('import unittest, helper\nfrom pathlib import Path\n'
+                           'class C(unittest.TestCase):\n def test_behavior(self):\n'
+                           '  self.assertEqual(Path.cwd().resolve(), Path(' + repr(str(root / '.engine')) + ').resolve())\n'
+                           '  helper.run()\n')
             (tools / 'test_example.py').write_text(test_source)
             helper = tools / 'helper.py'; helper.write_text('def run(): pass\n')
             (root / '.gitignore').write_text('__pycache__/\n')
@@ -140,17 +143,24 @@ class CostAcquisition(unittest.TestCase):
             git('init', '-q'); git('config', 'user.email', 'fixture@example.invalid'); git('config', 'user.name', 'Fixture')
             base = commit('Original undeclared legacy test')
             counter = 0
-            def observe():
+            def observe(retained=False):
                 nonlocal counter
                 counter += 1
                 paths = {key: folder / (str(counter) + '-' + key + '.json') for key in ('cost', 'results', 'performance')}
                 command = [sys.executable, str(tools / 'selftest.py'), '--child', '--start-dir', str(tools),
                            '--cost-path', str(paths['cost']), '--results-path', str(paths['results']),
                            '--performance-path', str(paths['performance'])]
-                run = subprocess.run(command, env=env, capture_output=True, text=True)
+                if retained:
+                    output = folder / ('retained-' + str(counter))
+                    paths = {'cost': output / 'cost.json', 'results': output / 'outcomes.json',
+                             'performance': output / 'performance.json'}
+                    command = [sys.executable, str(cost.ROOT / '.engine/tools/selftest_cost.py'),
+                               'observe-retained', '--source-root', str(root), '--output-directory', str(output)]
+                run = subprocess.run(command, env=env, cwd=folder if retained else root / '.engine',
+                                     capture_output=True, text=True)
                 self.assertEqual(run.returncode, 0, run.stderr)
                 return tuple(json.loads(paths[key].read_text()) for key in ('cost', 'results', 'performance'))
-            raw, outcomes, performance = observe()
+            raw, outcomes, performance = observe(retained=True)
             plan = {'work_items': []}; state = {'build': {'base_at_bind': base}, 'cost': {'exceptions': []}}
             identity = work.cost_expected(root, plan, state, source=base, base=base, node=None, attempt='enrollment',
                 inventory=outcomes['inventory'], environment=performance['environment'], stage='bootstrap')
@@ -167,10 +177,19 @@ class CostAcquisition(unittest.TestCase):
             enrolled_at = commit('Explicit fixture enrollment'); state['build']['base_at_bind'] = enrolled_at
             helper.write_text('import subprocess, sys\ndef run(): subprocess.run([sys.executable, "-c", "pass"], check=True)\n')
             candidate = commit('Unchanged legacy test calls a more expensive helper')
-            def collect():
+            def collect(comparison=None):
+                import build_coordinator as bc
+                from unittest.mock import patch
                 raw, outcomes, performance = observe()
-                return work.collect_cost_evidence(root, plan, state, source=git('rev-parse', 'HEAD'), base=base,
+                kwargs = dict(source=git('rev-parse', 'HEAD'), base=candidate if comparison else base,
                     node=None, attempt='fixture', raw=raw, outcomes=outcomes, performance=performance, stage='full')
+                if comparison:
+                    path = folder / 'retained-comparison.json'; path.write_text(json.dumps(comparison))
+                    state['cost']['nodes'] = {'prior': {'path': str(path), 'digest': comparison['digest'],
+                        'identity': comparison['context']['expected_identity']}}
+                    with patch.object(bc, 'ROOT', root):
+                        return bc._cost_context_from_run(plan, state, **kwargs)
+                return work.collect_cost_evidence(root, plan, state, **kwargs)
             evidence = collect()
             expected = evidence['context']['expected_identity']
             self.assertEqual(candidate, expected['source_commit'])
@@ -179,6 +198,7 @@ class CostAcquisition(unittest.TestCase):
             verdict = work.assess_retained_cost(evidence, expected_identity=expected, now='2026-09-13T12:00:00Z')
             self.assertTrue(any('processes: 1 exceeds 0' in item for item in verdict['violations']))
             self.assertEqual(test_source, (tools / 'test_example.py').read_text())
+            prior_evidence = evidence
             for broken, expected_issue in (('{broken', 'corrupt'),
                     (json.dumps({**activation, 'baseline_digest': cost.digest('other')}), 'disagree'), (None, None)):
                 if broken is None:
@@ -186,7 +206,9 @@ class CostAcquisition(unittest.TestCase):
                 else:
                     activation_path.write_text(broken)
                 state['build']['base_at_bind'] = commit('Enrollment recovery specimen')
-                evidence = collect()
+                evidence = collect(comparison=prior_evidence)
+                self.assertEqual(prior_evidence['observation'], evidence['context']['base_observation'])
+                self.assertEqual(candidate, evidence['context']['expected_base_identity']['source_commit'])
                 self.assertIsNone(evidence['context']['baseline'])
                 if expected_issue:
                     self.assertIn(expected_issue, evidence['context']['enrollment_issue'])
@@ -237,7 +259,7 @@ class InventoryIsolation(unittest.TestCase):
                 'import json, os, unittest\n'
                 'def attempt(phase):\n'
                 ' data = json.loads(open(os.environ["INVENTORY_PROBE"]).read())\n'
-                ' data[phase] = {"permission": os.environ.get("ENGINE_TEST_COST_APPROVED_EXCEPTIONS"), '
+                ' data[phase] = {"github_token": os.environ.get("GITHUB_TOKEN"), "gh_token": os.environ.get("GH_TOKEN"), "permission": os.environ.get("ENGINE_TEST_COST_APPROVED_EXCEPTIONS"), '
                 '"controls": {key: os.environ.get(key) for key in (' + repr(cost._RUNNER_CONTROL_FILES) + ')}}\n'
                 ' open(os.environ["INVENTORY_PROBE"], "w").write(json.dumps(data))\n'
                 ' for path in data[phase]["controls"].values(): open(path, "a").write(phase + "\\n")\n'
@@ -255,6 +277,7 @@ class InventoryIsolation(unittest.TestCase):
             base = git('rev-parse', 'HEAD')
             with mock.patch.dict(os.environ, {**{key: str(value) for key, value in controls.items()},
                                               'ENGINE_TEST_COST_APPROVED_EXCEPTIONS': 'parent-permission',
+                                              'GITHUB_TOKEN': 'fixture-token', 'GH_TOKEN': 'fixture-token',
                                               'INVENTORY_PROBE': str(probe)}, clear=False):
                 inventory = work.cost_base_inventory(root, base)
             self.assertEqual(['test_probe.Probe.test_discovered'], [row['case']['id'] for row in inventory['cases']])
@@ -264,6 +287,8 @@ class InventoryIsolation(unittest.TestCase):
             self.assertEqual({'import', 'load_tests'}, set(attempts))
             for attempt in attempts.values():
                 self.assertIsNone(attempt['permission'])
+                self.assertIsNone(attempt['github_token'])
+                self.assertIsNone(attempt['gh_token'])
                 self.assertTrue(all(path not in {str(value) for value in controls.values()}
                                     for path in attempt['controls'].values()))
 

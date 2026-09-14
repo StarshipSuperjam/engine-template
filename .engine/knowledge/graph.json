@@ -5381,7 +5381,7 @@
       },
       "slug": "test-cost-contracts",
       "source": {
-        "fingerprint": "sha256:19534277836f890a91b2f6e67b59314d3c463888b29836a8c176a0dfbe7190f4",
+        "fingerprint": "sha256:003ac152b0f6e3121b16be27addc319ba4edef806f77cd1ee09f60cf9873449a",
         "path": ".engine/docs/test-cost-contracts.md"
       },
       "status": "active",
@@ -10350,7 +10350,7 @@
       },
       "slug": "build_coordinator",
       "source": {
-        "fingerprint": "sha256:89d610edb7dc92aad3c3cfc4b92f98cb03f4d4143fc575a46051ebee8d4e5b48",
+        "fingerprint": "sha256:d7ac2ac7f9af98c0e9f773ff48e2d483b529ff6428b6f545a2c793be830f37ba",
         "path": ".engine/tools/build_coordinator.py"
       },
       "status": "active",
@@ -10548,7 +10548,7 @@
       },
       "slug": "build_coordinator_work",
       "source": {
-        "fingerprint": "sha256:d9d3d844ee6c92b59b780d0696bfc4fa801268ef8a0d7b896bd06a0902d4674b",
+        "fingerprint": "sha256:e7ac4e0b0562d9d2d5c23cd156cbc39c0a988cba46467a0f63a6fbb42a68ce38",
         "path": ".engine/tools/build_coordinator_work.py"
       },
       "status": "active",
@@ -10967,7 +10967,7 @@
       },
       "slug": "ci_gatekeeper",
       "source": {
-        "fingerprint": "sha256:02a7a45ef0b78308b8425e3c3c968c893809a35f52318c11a85c6f1499f0bb44",
+        "fingerprint": "sha256:e0bca89dca098dfdc6f61fd61bc4041df08fefda699907bfcec1d757f6cbe632",
         "path": ".engine/tools/ci_gatekeeper.py"
       },
       "status": "active",
@@ -16547,7 +16547,7 @@
       },
       "slug": "selftest_cost",
       "source": {
-        "fingerprint": "sha256:bf258b17f99e3ca2053954243868388527d8f6aba41c658157fdc086bbf06ac1",
+        "fingerprint": "sha256:db6e2b8789a68f2d38a4fe9da7ee447276d1814b40b35203a3bf366f30d8ecc2",
         "path": ".engine/tools/selftest_cost.py"
       },
       "status": "active",
@@ -16572,7 +16572,7 @@
       },
       "slug": "selftest_cost_check",
       "source": {
-        "fingerprint": "sha256:0d75434ed03c2993ed882de29c7edbdda39348c568c48a9231d0d7540e6d68aa",
+        "fingerprint": "sha256:17dc5d8dc2c81f5f612836aff67b390fbb54722d3fb0e56e93147d7a98093fb3",
         "path": ".engine/tools/selftest_cost_check.py"
       },
       "status": "active",
@@ -17722,7 +17722,7 @@
       },
       "slug": "test_build_coordinator_cost",
       "source": {
-        "fingerprint": "sha256:ae2b1c3b01dde8935f2fbc8a8105a61950cebbb12f76547783674b7cfc52e771",
+        "fingerprint": "sha256:ea8f63f97724056d24fb086d9e0b09c56b39600f333fad07d8b3818611a76fef",
         "path": ".engine/tools/test_build_coordinator_cost.py"
       },
       "status": "active",
@@ -18190,7 +18190,7 @@
       },
       "slug": "test_ci_gatekeeper",
       "source": {
-        "fingerprint": "sha256:a24bd8c5089bc05847ffc8f41f0f8d52d03e50c20f2b42f2eb9654a88e2b3ff0",
+        "fingerprint": "sha256:865da4ba309e776e0f4a79eedb9b736db32e9ad66f57af0c4fd40bd2c9a61ce1",
         "path": ".engine/tools/test_ci_gatekeeper.py"
       },
       "status": "active",

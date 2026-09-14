@@ -146,6 +146,7 @@ jobs:
         id: cost
         if: steps.gate.outputs.mode != 'reuse' && steps.gate.outputs.mode != 'project-only'
         env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           ENGINE_TEST_COST_APPROVED_EXCEPTIONS: ${{ vars.ENGINE_TEST_COST_APPROVED_EXCEPTIONS }}
         run: |
           mkdir -p "$RUNNER_TEMP/engine-ci-proof"
@@ -221,7 +222,7 @@ jobs:
         # run that left a receipt from a reuse run of the same workflow — run metadata reports the event but
         # not the action, so it cannot make that distinction itself — and the receipt's mode separates a full
         # run from a project-only one; the reuse route accepts only the former.
-        if: steps.gate.outputs.mode != 'reuse' && github.event_name == 'pull_request'
+        if: steps.gate.outputs.mode != 'reuse' && (github.event_name == 'pull_request' || github.event_name == 'push')
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: engine-ci-receipt

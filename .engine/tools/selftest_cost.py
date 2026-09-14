@@ -32,6 +32,8 @@ def inventory_environment(directory, *, inherited=None):
         path.touch(exist_ok=True)
         environment[name] = str(path)
     environment.pop(_COST_EXCEPTION_ENV, None)
+    environment.pop('GITHUB_TOKEN', None)
+    environment.pop('GH_TOKEN', None)
     environment['PYTHONDONTWRITEBYTECODE'] = '1'
     return environment
 
@@ -436,7 +438,7 @@ def assess_cost(observation, *, expected_identity, baseline, expected_baseline_d
                 runtime, census, policy, now, declarations=(), mappings=(), exceptions=(),
                 base_observation=None, expected_base_identity=None, expected_cases=None,
                 bootstrap_inventory=None, timing_pairs=(), enrollment_issue=None,
-                candidate_duration_seconds=None):
+                candidate_duration_seconds=None, base_evidence_issue=None):
     """One pure assessment used again at every cache, review and submission boundary.
 
     Expected identities and enrollment digest come from the controller's retained
@@ -468,6 +470,8 @@ def assess_cost(observation, *, expected_identity, baseline, expected_baseline_d
         unknown += ['enrollment: ' + reason for reason in baseline['unknown']]
     if enrollment_issue:
         unknown.append('needs-baseline: ' + enrollment_issue)
+    if base_evidence_issue:
+        unknown.append('base: ' + base_evidence_issue)
     try:
         validate_shape(baseline, 'test-cost-baseline.v1')
         trusted_inventory = digest(baseline) == expected_baseline_digest
@@ -1109,6 +1113,9 @@ def observe_retained_source(source_root, output_directory, *, pattern='test_*.py
         raise ValueError('observation output must be outside the immutable source')
     output.mkdir(parents=True, exist_ok=False)
     observer_root = ROOT
+    # Match the retained source's native ``uv --directory .engine`` execution
+    # context. Relative project discovery must not resolve the adapter checkout.
+    os.chdir(source / '.engine')
     sys.path.insert(0, str(source / '.engine/tools'))
     import selftest
     import engine_fixture

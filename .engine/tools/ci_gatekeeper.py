@@ -391,7 +391,7 @@ def _candidate_runs(*, repo, head_sha, transport, progress=None):
 
 
 def _receipt_from_run(*, repo, run, pr_number, head_sha, expected_tree, root, token, transport,
-                      accept_modes=ACCEPT_FULL_ONLY):
+                      accept_modes=ACCEPT_FULL_ONLY, output_directory=None):
     """`(ok, why, receipt)` for one candidate run: find its receipt artifact, download it, and verify it."""
     status, body = transport("GET", f"/repos/{repo}/actions/runs/{run['id']}/artifacts?per_page=100", None)
     if status >= 400 or not isinstance(body, dict):
@@ -430,14 +430,46 @@ def _receipt_from_run(*, repo, run, pr_number, head_sha, expected_tree, root, to
     ok, why = verify_receipt(receipt, repo=repo, pr_number=pr_number, head_sha=head_sha,
                              expected_tree=expected_tree, run=run, root=root, accept_modes=accept_modes,
                              cost_evidence=evidence, cost_exceptions=exceptions)
-    if ok and evidence is not None and os.environ.get(COST_REUSE_DIR_ENV):
+    destination = output_directory or os.environ.get(COST_REUSE_DIR_ENV)
+    if ok and evidence is not None and destination:
         from pathlib import Path
         from selftest_results import write
-        directory = Path(os.environ[COST_REUSE_DIR_ENV])
+        directory = Path(destination)
         directory.mkdir(parents=True, exist_ok=True)
         write(directory / RECEIPT_FILENAME, receipt)
         write(directory / COST_FILENAME, evidence)
     return ok, why, (receipt if ok else None)
+
+
+def base_cost_evidence(*, repo, token, base, root, transport=None):
+    """Read an actual-base full push receipt; unavailable comparison never authorizes reuse."""
+    import tempfile
+    from pathlib import Path
+    import build_coordinator_core as core
+    import selftest_results
+    if not repo or not token:
+        return None, 'actual-base CI receipt access unavailable'
+    transport = transport or _default_transport(token)
+    try:
+        with tempfile.TemporaryDirectory(prefix='engine-cost-comparison-') as folder:
+            source = Path(folder) / 'source'
+            output = Path(folder) / 'evidence'
+            core.must_run(['git', 'worktree', 'add', '--detach', str(source), base], root=Path(root))
+            try:
+                expected_tree = tree_sha(str(source))
+                for run in _candidate_runs(repo=repo, head_sha=base, transport=transport):
+                    if run.get('event') != 'push':
+                        continue
+                    ok, _, receipt = _receipt_from_run(repo=repo, run=run, pr_number=None,
+                        head_sha=base, expected_tree=expected_tree, root=str(source), token=token,
+                        transport=transport, output_directory=output)
+                    if ok and receipt.get('cost'):
+                        return selftest_results.read(output / COST_FILENAME), None
+                return None, 'no eligible actual-base full CI cost receipt'
+            finally:
+                core.must_run(['git', 'worktree', 'remove', str(source)], root=Path(root))
+    except (GatekeeperError, core.CoordinatorError, OSError, ValueError, KeyError, TypeError):
+        return None, 'actual-base CI comparison could not be verified'
 
 
 def verify_receipt(receipt, *, repo, pr_number, head_sha, expected_tree, run, root=None, now=None,
@@ -769,6 +801,7 @@ def main(argv):
             except GatekeeperError:
                 base = source
         exceptions = approved_cost_exceptions()
+        base_evidence, comparison_issue = base_cost_evidence(repo=repo, token=token, base=base, root=root)
         # This is CI inventory evidence, not the private approved Build payload or its review.
         plan = {"purpose": "Full CI inventory resource verification", "work_items": []}
         state = {"build": {"base_at_bind": base}, "cost": {"exceptions": [{"exception": e} for e in exceptions]}}
@@ -779,7 +812,8 @@ def main(argv):
             evidence = work.collect_cost_evidence(Path(root), plan, state, source=source, base=base, node=None,
                 attempt=os.environ.get("GITHUB_RUN_ID", "local") + ":" + os.environ.get("GITHUB_RUN_ATTEMPT", "1"),
                 raw=records.read(args.cost_run), outcomes=records.read(args.outcomes),
-                performance=records.read(args.performance), stage="full")
+                performance=records.read(args.performance), stage="full", base_evidence=base_evidence,
+                base_evidence_issue=comparison_issue)
             assessment = work.assess_retained_cost(evidence,
                 expected_identity=evidence["context"]["expected_identity"], now=moment.utc_now(), exceptions=exceptions)
         records.write(args.out, evidence)

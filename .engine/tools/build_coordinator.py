@@ -5744,6 +5744,22 @@ def cmd_cost_exception(args, store):
 
 
 def _cost_context_from_run(plan, state, **kwargs):
+    import selftest_results
+    base = kwargs['base']
+    retained = state.get('cost') or {}
+    references = [retained.get('candidate'), *retained.get('nodes', {}).values()]
+    for reference in references:
+        if not reference or reference.get('identity', {}).get('source_commit') != base:
+            continue
+        try:
+            evidence = selftest_results.read(reference['path'])
+            if (evidence.get('digest') != reference['digest']
+                    or evidence.get('context', {}).get('expected_identity') != reference['identity']):
+                raise ValueError('retained comparison differs from its controller reference')
+            kwargs['base_evidence'] = evidence
+            break
+        except (OSError, ValueError, KeyError, TypeError):
+            kwargs['base_evidence_issue'] = 'retained controller comparison is unavailable or invalid'
     return work.collect_cost_evidence(ROOT, plan, state, **kwargs)
 
 

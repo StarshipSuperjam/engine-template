@@ -15,7 +15,7 @@ import selftest_cost as cost
 REQUIRED_STEPS = {'cost': {'name': 'Assess observed test cost',
           'id': 'cost',
           'if': "steps.gate.outputs.mode != 'reuse' && steps.gate.outputs.mode != 'project-only'",
-          'env': {'ENGINE_TEST_COST_APPROVED_EXCEPTIONS': '${{ vars.ENGINE_TEST_COST_APPROVED_EXCEPTIONS }}'},
+          'env': {'GITHUB_TOKEN': '${{ secrets.GITHUB_TOKEN }}', 'ENGINE_TEST_COST_APPROVED_EXCEPTIONS': '${{ vars.ENGINE_TEST_COST_APPROVED_EXCEPTIONS }}'},
           'run': 'mkdir -p "$RUNNER_TEMP/engine-ci-proof"\n'
                  'uv run --directory .engine --frozen -- python tools/ci_gatekeeper.py assess-cost '
                  '--cost-run "$RUNNER_TEMP/selftest-cost.json" --outcomes '
@@ -37,7 +37,7 @@ REQUIRED_STEPS = {'cost': {'name': 'Assess observed test cost',
                               'emit-receipt --out "$RUNNER_TEMP/engine-ci-proof/receipt.json" '
                               '"${cost_args[@]}"\n'},
  'Upload the receipt': {'name': 'Upload the receipt',
-                        'if': "steps.gate.outputs.mode != 'reuse' && github.event_name == 'pull_request'",
+                        'if': "steps.gate.outputs.mode != 'reuse' && (github.event_name == 'pull_request' || github.event_name == 'push')",
                         'uses': 'actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a',
                         'with': {'name': 'engine-ci-receipt',
                                  'path': '${{ runner.temp }}/engine-ci-proof/receipt.json\n'

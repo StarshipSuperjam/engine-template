@@ -15,6 +15,8 @@ Tests can carry an embedded declaration or an exact source-bound entry in `test-
 
 The existing serial launcher accepts `--cost-path`. It records exclusive counters with case/fixture/unattributed ownership; summing nested timing spans is not a resource count. JSON decoding is a conservative upper bound that includes non-schema JSON. Standard jsonschema metaschema checks, process launches, Git launches, canonical fixture clones and nested test-runner journeys have separate counters. Unsupported descendant work is unknown, never zero. These observations do not authenticate an external effect or create a sandbox.
 
+Known ambient Git-configuration reads are reported separately from launch counts; a pure declaration also refuses an observed socket connection. Explicit Git isolation removes that ambient-read finding. Other effects and unobserved descendants remain unavailable coverage, and these facts do not provide general network or filesystem containment.
+
 A baseline is an explicit enrollment, not a learned running maximum. The source commit, original source tree, observer adapter, inventory, environment, policy and contract identities must remain distinct. A disposable adapter can observe an older source only after outcome parity is checked; it must not replace that source's files. Measurements from an incompatible adapter cannot activate a baseline.
 
 Missing, corrupt or incompatible enrollment opens a bounded measurement bootstrap under the existing correctness and static inventory checks. Bootstrap does not grant cost clearance. Activation requires complete observations, exact legacy source identities, an owner, a reason and a revisit condition. Candidate runs cannot add legacy cases, rename them into allowances or ratchet limits upward. Unknown coverage remains visible after enrollment.
@@ -78,6 +80,8 @@ For a prospective v3 Build, the coordinator measures each committed node through
 integration, then measures the complete candidate separately. Node evidence binds the claim base, attempt,
 approved contract and actual artifact. Candidate evidence cannot stand in for a node observation. A cached
 candidate preserves its raw measurements but consumes current exception permission again.
+
+Actual-base comparison uses an original retained node observation or a verified successful full push receipt for that exact base. CI publishes full push receipts through the existing receipt artifact. Missing, expired, incompatible or inaccessible receipts leave comparison unavailable; they do not trigger a comparison-only full run. Receipt eligibility conservatively rechecks current permission. Base discovery uses disposable runner control files and strips allowance and CI-token variables before importing tests.
 
 The full `engine-ci` arm retains resource observations alongside outcomes and timing. A blocking assessment
 uses the same consumer as the coordinator; the immutable merge receipt includes its evidence digest.

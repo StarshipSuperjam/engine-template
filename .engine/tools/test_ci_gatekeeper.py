@@ -1028,6 +1028,49 @@ class CostReceiptPermission(unittest.TestCase):
             self.assertEqual(gk.REASON_COST_PERMISSION, detail["reason"])
             self.assertEqual(retained, selftest_results.read(Path(folder) / gk.COST_FILENAME))
 
+    def test_actual_base_comparison_requires_a_verified_full_push_receipt(self):
+        import build_coordinator_core as core
+        value = {**self.receipt, "pr_number": None,
+                 "cost": {**self.receipt["cost"], "digest": self.unwaived["digest"]}}
+        def archive(body):
+            output = io.BytesIO()
+            with zipfile.ZipFile(output, "w") as zipped:
+                zipped.writestr(gk.RECEIPT_FILENAME, json.dumps(body))
+                zipped.writestr(gk.COST_FILENAME, json.dumps(self.unwaived))
+            return output.getvalue()
+        push = {**run_record(), "event": "push"}
+        kwargs = dict(repo=REPO, token="fixture", base=HEAD, root=self.root)
+        def fixture_checkout(argv, **kwargs):
+            from pathlib import Path
+            if argv[2] == "add":
+                policy = Path(argv[4]) / ".engine/policies/test-cost.json"
+                policy.parent.mkdir(parents=True)
+                policy.write_bytes((Path(self.root) / ".engine/policies/test-cost.json").read_bytes())
+            return ""
+        with mock.patch.object(core, "must_run", side_effect=fixture_checkout) as git, \
+             mock.patch.object(gk, "_age_ok", return_value=None), \
+             mock.patch.object(gk, "download_artifact", return_value=archive(value)) as download:
+            found, issue = gk.base_cost_evidence(**kwargs,
+                transport=transport_for([push], {900: ARTIFACT}))
+            self.assertEqual(self.unwaived, found)
+            self.assertIsNone(issue)
+            self.assertEqual("remove", git.call_args.args[0][2])
+            for run in ({**push, "event": "pull_request"}, {**push, "head_sha": BASE},
+                        {**push, "path": ".github/workflows/other.yml"},
+                        {**push, "conclusion": "failure"}):
+                download.reset_mock()
+                found, issue = gk.base_cost_evidence(**kwargs,
+                    transport=transport_for([run], {900: ARTIFACT}))
+                self.assertIsNone(found)
+                self.assertIn("no eligible", issue)
+                download.assert_not_called()
+            download.return_value = archive({**value, "cost": {**value["cost"],
+                "digest": "sha256:" + "f" * 64}})
+            found, issue = gk.base_cost_evidence(**kwargs,
+                transport=transport_for([push], {900: ARTIFACT}))
+            self.assertIsNone(found)
+            self.assertIn("no eligible", issue)
+
     def test_required_full_receipt_cannot_omit_cost_evidence(self):
         value = dict(self.receipt); value.pop("cost")
         with mock.patch.object(gk, "_cost_required", return_value=True):

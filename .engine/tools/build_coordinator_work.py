@@ -544,7 +544,8 @@ def cost_base_inventory(root, base):
             must_run(["git", "worktree", "remove", str(checkout)])
 
 
-def collect_cost_evidence(root, plan, state, *, source, base, node, attempt, raw, outcomes, performance, stage=None):
+def collect_cost_evidence(root, plan, state, *, source, base, node, attempt, raw, outcomes, performance, stage=None,
+                          base_evidence=None, base_evidence_issue=None):
     run = partial(core.run, root=root)
     must_run = partial(core.must_run, root=root)
     import selftest_cost as cost
@@ -576,7 +577,8 @@ def collect_cost_evidence(root, plan, state, *, source, base, node, attempt, raw
                "declarations": declarations.get("cases", []), "mappings": declarations.get("mappings", []),
                "exceptions": [entry["exception"] for entry in state["cost"]["exceptions"]],
                "expected_cases": outcomes["selected"], "bootstrap_inventory": bootstrap,
-               "enrollment_issue": enrollment_issue, "timing_pairs": []}
+               "enrollment_issue": enrollment_issue, "timing_pairs": [],
+               "base_evidence_issue": base_evidence_issue}
     # Retained enrollment may be a comparison only when it actually observed
     # this comparison base.  Its original identity stays intact; in particular,
     # a bound-base enrollment cannot be relabelled as a later merge base.
@@ -584,6 +586,16 @@ def collect_cost_evidence(root, plan, state, *, source, base, node, attempt, raw
             and cost.enrolled_observation(baseline) is not None):
         context["base_observation"] = cost.enrolled_observation(baseline)
         context["expected_base_identity"] = baseline["identity"]
+    if base_evidence is not None:
+        material = {key: value for key, value in base_evidence.items() if key != 'digest'}
+        prior = base_evidence.get('context', {}).get('expected_identity', {})
+        if (base_evidence.get('digest') != cost.digest(material) or prior.get('source_commit') != base
+                or prior.get('artifact_digest') != core.digest(must_run(
+                    ['git', 'ls-tree', '-r', '--full-tree', '-z', base]).encode('utf-8'))
+                or cost.observation_problems(base_evidence.get('observation'), prior)):
+            raise CoordinatorError('retained comparison does not describe the independently resolved actual base')
+        context['base_observation'] = base_evidence['observation']
+        context['expected_base_identity'] = prior
     duration = performance.get("child_seconds")
     if type(duration) in (int, float):
         context["candidate_duration_seconds"] = duration
