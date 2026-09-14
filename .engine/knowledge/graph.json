@@ -5281,7 +5281,7 @@
       },
       "slug": "ci-assurance",
       "source": {
-        "fingerprint": "sha256:be36e28b189b466c03b559e0400d8530027934861170b6f8e07e8cdf8be55c07",
+        "fingerprint": "sha256:5c4b5edb59160bdebb491d3f004dc8671e878c43dbfb0238385dcc04eb7f8377",
         "path": ".engine/docs/ci-assurance.md"
       },
       "status": "active",
