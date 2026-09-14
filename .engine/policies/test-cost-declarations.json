@@ -449,6 +449,416 @@
         "added_cost_risk": "Bounded pure negative controls; no process, clone or nested journey budget",
         "families": []
       }
+    },
+    {
+      "id": "test_build_coordinator.TestFrozenBuildContracts.test_a_carried_original_receipt_earns_the_scoped_round_exemption_over_real_git",
+      "occurrence": 1,
+      "path": ".engine/tools/test_build_coordinator.py",
+      "qualified_name": "TestFrozenBuildContracts.test_a_carried_original_receipt_earns_the_scoped_round_exemption_over_real_git",
+      "source_digest": "sha256:baed3549d69a71df3d18100cdb3f56363254e5b37a01fb8fde826d82cbea72ce",
+      "contract": {
+        "schema_version": "test-cost-contract.v1",
+        "supported_fault": "Refreshed review anchors or retained receipt coverage become incorrect after another repair or rewrite",
+        "boundary": "integration",
+        "boundary_rationale": "Existing imported regression preserves real Git ancestry and accepted receipt transitions",
+        "fixture_owner": "test_build_coordinator.TestFrozenBuildContracts",
+        "dependencies": [
+          "git",
+          "build_coordinator",
+          "reviewer_contracts",
+          "selftest_support.review_fixture"
+        ],
+        "data_reads": [
+          ".engine/schemas/*.json",
+          ".engine/personas/",
+          ".engine/operations/",
+          ".engine/policies/",
+          ".codex/agents/",
+          ".claude/agents/"
+        ],
+        "cadence": "pr",
+        "limits": {
+          "processes": 250,
+          "git_commands": 250,
+          "schema_decodes": 4000,
+          "metaschema_validations": 3,
+          "whole_tree_fixtures": 0,
+          "nested_journeys": 0
+        },
+        "mutable_state": "Case-local plan library, Build state and disposable Git history; no shared mutation",
+        "cache_lifetime": "run",
+        "added_cost_risk": "Imported PR1307 regression, newly declared without changing its body; measured existing fixture cost remains for the program fixture audit",
+        "families": []
+      }
+    },
+    {
+      "id": "test_build_coordinator.TestFrozenBuildContracts.test_a_reconcile_after_a_refreshed_review_measures_the_rewrite_from_it_over_real_git",
+      "occurrence": 1,
+      "path": ".engine/tools/test_build_coordinator.py",
+      "qualified_name": "TestFrozenBuildContracts.test_a_reconcile_after_a_refreshed_review_measures_the_rewrite_from_it_over_real_git",
+      "source_digest": "sha256:a53de4ef496221995f40d23ee686e3623b207b3a69635e8bdb5d0472ad2387d4",
+      "contract": {
+        "schema_version": "test-cost-contract.v1",
+        "supported_fault": "Refreshed review anchors or retained receipt coverage become incorrect after another repair or rewrite",
+        "boundary": "integration",
+        "boundary_rationale": "Existing imported regression preserves real Git ancestry and accepted receipt transitions",
+        "fixture_owner": "test_build_coordinator.TestFrozenBuildContracts",
+        "dependencies": [
+          "git",
+          "build_coordinator",
+          "reviewer_contracts",
+          "selftest_support.review_fixture"
+        ],
+        "data_reads": [
+          ".engine/schemas/*.json",
+          ".engine/personas/",
+          ".engine/operations/",
+          ".engine/policies/",
+          ".codex/agents/",
+          ".claude/agents/"
+        ],
+        "cadence": "pr",
+        "limits": {
+          "processes": 250,
+          "git_commands": 250,
+          "schema_decodes": 4000,
+          "metaschema_validations": 3,
+          "whole_tree_fixtures": 0,
+          "nested_journeys": 0
+        },
+        "mutable_state": "Case-local plan library, Build state and disposable Git history; no shared mutation",
+        "cache_lifetime": "run",
+        "added_cost_risk": "Imported PR1307 regression, newly declared without changing its body; measured existing fixture cost remains for the program fixture audit",
+        "families": []
+      }
+    },
+    {
+      "id": "test_build_coordinator.TestFrozenBuildContracts.test_a_refreshed_review_anchors_the_next_round_and_exempts_fresh_lenses_over_real_git",
+      "occurrence": 1,
+      "path": ".engine/tools/test_build_coordinator.py",
+      "qualified_name": "TestFrozenBuildContracts.test_a_refreshed_review_anchors_the_next_round_and_exempts_fresh_lenses_over_real_git",
+      "source_digest": "sha256:94d06345167f922695fe1c22f0c6fe417eb21dcba6184499f6e60c1a8c265b64",
+      "contract": {
+        "schema_version": "test-cost-contract.v1",
+        "supported_fault": "Refreshed review anchors or retained receipt coverage become incorrect after another repair or rewrite",
+        "boundary": "integration",
+        "boundary_rationale": "Existing imported regression preserves real Git ancestry and accepted receipt transitions",
+        "fixture_owner": "test_build_coordinator.TestFrozenBuildContracts",
+        "dependencies": [
+          "git",
+          "build_coordinator",
+          "reviewer_contracts",
+          "selftest_support.review_fixture"
+        ],
+        "data_reads": [
+          ".engine/schemas/*.json",
+          ".engine/personas/",
+          ".engine/operations/",
+          ".engine/policies/",
+          ".codex/agents/",
+          ".claude/agents/"
+        ],
+        "cadence": "pr",
+        "limits": {
+          "processes": 250,
+          "git_commands": 250,
+          "schema_decodes": 4000,
+          "metaschema_validations": 3,
+          "whole_tree_fixtures": 0,
+          "nested_journeys": 0
+        },
+        "mutable_state": "Case-local plan library, Build state and disposable Git history; no shared mutation",
+        "cache_lifetime": "run",
+        "added_cost_risk": "Imported PR1307 regression, newly declared without changing its body; measured existing fixture cost remains for the program fixture audit",
+        "families": []
+      }
+    },
+    {
+      "id": "test_build_coordinator.TestFrozenBuildContracts.test_a_terminal_none_after_a_refreshed_review_verifies_from_it_over_real_git",
+      "occurrence": 1,
+      "path": ".engine/tools/test_build_coordinator.py",
+      "qualified_name": "TestFrozenBuildContracts.test_a_terminal_none_after_a_refreshed_review_verifies_from_it_over_real_git",
+      "source_digest": "sha256:9b04ffa2de81ae1add8a03383dceebb33f153a3b0ee8b4f603dfdaec240e28bc",
+      "contract": {
+        "schema_version": "test-cost-contract.v1",
+        "supported_fault": "Refreshed review anchors or retained receipt coverage become incorrect after another repair or rewrite",
+        "boundary": "integration",
+        "boundary_rationale": "Existing imported regression preserves real Git ancestry and accepted receipt transitions",
+        "fixture_owner": "test_build_coordinator.TestFrozenBuildContracts",
+        "dependencies": [
+          "git",
+          "build_coordinator",
+          "reviewer_contracts",
+          "selftest_support.review_fixture"
+        ],
+        "data_reads": [
+          ".engine/schemas/*.json",
+          ".engine/personas/",
+          ".engine/operations/",
+          ".engine/policies/",
+          ".codex/agents/",
+          ".claude/agents/"
+        ],
+        "cadence": "pr",
+        "limits": {
+          "processes": 250,
+          "git_commands": 250,
+          "schema_decodes": 4000,
+          "metaschema_validations": 3,
+          "whole_tree_fixtures": 0,
+          "nested_journeys": 0
+        },
+        "mutable_state": "Case-local plan library, Build state and disposable Git history; no shared mutation",
+        "cache_lifetime": "run",
+        "added_cost_risk": "Imported PR1307 regression, newly declared without changing its body; measured existing fixture cost remains for the program fixture audit",
+        "families": []
+      }
+    },
+    {
+      "id": "test_build_coordinator.TestValidationRepairAndStatus.test_a_none_after_a_refreshed_review_is_ledgered_at_the_refreshed_commit",
+      "occurrence": 1,
+      "path": ".engine/tools/test_build_coordinator.py",
+      "qualified_name": "TestValidationRepairAndStatus.test_a_none_after_a_refreshed_review_is_ledgered_at_the_refreshed_commit",
+      "source_digest": "sha256:d119519c314856e8fdc92057dd0d04cbfcb95c5123eedbbb2926553b03202bd3",
+      "contract": {
+        "schema_version": "test-cost-contract.v1",
+        "supported_fault": "Refreshed review anchors or retained receipt coverage become incorrect after another repair or rewrite",
+        "boundary": "integration",
+        "boundary_rationale": "Existing imported coordinator fixture checks persisted round decisions and disclosure with explicit Git seams",
+        "fixture_owner": "test_build_coordinator.TestValidationRepairAndStatus",
+        "dependencies": [
+          "git",
+          "build_coordinator",
+          "reviewer_contracts",
+          "selftest_support.review_fixture"
+        ],
+        "data_reads": [
+          ".engine/schemas/*.json",
+          ".engine/personas/",
+          ".engine/operations/",
+          ".engine/policies/",
+          ".codex/agents/",
+          ".claude/agents/"
+        ],
+        "cadence": "pr",
+        "limits": {
+          "processes": 10,
+          "git_commands": 10,
+          "schema_decodes": 120,
+          "metaschema_validations": 3,
+          "whole_tree_fixtures": 0,
+          "nested_journeys": 0
+        },
+        "mutable_state": "Case-local plan library, Build state and disposable Git history; no shared mutation",
+        "cache_lifetime": "run",
+        "added_cost_risk": "Imported PR1307 regression, newly declared without changing its body; measured existing fixture cost remains for the program fixture audit",
+        "families": []
+      }
+    },
+    {
+      "id": "test_build_coordinator.TestValidationRepairAndStatus.test_a_round_after_a_refreshed_deliverable_review_is_measured_from_that_review",
+      "occurrence": 1,
+      "path": ".engine/tools/test_build_coordinator.py",
+      "qualified_name": "TestValidationRepairAndStatus.test_a_round_after_a_refreshed_deliverable_review_is_measured_from_that_review",
+      "source_digest": "sha256:0771a873c3133e84229e4667aa10c4207aac59f666d6e753ccb3a206d5d30628",
+      "contract": {
+        "schema_version": "test-cost-contract.v1",
+        "supported_fault": "Refreshed review anchors or retained receipt coverage become incorrect after another repair or rewrite",
+        "boundary": "integration",
+        "boundary_rationale": "Existing imported coordinator fixture checks persisted round decisions and disclosure with explicit Git seams",
+        "fixture_owner": "test_build_coordinator.TestValidationRepairAndStatus",
+        "dependencies": [
+          "git",
+          "build_coordinator",
+          "reviewer_contracts",
+          "selftest_support.review_fixture"
+        ],
+        "data_reads": [
+          ".engine/schemas/*.json",
+          ".engine/personas/",
+          ".engine/operations/",
+          ".engine/policies/",
+          ".codex/agents/",
+          ".claude/agents/"
+        ],
+        "cadence": "pr",
+        "limits": {
+          "processes": 10,
+          "git_commands": 10,
+          "schema_decodes": 120,
+          "metaschema_validations": 3,
+          "whole_tree_fixtures": 0,
+          "nested_journeys": 0
+        },
+        "mutable_state": "Case-local plan library, Build state and disposable Git history; no shared mutation",
+        "cache_lifetime": "run",
+        "added_cost_risk": "Imported PR1307 regression, newly declared without changing its body; measured existing fixture cost remains for the program fixture audit",
+        "families": []
+      }
+    },
+    {
+      "id": "test_build_coordinator.TestValidationRepairAndStatus.test_the_anchor_stays_on_the_previous_round_on_commit_shape_alone",
+      "occurrence": 1,
+      "path": ".engine/tools/test_build_coordinator.py",
+      "qualified_name": "TestValidationRepairAndStatus.test_the_anchor_stays_on_the_previous_round_on_commit_shape_alone",
+      "source_digest": "sha256:90d83c10b0a3963fa3ba986745e4a8c5e8773a7b5f37f7d26ab0f5bf16731dd5",
+      "contract": {
+        "schema_version": "test-cost-contract.v1",
+        "supported_fault": "Refreshed review anchors or retained receipt coverage become incorrect after another repair or rewrite",
+        "boundary": "integration",
+        "boundary_rationale": "Existing imported coordinator fixture checks persisted round decisions and disclosure with explicit Git seams",
+        "fixture_owner": "test_build_coordinator.TestValidationRepairAndStatus",
+        "dependencies": [
+          "git",
+          "build_coordinator",
+          "reviewer_contracts",
+          "selftest_support.review_fixture"
+        ],
+        "data_reads": [
+          ".engine/schemas/*.json",
+          ".engine/personas/",
+          ".engine/operations/",
+          ".engine/policies/",
+          ".codex/agents/",
+          ".claude/agents/"
+        ],
+        "cadence": "pr",
+        "limits": {
+          "processes": 30,
+          "git_commands": 30,
+          "schema_decodes": 350,
+          "metaschema_validations": 3,
+          "whole_tree_fixtures": 0,
+          "nested_journeys": 0
+        },
+        "mutable_state": "Case-local plan library, Build state and disposable Git history; no shared mutation",
+        "cache_lifetime": "run",
+        "added_cost_risk": "Imported PR1307 regression, newly declared without changing its body; measured existing fixture cost remains for the program fixture audit",
+        "families": []
+      }
+    },
+    {
+      "id": "test_build_coordinator.TestValidationRepairAndStatus.test_the_growth_signal_stays_live_across_a_refreshed_review",
+      "occurrence": 1,
+      "path": ".engine/tools/test_build_coordinator.py",
+      "qualified_name": "TestValidationRepairAndStatus.test_the_growth_signal_stays_live_across_a_refreshed_review",
+      "source_digest": "sha256:b8e11d8cbd4b7550ec0f41622227fb6069e7d3a8eee9f79678c0aedbba65dad7",
+      "contract": {
+        "schema_version": "test-cost-contract.v1",
+        "supported_fault": "Refreshed review anchors or retained receipt coverage become incorrect after another repair or rewrite",
+        "boundary": "integration",
+        "boundary_rationale": "Existing imported coordinator fixture checks persisted round decisions and disclosure with explicit Git seams",
+        "fixture_owner": "test_build_coordinator.TestValidationRepairAndStatus",
+        "dependencies": [
+          "git",
+          "build_coordinator",
+          "reviewer_contracts",
+          "selftest_support.review_fixture"
+        ],
+        "data_reads": [
+          ".engine/schemas/*.json",
+          ".engine/personas/",
+          ".engine/operations/",
+          ".engine/policies/",
+          ".codex/agents/",
+          ".claude/agents/"
+        ],
+        "cadence": "pr",
+        "limits": {
+          "processes": 10,
+          "git_commands": 10,
+          "schema_decodes": 120,
+          "metaschema_validations": 3,
+          "whole_tree_fixtures": 0,
+          "nested_journeys": 0
+        },
+        "mutable_state": "Case-local plan library, Build state and disposable Git history; no shared mutation",
+        "cache_lifetime": "run",
+        "added_cost_risk": "Imported PR1307 regression, newly declared without changing its body; measured existing fixture cost remains for the program fixture audit",
+        "families": []
+      }
+    },
+    {
+      "id": "test_build_coordinator.TestValidationRepairAndStatus.test_the_refreshed_disclosure_reads_as_one_sentence_in_every_case",
+      "occurrence": 1,
+      "path": ".engine/tools/test_build_coordinator.py",
+      "qualified_name": "TestValidationRepairAndStatus.test_the_refreshed_disclosure_reads_as_one_sentence_in_every_case",
+      "source_digest": "sha256:96bb28b1f149e76c80007c70d7aa6c1908d0dad035eb3e2b2d6668a0c3fd94fa",
+      "contract": {
+        "schema_version": "test-cost-contract.v1",
+        "supported_fault": "Refreshed review anchors or retained receipt coverage become incorrect after another repair or rewrite",
+        "boundary": "integration",
+        "boundary_rationale": "Existing imported coordinator fixture checks persisted round decisions and disclosure with explicit Git seams",
+        "fixture_owner": "test_build_coordinator.TestValidationRepairAndStatus",
+        "dependencies": [
+          "git",
+          "build_coordinator",
+          "reviewer_contracts",
+          "selftest_support.review_fixture"
+        ],
+        "data_reads": [
+          ".engine/schemas/*.json",
+          ".engine/personas/",
+          ".engine/operations/",
+          ".engine/policies/",
+          ".codex/agents/",
+          ".claude/agents/"
+        ],
+        "cadence": "pr",
+        "limits": {
+          "processes": 10,
+          "git_commands": 10,
+          "schema_decodes": 120,
+          "metaschema_validations": 3,
+          "whole_tree_fixtures": 0,
+          "nested_journeys": 0
+        },
+        "mutable_state": "Case-local plan library, Build state and disposable Git history; no shared mutation",
+        "cache_lifetime": "run",
+        "added_cost_risk": "Imported PR1307 regression, newly declared without changing its body; measured existing fixture cost remains for the program fixture audit",
+        "families": []
+      }
+    },
+    {
+      "id": "test_build_coordinator.TestValidationRepairAndStatus.test_the_refreshed_marking_is_rendered_from_the_ledger_and_says_when_it_cannot_count",
+      "occurrence": 1,
+      "path": ".engine/tools/test_build_coordinator.py",
+      "qualified_name": "TestValidationRepairAndStatus.test_the_refreshed_marking_is_rendered_from_the_ledger_and_says_when_it_cannot_count",
+      "source_digest": "sha256:0c9356b560eafa6be85c34d8f62502ba0e190f5b8856817f30a74e9865b305bc",
+      "contract": {
+        "schema_version": "test-cost-contract.v1",
+        "supported_fault": "Refreshed review anchors or retained receipt coverage become incorrect after another repair or rewrite",
+        "boundary": "integration",
+        "boundary_rationale": "Existing imported coordinator fixture checks persisted round decisions and disclosure with explicit Git seams",
+        "fixture_owner": "test_build_coordinator.TestValidationRepairAndStatus",
+        "dependencies": [
+          "git",
+          "build_coordinator",
+          "reviewer_contracts",
+          "selftest_support.review_fixture"
+        ],
+        "data_reads": [
+          ".engine/schemas/*.json",
+          ".engine/personas/",
+          ".engine/operations/",
+          ".engine/policies/",
+          ".codex/agents/",
+          ".claude/agents/"
+        ],
+        "cadence": "pr",
+        "limits": {
+          "processes": 10,
+          "git_commands": 10,
+          "schema_decodes": 120,
+          "metaschema_validations": 3,
+          "whole_tree_fixtures": 0,
+          "nested_journeys": 0
+        },
+        "mutable_state": "Case-local plan library, Build state and disposable Git history; no shared mutation",
+        "cache_lifetime": "run",
+        "added_cost_risk": "Imported PR1307 regression, newly declared without changing its body; measured existing fixture cost remains for the program fixture audit",
+        "families": []
+      }
     }
   ],
   "mappings": []
