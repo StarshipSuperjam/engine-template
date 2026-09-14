@@ -7105,7 +7105,7 @@
       },
       "slug": "test-cost-declarations",
       "source": {
-        "fingerprint": "sha256:9e879caae89a3d1f96580663ca5d486452fb5dee81fd66439c536a974df4c807",
+        "fingerprint": "sha256:e71306bf4c33968fd7d873d44db6ac4112c2cb5877d0c3fb88c07caeba57226b",
         "path": ".engine/policies/test-cost-declarations.json"
       },
       "status": "active",
