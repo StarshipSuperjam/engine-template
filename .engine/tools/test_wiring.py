@@ -1312,8 +1312,8 @@ class TestEngineCiReuseGateStructure(unittest.TestCase):
         up = receipts[0]
         self.assertNotIn('continue-on-error', up)
         self.assertEqual(up.get("if"),
-                         "steps.gate.outputs.mode != 'reuse' && github.event_name == 'pull_request'",
-                         "the upload must carry the full-arm condition, so artifact presence marks a full run")
+                         "steps.gate.outputs.mode != 'reuse' && (github.event_name == 'pull_request' || github.event_name == 'push')",
+                         "receipt uploads must follow completed receipt-bearing PR or push runs")
         self.assertIn(up.get("with", {}).get("overwrite"), (True, "true"),
                       "the upload must overwrite: a re-run of a full run re-executes it, and artifacts are "
                       "per-run not per-attempt, so without overwrite the re-run fails on a duplicate name")
