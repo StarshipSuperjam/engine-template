@@ -12357,7 +12357,7 @@
       },
       "slug": "demo_plan_to_ready_pr",
       "source": {
-        "fingerprint": "sha256:77019d88b793cedb22399a2c0cc832686edd3527d0948e462e82311ef2d2b55b",
+        "fingerprint": "sha256:1d23a5994bd10977296381b65d3a4186caebcec2acf8c063d27f366d162cd004",
         "path": ".engine/tools/demo_plan_to_ready_pr.py"
       },
       "status": "active",
@@ -20941,7 +20941,7 @@
       },
       "slug": "test_plan_to_ready_pr_demo",
       "source": {
-        "fingerprint": "sha256:857b1ae4587fa01b80b311dcd22bac101157a2167a8e81a27a33ed6c26cc44a6",
+        "fingerprint": "sha256:993c5adf2451fe02af64d316e066e748de798ceb2dee1bbb170da159ed070450",
         "path": ".engine/tools/test_plan_to_ready_pr_demo.py"
       },
       "status": "active",
@@ -22382,7 +22382,7 @@
       },
       "slug": "test_selftest_results",
       "source": {
-        "fingerprint": "sha256:6909d52513be92ece7aa3ea651783aead24b32d4bd8aea2ec4b07158a4b97cc8",
+        "fingerprint": "sha256:d55aa13b3b576c9e0eb510a21fa567c5fd655dae2482dd8c3f5263f8829afb7d",
         "path": ".engine/tools/test_selftest_results.py"
       },
       "status": "active",
