@@ -52,48 +52,12 @@ A clean catch-up alone needs no receipt-loss flag or extra counted panel. Confli
 Failed remote verification grants no new exemption: check the clean checkout, pushed draft identity and fetched target, then retry. Intentional rebases use [Build continuity](build-continuity.md). Re-import final CI proof after later changes.
 
 ### Reviewer contract continuity
-
-The Build carries the approved reviewer envelope. Packet refresh preserves compatible receipts and
-findings; it does not rediscover a new panel from installed files. Use `review contract-preview` and
-`review contract-apply` for an operator-decided per-lens retain/adopt transition. Only changed obligations
-need supplemental review, while Git read-range coverage remains independently required. A renewal or
-finding change invalidates the PR contract and preflight. Historical receipt recovery uses the explicit
-`review historical-preview` / `review historical-apply` route described in
-[Result contracts](../docs/result-contracts.md#historical-adoption-and-its-limits), including original
-backup, packet and source proof. Never replace missing observed companion evidence with historical credit.
+The Build retains its approved reviewer envelope and compatible receipts/findings across refresh. Use `review contract-preview` / `review contract-apply` for an operator-decided per-lens retain/adopt transition; only changed obligations need supplemental review, independently of Git read-range coverage. Renewal or finding changes invalidate the PR contract and preflight.
+Historical recovery uses `review historical-preview` / `review historical-apply` with original backup, packet and source proof; follow [Result contracts](../docs/result-contracts.md#historical-adoption-and-its-limits). Never replace missing observed companion evidence with historical credit.
 
 
 ### Cost evidence and live permission
-
-Whole-Build candidate validation produces a distinct cost assessment after all nodes integrate. Full CI
-still executes every test; it acquires costs from that same execution, evaluates them before emitting the
-existing merge receipt, and retains the original observation beside it. Reuse and terminal completion
-re-evaluate permission without rerunning still-eligible observations. Candidate cache acceptance, final
-proof import and submission preview/apply also recheck expiry through `moment.py`.
-
-For new cost-applicable approvals, the technical-integrity reviewer returns its bound versioned envelope
-with an explicit assessment digest, candidate identity, status and rationale. Record the actual observed
-report through native ingress, then use `cost dispose --input <json>` for the separate controller object
-`{assessment_digest, decision, rationale}`. Only qualified acceptable evidence permits `accept`; concerns
-or unavailable coverage require `accept-with-limitations`. Deterministic violations require repair or a
-live explicitly approved bounded exception. Missing, stale or invented evidence cannot be disposed away.
-Historical array-bound approvals remain arrays and do not silently acquire a new obligation.
-
-Exceptions name exact case, resource, immutable source, ceiling, owner, supported-fault proof, reason,
-revisit and issue/expiry times (at most 30 days). `cost exception --input <json> --operator-decided --reason
-<decision>` records actual operator authority locally. CI receives the current list from the maintainer-owned
-repository variable `ENGINE_TEST_COST_APPROVED_EXCEPTIONS`, injected only into evidence-consumption steps;
-never put waiver authority into candidate Git or a test-controlled job environment. A maintainer explicitly
-updates that variable when approving CI permission. Withdrawal/expiry invalidates permission, not raw counts.
-No exception was granted merely because an old receipt was green.
-
-A missing or incompatible legacy baseline uses bounded measurement bootstrap and grants no qualified cost
-success. New declarations, duplicate controls and correctness still apply. Unavailable actual-base resource
-comparisons, descendant coverage and noisy timing remain visible for disposition. Every observed required
-path of at least 1,200 seconds needs investigation; 900 seconds remains the program target, not this child's
-completion promise. Qualification of observer overhead retains the <=2% median target and alternating
-comparable samples. Do not create hard wall-clock assertions or claim the broader relevance/cadence audit
-is complete. See [Test-cost contracts](../docs/test-cost-contracts.md) for baseline evidence and limitations.
+Follow [Test-cost contracts](../docs/test-cost-contracts.md#cost-evidence-and-live-permission) for candidate/full cost evidence, native technical-integrity ingress, `cost dispose`, and operator-approved bounded exceptions. Every consumption rechecks current permission; historical arrays retain their original obligations.
 
 ## Done when
 The final head has green candidate and imported CI evidence, every finding has a disposition, and every divergence has its proportional judgment and required receipts.

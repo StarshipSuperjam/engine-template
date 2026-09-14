@@ -2,15 +2,12 @@
 title: Build implementation — implement and reground
 ---
 ## Purpose
-
 Read when the coordinator reports `implementation`: the plan is bound and approved, and the work is to make the
 change cohesive, commit it through checkpoints, and bring the tree to a validated candidate.
 The surrounding flow is [Build orchestration](build-orchestration.md).
 
 ## Steps
-
 ### Choose the strategy
-
 Choose an implementation strategy proportionate to the work: orchestrator-inline for small or coupled work,
 isolated workers for cleanly separable work when context pressure justifies them, or the durable routine path
 for unattended bulk work. Delegation returns work product to the orchestrator, which remains the single
@@ -65,19 +62,10 @@ Reconcile the target branch before final validation; if it advanced, resolve by 
 This reconcile is no longer the sole guarantee: the merge floor requires freshness, so GitHub backstops it at the merge boundary.
 
 ### Measure before node integration
-
-For prospective v3 Builds, after the returned work is committed, run `work verify --item <id> --attempt
-<attempt> --plan <payload>` through the coordinator with its normal identity/revision flags. It invokes
-the existing serial runner, binds observations to the immutable node artifact, actual claim base, approved
-contract, inventory and attempt, and retains them before `work integrate` consumes them. Candidate/full
-reports cannot substitute for this focused producer. Repaired or stale artifacts need matching evidence.
-New or changed test cases declare their costs; unchanged cases and shared fixtures remain measured.
-Use the smallest meaningful fixture. The bounded demo `demo_test_cost_contracts.py --scenario shared-helper`
-shows unchanged test source turning red when its helper adds a process, and passing after repair. Its
-identities are synthetic fixture identities and grant no project or merge performance credit.
+For v3 Builds, run `work verify --item <id> --attempt <attempt> --plan <payload>` with normal identity/revision flags after committing and before `work integrate`; candidate/full evidence cannot substitute. Repaired or stale artifacts need matching evidence.
+Declare new/changed case costs and use the smallest meaningful fixture; unchanged cases and shared fixtures remain measured. Follow [Test-cost contracts](../docs/test-cost-contracts.md) for artifact binding and the bounded `demo_test_cost_contracts.py --scenario shared-helper` control.
 
 ## Done when
-
 Every node is integrated, each commit carries an `aligned` checkpoint, the target branch is reconciled and the
 derived surfaces are current, and the tree is ready for candidate validation in
 [Build validation and review](build-validation-and-review.md).

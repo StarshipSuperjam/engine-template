@@ -464,9 +464,10 @@ class TestRequiredCostCheck(unittest.TestCase):
 
     def test_real_negative_controls_reject_growth_and_accept_repaired_helpers(self):
         import demo_test_cost_contracts as demo
+        import quiet_call
         for scenario in demo.SCENARIOS:
             with self.subTest(scenario=scenario):
-                report = demo.demonstrate(scenario)
+                report = quiet_call.run(demo.demonstrate, scenario)
                 self.assertTrue(report['violations'])
                 self.assertEqual(report['repair_violations'], [])
                 self.assertTrue(report['passed'])

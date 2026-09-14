@@ -236,8 +236,11 @@ class HistoricalContracts(unittest.TestCase):
             shutil.copytree(ROOT / rel, cls.source_root / rel)
         shutil.copy(ROOT / '.engine/build-protocol.json', cls.source_root / '.engine/build-protocol.json')
         for path in (cls.source_root / '.claude/agents').glob('*.md'):
-            path.write_text('\n'.join(line for line in path.read_text().split('\n')
-                                      if not line.startswith(('reviewer-contract:', 'reviewer-contract-version:'))))
+            text = '\n'.join(line for line in path.read_text().split('\n')
+                             if not line.startswith(('reviewer-contract:', 'reviewer-contract-version:',
+                                                       'supports-frozen-cost-predecessor:')))
+            path.write_text(text.replace('output-contract: technical-integrity-review.v1',
+                                         'output-contract: pre-submission-review-finding.v1'))
         import project_manager
         folder = cls.source_root / '.engine/tools'; folder.mkdir()
         (folder / 'project_manager.py').write_text('PLAN_REVIEW_LENSES = ' + repr(project_manager.PLAN_REVIEW_LENSES))
@@ -247,6 +250,13 @@ class HistoricalContracts(unittest.TestCase):
         git('add', '.');git('commit', '-qm', 'synthetic native collector transition')
         cls.collector_commit = git('rev-parse', 'HEAD')
         (folder / 'result_contracts.py').write_text((ROOT / '.engine/tools/result_contracts.py').read_text())
+        for path in (ROOT / '.claude/agents').glob('*.md'):
+            text = path.read_text().replace('reviewer-contract-version: 2', 'reviewer-contract-version: 1')
+            text = '\n'.join(line for line in text.split('\n')
+                             if not line.startswith('supports-frozen-cost-predecessor:'))
+            (cls.source_root / '.claude/agents' / path.name).write_text(
+                text.replace('output-contract: technical-integrity-review.v1',
+                             'output-contract: pre-submission-review-finding.v1'))
         git('add', '.');git('commit', '-qm', 'synthetic result-binding transition')
         cls.observed_commit = git('rev-parse', 'HEAD')
         (folder / 'reviewer_contracts.py').write_text('# synthetic envelope capability marker\n')
@@ -493,7 +503,8 @@ class HistoricalContracts(unittest.TestCase):
             for packet_value, records in ((delivery,receipts),(repair,repair_receipts)):
                 for receipt in records:
                     report=[{'severity':f['severity'],'message':f['summary'],'location':None} for f in state['findings'] if f['id'] in receipt['finding_ids']]
-                    observe_review_execution(self.library,self.slug,scoped_agents.build_owner(state),receipt['lens'],receipt['lens_packet_digest'],report,packet_content=json.dumps(packet_value))
+                    observe_review_execution(self.library,self.slug,scoped_agents.build_owner(state),receipt['lens'],receipt['lens_packet_digest'],report,
+                                             review_contract=source['contract'],packet_content=json.dumps(packet_value))
                     scoped_agents.accept_build(self.library,state,receipt,'fixture-root')
         self.store=bc.StateStore(str(self.root/'build-state.json'));self.store.create(state)
         self.record=self.store.read();self.backup=self.root/'retained-build-snapshot.json'

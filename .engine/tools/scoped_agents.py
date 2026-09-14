@@ -435,7 +435,10 @@ class Store:
                         role = "plan-review" if a["owner"]["kind"] == "plan" else "pre-submission-review"
                         old = next(p for p in a["review_contract"]["panels"][role] if p["lens"] == a["lens"])
                         available = reviewer_contracts.discover(Path(__file__).resolve().parents[2], role)
-                        if not any(p["lens"] == a["lens"] and p["semantic_digest"] == old["semantic_digest"] for p in available):
+                        if not any(p["lens"] == a["lens"] and
+                                   (p["semantic_digest"] == old["semantic_digest"] or
+                                    reviewer_contracts.supports_frozen_cost_predecessor(old, p))
+                                   for p in available):
                             return hooks.block("The installed reviewer mandate changed after packet preparation; restore it or explicitly renew the obligation.")
                     if a["launch"] and a["launch"]["call_id"] == call.get("call_id") and a["launch"]["input_digest"] == core.digest(call["input"]):
                         return hooks.proceed()  # repeat observation of the same native call

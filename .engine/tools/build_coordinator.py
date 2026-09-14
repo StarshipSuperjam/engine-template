@@ -5571,7 +5571,7 @@ def cmd_cost_exception(args, store):
                     and old["source_commit"] == exception["source_commit"]
                     and selftest_cost.exception_applies(old, old["case"], old["resource"], _head(), now=moment.utc_now())):
                 raise CoordinatorError("a live allowance already covers this case and resource; do not overlap permissions")
-        state["cost"]["exceptions"].append({"exception": exception, "operator_decision": args.reason.strip(),
+        state["cost"]["exceptions"].append({"exception": exception, "permission_reason": args.reason.strip(),
                                              "approved_at": moment.utc_now()})
         candidate = _split_validation(state)["candidate"]
         reference = state["cost"].get("candidate")

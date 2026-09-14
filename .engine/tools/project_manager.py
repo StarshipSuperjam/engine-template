@@ -486,7 +486,9 @@ def cmd_depths(args) -> int:
     print("(only those that add coverage over a lighter one):\n")
     for name in offered:
         lenses = required_lenses(name, roster)
-        print(f"  {name:<10} {DEPTHS[name]}")
+        description = ("Your own plan review, automatic checks, and a technical-integrity cost review after the Build."
+                       if cost_applicable and name == "quick" else DEPTHS[name])
+        print(f"  {name:<10} {description}")
         if lenses:
             print(f"             lenses: {', '.join(lenses)}")
         else:

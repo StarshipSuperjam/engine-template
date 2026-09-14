@@ -122,7 +122,7 @@ def needs_modules(case, *ids: str, reason: str | None = None) -> None:
                                 f"case reads is legitimately absent here")
 
 
-def review_fixture(case):
+def review_fixture(case, *, prospective=False):
     """Give protocol tests their own personas, independent of optional installed panels.
 
     Discovery and result-contract resolution still run normally. Only the filesystem root is
@@ -164,6 +164,11 @@ def review_fixture(case):
             (agents / (name + ".md")).write_text(
                 f"---\nname: {name}\nrole: {role}\nlens: {lens}\noutput-contract: {contract}\n{declaration}---\n"
                 "Disposable protocol-test persona.\n", encoding="utf-8")
+    if prospective:
+        persona = agents / "engine-qa-review-technical-integrity.md"
+        persona.write_text(persona.read_text().replace("reviewer-contract-version: 1",
+            "reviewer-contract-version: 2\nsupports-frozen-cost-predecessor: 1").replace(
+            "output-contract: pre-submission-review-finding.v1", "output-contract: technical-integrity-review.v1"))
     for module in (pm, scoped_agents):
         filename = Path(module.__file__).name
         (engine / "tools" / filename).write_bytes((source / ".engine" / "tools" / filename).read_bytes())

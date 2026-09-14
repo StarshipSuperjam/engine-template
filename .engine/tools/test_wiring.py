@@ -24,6 +24,7 @@ import tempfile
 import unittest
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+import selftest_cost as cost
 import validate       # noqa: E402
 import wiring         # noqa: E402
 import ci_assurance   # noqa: E402
@@ -1131,6 +1132,18 @@ class TestWorkflowsDeriveTheDefaultBranch(unittest.TestCase):
         self.assertIn("GITHUB_DEFAULT_BRANCH: ${{ github.ref_name }}", wf)
 
 
+_CI_STRUCTURE_COST = {
+    'schema_version': 'test-cost-contract.v1',
+    'supported_fault': 'CI cost evidence weakens reuse or advisory upload isolation',
+    'boundary': 'pure', 'boundary_rationale': 'Parse tracked workflow without processes',
+    'fixture_owner': 'test_wiring.TestEngineCiReuseGateStructure',
+    'dependencies': ['ci_assurance', 'ci_gatekeeper', 'yaml'],
+    'data_reads': ['.github/workflows/engine-ci.yml'], 'cadence': 'pr',
+    'limits': cost.zeros(), 'mutable_state': 'Fresh parsed workflow per case',
+    'cache_lifetime': 'case', 'added_cost_risk': 'Bounded workflow parsing', 'families': [],
+}
+
+
 class TestEngineCiReuseGateStructure(unittest.TestCase):
     """The branch structure that makes engine-ci's second route to green safe (StarshipSuperjam/engine-template#1042).
 
@@ -1162,15 +1175,22 @@ class TestEngineCiReuseGateStructure(unittest.TestCase):
     def test_no_job_level_condition(self):
         self.assertNotIn("if", self._wf()["jobs"]["engine-ci"])
 
+    @cost.declaration(_CI_STRUCTURE_COST)
     def test_only_advisory_observation_steps_allow_continue_on_error(self):
-        advisory = {'Publish observed self-test summary', 'Upload test outcomes', 'Upload test timing'}
+        advisory = {'Publish observed self-test summary', 'Upload test outcomes', 'Upload test timing',
+                    'Upload test cost diagnostics'}
         observed = set()
         for step in self._steps():
             if step.get('name') in advisory:
                 observed.add(step['name'])
                 self.assertIs(step.get('continue-on-error'), True)
                 condition = "always() && steps.gate.outputs.mode == 'full'"
-                if step['name'].startswith('Upload'):
+                if step['name'] == 'Upload test cost diagnostics':
+                    self.assertEqual(step['with']['path'].splitlines(), [
+                        '${{ runner.temp }}/selftest-cost.json',
+                        '${{ runner.temp }}/engine-ci-proof/cost-evidence.json.assessment.json'])
+                    self.assertEqual(step['with']['if-no-files-found'], 'warn')
+                elif step['name'].startswith('Upload'):
                     condition += " && steps.observations.outcome == 'success'"
                     self.assertIn('/published-selftest/', step['with']['path'])
                 self.assertEqual(step.get('if'), condition)
@@ -1202,6 +1222,7 @@ class TestEngineCiReuseGateStructure(unittest.TestCase):
             self.assertNotIn("$GITHUB_ENV", str(step.get("run", "")),
                              f"step {step.get('name')!r} appends to the mutable job environment")
 
+    @cost.declaration(_CI_STRUCTURE_COST)
     def test_every_step_reference_resolves_to_a_step_that_produces_it(self):
         # THE pin that makes a mistyped reference a local failure instead of a silent green. Because the full
         # arm's condition is a NEGATION, an unresolvable reference yields the empty string, empty is not
@@ -1212,10 +1233,10 @@ class TestEngineCiReuseGateStructure(unittest.TestCase):
         steps = self._steps()
         declared = {s["id"] for s in steps if "id" in s}
         # `project` is the third arm's substantive step (StarshipSuperjam/engine-template#758): the terminal
-        # assertion reads its outcome, so it must be addressable, and nothing else may be.
-        self.assertEqual(declared, {"gate", "selftests", "metadata", "project", "observations"},
+        # assertion reads its outcome. Cost assessment is also addressable and blocks the full arm.
+        self.assertEqual(declared, {"gate", "selftests", "metadata", "project", "observations", "cost"},
                          "the set of addressable steps is itself pinned: a step that grows an id becomes "
-                         "referenceable, and the self-test step in particular must never be")
+                         "referenceable and must have a reviewed purpose")
         writes_output = {}
         for step in steps:
             for match in re.finditer(r"^\s*([A-Za-z_][A-Za-z0-9_-]*)=.*>>\s*\"?\$GITHUB_OUTPUT",
@@ -1282,11 +1303,12 @@ class TestEngineCiReuseGateStructure(unittest.TestCase):
         self.assertIn("ci_gatekeeper.py assert-ran", str(last.get("run", "")),
                       "the final job step must be the terminal assert-ran")
 
+    @cost.declaration(_CI_STRUCTURE_COST)
     def test_only_a_full_run_uploads_the_receipt_and_it_overwrites(self):
         uploads = [s for s in self._steps() if "upload-artifact" in str(s.get("uses", ""))]
         receipts = [s for s in uploads if s.get('with', {}).get('name') == 'engine-ci-receipt']
         self.assertEqual(len(receipts), 1, "there must be exactly one receipt upload")
-        self.assertEqual(len(uploads), 3, "the other two uploads are advisory observations")
+        self.assertEqual(len(uploads), 4, "the other three uploads are advisory diagnostics")
         up = receipts[0]
         self.assertNotIn('continue-on-error', up)
         self.assertEqual(up.get("if"),

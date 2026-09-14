@@ -221,6 +221,12 @@ _FLOOR_ENFORCEMENT_HOOKS = (
     #                                    Same criterion as the two above: a unit test is the wrong instrument
     #                                    (the same PR can flip the belt AND its test), so it routes through the
     #                                    guardrail-ack.
+    # Cost evidence identity and permission participate directly in the CI reuse decision.
+    # Keep their protection as strong as ci_gatekeeper, independently of check-script discovery.
+    ".engine/tools/selftest_results.py",
+    ".engine/tools/selftest_cost.py",
+    ".engine/tools/build_coordinator_core.py",
+    ".engine/tools/build_coordinator_work.py",
     ".engine/tools/change_classification.py",  # the helper ci_gatekeeper.py grew for its third route: decides
     #                                    whether a deployed copy's change set lies outside everything the Engine
     #                                    owns, so engine-ci may run the validator alone and a Build's candidate
@@ -383,6 +389,11 @@ _HARD_EXACT = (
     # the reuse gate: it decides whether engine-ci may report success without running the inventory in that
     # run, so a one-line flip toward reuse forges a green the same way an unconditional ack forges consent:
     ".engine/tools/ci_gatekeeper.py",
+    # These helpers can admit stale or unearned cost permission at the reuse gate.
+    ".engine/tools/selftest_results.py",
+    ".engine/tools/selftest_cost.py",
+    ".engine/tools/build_coordinator_core.py",
+    ".engine/tools/build_coordinator_work.py",
     # the gate's third-route helper: its declared floor decides what engine-ci and a Build's candidate
     # validation may skip, so a one-line widening forges the same green (the gatekeeper's helper binding):
     ".engine/tools/change_classification.py",

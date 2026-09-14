@@ -82,6 +82,7 @@
     "engine/check/skill-shape": "code",
     "engine/check/state-cursor": "code",
     "engine/check/template-shape-spec": "code",
+    "engine/check/test-cost": "code",
     "engine/check/untracked-surface": "code",
     "engine/check/uv-group-drift": "code"
   }

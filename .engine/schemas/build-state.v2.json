@@ -16,8 +16,8 @@
         "candidate": {"oneOf": [{"type": "null"}, {"$ref": "#/$defs/cost_reference"}]},
         "review": {"type": ["object", "null"]},
         "exceptions": {"type": "array", "items": {"type": "object", "additionalProperties": false,
-          "required": ["exception", "operator_decision", "approved_at"],
-          "properties": {"exception": {"type": "object"}, "operator_decision": {"type": "string", "minLength": 1},
+          "required": ["exception", "permission_reason", "approved_at"],
+          "properties": {"exception": {"type": "object"}, "permission_reason": {"type": "string", "minLength": 1},
                          "approved_at": {"type": "string"}}}}
       }
     },
