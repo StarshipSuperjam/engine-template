@@ -16572,7 +16572,7 @@
       },
       "slug": "selftest_cost",
       "source": {
-        "fingerprint": "sha256:154eb15dbfbdd95295bb605adf92b7c2d9972bfdf55d3b37dd977502b20fb487",
+        "fingerprint": "sha256:c2aaee896cd418a4cf69d94722ffaeaeff1782c913a462e2705dd5edd4833ba2",
         "path": ".engine/tools/selftest_cost.py"
       },
       "status": "active",
@@ -22385,7 +22385,7 @@
       },
       "slug": "test_selftest_cost",
       "source": {
-        "fingerprint": "sha256:d8dbc0b12484ad95329a59994e1ed1a7df0728773e25dbbc84906f7979ee81b4",
+        "fingerprint": "sha256:c6cd080da3d65c91c28454e6ce5ff433e1e374842687fc129448fba3a9dfdf33",
         "path": ".engine/tools/test_selftest_cost.py"
       },
       "status": "active",

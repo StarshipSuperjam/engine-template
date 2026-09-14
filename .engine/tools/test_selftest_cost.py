@@ -286,6 +286,56 @@ class TestResourceObservation(unittest.TestCase):
         self.assertTrue(any('pure test used a network connection' in item for item in verdict['violations']))
         self.assertFalse(verdict['cost_clearance'])
 
+    def test_pure_fixture_refuses_real_class_network_and_declared_ambient_git(self):
+        import socket
+        import selftest_results
+        from test_selftest_performance import cost_example, _COST_CONTRACT
+        with socket.socket() as listener:
+            listener.bind(('127.0.0.1', 0)); listener.listen(1)
+            class FixtureCase(unittest.TestCase):
+                @classmethod
+                def setUpClass(cls):
+                    with socket.socket() as client:
+                        client.connect(listener.getsockname())
+                def test_behavior(self):
+                    pass
+            FixtureCase.__module__, FixtureCase.__qualname__ = 'test_example', 'C'
+            case = FixtureCase('test_behavior')
+            with cost.Recorder() as recorder:
+                report = selftest_results.Observation([case], [case], source={}, scope='full',
+                                                     invocation={}, costs=recorder)
+                result = unittest.TestResult()
+                with report.phases([case], [result]):
+                    unittest.TestSuite([case]).run(result)
+            self.assertTrue(result.wasSuccessful())
+        raw = recorder.document(source={}, scope='full', complete=True, process_exit=0)
+        self.assertEqual(raw['ambient_facts'], [
+            {'owner': 'fixture:_handleClassSetUp:test_example.C', 'kind': 'network-connect'}])
+        self.assertEqual(raw['totals']['processes'], 0)
+        for fixture_owner in ('test_example', 'test_example.C'):
+            observation, context = cost_example()
+            observation['ambient_facts'] = raw['ambient_facts']
+            contract = {**copy.deepcopy(_COST_CONTRACT), 'fixture_owner': fixture_owner}
+            context['runtime'][0]['contract'] = contract
+            for baseline in (context['baseline'], None):
+                context['baseline'] = baseline
+                verdict = cost.assess_cost(observation, **context)
+                self.assertTrue(any('pure test used a network connection' in f for f in verdict['violations']))
+                self.assertFalse(verdict['cost_clearance'])
+            # A separately declared external fixture remains an explicit coverage limit.
+            contract['boundary'] = 'process'
+            verdict = cost.assess_cost(observation, **context)
+            self.assertFalse(any('network connection' in f for f in verdict['violations']))
+            self.assertTrue(any('network destination' in f for f in verdict['unknown']))
+            # Teardown's class repr and the same declared fixture's Git boundary also resolve.
+            observation['ambient_facts'] = [{'owner': "fixture:_tearDownPreviousClass:<class 'test_example.C'>",
+                                             'kind': cost.AMBIENT_GIT_CONFIG}]
+            verdict = cost.assess_cost(observation, **context)
+            self.assertTrue(any('ambient Git configuration discovery' in f for f in verdict['violations']))
+            contract['fixture_owner'] = 'test_example.Cousin'
+            verdict = cost.assess_cost(observation, **context)
+            self.assertFalse(any('ambient Git configuration discovery' in f for f in verdict['violations']))
+
     def test_real_launcher_keeps_outcomes_with_observation_on_and_off(self):
         import subprocess
         import sys
@@ -497,6 +547,42 @@ class TestBaselineEnrollment(unittest.TestCase):
                     {**packed, 'data': base64.b64encode(base64.b64decode(packed['data']) + b'trailing').decode()}):
             with self.assertRaises(ValueError):
                 cost.unpack_enrollment(bad)
+
+    @cost.declaration({**CONTRACT, 'limits': {**cost.zeros(), 'schema_decodes': 50},
+                       'data_reads': ['.engine/schemas/test-cost-*.json', 'temporary baseline artifacts'],
+                       'supported_fault': 'Expected baseline input failures hide recovery behind a traceback'})
+    def test_inspect_reports_artifact_recovery_and_preserves_valid_output(self):
+        import contextlib
+        import io
+        import tempfile
+        _, observation, census, runtime = baseline_example()
+        baseline = cost.enroll_baseline(observation, census, runtime, owner='team', reason='Measured', revisit='Review')
+        packed = cost.pack_enrollment(baseline)
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / 'baseline.json'
+            for contents in ('{broken', '[]', '{}', json.dumps({**packed, 'data': '!invalid'}),
+                             json.dumps({**packed, 'document_digest': cost.digest({})}), None):
+                if contents is None:
+                    path.unlink()
+                else:
+                    path.write_text(contents)
+                output, error = io.StringIO(), io.StringIO()
+                with contextlib.redirect_stdout(output), contextlib.redirect_stderr(error):
+                    status = cost.main(['inspect', '--baseline', str(path)])
+                self.assertEqual(status, 2)
+                self.assertEqual(output.getvalue(), '')
+                self.assertIn(str(path), error.getvalue())
+                self.assertIn('observe-retained --source-root', error.getvalue())
+                self.assertIn('matching native full-run outcomes', error.getvalue())
+                self.assertNotIn('Traceback', error.getvalue())
+            for document in (baseline, packed):
+                path.write_text(json.dumps(document))
+                output, error = io.StringIO(), io.StringIO()
+                with contextlib.redirect_stdout(output), contextlib.redirect_stderr(error):
+                    status = cost.main(['inspect', '--baseline', str(path)])
+                self.assertEqual(status, 0)
+                self.assertEqual(error.getvalue(), '')
+                self.assertEqual(json.loads(output.getvalue())['baseline_digest'], cost.digest(baseline))
 
     def test_adapter_parity_ignores_addresses_but_retains_subtest_identity_and_outcome(self):
         import types

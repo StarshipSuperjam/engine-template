@@ -511,9 +511,14 @@ def assess_cost(observation, *, expected_identity, baseline, expected_baseline_d
     if valid_observation:
         unknown += observation['unknown']
         for fact in observation.get('ambient_facts', []):
+            row = next((r for r in actual_cases if r['owner'] == fact['owner']), None)
+            key = case_key(row['case']) if row else None
+            owner_contracts = [contracts[key]] if key in contracts else []
+            if fact['owner'].startswith('fixture:'):
+                label = fact['owner'].split(':', 2)[-1].removeprefix("<class '").removesuffix("'>")
+                owner_contracts = [c for c in contracts.values()
+                                   if label == c['fixture_owner'] or label.startswith(c['fixture_owner'] + '.')]
             if fact['kind'] == AMBIENT_GIT_CONFIG:
-                row = next((r for r in actual_cases if r['owner'] == fact['owner']), None)
-                key = case_key(row['case']) if row else None
                 prior = next((r for r in (legacy or {}).get('cases', [])
                               if key and case_key(r['case']) == key), None)
                 definition = definitions.get((prior['path'], prior['qualified_name'])) if prior else None
@@ -522,15 +527,13 @@ def assess_cost(observation, *, expected_identity, baseline, expected_baseline_d
                 # Existing effects remain explicitly measured debt. Bootstrap has
                 # no effect authority; it reports unknown until enrollment. New
                 # declared work and newly observed effects cannot borrow that debt.
-                if key in contracts or (row and not unchanged) or (valid_baseline and not enrolled):
+                if owner_contracts or (row and not unchanged) or (valid_baseline and not enrolled):
                     violations.append('ambient Git configuration discovery: ' + fact['owner'])
                 else:
                     unknown.append(('enrolled ambient Git debt: ' if enrolled else
                                     'ambient Git baseline unavailable: ') + fact['owner'])
             elif fact['kind'] == 'network-connect':
-                row = next((r for r in actual_cases if r['owner'] == fact['owner']), None)
-                contract = contracts.get(case_key(row['case'])) if row else None
-                if contract and contract['boundary'] == 'pure':
+                if any(c['boundary'] == 'pure' for c in owner_contracts):
                     violations.append('pure test used a network connection: ' + fact['owner'])
                 else:
                     unknown.append('network destination and descendant coverage unavailable: ' + fact['owner'])
@@ -1309,10 +1312,21 @@ def main(argv=None):
         return inventory_source(args.source_root, args.output)
     if args.command == 'inspect':
         from selftest_results import read, validate_shape
-        baseline = read(args.baseline)
-        if baseline.get('schema_version') == 'test-cost-bundle.v1':
-            baseline = unpack_enrollment(baseline)
-        validate_shape(baseline, 'test-cost-baseline.v1')
+        try:
+            baseline = read(args.baseline)
+            if isinstance(baseline, dict) and baseline.get('schema_version') == 'test-cost-bundle.v1':
+                baseline = unpack_enrollment(baseline)
+            validate_shape(baseline, 'test-cost-baseline.v1')
+        except (OSError, ValueError) as exc:
+            import sys
+            print(f'Cannot inspect baseline {args.baseline!r}: {exc}.\n'
+                  'Restore a valid baseline artifact. If none exists, use the bounded bootstrap:\n'
+                  '  uv run --directory .engine --frozen -- python tools/selftest_cost.py observe-retained '
+                  '--source-root /absolute/pinned-source --output-directory /absolute/new-observation-directory\n'
+                  'First retain the matching native full-run outcomes. Requalify changed adapters or '
+                  'environments and review complete outcome parity before activation; see '
+                  '.engine/docs/test-cost-contracts.md.', file=sys.stderr)
+            return 2
         if args.case:
             result = [c for c in baseline['cases'] if c['case']['id'] == args.case]
         else:
