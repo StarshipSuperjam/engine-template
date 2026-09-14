@@ -117,7 +117,7 @@ belong to their subsequent work. `PROFILE-STAGES`, `ARTIFACT-IDENTITY` and `EVID
 the existing node/candidate/full producers. `ENV-EXECUTION-HANDOFF` remains limited to observed environment
 facts; counters do not establish sandbox containment, authentic external effects or future product outcomes.
 
-## Cost evidence and live permission
+### Cost evidence and live permission
 
 Whole-Build candidate validation produces a distinct cost assessment after all nodes integrate. Full CI
 still executes every test; it acquires costs from that same execution, evaluates them before emitting the

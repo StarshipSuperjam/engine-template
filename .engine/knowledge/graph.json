@@ -5381,7 +5381,7 @@
       },
       "slug": "test-cost-contracts",
       "source": {
-        "fingerprint": "sha256:554d05917889ff40e3c3eea7644da1f40a3391c3ce4eb31a3e5e8a2e5277e3cf",
+        "fingerprint": "sha256:5ffa0e9d66fcb973eccde9ca6e900f8ab5df244e7607929b14daa7e8bad7cde7",
         "path": ".engine/docs/test-cost-contracts.md"
       },
       "status": "active",
