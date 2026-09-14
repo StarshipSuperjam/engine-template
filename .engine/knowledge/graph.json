@@ -16572,7 +16572,7 @@
       },
       "slug": "selftest_cost",
       "source": {
-        "fingerprint": "sha256:70638afeda23df2f774c65497df101f5d28a83833ff98f95561c98eaf883e43f",
+        "fingerprint": "sha256:154eb15dbfbdd95295bb605adf92b7c2d9972bfdf55d3b37dd977502b20fb487",
         "path": ".engine/tools/selftest_cost.py"
       },
       "status": "active",

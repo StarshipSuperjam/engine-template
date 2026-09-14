@@ -666,6 +666,13 @@ def event(resource, amount=1):
 
 
 def _audit(name, args):
+    # CPython also audits hot operations such as builtins.id. They carry no
+    # resource evidence here; refuse them before touching recorder state.
+    if name == 'builtins.id':
+        return
+    if name not in {'subprocess.Popen', 'os.system', 'os.exec', 'os.posix_spawn',
+                    'os.fork', 'shutil.copytree', 'socket.connect'}:
+        return
     recorder = _ACTIVE
     if recorder is None or recorder.suspended:
         return
