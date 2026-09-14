@@ -801,6 +801,9 @@
   ".engine/docs/result-contracts.md": [
    "core"
   ],
+  ".engine/docs/test-cost-contracts.md": [
+   "core"
+  ],
   ".engine/erasures/proposal.json": [
    "memory-substrate-sqlite-fts5"
   ],
@@ -1045,6 +1048,27 @@
    "product-design"
   ],
   ".engine/policies/supported-upgrade-matrix.md": [
+   "core"
+  ],
+  ".engine/policies/test-cost-activation.json": [
+   "core"
+  ],
+  ".engine/policies/test-cost-calibration.json": [
+   "core"
+  ],
+  ".engine/policies/test-cost-declarations.json": [
+   "core"
+  ],
+  ".engine/policies/test-cost-legacy-baseline.json": [
+   "core"
+  ],
+  ".engine/policies/test-cost-legacy-static.json": [
+   "core"
+  ],
+  ".engine/policies/test-cost-parity.json": [
+   "core"
+  ],
+  ".engine/policies/test-cost.json": [
    "core"
   ],
   ".engine/policies/triage-threshold.md": [
@@ -1360,6 +1384,9 @@
    "core"
   ],
   ".engine/templates/skill.md": [
+   "core"
+  ],
+  ".engine/templates/test-authoring.py": [
    "core"
   ],
   ".engine/tools/accepted_hook_dispatch.py": [
