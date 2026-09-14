@@ -619,11 +619,43 @@ def _coverage_result(stage: dict, kind: str, state: dict, lens: str, *, _facts=N
         values = tuple(entry[k] for k in ("base_before", "from_commit", "base_after", "to_commit"))
         return once(("divergence", *values), lambda: _contribution_divergence(*values))
 
+    def carried_tips():
+        # A refreshed deliverable packet asks a new whole range, and a lens the refresh did not
+        # re-dispatch answers it with the receipt the re-cut PRESERVED byte-identical under the old
+        # packet digest (`preserved_receipts`) -- kept precisely because its recorded range already
+        # covers the refreshed range. Its identity stays old, so `original_tips` never listed it, and
+        # `after_original` denied that lens the very scoped-round exemption the refresh earned it
+        # (StarshipSuperjam/engine-template#1306). Admission is by the SAME coverage arithmetic that
+        # preserved it, re-run here rather than trusted from the earlier decision, and it fails closed:
+        # an unreadable range admits nothing.
+        delivery = state["reviews"]["deliverable"]
+        base = delivery.get("base_commit")
+        listed = delivery.get("receipts", [])
+        identity = (delivery.get("packet_digest"), delivery.get("referent_digest"))
+        # The refreshed range's tip is where the CURRENT packet was read, not `reviewed_commit`, which a
+        # completed round advances past it. Retained reads rather than the listed ones: a lens the next
+        # round re-dispatched has its fresh read replaced in the listing by the spliced repair receipt
+        # and archived. No lens has read the current packet: nothing to admit.
+        refreshed = sorted({r["commit"] for _, r in review.retained_receipts(state)
+                            if (r.get("packet_digest"), r.get("referent_digest")) == identity})
+        tips = []
+        for receipt in receipts:
+            if receipt["commit"] in refreshed or receipt not in listed:
+                continue
+            for tip in refreshed:
+                try:
+                    carried = ranges.receipt_covers(ROOT, receipt, base, tip, state.get("base_advances", []))
+                except (CoordinatorError, ranges.RangeUnreadable, _Unmeasurable, OSError, KeyError, TypeError):
+                    carried = False
+                if carried and tip not in tips:
+                    tips.append(tip)
+        return tips
+
     def after_original(anchor, reconciles):
         # An accepted original packet bounds which later proportional decisions can narrow its
         # question. Refreshing the deliverable packet asks a new whole range. Across a rewrite,
         # only a freshly re-proven identical contribution can carry that bound forward.
-        tips = list(original_tips)
+        tips = list(original_tips) + once(("carried-original-tips", lens), carried_tips)
         for entry in reconciles:
             if any(ancestor(tip, entry["from_commit"]) for tip in tips) and identical(entry):
                 tips.append(entry["to_commit"])
@@ -3693,9 +3725,15 @@ def _contribution_divergence(base_before: str, from_commit: str, base_after: str
     return divergent
 
 
-def _effective_reviewed(state: dict) -> str | None:
+def _effective_reviewed(state: dict, head: str | None = None) -> str | None:
     """The commit the deliverable review currently stands on: the reviewed commit, advanced to a completed
     repair round's final commit. Single-homed -- `cmd_repair_assess` and `cmd_reconcile` must agree.
+
+    `head` is the branch tip when the caller measures a span ON the branch (`repair assess`, and the
+    rewrite probe it runs first): a refreshed review that has left the branch then falls back to the
+    round's end, exactly as the classification anchor does, so the two can never name different
+    commits for one round. `reconcile` passes no head on purpose -- it measures a rewrite FROM whatever
+    was last reviewed, on the branch or not, and that is the refreshed review when one exists.
 
     The advance holds only while that final commit is still ON the branch. A repair record is history: it
     describes a round that happened, and a rewrite does not un-happen it, so its commits are deliberately
@@ -3717,16 +3755,70 @@ def _effective_reviewed(state: dict) -> str | None:
         # Once a reconcile has re-anchored past that commit, the deliverable binding it wrote is newer and
         # the repair record is history; anchoring on it there made `repair assess` measure `orphan..head`,
         # a span carrying the upstream commits the rebase pulled in, and burn a fabricated round.
-        superseded = any(item["from_commit"] == final for item in state.get("reconciles", []))
-        if not superseded:
+        superseded = _reconciled_past(state, final)
+        # A deliverable review REFRESHED past the completed round is newer than the round, and the
+        # whole panel read up to it; the review stands there, not at the round's end. Read off the
+        # evidence (receipts at the refreshed commit, panel complete) rather than off commit shape, so
+        # a re-cut nobody reviewed, or a half-returned panel, leaves the anchor on the round.
+        if not superseded and not _refreshed_after(state, final, head):
             return final
     return reviewed
+
+
+def _reconciled_past(state: dict, commit: str) -> bool:
+    """Whether a recorded reconcile re-anchored the review FROM `commit`, or from a commit after it.
+
+    A reconcile measures a rewrite from whatever was last reviewed. After a REFRESHED deliverable
+    review that is the refreshed commit, not the completed round's end behind it, so a round is retired
+    by a reconcile recorded from its own final commit or from any commit descending from it. Matching
+    the round's end alone left a round that a refresh had already moved past looking live after the
+    rebase: `_effective_reviewed` then fell back to its orphaned end and `_classification_anchor` called
+    the rewrite routine with "no reconcile recorded" -- a false statement about the operator's branch
+    (StarshipSuperjam/engine-template#1306). Ancestry is only consulted when both commits are readable,
+    so an unreadable object never passes as a descendant."""
+    for item in state.get("reconciles", []):
+        source = item["from_commit"]
+        if source == commit:
+            return True
+        if _commit_present(commit) and _commit_present(source) and _is_ancestor(commit, source):
+            return True
+    return False
+
+
+def _refreshed_after(state: dict, commit: str, head: str | None = None) -> bool:
+    """Whether the deliverable review was REFRESHED and completed strictly after `commit`.
+
+    The one predicate behind every consumer that measures from, or exempts across, a repair round's end
+    (StarshipSuperjam/engine-template#1306): the classification anchor, the effective review anchor and
+    the terminal `none` range must agree on where the review stands, and three copies would drift.
+
+    Holds only on EVIDENCE, never on commit shape alone: the deliverable's reviewed commit strictly
+    descends from `commit` (and, where the head is known, sits on the branch); at least one receipt
+    recorded against the CURRENT deliverable packet was read at that commit; no lens of the panel is
+    still owed; and the commit is not the end of any recorded round, so a completed round is never
+    mistaken for a refresh."""
+    delivery = state["reviews"]["deliverable"]
+    reviewed = delivery.get("reviewed_commit")
+    if not reviewed or not commit or reviewed == commit:
+        return False
+    if any(entry.get("final_commit") == reviewed for entry in state.get("repair_rounds", [])):
+        return False
+    if not _is_ancestor(commit, reviewed) or _is_ancestor(reviewed, commit):
+        return False
+    if head is not None and not _is_ancestor(reviewed, head):
+        return False
+    identity = (delivery.get("packet_digest"), delivery.get("referent_digest"))
+    if not all(identity) or not any(
+            r.get("commit") == reviewed and (r.get("packet_digest"), r.get("referent_digest")) == identity
+            for r in delivery.get("receipts", [])):
+        return False
+    return not _missing_receipts(delivery, state=state)
 
 
 def _history_was_rewritten(state: dict, head: str) -> bool:
     """The reviewed commit is no longer on the branch AND the branch sits on a different base -- the
     signature of a rebase, as distinct from ordinary forward progress or an amend in place."""
-    reviewed = _effective_reviewed(state)
+    reviewed = _effective_reviewed(state, head)
     if not reviewed or reviewed == head:
         return False
     # Both ends must be READABLE before any conclusion is drawn. `merge-base --is-ancestor` exits non-zero
@@ -4018,9 +4110,16 @@ def _classification_anchor(state: dict, rounds: list, head: str) -> tuple[str, s
     telling an operator "after a base change" when a session merely amended a commit is a false statement
     about their branch:
 
-      `reconcile`  a recorded reconcile re-anchored the review; the base really did move.
+      `reconcile`  a recorded reconcile re-anchored the review, from the previous round's end or from
+                   a refreshed review after it; the base really did move.
       `rewritten`  the previous round's commit is no longer reachable, with no reconcile recorded — an
                    amend or a local rebase. Routine, and NOT a base change.
+      `refreshed`  the deliverable review was re-cut and completed AFTER the previous round's end, so
+                   this round is measured from that newer review, not from the round. The commits
+                   after the round's end, up to and including that review, are named as
+                   skipped; nothing about the branch changed, so this marking is
+                   disclosure only and does NOT suppress the growth comparison
+                   (StarshipSuperjam/engine-template#1306).
 
     The first round is marked too when a reconcile is on record: a reconcile re-anchors the deliverable
     review onto a new base, so the first round measured after one spans that rebase and its size is the
@@ -4038,10 +4137,12 @@ def _classification_anchor(state: dict, rounds: list, head: str) -> tuple[str, s
                        for item in state.get("reconciles", []))
         return reviewed, ("reconcile" if spanning else None)
     prior_final = rounds[-1]["final_commit"]
-    if any(item["from_commit"] == prior_final for item in state.get("reconciles", [])):
+    if _reconciled_past(state, prior_final):
         return reviewed, "reconcile"
     if not _commit_present(prior_final) or not _is_ancestor(prior_final, head):
         return reviewed, "rewritten"
+    if _refreshed_after(state, prior_final, head):
+        return reviewed, "refreshed"
     return prior_final, None
 
 
@@ -4096,15 +4197,67 @@ def _substantive_churn(entry: dict) -> int | None:
     return sum(classification["churn"].get(kind, 0) for kind in _SUBSTANTIVE_KINDS)
 
 
-_ANCHOR_NOTES = {
-    "reconcile": (" (the base moved, so this round is measured from the deliverable review and its size is "
-                  "the branch's, not one fix's)"),
-    "rewritten": (" (the previous round's commit is no longer on this branch, so this round is measured "
-                  "from the deliverable review and cannot be compared with the round before it)"),
+def _refreshed_note(entry: dict, previous: dict | None) -> str:
+    """The operator-facing disclosure behind a `refreshed` marking: which review the round is measured
+    from, and how much history between the previous round's end and that review it therefore skips.
+    Rendered as one coherent sentence in every case -- counted, singular, and unmeasured -- because this
+    text is the ledger's only account of why the round did not start where the previous one ended."""
+    anchor = entry.get("anchor") or entry.get("reviewed_commit") or ""
+    count = _commit_count(previous["final_commit"], anchor) if previous and anchor else None
+    # The count includes the refreshed review's own commit, so the span is named as running AFTER the
+    # round's end UP TO AND INCLUDING that refresh -- never "from" the round's end, which would describe
+    # one commit more than the count. The span's far end is named outright as "that refreshed review"
+    # (a pronoun attached to the round's end instead), and the skipped commits are "already reviewed" in
+    # their own clause, so nothing can read as the review covering itself, and the sentence stays short.
+    if count is None:
+        skipped, verb = "an unmeasured number of commits", "are"
+    elif count == 1:
+        skipped, verb = "the 1 commit", "is"
+    else:
+        skipped, verb = f"the {count} commits", "are"
+    return (f" (the deliverable review was refreshed at {anchor[:12]} after the previous round ended; this "
+            f"round is measured from that refresh, so {skipped} after the previous round's end, up to "
+            f"and including that refreshed review, {verb} skipped as already reviewed)")
+
+
+# Each marking is one fact about WHY a round was not measured from the previous round's end, with the
+# prose the operator reads and whether the fact makes the two rounds incomparable. `reconcile` and
+# `rewritten` change the starting point in a way that makes the size not a fix's size, so the growth
+# comparison is suppressed across them; `refreshed` merely moves the start forward onto a newer review of
+# the same branch, so the sizes stay comparable and the marking is disclosure only.
+_ANCHOR_MARKINGS = {
+    "reconcile": {"suppresses": True, "note": lambda entry, previous: (
+        " (the base moved, so this round is measured from the deliverable review and its size is "
+        "the branch's, not one fix's)")},
+    "rewritten": {"suppresses": True, "note": lambda entry, previous: (
+        " (the previous round's commit is no longer on this branch, so this round is measured "
+        "from the deliverable review and cannot be compared with the round before it)")},
+    "refreshed": {"suppresses": False, "note": _refreshed_note},
 }
 
 
-def _round_line(index: int, entry: dict) -> str:
+def _commit_count(base: str, tip: str) -> int | None:
+    """How many commits `base..tip` spans, or None where this checkout cannot answer. A render helper:
+    unreadable history is SAID as unmeasured, never guessed at."""
+    result = core.run(["git", "rev-list", "--count", f"{base}..{tip}"], root=ROOT)
+    if result.returncode != 0:
+        return None
+    try:
+        return int(result.stdout.strip())
+    except ValueError:
+        return None
+
+
+def _anchor_suppresses_growth(entry: dict) -> bool:
+    note = entry.get("anchor_note")
+    if not note:
+        return False
+    # A marking this table does not know is treated as suppressing: silence about a comparison is
+    # the safe direction, a false trend is not.
+    return _ANCHOR_MARKINGS.get(note, {"suppresses": True})["suppresses"]
+
+
+def _round_line(index: int, entry: dict, previous: dict | None = None) -> str:
     """One plain sentence describing a recorded round, for the operator rather than for a parser."""
     lenses = entry["lenses"]
     if entry["judgment"] == "none":
@@ -4126,7 +4279,8 @@ def _round_line(index: int, entry: dict) -> str:
         parts = [f"{len(paths)} {kind}" for kind, paths in sorted(classification["files"].items()) if paths]
         moved = (", ".join(f"{part} file(s)" for part in parts) + f", {classification['total_churn']} lines"
                  ) if parts else "nothing"
-    marked = _ANCHOR_NOTES.get(entry.get("anchor_note") or "", "")
+    marking = _ANCHOR_MARKINGS.get(entry.get("anchor_note") or "")
+    marked = marking["note"](entry, previous) if marking else ""
     if classification and "guards_read" not in classification:
         # A round recorded before the honesty flag existed. "Unknown" is the right reading -- but saying a
         # read FAILED would be a different, false claim about what happened.
@@ -4143,7 +4297,8 @@ def _growth_note(rounds: list) -> str | None:
     """A highlight, never a stop (operator decision, 2026-08-25). When the newest counted round moved MORE
     code and guarded surface than the counted round before it, the repairs are widening rather than
     converging — usually a fix that broke something beyond the finding it answered. Suppressed when a base
-    change sits anywhere between the two, because then the two measurements are not comparable."""
+    change or a rewrite sits anywhere between the two, because then the two measurements are not
+    comparable; a `refreshed` marking moves the start forward on the same branch and stays live."""
     comparable = [i for i, entry in enumerate(rounds)
                   if _round_counted(entry) and _substantive_churn(entry) is not None]
     if len(comparable) < 2:
@@ -4152,7 +4307,7 @@ def _growth_note(rounds: list) -> str | None:
     # The window includes the EARLIER round itself: a round measured branch-wide (its own anchor_note set)
     # carries a number that is not a fix's size, so comparing it against a normal round produces either a
     # false alarm or a false silence. Both were reachable before this included `previous`.
-    if any(rounds[i].get("anchor_note") for i in range(previous, latest + 1)):
+    if any(_anchor_suppresses_growth(rounds[i]) for i in range(previous, latest + 1)):
         # Said out loud rather than passed over in silence: a reader who sees no highlight is entitled to
         # know whether that means "it did not widen" or "we could not tell".
         return ("the last two counted rounds were measured from different starting points, so whether the "
@@ -4243,7 +4398,7 @@ def _repair_round_lines(state: dict) -> list[str]:
              f"as guarded if it was protected at ANY point since the deliverable review, so a guard retired "
              f"mid-build still reads as guarded rather than quietly becoming ordinary work."]
     for index, entry in enumerate(rounds, start=1):
-        lines.append("  - " + _round_line(index, entry))
+        lines.append("  - " + _round_line(index, entry, rounds[index - 2] if index > 1 else None))
         classification = entry.get("classification")
         if not classification:
             continue
@@ -4264,7 +4419,7 @@ def _repair_round_lines(state: dict) -> list[str]:
 def _trajectory(rounds: list) -> str:
     """The whole ledger as prose, plus the growth highlight when there is one. Printed at every assess, so
     the signal is in front of the orchestrator at the moment of judgment and not only at an escalation."""
-    lines = [_round_line(i + 1, entry) for i, entry in enumerate(rounds)]
+    lines = [_round_line(i + 1, entry, rounds[i - 1] if i else None) for i, entry in enumerate(rounds)]
     note = _growth_note(rounds)
     if note:
         lines.append("HIGHLIGHT: " + note)
@@ -4319,7 +4474,7 @@ def cmd_repair_assess(args, store: Snapshot) -> None:
     state = store.read()
     revision = state["revision"]
     prior = state["repair"]
-    reviewed = _effective_reviewed(state)
+    reviewed = _effective_reviewed(state, head)
     # Retrying a terminal judgment measures the same exact interval, even though
     # that judgment now advances the effective review anchor to HEAD.
     if prior and prior.get("direct_verification") and prior["final_commit"] == head:
