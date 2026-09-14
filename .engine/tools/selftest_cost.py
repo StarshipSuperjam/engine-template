@@ -772,6 +772,7 @@ class Recorder:
         self.unknown = set()
         self.suspended = False
         self.runtime = []
+        self.source_binding = None
         self.restores = []
         self.active_cases = []
         self.popen_depth = 0

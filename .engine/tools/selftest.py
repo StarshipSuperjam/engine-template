@@ -539,7 +539,6 @@ def _run_child(args: argparse.Namespace) -> int:
     import selftest_cost
     limits = selftest_cost.runtime_limits()
     recorder = selftest_cost.Recorder(max_owners=limits['max_owners'], max_counter=limits['max_counter'])
-    source = _tree_binding(args.start_dir)
     rc = None
     try:
         with recorder:
@@ -547,6 +546,9 @@ def _run_child(args: argparse.Namespace) -> int:
         return rc
     finally:
         try:
+            source = recorder.source_binding
+            if source is None:
+                raise ValueError('resource source binding unavailable')
             outcomes = selftest_results.read(args.results_path)
             complete = bool(rc is not None and outcomes.get('complete') and outcomes.get('source') == source)
             document = recorder.document(source=source, scope=outcomes.get('scope', 'unknown'),
@@ -646,6 +648,10 @@ def _run_child_observed(args: argparse.Namespace, *, costs=None) -> int:
     result_path = getattr(args, "results_path", None)
     timing_path = getattr(args, "performance_path", None)
     source = _tree_binding(args.start_dir)
+    if costs is not None:
+        # The runner owns this post-discovery binding for both artifacts. Keep
+        # an independent copy rather than repeating Git or trusting file input.
+        costs.source_binding = dict(source)
     observation = selftest_results.Observation(
         inventory_cases, selected_cases, source=source, scope=scope,
         invocation={"start_dir": selftest_results.text(args.start_dir), "pattern": args.pattern,

@@ -5381,7 +5381,7 @@
       },
       "slug": "test-cost-contracts",
       "source": {
-        "fingerprint": "sha256:e07d7b32ef35c989d6d8835d2a8014ec10f572aa5b250abefcce7143ba4e39c8",
+        "fingerprint": "sha256:3ccb3927307fb01435f4b8243f87325ac534048d4d3f40eaa23630652d1a92d1",
         "path": ".engine/docs/test-cost-contracts.md"
       },
       "status": "active",
@@ -7065,7 +7065,7 @@
       },
       "slug": "test-cost-activation",
       "source": {
-        "fingerprint": "sha256:347f157be4974b183e3045ab7c1e5f8c6147bce0852d04fdec94e12b01f1109b",
+        "fingerprint": "sha256:ddfb8c6cfc0bb7795dea8bc9456c66bddc97eeddf2f848cbd30ee18fa36936a3",
         "path": ".engine/policies/test-cost-activation.json"
       },
       "status": "active",
@@ -7125,7 +7125,7 @@
       },
       "slug": "test-cost-legacy-baseline",
       "source": {
-        "fingerprint": "sha256:e97e6b207b77be2b7ab012c272779f4dc4738a3f7f2728b7b4580c293aa6eb53",
+        "fingerprint": "sha256:62fdf283a0e0d6107cae8844e7bdfbf0798abf9550486851fa4a41d8613a2d61",
         "path": ".engine/policies/test-cost-legacy-baseline.json"
       },
       "status": "active",
@@ -16519,7 +16519,7 @@
       },
       "slug": "selftest",
       "source": {
-        "fingerprint": "sha256:2bb5789746de7303a049573b4e8ea205e64ed39ae1d9e0243695113a205411cb",
+        "fingerprint": "sha256:47614d3ebf424a123e1b38163a10f87b47dd9718715a1020747a393d2541742e",
         "path": ".engine/tools/selftest.py"
       },
       "status": "active",
@@ -16547,7 +16547,7 @@
       },
       "slug": "selftest_cost",
       "source": {
-        "fingerprint": "sha256:388a34e0e18fb7f384e1b671ab8647dadf1e15c4c62a905fd2b26154d2c53526",
+        "fingerprint": "sha256:70638afeda23df2f774c65497df101f5d28a83833ff98f95561c98eaf883e43f",
         "path": ".engine/tools/selftest_cost.py"
       },
       "status": "active",
@@ -22306,7 +22306,7 @@
       },
       "slug": "test_selftest_cost",
       "source": {
-        "fingerprint": "sha256:3b90ba1b1eaceb655dec1f4779b9b838fc8e00f6d7ec985f34a676733350bc7d",
+        "fingerprint": "sha256:d8dbc0b12484ad95329a59994e1ed1a7df0728773e25dbbc84906f7979ee81b4",
         "path": ".engine/tools/test_selftest_cost.py"
       },
       "status": "active",

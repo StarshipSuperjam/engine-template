@@ -141,6 +141,10 @@ class TestInventory(unittest.TestCase):
 @cost.declaration({**CONTRACT, 'boundary': 'process',
                    'boundary_rationale': 'Exercise actual audited child launches and the serial launcher',
                    'fixture_owner': 'test_selftest_cost.TestResourceObservation',
+                   'dependencies': ['git', 'subprocess', 'socket', 'selftest', 'selftest_cost', 'selftest_results'],
+                   'data_reads': ['.engine/tools/selftest*.py', '.engine/tools/providers.py',
+                                  '.engine/tools/mutation_guards.py', '.engine/schemas/*.json',
+                                  '.engine/policies/test-cost*.json'],
                    'mutable_state': 'Temporary directories and recorder hooks restored after each case',
                    'limits': {**cost.zeros(), 'processes': 20, 'git_commands': 12,
                               'schema_decodes': 100, 'metaschema_validations': 10,
@@ -306,6 +310,44 @@ class TestResourceObservation(unittest.TestCase):
                     self.assertTrue(resource['complete'])
                     self.assertEqual(resource['process_exit'], 0)
             self.assertEqual(*summaries)
+
+    def test_shared_runner_binding_still_exposes_source_mutation_during_import(self):
+        import shutil
+        import subprocess
+        import tempfile
+        with tempfile.TemporaryDirectory() as directory:
+            folder = Path(directory); root = folder / 'repo'
+            tools = root / '.engine/tools'; tools.mkdir(parents=True)
+            policies = root / '.engine/policies'; policies.mkdir()
+            schemas = root / '.engine/schemas'; schemas.mkdir()
+            for name in ('selftest.py', 'selftest_results.py', 'selftest_cost.py',
+                         'providers.py', 'mutation_guards.py'):
+                shutil.copyfile(cost.ROOT / '.engine/tools' / name, tools / name)
+            for path in (cost.ROOT / '.engine/schemas').glob('selftest-*.json'):
+                shutil.copyfile(path, schemas / path.name)
+            shutil.copyfile(cost.ROOT / '.engine/policies/test-cost.json', policies / 'test-cost.json')
+            payload = root / 'payload.txt'; payload.write_text('original')
+            (root / '.gitignore').write_text('__pycache__/\n')
+            (tools / 'test_probe.py').write_text('import unittest\nfrom pathlib import Path\n'
+                'Path(' + repr(str(payload)) + ').write_text("changed during import")\n'
+                'class T(unittest.TestCase):\n def test_pass(self): pass\n')
+            env = {key: value for key, value in os.environ.items() if not key.startswith('GIT_')}
+            env.update(GIT_CONFIG_NOSYSTEM='1', GIT_CONFIG_GLOBAL=os.devnull)
+            def git(*args):
+                return subprocess.check_output(['git', '-C', str(root), *args], env=env, text=True).strip()
+            git('init', '-q'); git('add', '.')
+            git('-c', 'user.name=Fixture', '-c', 'user.email=fixture@example.invalid', 'commit', '-qm', 'Original source')
+            tree = git('rev-parse', 'HEAD^{tree}')
+            outcomes = folder / 'outcomes.json'; observed = folder / 'cost.json'
+            run = subprocess.run([sys.executable, str(tools / 'selftest.py'), '--child', '--start-dir', str(tools),
+                '--results-path', str(outcomes), '--cost-path', str(observed)], env=env, cwd=root / '.engine',
+                capture_output=True, text=True)
+            self.assertEqual(run.returncode, 0, run.stderr)
+            report = json.loads(outcomes.read_text()); raw = json.loads(observed.read_text())
+            self.assertEqual({'tree': tree, 'worktree_dirty': True}, report['source'])
+            self.assertEqual(report['source'], raw['source'])
+            with self.assertRaisesRegex(ValueError, 'immutable measured source'):
+                cost.normalize_run(raw, {}, expected_tree=tree, outcomes=report)
 
     def test_real_launcher_applies_policy_limits_before_discovery_and_artifact_write(self):
         import shutil

@@ -1,13 +1,13 @@
 {
   "schema_version": "test-cost-activation.v1",
   "parity_rules_digest": "sha256:d7c57478d312a1f61913cd69d83393eddcc9b1a95bf38b44b78e065132cb477b",
-  "baseline_digest": "sha256:6012abd10f8ce068f97a19fff2f738bde2687a76c491efbc48e8496ff20315dc",
+  "baseline_digest": "sha256:d513aff13524022e04ac112ab124d16ff874bf1de2d678ce179bc1f69e889cc9",
   "source_tree": "0ba587dfba8d4037ead4841bba804f6116f6087b",
   "identity": {
     "source_commit": "c434b4771efb94bce36894287b8ffeda2555b651",
     "base_commit": "c434b4771efb94bce36894287b8ffeda2555b651",
-    "observer_commit": "2a9874346451096cb890567562b142de6c89c14f",
-    "observer_digest": "sha256:3550d60a263e0f785256a8bf388bddba1ffdf6c0c434aaa1639631614d7b20f0",
+    "observer_commit": "4b8d90f2e8f63267a1ef03d0544ab2b62d6b8b99",
+    "observer_digest": "sha256:65eb489c0e4bbbaa0681ab173651c90a2425b0ba1b866a9a5804ab51abd5f446",
     "plan_digest": "sha256:8d08a9bae4c8609422821a43552b68b860d0b156c617f4b706267f7ef05b0560",
     "contract_digest": "sha256:25b53928f2c3645a9639773669f61a4f9fb8bf923fb66090c93d0f43f7f150ec",
     "policy_digest": "sha256:7c4e2d3fdb8f7fd8aa3efaf17af3302a2a499c226dc0878c5c18533a57ae24dd",
@@ -21,8 +21,8 @@
     "artifact_digest": "sha256:80ce279df20a1f044ff14910cb4d58bf4627258ad5abff5dc819c09365b15339"
   },
   "native_outcomes_digest": "sha256:51222b7f84e130c384e407ba0d030d5e747bad8f8aacc6029a229b9011c1c22b",
-  "observed_outcomes_digest": "sha256:10bf43496672eae91392c0f3c411910e4ea88ff1dc251ba61d7415431f565bd1",
-  "observation_digest": "sha256:168d9e7692c0add6a62708bf9210fa6a70be75f6ce8e8166d1681acecc92326c",
+  "observed_outcomes_digest": "sha256:fabc03a03f2fc8d14901da019d29e6a14cc6f1236ff9084f80a6319692ced30a",
+  "observation_digest": "sha256:8347c9c1c9d91ac9cf9f38df9dd62869f3374c786dec730d53cdb9a3bbf1cf8b",
   "outcomes_parity": true,
   "legacy_case_count": 10093,
   "static_definition_count": 10024,
@@ -66,7 +66,7 @@
   ],
   "timing": {
     "native_child_seconds": 2391.6920308750123,
-    "observed_child_seconds": 2448.1285074170446,
+    "observed_child_seconds": 2061.313106500078,
     "qualification": "unavailable: one sequential pair, uncontrolled cache and different worktree populations; no overhead or program-target claim"
   },
   "cost_clearance": false
