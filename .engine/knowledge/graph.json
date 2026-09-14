@@ -1135,7 +1135,8 @@
           "doc:getting-started",
           "doc:product-design",
           "doc:reader-health-recovery",
-          "doc:result-contracts"
+          "doc:result-contracts",
+          "doc:test-cost-contracts"
         ]
       },
       "slug": "doc-frontmatter",
@@ -1168,7 +1169,8 @@
           "doc:getting-started",
           "doc:product-design",
           "doc:reader-health-recovery",
-          "doc:result-contracts"
+          "doc:result-contracts",
+          "doc:test-cost-contracts"
         ]
       },
       "slug": "doc-shape",
@@ -5366,6 +5368,26 @@
       "type": "doc"
     },
     {
+      "id": "doc:test-cost-contracts",
+      "name": ".engine/docs/test-cost-contracts.md",
+      "owner": "core",
+      "predicates": {
+        "governed_by": [
+          "schema:doc.v1"
+        ],
+        "provided_by": [
+          "module:core"
+        ]
+      },
+      "slug": "test-cost-contracts",
+      "source": {
+        "fingerprint": "sha256:554d05917889ff40e3c3eea7644da1f40a3391c3ce4eb31a3e5e8a2e5277e3cf",
+        "path": ".engine/docs/test-cost-contracts.md"
+      },
+      "status": "active",
+      "type": "doc"
+    },
+    {
       "id": "executors:witness-declared-incomplete",
       "name": ".engine/executors/witness-declared-incomplete.json",
       "owner": "core",
@@ -5561,7 +5583,7 @@
       },
       "slug": "core",
       "source": {
-        "fingerprint": "sha256:2396fc011b9e282bbbabaa1241202c16d5460a9f3c373ed62783628eb02f959a",
+        "fingerprint": "sha256:cc50ae21bb978b829412fc9affef37499e825dd61854cf776b7a2d126db618ab",
         "path": ".engine/modules/core/manifest.json"
       },
       "status": "required",
@@ -5852,7 +5874,7 @@
       },
       "slug": "build-implementation",
       "source": {
-        "fingerprint": "sha256:9fb0f56ee6639149e933357b8fb8614683421ab3e3eb528d1c12b62063533d53",
+        "fingerprint": "sha256:2736924ec57e370fa27edb5560d4a2501d048bd26683536bbc7cb327d1814d2d",
         "path": ".engine/operations/build-implementation.md"
       },
       "status": "active",
@@ -5972,7 +5994,7 @@
       },
       "slug": "build-validation-and-review",
       "source": {
-        "fingerprint": "sha256:177544384a320942bf130a3a13599026efee3b176019731f446bf8d02f9f05d4",
+        "fingerprint": "sha256:eb3ad7e9783ebe880d8188c783357201cedc27e23b566892025343abdc77a9e9",
         "path": ".engine/operations/build-validation-and-review.md"
       },
       "status": "active",
@@ -7010,6 +7032,146 @@
       "type": "policy"
     },
     {
+      "id": "policy:test-cost",
+      "name": ".engine/policies/test-cost.json",
+      "owner": "core",
+      "predicates": {
+        "governed_by": [
+          "schema:policy.v1"
+        ],
+        "provided_by": [
+          "module:core"
+        ]
+      },
+      "slug": "test-cost",
+      "source": {
+        "fingerprint": "sha256:5073fa65f1b03b8ec6c9fbb51baf33cd8012cf03cbeeb9f21f0c2c02679c3c5e",
+        "path": ".engine/policies/test-cost.json"
+      },
+      "status": "active",
+      "type": "policy"
+    },
+    {
+      "id": "policy:test-cost-activation",
+      "name": ".engine/policies/test-cost-activation.json",
+      "owner": "core",
+      "predicates": {
+        "governed_by": [
+          "schema:policy.v1"
+        ],
+        "provided_by": [
+          "module:core"
+        ]
+      },
+      "slug": "test-cost-activation",
+      "source": {
+        "fingerprint": "sha256:347f157be4974b183e3045ab7c1e5f8c6147bce0852d04fdec94e12b01f1109b",
+        "path": ".engine/policies/test-cost-activation.json"
+      },
+      "status": "active",
+      "type": "policy"
+    },
+    {
+      "id": "policy:test-cost-calibration",
+      "name": ".engine/policies/test-cost-calibration.json",
+      "owner": "core",
+      "predicates": {
+        "governed_by": [
+          "schema:policy.v1"
+        ],
+        "provided_by": [
+          "module:core"
+        ]
+      },
+      "slug": "test-cost-calibration",
+      "source": {
+        "fingerprint": "sha256:f3f4c301ac4bc951d47ffe2413d31e187d07b4e51291cf9df9b2dd46c33978c4",
+        "path": ".engine/policies/test-cost-calibration.json"
+      },
+      "status": "active",
+      "type": "policy"
+    },
+    {
+      "id": "policy:test-cost-declarations",
+      "name": ".engine/policies/test-cost-declarations.json",
+      "owner": "core",
+      "predicates": {
+        "governed_by": [
+          "schema:policy.v1"
+        ],
+        "provided_by": [
+          "module:core"
+        ]
+      },
+      "slug": "test-cost-declarations",
+      "source": {
+        "fingerprint": "sha256:a70ac6162bc9981d2d1342728627c2729c20b51fe7ea7c802bc4e68edef8590b",
+        "path": ".engine/policies/test-cost-declarations.json"
+      },
+      "status": "active",
+      "type": "policy"
+    },
+    {
+      "id": "policy:test-cost-legacy-baseline",
+      "name": ".engine/policies/test-cost-legacy-baseline.json",
+      "owner": "core",
+      "predicates": {
+        "governed_by": [
+          "schema:policy.v1"
+        ],
+        "provided_by": [
+          "module:core"
+        ]
+      },
+      "slug": "test-cost-legacy-baseline",
+      "source": {
+        "fingerprint": "sha256:e97e6b207b77be2b7ab012c272779f4dc4738a3f7f2728b7b4580c293aa6eb53",
+        "path": ".engine/policies/test-cost-legacy-baseline.json"
+      },
+      "status": "active",
+      "type": "policy"
+    },
+    {
+      "id": "policy:test-cost-legacy-static",
+      "name": ".engine/policies/test-cost-legacy-static.json",
+      "owner": "core",
+      "predicates": {
+        "governed_by": [
+          "schema:policy.v1"
+        ],
+        "provided_by": [
+          "module:core"
+        ]
+      },
+      "slug": "test-cost-legacy-static",
+      "source": {
+        "fingerprint": "sha256:be0f5ce48822b62cb008eb8d4b5ed14b0a6d15cd79021d6ab86d5b8dac462dd7",
+        "path": ".engine/policies/test-cost-legacy-static.json"
+      },
+      "status": "active",
+      "type": "policy"
+    },
+    {
+      "id": "policy:test-cost-parity",
+      "name": ".engine/policies/test-cost-parity.json",
+      "owner": "core",
+      "predicates": {
+        "governed_by": [
+          "schema:policy.v1"
+        ],
+        "provided_by": [
+          "module:core"
+        ]
+      },
+      "slug": "test-cost-parity",
+      "source": {
+        "fingerprint": "sha256:bf59c71c3c3b62b96d58ee42b032abbbbecbde347793f2f7ef8a091da3e2a9ba",
+        "path": ".engine/policies/test-cost-parity.json"
+      },
+      "status": "active",
+      "type": "policy"
+    },
+    {
       "id": "policy:triage-threshold",
       "name": ".engine/policies/triage-threshold.md",
       "owner": "core",
@@ -7262,7 +7424,7 @@
       },
       "slug": "build-state.v2",
       "source": {
-        "fingerprint": "sha256:ff91168a81a6725b0f60e304fef0dbc70d686889efb85e9f3af4dd651c254d69",
+        "fingerprint": "sha256:b3f596b3be699c4734ad4cb5799bd2e8f1c173bb753b752a5f58fad41c134480",
         "path": ".engine/schemas/build-state.v2.json"
       },
       "status": "active",
@@ -10188,7 +10350,7 @@
       },
       "slug": "build_coordinator",
       "source": {
-        "fingerprint": "sha256:c7b95f29019c24e7f5058782d8422690d3545cdc25c26112f5f35b0ce3b878a1",
+        "fingerprint": "sha256:8f6205782f0e7ccc52e86306c74aeb4f36a5cf1d4929013ab0593cad9b65e739",
         "path": ".engine/tools/build_coordinator.py"
       },
       "status": "active",
@@ -12184,7 +12346,9 @@
         "imports": [
           "tool:build_coordinator",
           "tool:build_coordinator_contract",
+          "tool:selftest_cost",
           "tool:test_build_coordinator_contract",
+          "tool:test_selftest_performance",
           "tool:validate"
         ],
         "provided_by": [
@@ -12193,7 +12357,7 @@
       },
       "slug": "demo_plan_to_ready_pr",
       "source": {
-        "fingerprint": "sha256:2f88eec144b709accd284ba5e634c724875f949609b227e8460a1e13a8036031",
+        "fingerprint": "sha256:77019d88b793cedb22399a2c0cc832686edd3527d0948e462e82311ef2d2b55b",
         "path": ".engine/tools/demo_plan_to_ready_pr.py"
       },
       "status": "active",
@@ -15311,7 +15475,7 @@
       },
       "slug": "project_manager",
       "source": {
-        "fingerprint": "sha256:ee858365eb351fd41a80970b6d48bcee8621e373b4b53269995c141036dc98d4",
+        "fingerprint": "sha256:33b6726a94b35b04cad4ce8424bfcf5583ebc21e6d6f6c612910c0bf3db5c3d8",
         "path": ".engine/tools/project_manager.py"
       },
       "status": "active",
@@ -16235,7 +16399,7 @@
       },
       "slug": "scoped_agents",
       "source": {
-        "fingerprint": "sha256:cc776f2d05b6bdfb7471a9d52c8b6b59be2f7b454abfa1b9ae834b2bfd54c7ba",
+        "fingerprint": "sha256:20c884d1eba7a829b14f433437852f029d1a927dbb1b74d2e53c57083ea10326",
         "path": ".engine/tools/scoped_agents.py"
       },
       "status": "active",
@@ -16509,7 +16673,7 @@
       },
       "slug": "selftest_support",
       "source": {
-        "fingerprint": "sha256:fe8aa7193c5ba4fe2d9fa8d3bd4793ddd7bb5d73dab9cc580cd408349084e97a",
+        "fingerprint": "sha256:965c9c8b94f8f0d592db47d5caa724a66d0c63aa166d9e6a154d65e88f16ddf5",
         "path": ".engine/tools/selftest_support.py"
       },
       "status": "active",
@@ -17463,6 +17627,7 @@
           "tool:repair_divergence",
           "tool:reviewer_contracts",
           "tool:scoped_agents",
+          "tool:selftest_cost",
           "tool:selftest_support",
           "tool:spec_referent",
           "tool:test_build_coordinator_contract",
@@ -17473,7 +17638,7 @@
       },
       "slug": "test_build_coordinator",
       "source": {
-        "fingerprint": "sha256:963e68e78e34a71b90176165484a0461367feb79febf7726e9a5516508fb06f1",
+        "fingerprint": "sha256:0d8429082c06dca1eabd3ec9d1348457ef5ebdd76f019fa76a54d18c1958ad44",
         "path": ".engine/tools/test_build_coordinator.py"
       },
       "status": "active",
@@ -20167,6 +20332,7 @@
           "tool:knowledge_gen",
           "tool:module_coherence",
           "tool:release_cut",
+          "tool:selftest_cost",
           "tool:selftest_support",
           "tool:untracked_surface_check",
           "tool:validate",
@@ -20175,7 +20341,7 @@
       },
       "slug": "test_modules",
       "source": {
-        "fingerprint": "sha256:d7b378ef70893c7bd7090f6740553ddf075deb9a3db8ae19d63c39479c2fdd72",
+        "fingerprint": "sha256:13feb218c949ad7e02b708e2395d60386f2fedf5131e03ad7115d65f49f93537",
         "path": ".engine/tools/test_modules.py"
       },
       "status": "active",
@@ -20626,13 +20792,14 @@
           "tool:plan_store",
           "tool:project_manager",
           "tool:scoped_agents",
+          "tool:selftest_cost",
           "tool:selftest_support",
           "tool:test_project_manager"
         ]
       },
       "slug": "test_plan_dogfood",
       "source": {
-        "fingerprint": "sha256:1bad214476a4e49fac8bca872e0a655704d9318856dd897ac42f0b5c376231c4",
+        "fingerprint": "sha256:9016f694d06f55d803ec210df4833be5f3d3ffbe95699aa3038e5308f4840ca7",
         "path": ".engine/tools/test_plan_dogfood.py"
       },
       "status": "active",
@@ -20661,13 +20828,12 @@
           "tool:scoped_agents",
           "tool:selftest_support",
           "tool:test_build_state_store",
-          "tool:test_plan_store",
           "tool:test_project_manager"
         ]
       },
       "slug": "test_plan_lifecycle",
       "source": {
-        "fingerprint": "sha256:59fd562efd4be67eb62249fe089ab36557f8e00feb45761313cdd96e2d5f9994",
+        "fingerprint": "sha256:a675674ef56cd99a167d51bfec2896042f2b09a9ab372d9c38173625cbb67383",
         "path": ".engine/tools/test_plan_lifecycle.py"
       },
       "status": "active",
@@ -20718,12 +20884,13 @@
         "tests": [
           "tool:plan_projection",
           "tool:plan_store",
-          "tool:test_plan_store"
+          "tool:test_plan_store",
+          "tool:test_project_manager"
         ]
       },
       "slug": "test_plan_projection",
       "source": {
-        "fingerprint": "sha256:254aec2534cb257a5e8b1b02b6602d5b12a443acb802a81909e9e472d5a7001a",
+        "fingerprint": "sha256:445fe1af6495bb245764903d07648d98acc41648f5ca0d76b0f5dc451c458dda",
         "path": ".engine/tools/test_plan_projection.py"
       },
       "status": "active",
@@ -20768,12 +20935,13 @@
         ],
         "tests": [
           "tool:demo_plan_to_ready_pr",
-          "tool:quiet_call"
+          "tool:quiet_call",
+          "tool:selftest_cost"
         ]
       },
       "slug": "test_plan_to_ready_pr_demo",
       "source": {
-        "fingerprint": "sha256:cbe71de7fa027daf64f64e423c4f03d3d4916068e6a639390900bff674489846",
+        "fingerprint": "sha256:857b1ae4587fa01b80b311dcd22bac101157a2167a8e81a27a33ed6c26cc44a6",
         "path": ".engine/tools/test_plan_to_ready_pr_demo.py"
       },
       "status": "active",
@@ -21038,12 +21206,13 @@
         ],
         "tests": [
           "tool:build_protocol",
+          "tool:selftest_cost",
           "tool:validate"
         ]
       },
       "slug": "test_qa_review",
       "source": {
-        "fingerprint": "sha256:3be79cf6dcc0a852cb1c3c22464fb37eb7af005193170cbfef80975fdabd9f19",
+        "fingerprint": "sha256:2f95920e3339c869bb4a3fbc551f89f088df2f0ee2be5620861cb02017c724c1",
         "path": ".engine/tools/test_qa_review.py"
       },
       "status": "active",
@@ -21683,7 +21852,7 @@
       },
       "slug": "test_reviewer_contracts",
       "source": {
-        "fingerprint": "sha256:dd03d3bad39772cae8768855d4ef7ca396245c1f9a7bad32b947f1358037b421",
+        "fingerprint": "sha256:2839e0d79e42b72db1f26027ccece102710b8b73d082f80e1c1853567d503bf9",
         "path": ".engine/tools/test_reviewer_contracts.py"
       },
       "status": "active",
@@ -22022,6 +22191,7 @@
           "tool:bootstrap",
           "tool:github_client",
           "tool:protection_guard",
+          "tool:selftest_cost",
           "tool:selftest_support",
           "tool:validate",
           "tool:weakening_guard"
@@ -22029,7 +22199,7 @@
       },
       "slug": "test_seed",
       "source": {
-        "fingerprint": "sha256:a2d5296e436be7a8ab7ab2dfbe0669beb3aff406071ff888857cf26ee86a48f6",
+        "fingerprint": "sha256:c3c5526c58072fc28dd06c3afaff1ab96cbca24d8866c89fb7bed219642af552",
         "path": ".engine/tools/test_seed.py"
       },
       "status": "active",
@@ -22127,6 +22297,7 @@
           "tool:demo_test_cost_contracts",
           "tool:engine_fixture",
           "tool:moment",
+          "tool:quiet_call",
           "tool:selftest_cost",
           "tool:selftest_cost_check",
           "tool:selftest_results"
@@ -22134,7 +22305,7 @@
       },
       "slug": "test_selftest_cost",
       "source": {
-        "fingerprint": "sha256:949e0749f77df40b12f8a9d2b3b743779e882379bab9790e7bf753ea977aea2c",
+        "fingerprint": "sha256:4ded937233ba7619707ff3f3dd1eff4a573c97e6ce3b397c57f9d31ee341d6a9",
         "path": ".engine/tools/test_selftest_cost.py"
       },
       "status": "active",
@@ -23048,13 +23219,14 @@
         "tests": [
           "tool:ci_assurance",
           "tool:ci_gatekeeper",
+          "tool:selftest_cost",
           "tool:validate",
           "tool:wiring"
         ]
       },
       "slug": "test_wiring",
       "source": {
-        "fingerprint": "sha256:692e0add16956b1ae68baf9913d11f7678058ed1e15c32b8e8e74d8e26d60e18",
+        "fingerprint": "sha256:45ad89eadb51b9c19d9438df93ac10809170a7157b418f5bcb6ce9256c587b6f",
         "path": ".engine/tools/test_wiring.py"
       },
       "status": "active",
@@ -23467,7 +23639,7 @@
       },
       "slug": "weakening_guard",
       "source": {
-        "fingerprint": "sha256:8cc3e734fc91202da7e8e51ba8b9afb8883b437f27a89fd172ccefee352ec334",
+        "fingerprint": "sha256:e7c3962c112a316970785f96ff2503258cc30c877032be7b56452f51e98df890",
         "path": ".engine/tools/weakening_guard.py"
       },
       "status": "active",
