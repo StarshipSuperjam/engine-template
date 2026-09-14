@@ -5381,7 +5381,7 @@
       },
       "slug": "test-cost-contracts",
       "source": {
-        "fingerprint": "sha256:5ffa0e9d66fcb973eccde9ca6e900f8ab5df244e7607929b14daa7e8bad7cde7",
+        "fingerprint": "sha256:19534277836f890a91b2f6e67b59314d3c463888b29836a8c176a0dfbe7190f4",
         "path": ".engine/docs/test-cost-contracts.md"
       },
       "status": "active",
@@ -8495,7 +8495,7 @@
       },
       "slug": "test-cost-baseline.v1",
       "source": {
-        "fingerprint": "sha256:ea4d50d6ebd5975f5264ec6a86a3860e0f21580d90161c70f8a5e3b411c3ca01",
+        "fingerprint": "sha256:edc883f82f75b87ca20a2b532ad75e9ea2f63efe15d52ca8d5497725a1272d41",
         "path": ".engine/schemas/test-cost-baseline.v1.json"
       },
       "status": "active",
@@ -8597,7 +8597,7 @@
       },
       "slug": "test-cost-observation.v1",
       "source": {
-        "fingerprint": "sha256:14eb7f626c99625071b1dcfd03be2ab28101af216c32e5ccbe8a2acf001fbc3e",
+        "fingerprint": "sha256:9e7711d2b9f961e948a8fef38cd1d1ffb9bcd52c60245deae48237a4c917eda9",
         "path": ".engine/schemas/test-cost-observation.v1.json"
       },
       "status": "active",
@@ -8631,7 +8631,7 @@
       },
       "slug": "test-cost-run.v1",
       "source": {
-        "fingerprint": "sha256:331475f186eb8fca8da6977257b1c769ca0860cd4e222e450bb95ab51a6497ef",
+        "fingerprint": "sha256:df5fd08175107abbe6b4d8e568255514258cc2e7581e26fd27fb5867f8ddfb38",
         "path": ".engine/schemas/test-cost-run.v1.json"
       },
       "status": "active",
@@ -10548,7 +10548,7 @@
       },
       "slug": "build_coordinator_work",
       "source": {
-        "fingerprint": "sha256:79f7b5ae13037a38ba2cf32dde23ee674820c9d0961a050bfeb573ebd3ce6351",
+        "fingerprint": "sha256:d9d3d844ee6c92b59b780d0696bfc4fa801268ef8a0d7b896bd06a0902d4674b",
         "path": ".engine/tools/build_coordinator_work.py"
       },
       "status": "active",
@@ -12867,7 +12867,7 @@
       },
       "slug": "demo_test_cost_contracts",
       "source": {
-        "fingerprint": "sha256:e55ba7c695fc15a2b83e2e656e2435e6eec648f525525a6f5d01abd42c157ac9",
+        "fingerprint": "sha256:b736056a0273e415376bfe315591ecfd9d95e05788bc5dc7ff6cc662af49dfd7",
         "path": ".engine/tools/demo_test_cost_contracts.py"
       },
       "status": "active",
@@ -16519,7 +16519,7 @@
       },
       "slug": "selftest",
       "source": {
-        "fingerprint": "sha256:6289a38a8934b84a2e9142cc831f309f6f0ae316341ed602b211c3cf2de6b9b0",
+        "fingerprint": "sha256:2bb5789746de7303a049573b4e8ea205e64ed39ae1d9e0243695113a205411cb",
         "path": ".engine/tools/selftest.py"
       },
       "status": "active",
@@ -16547,7 +16547,7 @@
       },
       "slug": "selftest_cost",
       "source": {
-        "fingerprint": "sha256:7d73ab47377474cc576cfa2efdf9980d31ba6f9e88d253cf943565eab1dbd849",
+        "fingerprint": "sha256:bf258b17f99e3ca2053954243868388527d8f6aba41c658157fdc086bbf06ac1",
         "path": ".engine/tools/selftest_cost.py"
       },
       "status": "active",
@@ -17722,7 +17722,7 @@
       },
       "slug": "test_build_coordinator_cost",
       "source": {
-        "fingerprint": "sha256:96e8809564cb8c9a4994055f9c869f73ddcab15aa47423a334ccb3cc6df4e505",
+        "fingerprint": "sha256:ae2b1c3b01dde8935f2fbc8a8105a61950cebbb12f76547783674b7cfc52e771",
         "path": ".engine/tools/test_build_coordinator_cost.py"
       },
       "status": "active",
@@ -22300,12 +22300,13 @@
           "tool:quiet_call",
           "tool:selftest_cost",
           "tool:selftest_cost_check",
-          "tool:selftest_results"
+          "tool:selftest_results",
+          "tool:test_selftest_performance"
         ]
       },
       "slug": "test_selftest_cost",
       "source": {
-        "fingerprint": "sha256:4ded937233ba7619707ff3f3dd1eff4a573c97e6ce3b397c57f9d31ee341d6a9",
+        "fingerprint": "sha256:3b90ba1b1eaceb655dec1f4779b9b838fc8e00f6d7ec985f34a676733350bc7d",
         "path": ".engine/tools/test_selftest_cost.py"
       },
       "status": "active",
@@ -22357,7 +22358,7 @@
       },
       "slug": "test_selftest_performance",
       "source": {
-        "fingerprint": "sha256:960b5c46bd4bf9385fbce81a8e368192df6eb70b221e50e2f54e0619114f0ffd",
+        "fingerprint": "sha256:e330ebb83593cf18c9768353031c770d1b47a913bc28b7bc7d83905391dfb80a",
         "path": ".engine/tools/test_selftest_performance.py"
       },
       "status": "active",
