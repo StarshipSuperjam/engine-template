@@ -512,7 +512,21 @@ def assess_cost(observation, *, expected_identity, baseline, expected_baseline_d
         unknown += observation['unknown']
         for fact in observation.get('ambient_facts', []):
             if fact['kind'] == AMBIENT_GIT_CONFIG:
-                violations.append('ambient Git configuration discovery: ' + fact['owner'])
+                row = next((r for r in actual_cases if r['owner'] == fact['owner']), None)
+                key = case_key(row['case']) if row else None
+                prior = next((r for r in (legacy or {}).get('cases', [])
+                              if key and case_key(r['case']) == key), None)
+                definition = definitions.get((prior['path'], prior['qualified_name'])) if prior else None
+                unchanged = bool(definition and definition['ast_digest'] == prior['source_digest'])
+                enrolled = valid_baseline and fact in baseline.get('ambient_facts', [])
+                # Existing effects remain explicitly measured debt. Bootstrap has
+                # no effect authority; it reports unknown until enrollment. New
+                # declared work and newly observed effects cannot borrow that debt.
+                if key in contracts or (row and not unchanged) or (valid_baseline and not enrolled):
+                    violations.append('ambient Git configuration discovery: ' + fact['owner'])
+                else:
+                    unknown.append(('enrolled ambient Git debt: ' if enrolled else
+                                    'ambient Git baseline unavailable: ') + fact['owner'])
             elif fact['kind'] == 'network-connect':
                 row = next((r for r in actual_cases if r['owner'] == fact['owner']), None)
                 contract = contracts.get(case_key(row['case'])) if row else None

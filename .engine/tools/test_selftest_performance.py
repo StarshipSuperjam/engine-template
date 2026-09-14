@@ -520,6 +520,32 @@ class CostAssessment(unittest.TestCase):
         context['timing_pairs'] = []
         self.assertEqual(performance.compare_cost(observation, **context)['status'], 'unavailable')
 
+    def test_ambient_legacy_debt_cannot_authorize_new_or_declared_effects(self):
+        observation, context = cost_example()
+        context['runtime'][0].pop('contract', None)
+        fact = {'owner': observation['cases'][0]['owner'], 'kind': 'git-config'}
+        observation['ambient_facts'] = [fact]
+        self.assertTrue(any('ambient Git configuration' in v for v in cost.assess_cost(
+            observation, **context)['violations']))
+        context['baseline']['ambient_facts'] = [fact]
+        context['expected_baseline_digest'] = cost.digest(context['baseline'])
+        result = cost.assess_cost(observation, **context)
+        self.assertEqual([], result['violations'])
+        self.assertTrue(any('enrolled ambient Git debt' in v for v in result['unknown']))
+        context['runtime'][0]['contract'] = copy.deepcopy(_COST_CONTRACT)
+        self.assertTrue(any('ambient Git configuration' in v for v in cost.assess_cost(
+            observation, **context)['violations']))
+        context['runtime'][0].pop('contract')
+        context['bootstrap_inventory'] = context['baseline']
+        context['baseline'] = None
+        result = cost.assess_cost(observation, **context)
+        self.assertEqual([], result['violations'])
+        self.assertFalse(result['cost_clearance'])
+        self.assertTrue(any('ambient Git baseline unavailable' in v for v in result['unknown']))
+        context['runtime'][0]['contract'] = copy.deepcopy(_COST_CONTRACT)
+        self.assertTrue(any('ambient Git configuration' in v for v in cost.assess_cost(
+            observation, **context)['violations']))
+
     def test_observed_long_duration_requires_disclosure_without_a_comparable_pair(self):
         observation, context = cost_example()
         context['timing_pairs'] = []

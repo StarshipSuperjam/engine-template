@@ -5381,7 +5381,7 @@
       },
       "slug": "test-cost-contracts",
       "source": {
-        "fingerprint": "sha256:003ac152b0f6e3121b16be27addc319ba4edef806f77cd1ee09f60cf9873449a",
+        "fingerprint": "sha256:e07d7b32ef35c989d6d8835d2a8014ec10f572aa5b250abefcce7143ba4e39c8",
         "path": ".engine/docs/test-cost-contracts.md"
       },
       "status": "active",
@@ -16547,7 +16547,7 @@
       },
       "slug": "selftest_cost",
       "source": {
-        "fingerprint": "sha256:db6e2b8789a68f2d38a4fe9da7ee447276d1814b40b35203a3bf366f30d8ecc2",
+        "fingerprint": "sha256:388a34e0e18fb7f384e1b671ab8647dadf1e15c4c62a905fd2b26154d2c53526",
         "path": ".engine/tools/selftest_cost.py"
       },
       "status": "active",
@@ -22358,7 +22358,7 @@
       },
       "slug": "test_selftest_performance",
       "source": {
-        "fingerprint": "sha256:e330ebb83593cf18c9768353031c770d1b47a913bc28b7bc7d83905391dfb80a",
+        "fingerprint": "sha256:3e177aaead7252650900ec3c2cbee74399394f7e14c154bf40cbc5a7a8ff4d61",
         "path": ".engine/tools/test_selftest_performance.py"
       },
       "status": "active",
