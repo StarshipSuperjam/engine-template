@@ -227,8 +227,15 @@ class ResultAccounting(unittest.TestCase):
     def test_artifact_byte_limit_and_focused_missing_reports_fail(self):
         class Cases(unittest.TestCase):
             def runTest(self): pass
-        _,_,doc=self.observe([Cases(),Cases()])
-        doc["scope"]="focused"
+        cases = [Cases(), Cases()]
+        observation = records.Observation(cases, cases, source={"tree": None, "worktree_dirty": None},
+            scope="focused", invocation={"start_dir": "tools", "pattern": "test_*.py", "selection_digest": None})
+        for case in cases:
+            observation.start(case)
+            observation.outcome(case, "passed")
+            observation.stop(case)
+        doc = observation.document(True)
+        self.assertEqual(records.validate(doc), (True, True))
         doc["cases"].pop()
         with self.assertRaises(ValueError): records.validate(doc)
         with tempfile.TemporaryDirectory() as tmp, mock.patch.object(records,"MAX_BYTES",32):

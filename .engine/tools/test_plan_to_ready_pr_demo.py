@@ -208,9 +208,32 @@ class TheFrontDoorDemoStillWalks(unittest.TestCase):
         "families": [],
     })
     def test_the_plan_to_ready_pull_request_demo_passes(self):
+        import errno
+        import subprocess
+        from unittest import mock
         import quiet_call
         import demo_plan_to_ready_pr as demo
-        self.assertEqual(quiet_call.run(demo.main), 0)
+        real_run = subprocess.run
+        argument_limit = 128 * 1024  # Linux MAX_ARG_STRLEN with a 4 KiB page, including NUL.
+        largest_stdin = 0
+
+        def linux_bounded_run(argv, *args, **kwargs):
+            nonlocal largest_stdin
+            if any(len(os.fsencode(arg)) + 1 > argument_limit for arg in argv):
+                raise OSError(errno.E2BIG, "Argument list too long")
+            payload = kwargs.get("input")
+            if isinstance(payload, str):
+                largest_stdin = max(largest_stdin, len(payload.encode()))
+            return real_run(argv, *args, **kwargs)
+
+        with self.assertRaises(OSError) as refusal:
+            linux_bounded_run(["unexecuted", "x" * argument_limit])
+        self.assertEqual(refusal.exception.errno, errno.E2BIG)
+        # Execute every real arc; only reproduce the OS's argument bound, never substitute success.
+        with mock.patch.object(subprocess, "run", side_effect=linux_bounded_run):
+            self.assertEqual(quiet_call.run(demo.main), 0)
+        self.assertGreaterEqual(largest_stdin, argument_limit,
+                                "the real review packet must exercise transport beyond Linux's argv limit")
 
 
 if __name__ == "__main__":

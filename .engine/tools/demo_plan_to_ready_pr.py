@@ -671,9 +671,9 @@ import build_coordinator as bc
 import plan_store, scoped_agents
 from test_build_coordinator import observe_review_execution
 state = json.loads(open(sys.argv[1]).read())
-packet = json.loads(sys.argv[2])
-lens = sys.argv[3]
-library = plan_store.PlanLibrary(sys.argv[4])
+packet = json.load(sys.stdin)
+lens = sys.argv[2]
+library = plan_store.PlanLibrary(sys.argv[3])
 slug = library.resolve(state['plan']['plan_id'])
 contract = next(c for c in packet['reviewer_contracts'] if c['lens'] == lens)
 report = []
@@ -686,9 +686,11 @@ observe_review_execution(library, slug, scoped_agents.build_owner(state), lens,
     contract['lens_packet_digest'], report, root='demo-review-root',
     review_contract=bc.reviewer_contracts.effective_build(state), packet_content=json.dumps(packet))
 """
-    return subprocess.run([sys.executable, "-c", script, state_path, json.dumps(packet), lens,
+    # Full review packets exceed Linux's per-argument exec limit; stdin preserves the same JSON
+    # bytes without making the packet an operating-system command-line argument.
+    return subprocess.run([sys.executable, "-c", script, state_path, lens,
         env["ENGINE_PLAN_DIR"]], cwd=os.path.join(copy, ".engine", "tools"),
-        capture_output=True, text=True, env=env)
+        input=json.dumps(packet), capture_output=True, text=True, env=env)
 
 
 def _seed_candidate_fixture(copy, state_path, head):
