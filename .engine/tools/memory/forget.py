@@ -335,6 +335,55 @@ def _target_state(src: str, rid, sid) -> tuple:
     return exists, (rid in withheld_ids if rid is not None else sid in withheld_sessions)
 
 
+class ControlUnconfirmed(ControlNotRecorded):
+    """The marker's save step failed after its bytes may already have landed, and the ledger could not be read
+    back to tell: neither "changed" nor "nothing was changed" is honest, so this says so. A ControlNotRecorded,
+    so every existing handler still catches it; the command line prints it as "Not confirmed"."""
+
+
+#: The sentence for `ControlUnconfirmed`: names what is not known and what to do; never says nothing was changed.
+UNCONFIRMED_SENTENCE = ("the change's save step did not complete and memory could not be read back to confirm "
+                        "whether it landed, so this is not confirmed either way. Check with list-withheld or a "
+                        "search before repeating it. " + refusals.ESCALATION)
+
+
+#: The note for a withhold/restore marker whose bytes landed but whose flush step then failed (R9 DH-1; parity
+#: with pins.UNFLUSHED_NOTE): the change is real, and the failed step is named rather than swallowed.
+UNFLUSHED_NOTE = ("Changed, but not cleanly: the change is on disk and readable, but the save step after its "
+                  "bytes landed (the ledger flush) reported an I/O error, so it may not survive a crash until the "
+                  "next write completes cleanly. Nothing was retried. " + refusals.ESCALATION)
+
+
+def _fault_collector():
+    """A line sink for the command line (parity with pins._fault_collector): records whether the marker landed
+    despite a fault, so the success line carries `UNFLUSHED_NOTE` instead of reading as a clean change."""
+    faults = []
+
+    def collect(kind: str, payload: dict) -> None:
+        if kind == "committed" and payload.get("fault") is not None:
+            faults.append(payload["fault"])
+    return collect, faults
+
+
+def _landed_despite(marker, target: str):
+    """After an exception inside the append step: True when the marker is readable in the ledger (the bytes
+    landed before the fault), False when the ledger was searched and holds no such marker, None when the
+    ledger could not be read. Called under the single-writer lock (round 7; parity with pins.add)."""
+    if marker is None:
+        return False
+    try:
+        return ledger.find_raw_record(marker[records.RECORD_ID_KEY], path=target,
+                                      id_key=records.RECORD_ID_KEY) is not None
+    except ledger.LedgerUnreadable:
+        return None
+
+
+def _cli_refusal_line(exc: "ControlNotRecorded", not_done: str) -> str:
+    """The command line's one-line report: `not_done` ("Not withheld"/"Not restored") only when nothing was
+    changed, "Not confirmed" when that is not known."""
+    return f"{'Not confirmed' if isinstance(exc, ControlUnconfirmed) else not_done}: {exc}"
+
+
 def _authority_refused(exc: Exception) -> "ControlNotRecorded":
     """Translate a refused memory-write authorization into the operator-facing ControlNotRecorded.
 
@@ -353,8 +402,22 @@ def _authority_refused(exc: Exception) -> "ControlNotRecorded":
     )
 
 
+def _emit_confirmation(emit, event: str, payload: dict) -> None:
+    """Emit a post-commit forensic line as BEST EFFORT (parity with pins._emit_confirmation): the marker is
+    already durable, so a failure here is swallowed rather than allowed to masquerade as a lost change. The
+    dispatch parent's read-back of the pre-minted marker id is the backstop that still resolves the outcome
+    to `committed` when this line never arrives."""
+    if emit is None:
+        return
+    try:
+        emit(event, payload)
+    except Exception:
+        pass
+
+
 def _write_control(kind: str, *, record_id=None, session_id=None,
-                   path: "str | None" = None, now: "int | None" = None) -> dict:
+                   path: "str | None" = None, now: "int | None" = None,
+                   accepted_id=None, emit=None) -> dict:
     """Append one withhold/restore marker and return it. Raises ControlNotRecorded rather than failing quietly.
 
     Exactly ONE target, checked here rather than at each caller: a marker naming both would be ambiguous to
@@ -394,6 +457,11 @@ def _write_control(kind: str, *, record_id=None, session_id=None,
     if kind == records.WITHHOLD_KIND and already:
         noun = "note" if rid is not None else "conversation"
         raise ControlNotRecorded(f"that {noun} is already out of recall — nothing needed changing.")
+    marker_id = accepted_id if (isinstance(accepted_id, str) and accepted_id) else records.new_record_id()
+    if emit is not None:
+        # Forensic parity with pins.add: the pre-minted id crosses to the parent BEFORE the lock, so a
+        # child that dies mid-write leaves a marker id to reason about rather than a silent gap.
+        emit("begin", {records.RECORD_ID_KEY: marker_id})
     data_dir = os.path.dirname(target) or "."
     os.makedirs(data_dir, exist_ok=True)
     # `_acquire_lock` consumes the capture-lock-create authority as its first act, so an authority refusal
@@ -415,11 +483,14 @@ def _write_control(kind: str, *, record_id=None, session_id=None,
             "memory could not be written to (the memory folder is not writable), so nothing was changed. This will "
             "not clear on its own — check the folder's permissions and that its disk is mounted and has room."
         )
+    committed_bytes = None
+    attempted = None
+    landed_despite_fault = None
     try:
         marker = {
             "v": capture.RECORD_VERSION,
             "kind": kind,
-            records.RECORD_ID_KEY: records.new_record_id(),
+            records.RECORD_ID_KEY: marker_id,
             "ts": int(time.time()) if now is None else now,
             "tags": [records.WITHHOLD_TAG],
         }
@@ -428,21 +499,41 @@ def _write_control(kind: str, *, record_id=None, session_id=None,
         else:
             marker[records.TARGET_SESSION_KEY] = sid
         ledger.bump_index_epoch(for_path=target)
-        ledger.append(marker, path=path)
-        return marker
+        attempted = marker
+        appended = ledger.append(marker, path=path)
+        committed_bytes = appended.length
     except ControlNotRecorded:
         raise
     except _mutation_authority.MutationAuthorityError as exc:
         raise _authority_refused(exc) from exc
     except Exception as exc:
-        raise ControlNotRecorded("the change could not be saved — an internal memory-write step did not complete, "
-                                 "so nothing was changed. " + refusals.ESCALATION, raw_detail=str(exc)) from exc
+        # The append may have LANDED before this was raised (an I/O error in the flush comes after the bytes).
+        # Reconcile against the ledger under the lock before the sentence is chosen (round 7; parity with
+        # pins.add): readable -> the marker is recorded and returned; unreadable -> unconfirmed; searched and
+        # absent -> nothing was changed.
+        landed = _landed_despite(attempted, target)
+        if landed is None:
+            raise ControlUnconfirmed(UNCONFIRMED_SENTENCE, raw_detail=str(exc)) from exc
+        if landed is False:
+            raise ControlNotRecorded("the change could not be saved — an internal memory-write step did not "
+                                     "complete, so nothing was changed. " + refusals.ESCALATION,
+                                     raw_detail=str(exc)) from exc
+        # Landed, but not cleanly: carried on the committed line so every route discloses it (R9 DH-1).
+        landed_despite_fault = exc
     finally:
         capture._release_lock(lock_fd)
+    # The marker has LANDED and the lock is released. The forensic confirmation line is best-effort telemetry
+    # for the dispatch parent — its failure must NEVER be reported as a lost change, so it is emitted OUTSIDE
+    # the catch-all above (whose sentence says "nothing was changed"). Parity with pins.add.
+    receipt = {"record": marker, "bytes": committed_bytes}
+    if landed_despite_fault is not None:
+        receipt["fault"] = str(landed_despite_fault)
+    _emit_confirmation(emit, "committed", receipt)
+    return marker
 
 
 def withhold(*, record_id=None, session_id=None, path: "str | None" = None,
-             now: "int | None" = None) -> dict:
+             now: "int | None" = None, accepted_id=None, emit=None) -> dict:
     """Take one note, or one whole session's conversation, out of everything recall surfaces. Reversible.
 
     NOTHING IS DELETED and nothing becomes unrecoverable: the records stay in the ledger byte for byte, and
@@ -450,11 +541,11 @@ def withhold(*, record_id=None, session_id=None, path: "str | None" = None,
     different act entirely, reachable only by merging a single-purpose erasure pull request, and the two are
     kept apart in vocabulary as well as in mechanism (`records.WITHHOLD_KIND`)."""
     return _write_control(records.WITHHOLD_KIND, record_id=record_id, session_id=session_id,
-                          path=path, now=now)
+                          path=path, now=now, accepted_id=accepted_id, emit=emit)
 
 
 def restore(*, record_id=None, session_id=None, path: "str | None" = None,
-            now: "int | None" = None) -> dict:
+            now: "int | None" = None, accepted_id=None, emit=None) -> dict:
     """Undo a withhold, by the same target the withhold named. Appends; it never edits the earlier marker.
 
     Restoring something that was never withheld is harmless rather than an error — the marker simply names a
@@ -463,7 +554,7 @@ def restore(*, record_id=None, session_id=None, path: "str | None" = None,
     memory holds: an identifier matching nothing is a mistake worth telling them about rather than a silent
     no-op dressed as success (`_target_state`)."""
     return _write_control(records.RESTORE_KIND, record_id=record_id, session_id=session_id,
-                          path=path, now=now)
+                          path=path, now=now, accepted_id=accepted_id, emit=emit)
 
 
 def _injected_message_keys(src: str) -> set:
@@ -1065,6 +1156,10 @@ def main(argv: list) -> int:
     parser = argparse.ArgumentParser(prog="forget.py")
     sub = parser.add_subparsers(dest="cmd", required=True)
     sub.add_parser("list-withheld", help="list reversible withheld targets and their identifiers")
+    withhold_record = sub.add_parser("withhold-record", help="take one record out of recall by id")
+    withhold_record.add_argument("record_id")
+    withhold_session = sub.add_parser("withhold-session", help="take one conversation out of recall by id")
+    withhold_session.add_argument("session_id")
     restore_record = sub.add_parser("restore-record", help="restore one withheld record by id")
     restore_record.add_argument("record_id")
     restore_session = sub.add_parser("restore-session", help="restore one withheld conversation by id")
@@ -1078,21 +1173,41 @@ def main(argv: list) -> int:
     # through the accepted-hook dispatcher as an unhandled exception. Mirror the sibling pins.py `remove` lane,
     # which already catches and prints. `str(exc)` is plain by construction (any raw authority detail lives on
     # exc.raw_detail, off the message), so nothing backstage is printed.
-    if args.cmd == "restore-record":
+    if args.cmd == "withhold-record":
+        collect, faults = _fault_collector()
         try:
-            restore(record_id=args.record_id)
+            withhold(record_id=args.record_id, emit=collect)
         except ControlNotRecorded as exc:
-            print(f"Not restored: {exc}")
+            print(_cli_refusal_line(exc, "Not withheld"))
             return 1
-        print(f"Restored record {args.record_id}.")
+        print(f"Withheld record {args.record_id}." + (f" {UNFLUSHED_NOTE}" if faults else ""))
+        return 0
+    if args.cmd == "withhold-session":
+        collect, faults = _fault_collector()
+        try:
+            withhold(session_id=args.session_id, emit=collect)
+        except ControlNotRecorded as exc:
+            print(_cli_refusal_line(exc, "Not withheld"))
+            return 1
+        print(f"Withheld session {args.session_id}." + (f" {UNFLUSHED_NOTE}" if faults else ""))
+        return 0
+    if args.cmd == "restore-record":
+        collect, faults = _fault_collector()
+        try:
+            restore(record_id=args.record_id, emit=collect)
+        except ControlNotRecorded as exc:
+            print(_cli_refusal_line(exc, "Not restored"))
+            return 1
+        print(f"Restored record {args.record_id}." + (f" {UNFLUSHED_NOTE}" if faults else ""))
         return 0
     if args.cmd == "restore-session":
+        collect, faults = _fault_collector()
         try:
-            restore(session_id=args.session_id)
+            restore(session_id=args.session_id, emit=collect)
         except ControlNotRecorded as exc:
-            print(f"Not restored: {exc}")
+            print(_cli_refusal_line(exc, "Not restored"))
             return 1
-        print(f"Restored session {args.session_id}.")
+        print(f"Restored session {args.session_id}." + (f" {UNFLUSHED_NOTE}" if faults else ""))
         return 0
     return 2
 

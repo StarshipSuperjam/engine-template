@@ -52,6 +52,23 @@ def _strings(value):
             yield from _strings(item)
 
 
+def _caller_edge_problem(caller: str) -> "str | None":
+    """Why a registry `callers` entry does not resolve in source, or None when it does. Prose callers (words
+    with spaces) resolve as prose; `.engine/...` callers resolve to an existing file; dotted callers resolve to
+    a function defined in that module under .engine/tools (an AST walk, not a grep)."""
+    if " " in caller:
+        return None          # prose (a launcher the provider configures), never a dotted path
+    if caller.startswith(".engine/"):
+        return None if (ROOT / caller).is_file() else f"{caller}: no such file"
+    module, function = caller.rsplit(".", 1)
+    path = ROOT / ".engine" / "tools" / (module.replace(".", "/") + ".py")
+    if not path.is_file():
+        return f"{caller}: {path} is not a module"
+    tree = ast.parse(path.read_text(encoding="utf-8"), filename=str(path))
+    defined = {node.name for node in ast.walk(tree) if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef))}
+    return None if function in defined else f"{caller}: no function named {function!r} in {path}"
+
+
 class TestMutationRegistryShape(unittest.TestCase):
     def test_schema_is_well_formed_and_the_canonical_registry_conforms(self):
         schema = json.loads(SCHEMA.read_text(encoding="utf-8"))
@@ -75,6 +92,39 @@ class TestMutationRegistryShape(unittest.TestCase):
                 self.assertIn(function, functions, entry["id"])
             else:
                 self.assertIn(function, path.read_text(encoding="utf-8"), entry["id"])
+
+    def test_every_declared_caller_edge_resolves_in_source(self):
+        """The registry's callers census is a claim about source, and this is the part of it an AST can prove:
+        every `module.function` a registry entry names as a caller is a real function defined in that module
+        under .engine/tools, so a caller that was removed or renamed outright — the three in-process server
+        edges this seam retired, or a misspelled launcher — fails here instead of quietly leaving the census
+        stale. It does NOT prove the call edge itself: a caller that survives but no longer reaches the writer
+        passes, and the `attended-write-dispatch` edge is a process boundary (the launcher spawns `main`,
+        never calls it), so that edge is only ever a definition check (R5-SG-2). A caller that is not code (a
+        launcher the provider configures, named in prose) must read as prose: words with spaces, never a
+        dotted path that merely fails to resolve."""
+        for entry in contract.REGISTRY:
+            for caller in entry["callers"]:
+                with self.subTest(entry=entry["id"], caller=caller):
+                    self.assertIsNone(_caller_edge_problem(caller))
+
+    def test_the_caller_census_detects_a_retired_or_misspelled_edge(self):
+        # R5-DH-4: the teeth are proven on the SAME resolver the census proof runs, fed the edges that must
+        # fail — a function that no longer exists (the retired in-process server writer), a misspelled
+        # launcher function, and a module and a script that do not exist — and the edges that must pass,
+        # so a resolver that stopped looking would fail here.
+        for bad in ("memory.mcp_server.pin_in_process", "memory.write_dispatch.run_chlid",
+                    "memory.no_such_launcher.main", ".engine/tools/memory/no_such_launcher.py"):
+            with self.subTest(caller=bad):
+                self.assertIsNotNone(_caller_edge_problem(bad), bad)
+        for good in ("memory.write_dispatch._spawn_accepted_child", "memory.write_dispatch.run_child",
+                     "engine-restore-operator-pin fallback"):
+            with self.subTest(caller=good):
+                self.assertIsNone(_caller_edge_problem(good), good)
+        # And the retired in-process edge is gone from every entry but the dispatcher's own.
+        for entry in contract.REGISTRY:
+            if entry["id"] != "attended-write-dispatch":
+                self.assertNotIn("memory.mcp_server.pin", entry["callers"], entry["id"])
 
     def test_closed_vocabularies_match_the_schema(self):
         self.assertEqual(contract.EFFECT_CLASSES, {

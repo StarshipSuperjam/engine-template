@@ -731,6 +731,175 @@ class WithholdTests(_Base):
             self.assertEqual(forget.main(["restore-record", rid]), 0)
         self.assertEqual(len(list(forget.live_records())), 1)
 
+    def test_cli_withhold_record_withholds_one_record_and_refuses_a_second_time(self):
+        # Round 4, TI-1: the withhold-record verb through main(), the same lane the restore verb is tested on.
+        rid = self._turns("s-cli-w", count=2)[0]
+        output = io.StringIO()
+        with contextlib.redirect_stdout(output):
+            self.assertEqual(forget.main(["withhold-record", rid]), 0)
+        self.assertIn(f"Withheld record {rid}.", output.getvalue())
+        self.assertEqual(len(list(forget.live_records())), 1)
+        # Already out of recall: the refusal reaches the operator as its plain sentence and exit 1, not a
+        # traceback (the ControlNotRecorded translation the handler exists for).
+        output = io.StringIO()
+        with contextlib.redirect_stdout(output):
+            self.assertEqual(forget.main(["withhold-record", rid]), 1)
+        self.assertIn("Not withheld:", output.getvalue())
+        self.assertIn("already out of recall", output.getvalue())
+        self.assertNotIn("Traceback", output.getvalue())
+        self.assertEqual(len(list(forget.live_records())), 1)
+
+    def test_cli_withhold_session_withholds_a_whole_conversation_and_names_a_missing_one(self):
+        # Round 4, TI-1: the withhold-session verb through main(), success and the unknown-identifier refusal.
+        self._turns("s-cli-keep", count=1)
+        self._turns("s-cli-gone", count=3)
+        output = io.StringIO()
+        with contextlib.redirect_stdout(output):
+            self.assertEqual(forget.main(["withhold-session", "s-cli-gone"]), 0)
+        self.assertIn("Withheld session s-cli-gone.", output.getvalue())
+        live = list(forget.live_records())
+        self.assertEqual(len(live), 1)
+        self.assertEqual(live[0]["session_id"], "s-cli-keep")
+        output = io.StringIO()
+        with contextlib.redirect_stdout(output):
+            self.assertEqual(forget.main(["withhold-session", "s-never-existed"]), 1)
+        self.assertIn("Not withheld:", output.getvalue())
+        self.assertIn("no conversation in memory with that identifier", output.getvalue())
+        self.assertEqual(len(list(forget.live_records())), 1)
+
+    def test_withhold_and_restore_honour_a_pre_minted_id_and_emit_begin_then_committed(self):
+        # Round 4, TI-2: the direct API carries the dispatch-child parameters. `accepted_id` becomes the
+        # marker's own id (the parent's read-back key) and `emit` sees "begin" BEFORE the lock and
+        # "committed" after the append lands — the contract test_write_dispatch exercises only through the
+        # child process, pinned here at the function's own layer.
+        rid = self._turns("s-api", count=1)[0]
+        events = []
+        marker = forget.withhold(record_id=rid, accepted_id="acc-withhold-1", emit=lambda e, p: events.append((e, p)))
+        self.assertEqual(marker[records.RECORD_ID_KEY], "acc-withhold-1")
+        self.assertEqual([e for e, _ in events], ["begin", "committed"])
+        self.assertEqual(events[0][1][records.RECORD_ID_KEY], "acc-withhold-1")
+        self.assertEqual(events[1][1]["record"], marker)
+        self.assertGreater(events[1][1]["bytes"], 0)
+        self.assertEqual(len(list(forget.live_records())), 0)
+        events.clear()
+        restored = forget.restore(record_id=rid, accepted_id="acc-restore-1", emit=lambda e, p: events.append((e, p)))
+        self.assertEqual(restored[records.RECORD_ID_KEY], "acc-restore-1")
+        self.assertEqual([e for e, _ in events], ["begin", "committed"])
+        self.assertEqual(len(list(forget.live_records())), 1)
+        stored_ids = [r.get(records.RECORD_ID_KEY) for r in ledger.iter_records()]
+        self.assertIn("acc-withhold-1", stored_ids)
+        self.assertIn("acc-restore-1", stored_ids)
+
+    def test_a_failing_emit_never_turns_a_landed_withhold_into_a_refusal(self):
+        # The confirmation line is best-effort: the marker is durable before it is emitted, so a broken
+        # callback must not surface as "nothing was changed".
+        rid = self._turns("s-api-emit", count=1)[0]
+
+        def broken(event, payload):
+            if event == "committed":
+                raise BrokenPipeError("parent went away")
+
+        marker = forget.withhold(record_id=rid, emit=broken)
+        self.assertIsInstance(marker, dict)
+        self.assertEqual(len(list(forget.live_records())), 0)
+
+
+class FlushFailureReconciliationTests(_Base):
+    """Round 8 (R8 DH-1): a withhold/restore marker whose flush fails AFTER its bytes landed is recorded, not
+    reported as "nothing was changed"; one whose ledger cannot be read back is unconfirmed; one that never
+    reached the disk keeps the plain refusal. Parity with pins.add."""
+
+    def _seed_one(self) -> str:
+        rid = records.new_record_id()
+        ledger.append({"v": capture.RECORD_VERSION, "kind": records.AMBIENT_CAPTURE_KIND,
+                       records.RECORD_ID_KEY: rid, "session_id": "s-flush", "seq": 0,
+                       "speaker": "user", "ts": int(time.time()), "text": "a note about pastry"})
+        return rid
+
+    def _flush_fails_after_the_bytes_land(self):
+        import errno
+        from unittest import mock
+        return mock.patch.object(ledger.os, "fsync", side_effect=OSError(errno.EIO, "injected: the flush failed"))
+
+    def test_a_withhold_whose_flush_failed_after_the_bytes_landed_is_recorded(self):
+        rid = self._seed_one()
+        with self._flush_fails_after_the_bytes_land():
+            marker = forget.withhold(record_id=rid)
+        self.assertEqual(marker[records.TARGET_KEY], rid)
+        self.assertEqual([r[records.RECORD_ID_KEY] for r in forget.live_records()], [])   # out of recall
+
+    def test_the_command_line_says_withheld_not_nothing_changed_when_only_the_flush_failed(self):
+        rid = self._seed_one()
+        buffer = io.StringIO()
+        with self._flush_fails_after_the_bytes_land(), contextlib.redirect_stdout(buffer):
+            code = forget.main(["withhold-record", rid])
+        self.assertEqual(code, 0)
+        self.assertIn(f"Withheld record {rid}.", buffer.getvalue())
+        self.assertNotIn("Not withheld", buffer.getvalue())
+        self.assertIn(forget.UNFLUSHED_NOTE, buffer.getvalue())        # R9 DH-1: never a CLEAN "Withheld"
+        buffer = io.StringIO()
+        with self._flush_fails_after_the_bytes_land(), contextlib.redirect_stdout(buffer):
+            self.assertEqual(forget.main(["restore-record", rid]), 0)
+        self.assertIn(f"Restored record {rid}. {forget.UNFLUSHED_NOTE}", buffer.getvalue())
+        buffer = io.StringIO()
+        with contextlib.redirect_stdout(buffer):
+            self.assertEqual(forget.main(["withhold-record", rid]), 0)
+        self.assertEqual(buffer.getvalue().strip(), f"Withheld record {rid}.")   # a clean change carries no note
+
+    def test_a_marker_that_landed_despite_a_fault_carries_the_fault_on_its_committed_line(self):
+        rid = self._seed_one()
+        lines = []
+        with self._flush_fails_after_the_bytes_land():
+            marker = forget.withhold(record_id=rid, emit=lambda kind, payload: lines.append((kind, payload)))
+        self.assertEqual([k for k, _ in lines], ["begin", "committed"])
+        self.assertEqual(lines[1][1]["record"], marker)
+        self.assertIsNone(lines[1][1]["bytes"])
+        self.assertIn("injected: the flush failed", lines[1][1]["fault"])
+        lines.clear()
+        forget.restore(record_id=rid, emit=lambda kind, payload: lines.append((kind, payload)))
+        self.assertNotIn("fault", lines[1][1])
+
+    def test_landed_despite_answers_from_the_real_ledger_in_all_three_states(self):
+        # R9 DH-3: against a real ledger, not a stub.
+        rid = self._seed_one()
+        marker = forget.withhold(record_id=rid)
+        target = ledger.ledger_path()
+        self.assertIs(forget._landed_despite(marker, target), True)
+        self.assertIs(forget._landed_despite({records.RECORD_ID_KEY: "never-written"}, target), False)
+        self.assertIs(forget._landed_despite(None, target), False)
+        unreadable = os.path.join(os.path.dirname(target), "a-directory")
+        os.mkdir(unreadable)
+        self.assertIsNone(forget._landed_despite(marker, unreadable))
+
+    def test_a_flush_failure_with_an_unreadable_ledger_is_unconfirmed_never_nothing_changed(self):
+        from unittest import mock
+        rid = self._seed_one()
+        unreadable = mock.patch.object(ledger, "find_raw_record",
+                                       side_effect=ledger.LedgerUnreadable("injected: cannot read back"))
+        with self._flush_fails_after_the_bytes_land(), unreadable:
+            with self.assertRaises(forget.ControlUnconfirmed) as caught:
+                forget.withhold(record_id=rid)
+        message = str(caught.exception)
+        self.assertIsInstance(caught.exception, forget.ControlNotRecorded)
+        self.assertIn("not confirmed", message)
+        self.assertNotIn("nothing was changed", message.lower())
+        buffer = io.StringIO()
+        with self._flush_fails_after_the_bytes_land(), unreadable, contextlib.redirect_stdout(buffer):
+            code = forget.main(["restore-record", rid])
+        self.assertEqual(code, 1)
+        self.assertTrue(buffer.getvalue().startswith("Not confirmed: "))
+        self.assertNotIn("Not restored", buffer.getvalue())
+
+    def test_a_fault_before_the_append_still_says_nothing_was_changed(self):
+        from unittest import mock
+        rid = self._seed_one()
+        with mock.patch.object(ledger, "append", side_effect=OSError("disk went away")):
+            with self.assertRaises(forget.ControlNotRecorded) as caught:
+                forget.withhold(record_id=rid)
+        self.assertNotIsInstance(caught.exception, forget.ControlUnconfirmed)
+        self.assertIn("nothing was changed", str(caught.exception))
+        self.assertEqual([r[records.RECORD_ID_KEY] for r in forget.live_records()], [rid])   # still in recall
+
 
 class AuthorityRefusalTranslationTests(_Base):
     """A refused memory-write authorization on the operator verbs must arrive as ControlNotRecorded plain

@@ -102,7 +102,7 @@ _ENV_VALUE_KEYS = ("PYTHONNOUSERSITE",)
 _EXPORT_KEYS = frozenset({
     "schema_version", "ts", "event", "pid", "tool", "exception", "frames", "qualification", "activation",
     "code_version", "env_present", "env", "observed_error", "servers", "servers_scope", "activation_on_disk",
-    "lifecycle", "cache_effects", "query_kind",
+    "lifecycle", "cache_effects", "query_kind", "dispatch_outcome", "exit_status",
 })
 _SAFE_TOOL = re.compile(r"[a-z][a-z0-9\-]{0,63}")
 _SAFE_BASENAME = re.compile(r"[A-Za-z0-9_.\-]{1,80}\.py|<[a-z ]{1,24}>")
@@ -122,6 +122,16 @@ class Event(enum.Enum):
     READ_DEGRADED = "read-degraded"    # a read tool attached the stale-context caveat
     SELF_CHECK = "self-check"          # the readiness self-check ran
     BASELINE = "baseline"              # a Stage-0 baseline of the visible failure was taken
+    WRITE_DISPATCH = "write-dispatch"  # a dispatched memory write ended in a fault class (see DispatchOutcome)
+
+
+class DispatchOutcome(enum.Enum):
+    """The closed set of dispatched-write outcomes that earn a forensic record. Only the FAULT classes are
+    recorded — a committed, refused or unconfirmed write is reported to the operator, not stranded. A
+    free-text outcome is refused, not recorded (`record_dispatch_outcome` checks the type)."""
+
+    FAULTED = "faulted"                # the child neither committed nor refused readably, and no record on read-back
+    NOT_ATTEMPTED = "not-attempted"    # the dispatch could not start (the child never launched)
 
 
 # ---- where the log lives ----------------------------------------------------------------------------------
@@ -398,6 +408,31 @@ def record_stranding(event: Event, exc: BaseException | None = None, *, tool: st
         return bool(_append(_encode(_record(event, exc, tool)), path=path))
     except Exception:  # noqa: BLE001 — the boundary IS the contract; a diagnostic must never re-break its caller
         return False
+
+
+def record_dispatch_outcome(outcome: "DispatchOutcome", exit_status: int, *, path: str | None = None) -> bool:
+    """Record ONE dispatched-write fault forensically, carrying ONLY a closed-enum outcome and the child's
+    integer exit status — and nothing the child produced: no message, no argv, no path, no record text. The
+    exit status is the child process's return code (negative for a signal), or `EXIT_NOT_LAUNCHED` when the
+    dispatch never started a process at all. Same no-throw boundary as `record_stranding`: False means "not
+    recorded", and a diagnostic failure never re-breaks its caller."""
+    try:
+        if not isinstance(outcome, DispatchOutcome):
+            return False
+        if not isinstance(exit_status, int) or isinstance(exit_status, bool):
+            return False
+        record = _record(Event.WRITE_DISPATCH, None, None)
+        record["dispatch_outcome"] = outcome.value
+        record["exit_status"] = exit_status
+        return bool(_append(_encode(record), path=path))
+    except Exception:  # noqa: BLE001 — the boundary IS the contract; a diagnostic must never re-break its caller
+        return False
+
+
+#: The `exit_status` sentinel for a dispatch that never launched a process (NOT_ATTEMPTED). Chosen well
+#: outside any real return code — exit codes are 0..255 and a signal is a small negative — so a reader can
+#: tell "no process ran" from a genuine child exit or kill.
+EXIT_NOT_LAUNCHED = 1000
 
 
 # ---- readiness --------------------------------------------------------------------------------------------

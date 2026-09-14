@@ -28,7 +28,7 @@ NATIVE_TRUST_ROOTS = frozenset({
 
 
 class _QualifiedFixture:
-    def __init__(self, *, automatic: bool = False, mcp: bool = False):
+    def __init__(self, *, automatic: bool = False, mcp: bool = False, dispatch: bool = False):
         self.temp = tempfile.TemporaryDirectory(prefix="engine-authority-")
         self.base = os.path.realpath(self.temp.name)
         self.root = os.path.join(self.base, "project")
@@ -59,7 +59,10 @@ class _QualifiedFixture:
             "run_id": "run", "task_id": "task",
             "identity_initializer": execution_context._fixture_identity_initializer,
         }
-        if mcp:
+        if dispatch:
+            arguments.update({"script": ".engine/tools/memory/write_dispatch.py",
+                              "operation_id": "attended-write-dispatch"})
+        elif mcp:
             arguments.update({"script": ".engine/tools/memory/mcp_server.py",
                               "operation_id": "attended-memory-mcp"})
         elif automatic:
@@ -67,6 +70,21 @@ class _QualifiedFixture:
         else:
             arguments.update({"script": ".engine/tools/memory/pins.py", "operation_id": "ledger-append"})
         self.context = execution_context.resolve_execution_context(**arguments)
+
+    def dispatch_context(self):
+        """A second sealed context over THIS fixture's exact disk, rooted at the write dispatcher
+        (attended-write-dispatch) rather than the memory server. The production write is a child launched
+        under this root, so a test that drives the dispatched write in-process installs this and runs
+        write_dispatch.run_child under it; the server's own attended-memory-mcp context can no longer reach
+        the write operations, by design, so it is the dispatcher root that carries the write authority."""
+        bootstrap = execution_context._fixture_bootstrap(
+            self.root, self.common, pointer_digest=execution_context._file_digest(self.pointer))
+        return execution_context.resolve_execution_context(
+            bootstrap=bootstrap, accepted_tree=self.accepted, provider="codex",
+            run_id="run", task_id="task",
+            identity_initializer=execution_context._fixture_identity_initializer,
+            script=".engine/tools/memory/write_dispatch.py",
+            operation_id="attended-write-dispatch")
 
     def install(self):
         execution_context._CURRENT_CONTEXT = self.context
@@ -593,42 +611,62 @@ class LockedAuthorityTests(unittest.TestCase):
         from memory import pins
 
         self.fixture.cleanup()
-        self.fixture = _QualifiedFixture(mcp=True)
+        self.fixture = _QualifiedFixture(dispatch=True)
         self.fixture.install()
         first = pins.add("first standing preference")
         second = pins.add("second standing preference")
         self.assertNotEqual(first[records.RECORD_ID_KEY], second[records.RECORD_ID_KEY])
         self.assertEqual(execution_context.current_context()["operation"]["registry_id"],
-                         "attended-memory-mcp")
+                         "attended-write-dispatch")
         target = os.path.join(self.fixture.memory, "ledger.ndjson")
         with open(target, "a", encoding="utf-8") as handle:
             handle.write(json.dumps({"kind": "external-accepted-capture", "body": "intervening"}) + "\n")
         third = pins.add("third preference after an automatic write")
         self.assertTrue(third[records.RECORD_ID_KEY])
 
-    def test_post_commit_mcp_refresh_failure_does_not_turn_success_into_failure(self):
+    def test_a_dispatched_write_reseals_after_commit_and_a_reseal_fault_cannot_undo_it(self):
+        # Node 1 wires the dispatcher root (attended-write-dispatch) as a RENEWABLE root: like the memory
+        # server's own root it freshens its bound context BEFORE minting each write's subgrant and re-seals
+        # its read cache AFTER the commit. Two obligations are pinned here, both non-vacuously:
+        #   * refresh_for_operation is actually reached on a dispatched write's pre-commit path, and
+        #   * refresh_current_context runs after the commit, but a FAULT in that re-seal can NEVER turn a
+        #     durable commit into an apparent failure - the record still lands and reads back.
+        # (Node 0's predecessor test pinned the opposite - that the dispatch root ran NO post-commit refresh -
+        # because node 0 deliberately left the wiring to node 1; this is that deferred wiring, asserted.)
         from memory import pins
         from unittest import mock
 
         self.fixture.cleanup()
-        self.fixture = _QualifiedFixture(mcp=True)
+        self.fixture = _QualifiedFixture(dispatch=True)
         self.fixture.install()
-        for failure in (execution_context.ContextError("injected refresh failure"),
-                        OSError("injected ordinary refresh failure")):
-            with self.subTest(failure=type(failure).__name__), mock.patch.object(
-                    execution_context, "refresh_current_context", side_effect=failure):
-                record = pins.add(f"committed despite {type(failure).__name__}")
-            self.assertTrue(record[records.RECORD_ID_KEY])
-        third = pins.add("next request refreshes from the renewable root")
-        self.assertTrue(third[records.RECORD_ID_KEY])
-        self.assertEqual(len(list(ledger.iter_records(path=os.path.join(
-            self.fixture.memory, "ledger.ndjson")))), 3)
+        target = os.path.join(self.fixture.memory, "ledger.ndjson")
+
+        # (1) the pre-commit freshen is really reached for the dispatch root, minting attended-pin-add under it
+        real_refresh_for_operation = execution_context.refresh_for_operation
+        seen = []
+
+        def _spy(base_context, entry_id):
+            seen.append((base_context["operation"]["registry_id"], entry_id))
+            return real_refresh_for_operation(base_context, entry_id)
+
+        with mock.patch.object(execution_context, "refresh_for_operation", side_effect=_spy):
+            first = pins.add("committed under the renewable dispatcher root")
+        self.assertTrue(first[records.RECORD_ID_KEY])
+        self.assertIn(("attended-write-dispatch", "attended-pin-add"), seen)
+
+        # (2) the after-commit re-seal runs, but a fault in it cannot undo the commit
+        with mock.patch.object(execution_context, "refresh_current_context",
+                               side_effect=RuntimeError("re-seal blew up")) as reseal:
+            second = pins.add("commit stands even when the after-commit re-seal faults")
+        self.assertGreaterEqual(reseal.call_count, 1)
+        self.assertTrue(second[records.RECORD_ID_KEY])
+        self.assertEqual(len(list(ledger.iter_records(path=target))), 2)
 
     def test_long_lived_mcp_authority_state_is_bounded_after_many_requests(self):
         from memory import pins
 
         self.fixture.cleanup()
-        self.fixture = _QualifiedFixture(mcp=True)
+        self.fixture = _QualifiedFixture(dispatch=True)
         self.fixture.install()
         for number in range(80):
             pins.add(f"bounded request {number}")
@@ -649,7 +687,7 @@ class AttendedWithholdRestoreEndToEndTests(unittest.TestCase):
     the raw "outside this invocation's closed transitive boundary" error — exactly the observed bug."""
 
     def setUp(self):
-        self.fixture = _QualifiedFixture(mcp=True)
+        self.fixture = _QualifiedFixture(dispatch=True)
         self.fixture.install()
 
     def tearDown(self):
@@ -1350,8 +1388,10 @@ class WriteRefusalWordingTests(unittest.TestCase):
         tail = " " + refusals.RESTART_ACTION + " " + refusals.ESCALATION
         self.assertEqual(mutation_authority._stale_refusal(execution_context.ActivationStale("x")),
                          "This project moved to a new commit while this memory server was running, so its write "
-                         "context no longer matches the project on disk. Nothing was changed, and writing is held. "
-                         "Recall keeps working, and every read answer says how it was resolved." + tail)
+                         "context no longer matches the project on disk. Memory writing continues - each canonical "
+                         "write runs on the activation now on disk - and only the derived search indexes could not "
+                         "be updated here, so they may lag until this server reconnects. Recall keeps working, and "
+                         "every read answer says how it was resolved." + tail)
         self.assertEqual(mutation_authority._stale_refusal(execution_context.ArtifactUnreadable("x")),
                          "A memory file on disk could not be read, so writing is held and nothing was changed - a "
                          "problem with the store on disk, not with what is saved in it. Reads from this store are "
@@ -1440,6 +1480,67 @@ class WriteRefusalWordingTests(unittest.TestCase):
         self.assertNotIn("persistent store authority lock is unavailable", source)
         self.assertTrue(issubclass(mutation_authority.MutationRefusal, refusals.EngineRefusal))
         self.assertTrue(issubclass(mutation_authority.MutationRefusal, mutation_authority.MutationAuthorityError))
+
+
+class TestReachabilityBackstopInMutationGuard(unittest.TestCase):
+    """Place (a): the mutation guard's independent reachability backstop, read from INSIDE the accepted write
+    child. ``accepted_hook_dispatch`` place (b) already holds a dispatched write at the launcher before execve;
+    this second check reads the sibling mark itself, so removing (b) would still refuse the write. It fires
+    ONLY for the dispatched-write root and never for an ordinary writer, and a mark taken for a superseded
+    activation generation is ignored rather than mistaken for the current one."""
+
+    def setUp(self):
+        import accepted_hook_dispatch
+        self.ahd = accepted_hook_dispatch
+        self.tmp = tempfile.TemporaryDirectory(prefix="engine-reach-guard-")
+        self.addCleanup(self.tmp.cleanup)
+        self.root = os.path.realpath(self.tmp.name)
+        subprocess.run(["git", "init", "-b", "main", self.root], check=True, capture_output=True)
+        self.activation = {"repository": "owner/project", "commit": "a" * 40, "epoch": 7,
+                           "source": "reviewed-merge"}
+
+    def _ctx(self, registry_id="attended-write-dispatch"):
+        return {"operation": {"registry_id": registry_id},
+                "project": {"root": self.root},
+                "activation": self.activation}
+
+    def test_a_lost_mark_on_the_dispatch_root_refuses_with_the_posture_verbatim(self):
+        self.ahd._record_reachability(self.root, self.activation, "lost")
+        with self.assertRaises(mutation_authority.MutationRefusal) as caught:
+            mutation_authority._refuse_if_reachability_lost(self._ctx())
+        self.assertEqual(str(caught.exception),
+                         self.ahd._reachability_posture(self.activation["epoch"]))
+
+    def test_the_refusal_is_an_engine_refusal_so_the_seam_relays_it(self):
+        from memory import refusals
+        self.ahd._record_reachability(self.root, self.activation, "lost")
+        with self.assertRaises(refusals.EngineRefusal):
+            mutation_authority._refuse_if_reachability_lost(self._ctx())
+
+    def test_no_mark_reads_not_lost_and_does_not_refuse(self):
+        mutation_authority._refuse_if_reachability_lost(self._ctx())  # must not raise
+
+    def test_an_unconfirmed_state_never_holds_the_dispatched_write(self):
+        self.ahd._record_reachability(self.root, self.activation, "unconfirmed")
+        mutation_authority._refuse_if_reachability_lost(self._ctx())  # must not raise
+
+    def test_a_non_dispatch_registry_never_consults_reachability_even_with_a_lost_mark(self):
+        self.ahd._record_reachability(self.root, self.activation, "lost")
+        seen = {"n": 0}
+        real = self.ahd._reachability_lost
+
+        def _spy(*a, **k):
+            seen["n"] += 1
+            return real(*a, **k)
+
+        with mock.patch.object(self.ahd, "_reachability_lost", _spy):
+            mutation_authority._refuse_if_reachability_lost(self._ctx(registry_id="attended-pin-add"))
+        self.assertEqual(seen["n"], 0)  # short-circuited on the registry check, before ever reading the mark
+
+    def test_a_lost_mark_for_a_superseded_generation_does_not_refuse(self):
+        self.ahd._record_reachability(self.root, {**self.activation, "epoch": 6}, "lost")
+        mutation_authority._refuse_if_reachability_lost(self._ctx())  # epoch 7 -> mark ignored -> no raise
+
 
 
 if __name__ == "__main__":
