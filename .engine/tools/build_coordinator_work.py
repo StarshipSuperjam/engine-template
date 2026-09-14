@@ -460,11 +460,52 @@ def failure_record(attempt_id: str, failure_class: str, reason: str, disposition
     return record
 
 
-def cost_expected(root, plan, state, *, source, base, node, attempt, inventory, environment, stage=None):
+def trusted_cost_enrollment(root, state):
+    """Return the pinned committed-base enrollment or a precise refusal.
+
+    Enrollment is budget authority only when the two committed documents agree.
+    This deliberately reads them through Git, never from the candidate checkout.
+    """
+    run = partial(core.run, root=root)
+    import selftest_cost as cost
+    from selftest_results import validate_shape
+    enrollment_base = state["build"]["base_at_bind"]
+    baseline_blob = run(["git", "show", enrollment_base + ":.engine/policies/test-cost-legacy-baseline.json"])
+    activation_blob = run(["git", "show", enrollment_base + ":.engine/policies/test-cost-activation.json"])
+    if baseline_blob.returncode and activation_blob.returncode:
+        return None, None
+    if baseline_blob.returncode or activation_blob.returncode:
+        raise CoordinatorError("trusted base enrollment is incomplete")
+    try:
+        baseline = cost.unpack_enrollment(json.loads(baseline_blob.stdout))
+        activation = json.loads(activation_blob.stdout)
+        validate_shape(baseline, "test-cost-baseline.v1")
+        validate_shape(activation, "test-cost-activation.v1")
+        if cost.digest(baseline) != activation["baseline_digest"]:
+            raise ValueError("trusted base enrollment and activation disagree")
+        if (baseline["identity"] != activation["identity"]
+                or baseline["source_commit"] != activation["identity"]["source_commit"]
+                or baseline["observation_digest"] != activation["observation_digest"]):
+            raise ValueError("trusted base enrollment provenance disagrees with activation")
+    except (ValueError, TypeError, KeyError, json.JSONDecodeError) as exc:
+        raise CoordinatorError("trusted base enrollment is corrupt: " + str(exc)) from exc
+    return baseline, activation
+
+
+def cost_expected(root, plan, state, *, source, base, node, attempt, inventory, environment, stage=None,
+                  enrollment=None, activation=None):
     import selftest_cost as cost
     policy = core.json_file(root / ".engine/policies/test-cost.json")
     contract = node_item(plan, node)["test_cost"] if node else [n["test_cost"] for n in plan["work_items"]]
-    return {"source_commit": source, "base_commit": base, "observer_commit": source,
+    observer_commit = source
+    # The observation adapter is code with its own provenance.  A candidate may
+    # retain the committed enrollment's observer proof only when the executing
+    # adapter fingerprint still matches that reviewed proof.
+    if (enrollment is not None and activation is not None
+            and activation["identity"]["observer_digest"] == cost.observer_fingerprint(root)
+            and enrollment["identity"]["observer_commit"] == activation["identity"]["observer_commit"]):
+        observer_commit = activation["identity"]["observer_commit"]
+    return {"source_commit": source, "base_commit": base, "observer_commit": observer_commit,
             "observer_digest": cost.observer_fingerprint(root), "plan_digest": core.digest(plan),
             "contract_digest": cost.digest(contract), "policy_digest": cost.digest(policy),
             "inventory_digest": cost.digest(inventory), "environment_digest": cost.digest(environment),
@@ -475,6 +516,7 @@ def cost_expected(root, plan, state, *, source, base, node, attempt, inventory, 
 def cost_base_inventory(root, base):
     run = partial(core.run, root=root)
     must_run = partial(core.must_run, root=root)
+    import subprocess
     import tempfile
     import selftest_cost as cost
     import selftest_results
@@ -483,8 +525,13 @@ def cost_base_inventory(root, base):
         inventory_path = Path(folder) / "inventory.json"
         must_run(["git", "worktree", "add", "--detach", str(checkout), base])
         try:
-            must_run([sys.executable, str(root / ".engine/tools/selftest_cost.py"), "inventory",
-                       "--source-root", str(checkout), "--output", str(inventory_path)])
+            command = [sys.executable, str(root / ".engine/tools/selftest_cost.py"), "inventory",
+                       "--source-root", str(checkout), "--output", str(inventory_path)]
+            child = subprocess.run(command, cwd=root, text=True, capture_output=True, check=False,
+                                   env=cost.inventory_environment(Path(folder) / "runner-controls"))
+            if child.returncode:
+                detail = (child.stderr or child.stdout or "no diagnostic").strip()
+                raise CoordinatorError(f"{' '.join(command[:3])} failed: {detail}")
             duplicate_blob = run(["git", "show", base + ":.engine/policies/test-cost-legacy-static.json"])
             static_policy = root / ".engine/policies/test-cost-legacy-static.json"
             duplicates = (json.loads(duplicate_blob.stdout).get("duplicates", []) if duplicate_blob.returncode == 0
@@ -501,23 +548,24 @@ def collect_cost_evidence(root, plan, state, *, source, base, node, attempt, raw
     run = partial(core.run, root=root)
     must_run = partial(core.must_run, root=root)
     import selftest_cost as cost
+    # Resolve enrollment before doing bounded bootstrap work.  A corrupt
+    # enrollment is unavailable measurement authority, never candidate budget
+    # authority; the independently resolved base inventory still supports the
+    # static correctness/declaration checks below.
+    enrollment_issue = None
+    try:
+        baseline, activation = trusted_cost_enrollment(root, state)
+    except CoordinatorError as exc:
+        baseline = activation = None
+        enrollment_issue = str(exc)
     identity = cost_expected(root, plan, state, source=source, base=base, node=node, attempt=attempt,
-        inventory=outcomes["inventory"], environment=performance["environment"], stage=stage)
+        inventory=outcomes["inventory"], environment=performance["environment"], stage=stage,
+        enrollment=baseline, activation=activation)
     tree = must_run(["git", "rev-parse", source + "^{tree}"]).strip()
     observation = cost.normalize_run(raw, identity, expected_tree=tree, outcomes=outcomes)
     policy = core.json_file(root / ".engine/policies/test-cost.json")
     # Budget authority is the committed base, not two mutually edited candidate artifacts.
-    baseline = None
-    baseline_digest = None
-    enrollment_base = state["build"]["base_at_bind"]
-    baseline_blob = run(["git", "show", enrollment_base + ":.engine/policies/test-cost-legacy-baseline.json"])
-    activation_blob = run(["git", "show", enrollment_base + ":.engine/policies/test-cost-activation.json"])
-    if baseline_blob.returncode == activation_blob.returncode == 0:
-        baseline = cost.unpack_enrollment(json.loads(baseline_blob.stdout))
-        activation = json.loads(activation_blob.stdout)
-        baseline_digest = activation["baseline_digest"]
-        if cost.digest(baseline) != baseline_digest:
-            raise CoordinatorError("trusted base enrollment and activation disagree")
+    baseline_digest = activation["baseline_digest"] if activation else None
     bootstrap = cost_base_inventory(root, base)
     sources = {p.relative_to(root).as_posix(): p.read_text()
                for p in (root / ".engine/tools").rglob("test_*.py")}
@@ -527,7 +575,18 @@ def collect_cost_evidence(root, plan, state, *, source, base, node, attempt, raw
                "runtime": raw["inventory"], "census": cost.static_census(sources, source), "policy": policy,
                "declarations": declarations.get("cases", []), "mappings": declarations.get("mappings", []),
                "exceptions": [entry["exception"] for entry in state["cost"]["exceptions"]],
-               "expected_cases": outcomes["selected"], "bootstrap_inventory": bootstrap}
+               "expected_cases": outcomes["selected"], "bootstrap_inventory": bootstrap,
+               "enrollment_issue": enrollment_issue, "timing_pairs": []}
+    # Retained enrollment may be a comparison only when it actually observed
+    # this comparison base.  Its original identity stays intact; in particular,
+    # a bound-base enrollment cannot be relabelled as a later merge base.
+    if (baseline is not None and baseline["source_commit"] == base
+            and cost.enrolled_observation(baseline) is not None):
+        context["base_observation"] = cost.enrolled_observation(baseline)
+        context["expected_base_identity"] = baseline["identity"]
+    duration = performance.get("child_seconds")
+    if type(duration) in (int, float):
+        context["candidate_duration_seconds"] = duration
     approval = None
     if node:
         old = {cost.case_key(row['case']): row for row in bootstrap['cases']}

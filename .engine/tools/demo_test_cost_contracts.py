@@ -11,6 +11,7 @@ import argparse
 import copy
 import io
 import json
+import os
 from pathlib import Path
 import subprocess
 import sys
@@ -23,7 +24,7 @@ SCENARIOS = ('shared-helper', 'schema', 'metaschema', 'fixture', 'nested', 'ambi
 
 def example(scenario):
     """One actual bounded counter journey with explicitly synthetic source identities."""
-    if scenario not in SCENARIOS:
+    if scenario not in (*SCENARIOS, 'ambient-git-isolated'):
         raise ValueError('unknown cost scenario')
     policy = json.loads((cost.ROOT / '.engine/policies/test-cost.json').read_text())
     case = {'id': 'test_example.C.test_behavior', 'occurrence': 1}
@@ -48,7 +49,8 @@ def example(scenario):
         counts = next(row['counts'] for row in raw['owners'] if row['owner'] == owner)
         return {'schema_version': 'test-cost-observation.v1', 'identity': copy.deepcopy(identity),
             'complete': True, 'unknown': raw['unknown'], 'totals': raw['totals'], 'owners': raw['owners'],
-            'cases': [{'case': case, 'owner': owner, 'counts': counts, 'family': None, 'input_size': None}]}
+            'cases': [{'case': case, 'owner': owner, 'counts': counts, 'family': None, 'input_size': None}],
+            'ambient_facts': raw['ambient_facts']}
 
     base = measure(lambda: None)
     enrollment = cost.enroll_baseline(base, census, runtime, owner='demonstration fixture',
@@ -57,6 +59,19 @@ def example(scenario):
         folder = Path(directory)
         (folder / '.engine').mkdir()
         (folder / '.engine' / 'one.txt').write_text('one bounded fixture file')
+        def git_config(isolated):
+            global_config = folder / '.gitconfig'
+            global_config.write_text('[user]\n\tname = ambient fixture\n')
+            env = {key: value for key, value in os.environ.items() if not key.startswith('GIT_')}
+            env.update(HOME=str(folder), XDG_CONFIG_HOME=str(folder), GIT_CONFIG_NOSYSTEM='1')
+            if isolated:
+                env['GIT_CONFIG_GLOBAL'] = str(global_config)
+            subprocess.run(['git', 'config', '--global', '--get', 'user.name'], env=env,
+                           check=True, capture_output=True)
+        if scenario in ('ambient-git', 'ambient-git-isolated'):
+            base = measure(lambda: git_config(True))
+            enrollment = cost.enroll_baseline(base, census, runtime, owner='demonstration fixture',
+                reason='Actual isolated configuration read; not project debt enrollment', revisit='Each demo run')
         if scenario == 'fixture':
             subprocess.run(['git', 'init', '-q', str(folder)], check=True, capture_output=True)
             subprocess.run(['git', '-C', str(folder), 'add', '.engine/one.txt'], check=True, capture_output=True)
@@ -73,8 +88,8 @@ def example(scenario):
                 clone_engine(str(folder), str(folder / 'copy'))
             elif scenario == 'nested':
                 unittest.TextTestRunner(stream=io.StringIO()).run(unittest.TestSuite([unittest.FunctionTestCase(lambda: None)]))
-            elif scenario == 'ambient-git':
-                subprocess.run(['git', 'rev-parse', '--is-inside-work-tree'], cwd=folder, capture_output=True)
+            elif scenario in ('ambient-git', 'ambient-git-isolated'):
+                git_config(scenario == 'ambient-git-isolated')
         candidate = measure(helper)
     base['identity']['stage'] = 'full'
     identity.update(source_commit='b'*40, stage='full', attempt='candidate', artifact_digest=cost.digest('synthetic candidate tree'))
@@ -105,13 +120,16 @@ def demonstrate(scenario):
     observation, context = example(scenario)
     broken = assess(observation, context)
     # Repair the helper, not the unchanged test body, and take a new actual observation.
-    repaired, repaired_context = example('stale')
+    repaired, repaired_context = example('ambient-git-isolated' if scenario == 'ambient-git' else 'stale')
     repaired['identity'] = copy.deepcopy(repaired_context['expected_identity'])
     fixed = assess(repaired, repaired_context)
+    same_launch_counts = (scenario != 'ambient-git' or
+                          all(observation['totals'][name] == repaired['totals'][name]
+                              for name in ('processes', 'git_commands')))
     return {'scenario': scenario, 'evidence_kind': 'real counters with synthetic fixture identities',
         'counts': observation['totals'], 'violations': broken,
-        'repair_violations': fixed, 'cost_clearance': False,
-        'passed': bool(broken) and not fixed}
+        'repair_counts': repaired['totals'], 'repair_violations': fixed, 'cost_clearance': False,
+        'passed': bool(broken) and not fixed and same_launch_counts}
 
 
 def main(argv=None):

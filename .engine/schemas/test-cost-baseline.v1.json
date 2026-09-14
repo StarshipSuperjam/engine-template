@@ -371,6 +371,30 @@
         "minLength": 1
       },
       "minItems": 0
+    },
+    "ambient_facts": {
+      "type": "array",
+      "maxItems": 200000,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "owner",
+          "kind"
+        ],
+        "properties": {
+          "owner": {
+            "type": "string",
+            "minLength": 1
+          },
+          "kind": {
+            "enum": [
+              "git-config",
+              "network-connect"
+            ]
+          }
+        }
+      }
     }
   }
 }

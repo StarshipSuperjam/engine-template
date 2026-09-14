@@ -109,6 +109,22 @@ class TestInventory(unittest.TestCase):
         instance = Child('test_value')
         record = cost.runtime_inventory([instance])[0]
         self.assertIn('Base.test_value', record['qualified_name'])
+        # A platform skip changes execution, never the source identity or occurrence census.
+        class Skipped(Child):
+            test_value = unittest.skip('platform unavailable')(Base.test_value)
+        skipped = cost.runtime_inventory([Skipped('test_value')])[0]
+        self.assertEqual((skipped['path'], skipped['qualified_name']),
+                         (record['path'], record['qualified_name']))
+        self.assertEqual(skipped['contract'], record['contract'])
+        self.assertTrue(Skipped.test_value.__unittest_skip__)
+        # Unresolvable wrapper provenance must remain unknown, not guessed from the case ID.
+        def circular(): pass
+        circular.__wrapped__ = circular
+        class Unknown(Child):
+            test_value = circular
+        unknown = cost.runtime_inventory([Unknown('test_value')])[0]
+        self.assertIsNone(unknown['path'])
+        self.assertIsNone(unknown['qualified_name'])
         contract = cost.declared_contract(instance)
         contract['dependencies'].append('mutated')
         self.assertNotIn('mutated', cost.declared_contract(instance)['dependencies'])
@@ -244,6 +260,28 @@ class TestResourceObservation(unittest.TestCase):
         self.assertEqual(observer.owners['unattributed']['processes'], 2)
         self.assertIn('invalid resource counter event', observer.unknown)
 
+    def test_pure_contract_refuses_real_network_connection_without_inventing_process_cost(self):
+        import socket
+        from test_selftest_performance import cost_example, _COST_CONTRACT
+        observation, context = cost_example()
+        identity = observation['cases'][0]['case']
+        with socket.socket() as listener:
+            listener.bind(('127.0.0.1', 0)); listener.listen(1)
+            with cost.Recorder() as recorder:
+                recorder.start_case(identity)
+                with socket.socket() as client:
+                    client.connect(listener.getsockname())
+                recorder.stop_case()
+        raw = recorder.document(source={}, scope='full', complete=True, process_exit=0)
+        self.assertEqual(0, raw['totals']['processes'])
+        observation['ambient_facts'] = raw['ambient_facts']
+        context['runtime'][0]['contract'] = copy.deepcopy(_COST_CONTRACT)
+        context['runtime'][0]['contract']['boundary'] = 'pure'
+        context['runtime'][0]['contract']['limits'] = cost.zeros()
+        verdict = cost.assess_cost(observation, **context)
+        self.assertTrue(any('pure test used a network connection' in item for item in verdict['violations']))
+        self.assertFalse(verdict['cost_clearance'])
+
     def test_real_launcher_keeps_outcomes_with_observation_on_and_off(self):
         import subprocess
         import sys
@@ -268,6 +306,63 @@ class TestResourceObservation(unittest.TestCase):
                     self.assertTrue(resource['complete'])
                     self.assertEqual(resource['process_exit'], 0)
             self.assertEqual(*summaries)
+
+    def test_real_launcher_applies_policy_limits_before_discovery_and_artifact_write(self):
+        import shutil
+        import subprocess
+        import tempfile
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            tools = root / '.engine/tools'; tools.mkdir(parents=True)
+            policies = root / '.engine/policies'; policies.mkdir()
+            schemas = root / '.engine/schemas'; schemas.mkdir()
+            for name in ('selftest.py', 'selftest_results.py', 'selftest_cost.py',
+                         'providers.py', 'mutation_guards.py'):
+                shutil.copyfile(cost.ROOT / '.engine/tools' / name, tools / name)
+            for path in (cost.ROOT / '.engine/schemas').glob('selftest-*.json'):
+                shutil.copyfile(path, schemas / path.name)
+            marker = root / 'executed'
+            (tools / 'test_small.py').write_text(
+                'import json, unittest\nfrom pathlib import Path\n'
+                'class T(unittest.TestCase):\n def test_ok(self):\n'
+                '  json.loads("{}"); json.loads("{}")\n'
+                '  Path(' + repr(str(marker)) + ').write_text("ran")\n')
+            policy_path = policies / 'test-cost.json'
+            policy = json.loads((cost.ROOT / '.engine/policies/test-cost.json').read_text())
+            policy.update(max_owners=1, max_counter=1)
+            results, observed = root / 'results.json', root / 'cost.json'
+            cmd = [sys.executable, str(tools / 'selftest.py'), '--child', '--start-dir', str(tools),
+                   '--results-path', str(results), '--cost-path', str(observed)]
+            policy_path.write_text(json.dumps(policy))
+            run = subprocess.run(cmd, capture_output=True, text=True)
+            self.assertEqual(run.returncode, 0, run.stderr)
+            self.assertTrue(marker.exists())
+            report = json.loads(observed.read_text())
+            self.assertLessEqual(len(report['owners']), 1)
+            self.assertTrue(all(v <= 1 for owner in report['owners'] for v in owner['counts'].values()))
+            self.assertIn('owner counter capacity exceeded', report['unknown'])
+            self.assertIn('resource counter capacity exceeded', report['unknown'])
+            observed.unlink(); marker.unlink()
+            policy['max_observation_bytes'] = 1
+            policy_path.write_text(json.dumps(policy))
+            run = subprocess.run(cmd, capture_output=True, text=True)
+            self.assertEqual(run.returncode, 0, run.stderr)
+            self.assertTrue(marker.exists())
+            self.assertFalse(observed.exists())
+            self.assertIn('resource observations unavailable', run.stderr)
+            marker.unlink()
+            policy['max_counter'] = 0
+            policy_path.write_text(json.dumps(policy))
+            run = subprocess.run(cmd, capture_output=True, text=True)
+            self.assertNotEqual(run.returncode, 0)
+            self.assertFalse(marker.exists())
+            self.assertFalse(observed.exists())
+            for key in ('max_counter', 'max_owners', 'max_observation_bytes'):
+                for value in (False, -1, 2**63, None):
+                    invalid = {**policy, 'max_counter': 1, key: value}
+                    policy_path.write_text(json.dumps(invalid))
+                    with self.assertRaises(ValueError):
+                        cost.runtime_limits(root)
 
 
 def baseline_example():

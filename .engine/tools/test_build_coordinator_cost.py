@@ -98,6 +98,175 @@ class LivePermission(unittest.TestCase):
         self.assertIsNone(verdict['aggregate_delta'])
         self.assertIsNone(verdict['base_identity'])
 
+@cost.declaration({
+    "schema_version": "test-cost-contract.v1", "supported_fault": "Later commits lose legacy budgets or corrupt enrollment blocks recovery",
+    "boundary": "integration", "boundary_rationale": "Real serial observations and committed enrollment exercise the production collector",
+    "fixture_owner": "test_build_coordinator_cost.CostAcquisition", "dependencies": ["git", "selftest_cost", "selftest"],
+    "data_reads": [".engine/tools/selftest*.py", ".engine/tools/providers.py", ".engine/tools/mutation_guards.py",
+                   ".engine/schemas/*.json", ".engine/policies/test-cost*.json"], "cadence": "pr",
+    "limits": {**cost.zeros(), "processes": 80, "git_commands": 70, "schema_decodes": 100,
+               "metaschema_validations": 1, "nested_journeys": 5},
+    "mutable_state": "One disposable Git repository and five one-case observations", "cache_lifetime": "case",
+    "added_cost_risk": "Five bounded serial children plus exact base discovery; no whole Engine clone", "families": []})
+class CostAcquisition(unittest.TestCase):
+    def test_missing_corrupt_and_valid_enrollment_follow_explicit_acquisition_paths(self):
+        import json
+        import shutil
+        import subprocess
+        import tempfile
+        from pathlib import Path
+        with tempfile.TemporaryDirectory() as directory:
+            folder = Path(directory); root = folder / 'repo'
+            tools = root / '.engine/tools'; tools.mkdir(parents=True)
+            policies = root / '.engine/policies'; policies.mkdir()
+            schemas = root / '.engine/schemas'; schemas.mkdir()
+            for name in ('selftest.py', 'selftest_results.py', 'selftest_cost.py', 'providers.py', 'mutation_guards.py'):
+                shutil.copyfile(cost.ROOT / '.engine/tools' / name, tools / name)
+            for path in (cost.ROOT / '.engine/schemas').glob('*.json'):
+                if path.name.startswith(('selftest-', 'test-cost-')):
+                    shutil.copyfile(path, schemas / path.name)
+            shutil.copyfile(cost.ROOT / '.engine/policies/test-cost.json', policies / 'test-cost.json')
+            test_source = 'import unittest, helper\nclass C(unittest.TestCase):\n def test_behavior(self): helper.run()\n'
+            (tools / 'test_example.py').write_text(test_source)
+            helper = tools / 'helper.py'; helper.write_text('def run(): pass\n')
+            (root / '.gitignore').write_text('__pycache__/\n')
+            env = {key: value for key, value in os.environ.items() if not key.startswith('GIT_')}
+            env.update(GIT_CONFIG_NOSYSTEM='1', GIT_CONFIG_GLOBAL=os.devnull)
+            def git(*args):
+                return subprocess.check_output(['git', '-C', str(root), *args], env=env,
+                                               stderr=subprocess.PIPE, text=True).strip()
+            def commit(message):
+                git('add', '.'); git('commit', '-qm', message); return git('rev-parse', 'HEAD')
+            git('init', '-q'); git('config', 'user.email', 'fixture@example.invalid'); git('config', 'user.name', 'Fixture')
+            base = commit('Original undeclared legacy test')
+            counter = 0
+            def observe():
+                nonlocal counter
+                counter += 1
+                paths = {key: folder / (str(counter) + '-' + key + '.json') for key in ('cost', 'results', 'performance')}
+                command = [sys.executable, str(tools / 'selftest.py'), '--child', '--start-dir', str(tools),
+                           '--cost-path', str(paths['cost']), '--results-path', str(paths['results']),
+                           '--performance-path', str(paths['performance'])]
+                run = subprocess.run(command, env=env, capture_output=True, text=True)
+                self.assertEqual(run.returncode, 0, run.stderr)
+                return tuple(json.loads(paths[key].read_text()) for key in ('cost', 'results', 'performance'))
+            raw, outcomes, performance = observe()
+            plan = {'work_items': []}; state = {'build': {'base_at_bind': base}, 'cost': {'exceptions': []}}
+            identity = work.cost_expected(root, plan, state, source=base, base=base, node=None, attempt='enrollment',
+                inventory=outcomes['inventory'], environment=performance['environment'], stage='bootstrap')
+            observation = cost.normalize_run(raw, identity, expected_tree=git('rev-parse', base + '^{tree}'), outcomes=outcomes)
+            census = cost.static_census({'.engine/tools/test_example.py': test_source}, base)
+            baseline = cost.enroll_baseline(observation, census, raw['inventory'], owner='fixture',
+                                            reason='Actual one-case legacy observation', revisit='Each test')
+            self.assertEqual(observation, cost.enrolled_observation(baseline))
+            activation = json.loads((cost.ROOT / '.engine/policies/test-cost-activation.json').read_text())
+            activation.update(baseline_digest=cost.digest(baseline), observation_digest=cost.digest(observation),
+                              identity=identity, legacy_case_count=1)
+            (policies / 'test-cost-legacy-baseline.json').write_text(json.dumps(cost.pack_enrollment(baseline)))
+            activation_path = policies / 'test-cost-activation.json'; activation_path.write_text(json.dumps(activation))
+            enrolled_at = commit('Explicit fixture enrollment'); state['build']['base_at_bind'] = enrolled_at
+            helper.write_text('import subprocess, sys\ndef run(): subprocess.run([sys.executable, "-c", "pass"], check=True)\n')
+            candidate = commit('Unchanged legacy test calls a more expensive helper')
+            def collect():
+                raw, outcomes, performance = observe()
+                return work.collect_cost_evidence(root, plan, state, source=git('rev-parse', 'HEAD'), base=base,
+                    node=None, attempt='fixture', raw=raw, outcomes=outcomes, performance=performance, stage='full')
+            evidence = collect()
+            expected = evidence['context']['expected_identity']
+            self.assertEqual(candidate, expected['source_commit'])
+            self.assertEqual(base, expected['observer_commit'])
+            self.assertEqual(observation, evidence['context']['base_observation'])
+            verdict = work.assess_retained_cost(evidence, expected_identity=expected, now='2026-09-13T12:00:00Z')
+            self.assertTrue(any('processes: 1 exceeds 0' in item for item in verdict['violations']))
+            self.assertEqual(test_source, (tools / 'test_example.py').read_text())
+            for broken, expected_issue in (('{broken', 'corrupt'),
+                    (json.dumps({**activation, 'baseline_digest': cost.digest('other')}), 'disagree'), (None, None)):
+                if broken is None:
+                    activation_path.unlink(); (policies / 'test-cost-legacy-baseline.json').unlink()
+                else:
+                    activation_path.write_text(broken)
+                state['build']['base_at_bind'] = commit('Enrollment recovery specimen')
+                evidence = collect()
+                self.assertIsNone(evidence['context']['baseline'])
+                if expected_issue:
+                    self.assertIn(expected_issue, evidence['context']['enrollment_issue'])
+                else:
+                    self.assertIsNone(evidence['context']['enrollment_issue'])
+                verdict = work.assess_retained_cost(evidence,
+                    expected_identity=evidence['context']['expected_identity'], now='2026-09-13T12:00:00Z')
+                self.assertFalse(verdict['cost_clearance'])
+                self.assertTrue(any('needs-baseline' in item for item in verdict['unknown']))
+                self.assertEqual([{'id': 'test_example.C.test_behavior', 'occurrence': 1}], verdict['common'])
+
+
+@cost.declaration({
+    "schema_version": "test-cost-contract.v1", "supported_fault": "Base inventory test discovery inherits live runner authority",
+    "boundary": "process", "boundary_rationale": "A disposable committed source performs real import and load_tests discovery in one child",
+    "fixture_owner": "test_build_coordinator_cost.InventoryIsolation", "dependencies": ["git", "selftest_cost", "build_coordinator_work"],
+    "data_reads": [".engine/tools/selftest*.py", ".engine/tools/providers.py", ".engine/schemas/selftest-*.json"], "cadence": "pr",
+    "limits": {**cost.zeros(), "processes": 12, "git_commands": 12, "schema_decodes": 10},
+    "mutable_state": "One disposable Git repository, worktree, runner-control decoys, and discovery probe", "cache_lifetime": "case",
+    "added_cost_risk": "One bounded inventory child and committed one-case source", "families": []})
+class InventoryIsolation(unittest.TestCase):
+    def test_base_inventory_import_and_load_tests_cannot_reach_parent_controls_or_permission(self):
+        import json
+        from pathlib import Path
+        import shutil
+        import subprocess
+        import tempfile
+        from unittest import mock
+        import build_coordinator_work as work
+
+        with tempfile.TemporaryDirectory() as folder:
+            folder = Path(folder)
+            root = folder / 'repo'; tools = root / '.engine/tools'
+            schemas = root / '.engine/schemas'
+            policies = root / '.engine/policies'
+            workflow = root / '.github/workflows'
+            tools.mkdir(parents=True); schemas.mkdir(parents=True); policies.mkdir(parents=True); workflow.mkdir(parents=True)
+            for name in ('selftest.py', 'selftest_results.py', 'selftest_cost.py', 'providers.py', 'mutation_guards.py'):
+                shutil.copyfile(cost.ROOT / '.engine/tools' / name, tools / name)
+            for path in (cost.ROOT / '.engine/schemas').glob('selftest-*.json'):
+                shutil.copyfile(path, schemas / path.name)
+            shutil.copyfile(cost.ROOT / '.engine/policies/test-cost.json', policies / 'test-cost.json')
+            shutil.copyfile(cost.ROOT / '.github/workflows/engine-ci.yml', workflow / 'engine-ci.yml')
+            probe = folder / 'probe.json'
+            controls = {name: folder / name.lower() for name in cost._RUNNER_CONTROL_FILES}
+            for path in controls.values(): path.write_text('parent sentinel\n')
+            (tools / 'test_probe.py').write_text(
+                'import json, os, unittest\n'
+                'def attempt(phase):\n'
+                ' data = json.loads(open(os.environ["INVENTORY_PROBE"]).read())\n'
+                ' data[phase] = {"permission": os.environ.get("ENGINE_TEST_COST_APPROVED_EXCEPTIONS"), '
+                '"controls": {key: os.environ.get(key) for key in (' + repr(cost._RUNNER_CONTROL_FILES) + ')}}\n'
+                ' open(os.environ["INVENTORY_PROBE"], "w").write(json.dumps(data))\n'
+                ' for path in data[phase]["controls"].values(): open(path, "a").write(phase + "\\n")\n'
+                'attempt("import")\n'
+                'class Probe(unittest.TestCase):\n def test_discovered(self): pass\n'
+                'def load_tests(loader, tests, pattern):\n attempt("load_tests"); return tests\n')
+            probe.write_text('{}')
+            (root / '.gitignore').write_text('__pycache__/\n')
+            env = {key: value for key, value in os.environ.items() if not key.startswith('GIT_')}
+            env.update(GIT_CONFIG_NOSYSTEM='1', GIT_CONFIG_GLOBAL=os.devnull)
+            def git(*args):
+                return subprocess.check_output(['git', '-C', str(root), *args], env=env, text=True).strip()
+            git('init', '-q'); git('config', 'user.email', 'fixture@example.invalid'); git('config', 'user.name', 'Fixture')
+            git('add', '.'); git('commit', '-qm', 'Inventory fixture')
+            base = git('rev-parse', 'HEAD')
+            with mock.patch.dict(os.environ, {**{key: str(value) for key, value in controls.items()},
+                                              'ENGINE_TEST_COST_APPROVED_EXCEPTIONS': 'parent-permission',
+                                              'INVENTORY_PROBE': str(probe)}, clear=False):
+                inventory = work.cost_base_inventory(root, base)
+            self.assertEqual(['test_probe.Probe.test_discovered'], [row['case']['id'] for row in inventory['cases']])
+            self.assertEqual({path: 'parent sentinel\n' for path in controls.values()},
+                             {path: path.read_text() for path in controls.values()})
+            attempts = json.loads(probe.read_text())
+            self.assertEqual({'import', 'load_tests'}, set(attempts))
+            for attempt in attempts.values():
+                self.assertIsNone(attempt['permission'])
+                self.assertTrue(all(path not in {str(value) for value in controls.values()}
+                                    for path in attempt['controls'].values()))
+
 
 @cost.declaration({
     "schema_version": "test-cost-contract.v1", "supported_fault": "Node integration bypasses actual cost measurement",

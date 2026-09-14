@@ -17,6 +17,24 @@ RESOURCES = ('processes', 'git_commands', 'schema_decodes', 'metaschema_validati
              'whole_tree_fixtures', 'nested_journeys')
 ROOT = Path(__file__).resolve().parents[2]
 
+_RUNNER_CONTROL_FILES = ('GITHUB_ENV', 'GITHUB_OUTPUT', 'GITHUB_PATH', 'GITHUB_STATE', 'GITHUB_STEP_SUMMARY')
+_COST_EXCEPTION_ENV = 'ENGINE_TEST_COST_APPROVED_EXCEPTIONS'
+
+
+def inventory_environment(directory, *, inherited=None):
+    """Give untrusted inventory discovery private runner controls and no cost permission."""
+    import os
+    environment = dict(os.environ if inherited is None else inherited)
+    controls = Path(directory)
+    controls.mkdir(parents=True, exist_ok=True)
+    for name in _RUNNER_CONTROL_FILES:
+        path = controls / name.lower()
+        path.touch(exist_ok=True)
+        environment[name] = str(path)
+    environment.pop(_COST_EXCEPTION_ENV, None)
+    environment['PYTHONDONTWRITEBYTECODE'] = '1'
+    return environment
+
 
 def digest(value):
     return 'sha256:' + hashlib.sha256(json.dumps(value, sort_keys=True, separators=(',', ':'),
@@ -150,8 +168,11 @@ def runtime_inventory(cases, root=ROOT):
         occurrences[name] += 1
         method = getattr(case, getattr(case, '_testMethodName', ''), None)
         try:
-            path = Path(inspect.getsourcefile(method)).resolve().relative_to(Path(root).resolve()).as_posix()
-            qualified = method.__qualname__
+            # unittest.skip wraps a method in stdlib code while retaining its defining function.
+            # Resolve that provenance before comparing the runtime case with the source census.
+            definition = inspect.unwrap(method)
+            path = Path(inspect.getsourcefile(definition)).resolve().relative_to(Path(root).resolve()).as_posix()
+            qualified = definition.__qualname__
         except (TypeError, ValueError, AttributeError):
             path = qualified = None
         records.append({'id': name, 'occurrence': occurrences[name], 'path': path,
@@ -305,7 +326,7 @@ def observation_problems(observation, expected_identity):
 
 
 def timing_assessment(pairs, *, expected_identity, expected_base_identity, minimum_pairs=3,
-                      concern_seconds=1200):
+                      concern_seconds=1200, candidate_duration_seconds=None):
     """Advisory measured noise, never a duration-based correctness assertion.
 
     Each sample carries its immutable execution identity. Retries and phases remain
@@ -356,7 +377,11 @@ def timing_assessment(pairs, *, expected_identity, expected_base_identity, minim
     deltas = [b-a for a, b in zip(base, candidate)]
     growth = bool(not reasons and deltas and all(d > noise for d in deltas))
     concerns = [i for i, value in enumerate(candidate) if value >= concern_seconds]
-    return {'status': 'unavailable' if reasons else 'concerns' if growth or concerns else 'acceptable',
+    duration_concern = (type(candidate_duration_seconds) in (int, float)
+                        and candidate_duration_seconds >= concern_seconds)
+    if duration_concern:
+        reasons.append('observed candidate duration is at least ' + str(concern_seconds) + ' seconds')
+    return {'status': 'concerns' if growth or concerns or duration_concern else 'unavailable' if reasons else 'acceptable',
             'reasons': sorted(set(reasons)), 'baseline_seconds': base, 'candidate_seconds': candidate,
             'delta_seconds': deltas, 'noise_envelope_seconds': noise, 'material_growth': growth,
             'sample_digests': sample_digests,
@@ -410,7 +435,8 @@ def scaling_assessment(cases, contracts):
 def assess_cost(observation, *, expected_identity, baseline, expected_baseline_digest,
                 runtime, census, policy, now, declarations=(), mappings=(), exceptions=(),
                 base_observation=None, expected_base_identity=None, expected_cases=None,
-                bootstrap_inventory=None, timing_pairs=()):
+                bootstrap_inventory=None, timing_pairs=(), enrollment_issue=None,
+                candidate_duration_seconds=None):
     """One pure assessment used again at every cache, review and submission boundary.
 
     Expected identities and enrollment digest come from the controller's retained
@@ -440,6 +466,8 @@ def assess_cost(observation, *, expected_identity, baseline, expected_baseline_d
         unknown.append('needs-baseline: ' + enrollment['reason'])
     else:
         unknown += ['enrollment: ' + reason for reason in baseline['unknown']]
+    if enrollment_issue:
+        unknown.append('needs-baseline: ' + enrollment_issue)
     try:
         validate_shape(baseline, 'test-cost-baseline.v1')
         trusted_inventory = digest(baseline) == expected_baseline_digest
@@ -478,6 +506,16 @@ def assess_cost(observation, *, expected_identity, baseline, expected_baseline_d
     actual_cases = observation['cases'] if valid_observation else []
     if valid_observation:
         unknown += observation['unknown']
+        for fact in observation.get('ambient_facts', []):
+            if fact['kind'] == AMBIENT_GIT_CONFIG:
+                violations.append('ambient Git configuration discovery: ' + fact['owner'])
+            elif fact['kind'] == 'network-connect':
+                row = next((r for r in actual_cases if r['owner'] == fact['owner']), None)
+                contract = contracts.get(case_key(row['case'])) if row else None
+                if contract and contract['boundary'] == 'pure':
+                    violations.append('pure test used a network connection: ' + fact['owner'])
+                else:
+                    unknown.append('network destination and descendant coverage unavailable: ' + fact['owner'])
         unbudgeted = 0
         if digest([{'id': r['id'], 'occurrence': r['occurrence']} for r in runtime]) != expected_identity['inventory_digest']:
             unknown.append('runtime mapping inventory differs from observation')
@@ -580,7 +618,7 @@ def assess_cost(observation, *, expected_identity, baseline, expected_baseline_d
                 for key in sorted(left.keys() | right.keys()) if not key.startswith('case:')]
     timing = timing_assessment(timing_pairs, expected_identity=expected_identity,
         expected_base_identity=expected_base_identity, minimum_pairs=policy['timing']['minimum_pairs'],
-        concern_seconds=policy['concern_seconds'])
+        concern_seconds=policy['concern_seconds'], candidate_duration_seconds=candidate_duration_seconds)
     timing_findings = timing['reasons'] + (['advisory timing concern requires disposition'] if timing['status']=='concerns' else [])
     status = ('concerns' if violations or timing['status']=='concerns' else
               'unavailable' if unknown or timing['status']=='unavailable' else 'acceptable')
@@ -601,6 +639,7 @@ def assess_cost(observation, *, expected_identity, baseline, expected_baseline_d
 # callback is inert outside a live recorder; wrapped Python attributes ARE restored.
 _ACTIVE = None
 _AUDIT_INSTALLED = False
+AMBIENT_GIT_CONFIG = 'git-config'
 
 
 def event(resource, amount=1):
@@ -621,6 +660,11 @@ def _audit(name, args):
             recorder.unknown.add('process executable kind is unclassified')
         if executable_name in ('git', 'git.exe'):
             recorder.count('git_commands')
+            # Git configuration reads happen in the child, beyond this
+            # interpreter's file-open audit. Keep only a fixed fact and its
+            # owner; command arguments and environment values are never kept.
+            if _ambient_git_config_command(argv, args[3] if len(args) > 3 else None):
+                recorder.ambient(AMBIENT_GIT_CONFIG)
         # No command strings or environments are retained. Child-internal work is
         # unknown unless a future observer returns qualified descendant evidence.
         recorder.unknown.add('descendant work is not instrumented')
@@ -639,12 +683,70 @@ def _audit(name, args):
                 recorder.count('whole_tree_fixtures')
         else:
             recorder.unknown.add('tree-copy source is unclassified')
+    elif name == 'socket.connect':
+        recorder.ambient('network-connect')
+
+
+def _ambient_git_config_command(argv, environment):
+    """Recognize only unisolated Git config discovery, never its values."""
+    import os
+    if not isinstance(argv, (list, tuple)):
+        return False
+    values = [os.fsdecode(value) for value in argv if isinstance(value, (str, bytes))]
+    if 'config' not in values:
+        return False
+    options = values[values.index('config') + 1:]
+    # These forms select a repository or caller-named file rather than Git's
+    # global/default configuration discovery.
+    if any(value in ('--local', '--worktree', '--file', '-f', '--blob') for value in values):
+        return False
+    # Default writes target the local config. Only a read/discovery consumes
+    # ambient config; reading with the short ``git config key`` form counts too.
+    reads = {'--get', '--get-all', '--get-regexp', '--get-urlmatch', '--list', '-l', 'get', 'list'}
+    positional = [value for value in options if not value.startswith('-')]
+    if not reads.intersection(options) and len(positional) != 1:
+        return False
+    return not _isolated_git_config(environment)
+
+
+def _isolated_git_config(environment):
+    """Whether the child explicitly selected global/system configuration input."""
+    import os
+    if environment is None:
+        environment = os.environ
+    if not isinstance(environment, dict):
+        return False
+    def value(name):
+        for key, item in environment.items():
+            if isinstance(key, (str, bytes)) and os.fsdecode(key) == name:
+                return os.fsdecode(item) if isinstance(item, (str, bytes)) else None
+        return None
+    global_path = value('GIT_CONFIG_GLOBAL')
+    return value('GIT_CONFIG_NOSYSTEM') == '1' and bool(global_path) and os.path.isabs(global_path)
+
+
+def runtime_limits(root=ROOT):
+    """Load bound observation limits before discovery, under fixed implementation ceilings."""
+    from selftest_results import read
+    policy = read(Path(root) / '.engine/policies/test-cost.json')
+    if not isinstance(policy, dict) or policy.get('schema_version') != 'test-cost-policy.v1':
+        raise ValueError('invalid test-cost runtime policy')
+    ceilings = {'max_observation_bytes': 16 * 1024 * 1024,
+                'max_owners': 200000, 'max_counter': 2147483647}
+    limits = {name: policy.get(name) for name in ceilings}
+    if any(type(value) is not int or not 0 < value <= ceilings[name]
+           for name, value in limits.items()):
+        raise ValueError('invalid test-cost observation limit')
+    return limits
 
 
 class Recorder:
     """Bounded exclusive counters; no full traces, sleeps, subprocess rewriting or test mocks."""
     def __init__(self, *, max_owners=200000, max_counter=2147483647):
         import threading
+        if (type(max_owners) is not int or not 0 < max_owners <= 200000
+                or type(max_counter) is not int or not 0 < max_counter <= 2147483647):
+            raise ValueError('invalid resource counter limit')
         self.thread_id = threading.get_ident()
         self.max_owners, self.max_counter = max_owners, max_counter
         self.owners = {}
@@ -655,6 +757,23 @@ class Recorder:
         self.restores = []
         self.active_cases = []
         self.popen_depth = 0
+        self.ambient_facts = set()
+
+    def ambient(self, kind):
+        """Record a fixed, bounded known policy fact without source values."""
+        import threading
+        if self.suspended:
+            return
+        if kind not in (AMBIENT_GIT_CONFIG, 'network-connect'):
+            self.unknown.add('unclassified ambient resource fact')
+            return
+        owner = self.owner if threading.get_ident() == self.thread_id else 'unattributed:thread'
+        if (owner, kind) in self.ambient_facts:
+            return
+        if len(self.ambient_facts) >= self.max_owners:
+            self.unknown.add('ambient fact capacity exceeded')
+            return
+        self.ambient_facts.add((owner, kind))
 
     def count(self, resource, amount=1):
         import threading
@@ -755,6 +874,8 @@ class Recorder:
                 'complete': complete, 'process_exit': process_exit,
                 'unknown': sorted(self.unknown), 'totals': totals,
                 'owners': [{'owner': owner, 'counts': counts} for owner, counts in sorted(self.owners.items())],
+                'ambient_facts': [{'owner': owner, 'kind': kind}
+                                  for owner, kind in sorted(self.ambient_facts)],
                 'inventory': self.runtime}
 
 
@@ -795,6 +916,8 @@ def normalize_run(run, identity, *, expected_tree, outcomes=None):
     result = {'schema_version': 'test-cost-observation.v1', 'identity': identity,
               'complete': bool(run['complete'] and run['process_exit'] == 0 and outcomes_passed),
               'unknown': run['unknown'], 'totals': run['totals'], 'owners': run['owners'], 'cases': cases}
+    if 'ambient_facts' in run:
+        result['ambient_facts'] = run['ambient_facts']
     validate_shape(result, 'test-cost-observation.v1')
     return result
 
@@ -837,6 +960,8 @@ def enroll_baseline(observation, census, runtime, *, owner, reason, revisit, dec
               'owner': owner, 'reason': reason, 'revisit': revisit, 'cases': cases,
               'duplicates': census['duplicates'], 'owners': observation['owners'],
               'totals': observation['totals'], 'unknown': observation['unknown']}
+    if 'ambient_facts' in observation:
+        result['ambient_facts'] = observation['ambient_facts']
     validate_shape(result, 'test-cost-baseline.v1')
     return result
 
@@ -877,6 +1002,8 @@ def enrolled_observation(baseline):
     observation = {'schema_version': 'test-cost-observation.v1', 'identity': baseline['identity'],
                    'complete': True, 'unknown': baseline['unknown'], 'totals': baseline['totals'],
                    'owners': baseline['owners'], 'cases': cases}
+    if 'ambient_facts' in baseline:
+        observation['ambient_facts'] = baseline['ambient_facts']
     if digest(observation) != baseline['observation_digest']:
         return None
     return observation
@@ -1027,7 +1154,8 @@ def observer_fingerprint(root=ROOT):
     """Content identity of executed observation code, independent of later report consumers."""
     selected = {
         'selftest_cost.py': {'Recorder', 'event', '_audit', 'runtime_inventory', 'declared_contract',
-                            'observe_retained_source', 'zeros'},
+                            'observe_retained_source', 'zeros', 'runtime_limits',
+                            '_ambient_git_config_command', '_isolated_git_config'},
         'selftest_results.py': {'Observation', 'write'},
         'selftest.py': {'_run_child', '_run_child_observed'},
     }
@@ -1049,9 +1177,8 @@ def inventory_source(source_root, output_path):
     independently before using the returned source and census.
     """
     import os
-    import subprocess
     import sys
-    import unittest
+    import tempfile
     source, output = Path(source_root).resolve(), Path(output_path).resolve()
     if output.is_relative_to(source) or not (source / '.engine/tools/selftest.py').is_file():
         raise ValueError('inventory needs retained Engine source and an external output path')
@@ -1061,6 +1188,19 @@ def inventory_source(source_root, output_path):
         if key.startswith('GIT_'):
             os.environ.pop(key)
     os.environ.update(GIT_CONFIG_NOSYSTEM='1', GIT_CONFIG_GLOBAL=os.devnull, GIT_OPTIONAL_LOCKS='0')
+    with tempfile.TemporaryDirectory(prefix='engine-cost-inventory-controls-') as controls:
+        os.environ.pop(_COST_EXCEPTION_ENV, None)
+        os.environ.update(inventory_environment(controls))
+        os.environ.update(GIT_CONFIG_NOSYSTEM='1', GIT_CONFIG_GLOBAL=os.devnull, GIT_OPTIONAL_LOCKS='0')
+        return _inventory_source(source, output)
+
+
+def _inventory_source(source, output):
+    """Run discovery after ``inventory_source`` has removed ambient authority."""
+    import os
+    import subprocess
+    import sys
+    import unittest
     sys.path.insert(0, str(source / '.engine/tools'))
     import selftest
     from providers import SESSION_ENV_CHAIN

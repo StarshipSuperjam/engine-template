@@ -125,7 +125,9 @@ existing merge receipt, and retains the original observation beside it. Reuse an
 re-evaluate permission without rerunning still-eligible observations. Candidate cache acceptance, final
 proof import and submission preview/apply also recheck expiry through `moment.py`.
 
-For new cost-applicable approvals, the technical-integrity reviewer returns its bound versioned envelope
+Every newly approved v3 plan includes test-cost contracts and the technical-integrity cost review, at every
+review depth. Project Manager shows that roster before approval; historical sealed v1/v2 plans retain their
+approved roster unless explicitly renewed. For these new approvals, the reviewer returns its bound versioned envelope
 with an explicit assessment digest, candidate identity, status and rationale. Record the actual observed
 report through native ingress, then use `cost dispose --input <json>` for the separate controller object
 `{assessment_digest, decision, rationale}`. Only qualified acceptable evidence permits `accept`; concerns

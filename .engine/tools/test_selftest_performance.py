@@ -520,6 +520,14 @@ class CostAssessment(unittest.TestCase):
         context['timing_pairs'] = []
         self.assertEqual(performance.compare_cost(observation, **context)['status'], 'unavailable')
 
+    def test_observed_long_duration_requires_disclosure_without_a_comparable_pair(self):
+        observation, context = cost_example()
+        context['timing_pairs'] = []
+        context['candidate_duration_seconds'] = 1200
+        result = performance.compare_cost(observation, **context)
+        self.assertEqual(result['status'], 'concerns')
+        self.assertTrue(any('observed candidate duration' in finding for finding in result['timing_findings']))
+
     def test_repeating_one_timing_sample_does_not_create_qualification(self):
         observation, context = cost_example()
         context['timing_pairs'] = [context['timing_pairs'][0]] * 3

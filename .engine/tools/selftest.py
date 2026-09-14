@@ -537,7 +537,8 @@ def _run_child(args: argparse.Namespace) -> int:
     if not getattr(args, 'cost_path', None):
         return _run_child_observed(args)
     import selftest_cost
-    recorder = selftest_cost.Recorder()
+    limits = selftest_cost.runtime_limits()
+    recorder = selftest_cost.Recorder(max_owners=limits['max_owners'], max_counter=limits['max_counter'])
     source = _tree_binding(args.start_dir)
     rc = None
     try:
@@ -550,7 +551,7 @@ def _run_child(args: argparse.Namespace) -> int:
             complete = bool(rc is not None and outcomes.get('complete') and outcomes.get('source') == source)
             document = recorder.document(source=source, scope=outcomes.get('scope', 'unknown'),
                                          complete=complete, process_exit=rc)
-            selftest_results.write(args.cost_path, document, max_bytes=16 * 1024 * 1024)
+            selftest_results.write(args.cost_path, document, max_bytes=limits['max_observation_bytes'])
         except (OSError, ValueError, TypeError):
             print('selftest: resource observations unavailable', file=sys.stderr)
 
