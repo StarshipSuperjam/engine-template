@@ -1,31 +1,31 @@
 {
   "schema_version": "test-cost-activation.v1",
-  "parity_rules_digest": "sha256:d7c57478d312a1f61913cd69d83393eddcc9b1a95bf38b44b78e065132cb477b",
-  "baseline_digest": "sha256:d513aff13524022e04ac112ab124d16ff874bf1de2d678ce179bc1f69e889cc9",
-  "source_tree": "0ba587dfba8d4037ead4841bba804f6116f6087b",
+  "parity_rules_digest": "sha256:7628ead0ffc99cc941d8922ecba0238e2e6021a6f1e95a7bed2fb756faa5bf3e",
+  "baseline_digest": "sha256:a97b3a21a0b995889cc3b3ac44a7a530ac75d7df3c6c2820e1a3f57e5d06b09c",
+  "source_tree": "1d3a082d6819b4bf5620ad09a589df312e65f866",
   "identity": {
-    "source_commit": "c434b4771efb94bce36894287b8ffeda2555b651",
-    "base_commit": "c434b4771efb94bce36894287b8ffeda2555b651",
-    "observer_commit": "4b8d90f2e8f63267a1ef03d0544ab2b62d6b8b99",
-    "observer_digest": "sha256:65eb489c0e4bbbaa0681ab173651c90a2425b0ba1b866a9a5804ab51abd5f446",
+    "source_commit": "d5b0c6d55490354b7f50ed91d88306588e7624b8",
+    "base_commit": "d5b0c6d55490354b7f50ed91d88306588e7624b8",
+    "observer_commit": "9f793bb684eb0e26a7a41613b586f905f684211d",
+    "observer_digest": "sha256:2ff3fa156aa102386618075b798e11c38a3ced2c283767de74d2ec2327ed25e4",
     "plan_digest": "sha256:8d08a9bae4c8609422821a43552b68b860d0b156c617f4b706267f7ef05b0560",
-    "contract_digest": "sha256:25b53928f2c3645a9639773669f61a4f9fb8bf923fb66090c93d0f43f7f150ec",
+    "contract_digest": "sha256:20be7bfbe3eb0ca4ff4c7b8d4f5fa5f95b5d48d8696a08e15c65b35ad6bfea8d",
     "policy_digest": "sha256:7c4e2d3fdb8f7fd8aa3efaf17af3302a2a499c226dc0878c5c18533a57ae24dd",
-    "inventory_digest": "sha256:568bfeb4eeeda774c808d90626aa8afd182041c45104200c5f7364fe1151c738",
-    "environment_digest": "sha256:4e9ebfd3c6503f53222004c3f394815112bfd0dcbd1492d3032f7a12ae76561d",
+    "inventory_digest": "sha256:09ac1424749ab9f25670e6c0dec7b5afff6304de9137e40506cf6ac0906adf0d",
+    "environment_digest": "sha256:8594e3ea9e83acbe8b6937396a5c37573ad9c22e1709cfea417e26f8040f0b48",
     "cache_state": "unknown",
     "topology": "serial",
     "stage": "bootstrap",
     "attempt": "b090b176d159dcc0e127764cdf4d9c9b",
     "node": "baseline",
-    "artifact_digest": "sha256:80ce279df20a1f044ff14910cb4d58bf4627258ad5abff5dc819c09365b15339"
+    "artifact_digest": "sha256:fc2a2ed4267f7226ae2c5985596d34bc6046ae9ff1fc3831ea6202c664659a35"
   },
-  "native_outcomes_digest": "sha256:51222b7f84e130c384e407ba0d030d5e747bad8f8aacc6029a229b9011c1c22b",
-  "observed_outcomes_digest": "sha256:fabc03a03f2fc8d14901da019d29e6a14cc6f1236ff9084f80a6319692ced30a",
-  "observation_digest": "sha256:8347c9c1c9d91ac9cf9f38df9dd62869f3374c786dec730d53cdb9a3bbf1cf8b",
+  "native_outcomes_digest": "sha256:608a4daa93261ad1e4a07991794428efdd30a7e8ca16b07f3efad6f1729d337e",
+  "observed_outcomes_digest": "sha256:c5318d7cbdcc4bee13a5e74e2e098d29b0c940b1073765009372838355d2ae2f",
+  "observation_digest": "sha256:886f2f4eaf2a2fdb6baf2c7f45651738e410c6fb2472684423530218adc2bb14",
   "outcomes_parity": true,
-  "legacy_case_count": 10093,
-  "static_definition_count": 10024,
+  "legacy_case_count": 10270,
+  "static_definition_count": 10201,
   "owner": "prg_1276f4a3c217",
   "reason": "Explicit initial enrollment of the unchanged pre-prevention suite; this records observed debt, not acceptable new authoring.",
   "revisit": "Review during the program relevance audit and fixture repair; adapter or environment changes require explicit requalification.",
@@ -39,7 +39,7 @@
     "runner_arch": null,
     "uv": "uv 0.11.8 (Homebrew 2026-04-27 aarch64-apple-darwin)",
     "memory_bytes": 25769803776,
-    "worktree_count": 30,
+    "worktree_count": 32,
     "cache": "unknown"
   },
   "unknown": [
@@ -58,16 +58,14 @@
     "runner_arch": null,
     "uv": "uv 0.11.8 (Homebrew 2026-04-27 aarch64-apple-darwin)",
     "memory_bytes": 25769803776,
-    "worktree_count": 29,
+    "worktree_count": 32,
     "cache": "unknown"
   },
-  "environment_differences": [
-    "worktree_count"
-  ],
+  "environment_differences": [],
   "timing": {
-    "native_child_seconds": 2391.6920308750123,
-    "observed_child_seconds": 2061.313106500078,
-    "qualification": "unavailable: one sequential pair, uncontrolled cache and different worktree populations; no overhead or program-target claim"
+    "native_child_seconds": 2455.877885624999,
+    "observed_child_seconds": 2442.807534874999,
+    "qualification": "unavailable: concurrent native and observed runs on separate pinned checkouts; uncontrolled cache and worktree populations; no overhead or program-target claim"
   },
   "cost_clearance": false
 }

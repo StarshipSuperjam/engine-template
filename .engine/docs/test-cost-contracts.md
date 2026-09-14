@@ -37,22 +37,20 @@ uv run --directory .engine --frozen -- python tools/selftest_cost.py observe-ret
 
 This command measures only; it never writes an activation or changes enrolled limits. Enrollment requires complete passing native/observed outcome parity, the exact static/runtime census, independently resolved identities and explicit review of the resulting debt. A focused `--pattern` is a diagnostic, not full bootstrap evidence. Requalify an incompatible adapter or environment before activating its measurements; a local enrollment cannot qualify a different CI environment.
 
-Renewed enrollment observes source `c434b4771efb94bce36894287b8ffeda2555b651` with adapter `4b8d90f2e8f63267a1ef03d0544ab2b62d6b8b99`. Both complete runs pass all 10,093 cases with zero skips; the static census has 10,024 definitions, including inherited/runtime mappings and the two separately retained overwritten definitions. Exact raw outcome digests remain in the activation record. Seven source-bound parity rules cover reviewed UUID4 fixture IDs, disposable Git commit IDs, and one test's set iteration. They preserve token equality relationships, substantive inputs, counts and outcomes. Changes to the tree or defining source invalidate those rules; they are not general permission to ignore differing subtests.
+The initial resource enrollment observes independently pinned pre-feature main `d5b0c6d55490354b7f50ed91d88306588e7624b8` with adapter `9f793bb684eb0e26a7a41613b586f905f684211d`. Complete native and observed runs pass all 10,270 cases with zero skips; the current source census has 10,201 definitions. Seven source-bound parity rules retain their unchanged defining ASTs and are explicitly bound to this source tree. They preserve substantive inputs, token relationships, counts and outcomes; they do not authorize general subtest redaction.
 
-| Observed resource | Renewed count |
+| Observed resource | Initial count on current main |
 | --- | ---: |
-| Process launches | 66,768 |
-| Git launches (included in processes) | 65,675 |
-| JSON decodes (conservative schema-work proxy) | 9,537,472 |
+| Process launches | 69,135 |
+| Git launches (included in processes) | 68,010 |
+| JSON decodes (conservative schema-work proxy) | 735,796 |
 | Metaschema validations | 119 |
 | Classified whole-tree fixtures | 49 |
 | Classified nested journeys | 88 |
 
-The renewed enrollment also retains 135 ambient Git-configuration facts and 11 network-connection facts with their original owners. They expose existing debt and remaining coverage limits; they do not permit new declared tests to acquire those effects. Ten unchanged tests imported from the newer main branch have separate exact source-bound declarations, so they are not silently added to the older enrollment.
+The enrollment retains 135 ambient Git-configuration facts and 11 network-connection facts with their original owners. These expose existing debt and coverage limits; they do not permit new declared tests to acquire those effects. Candidate work was not used to establish legacy identities or learn ceilings. The original static duplicate enrollment remains bound to source `c434b4771efb94bce36894287b8ffeda2555b651`; both overwritten definitions remain unchanged and reserved for the later relevance audit.
 
-The 101-operation recovery test alone records 6,868 Git launches. This is measured legacy debt for the later fixture/relevance work, not an acceptable new-test template. Descendant work, alternate process boundaries, background-thread ownership and unclassified tree-copy paths remain explicit gaps; the table is not a complete operating-system trace.
-
-The native child interval is 2,391.692 seconds and the observed interval is 2,061.313 seconds. Timing qualification is unavailable: only one sequential pair exists, cache state is unknown, and the shared worktree population changed from 29 to 30. The activation retains both environments and binds budgets to the observed one; it makes no 2% overhead, CI-platform, causal-PR or 15-minute program claim.
+The native child interval is 2,455.878 seconds and the observed interval is 2,442.808 seconds. They ran concurrently on separate immutable checkouts, so their elapsed times are not an overhead comparison. Both recorded environments remain in the activation. This evidence makes no CI-platform, causal-PR or 15-minute program claim.
 
 The initial static census covers all recursively discovered test modules. Existing overwritten definitions have separate source/AST-bound enrollment; they are not runtime cases and are not a completed relevance audit. Generated runtime identities need explicit source mappings and fault-preservation rationale. Line numbers aid diagnosis but do not grant an allowance.
 
@@ -60,23 +58,9 @@ Exceptions are bounded to a source, case occurrence, resource and ceiling. They 
 
 Timing remains advisory. The program's 900-second target and independent 1200-second concern remain separate from deterministic resource ceilings. Comparable samples retain a measured noise envelope; small local calibration samples are not CI speed qualification. Observer overhead must be measured with alternating identical workloads before release.
 
-Representative overhead measurements at clean source `7c2f8957fe8e05e1b5d6e41fd145c88f2e74e9bb`
-used the existing serial launcher, one discarded warm-up pair and three scored pairs per workload,
-ordered off/on, on/off, off/on. All eight runs per workload preserved complete outcome parity through
-the canonical comparator: 16 cases for `test_selftest_results.py`, 235 for `test_project_manager.py`,
-with no skips or failures. Each child starts with fresh process caches; one checkout and runtime keep
-reported environment and topology identical. The warm-up does not prove operating-system cache state.
+Current observer qualification at clean source `9f793bb684eb0e26a7a41613b586f905f684211d` uses the operator-approved 3% median wall-time cap. One warm-up pair and three alternating scored pairs preserve all outcomes for the 16-case results workload and 235-case plan lifecycle workload. The expensive workload measures +2.5545% median launcher overhead, within the approved 3% target, after exceeding the original 2% target. Filtering unrelated interpreter audit events reduced the preceding observer's overhead but did not meet the original cap.
 
-| Workload | Off child samples (seconds) | On child samples (seconds) | Median child overhead | Median launcher overhead |
-| --- | --- | --- | ---: | ---: |
-| Cheap results controls | 1.416, 1.506, 1.666 | 1.357, 1.473, 1.458 | -3.22% | +0.14% |
-| Expensive plan lifecycle | 87.683, 82.398, 82.507 | 84.776, 83.460, 83.193 | +1.16% | +1.22% |
-
-Both observed medians are within the 2% overhead target. The negative cheap child delta is measurement
-variation, not a speedup claim. The retained sample manifest has SHA-256
-`c7cdcdce8e3d9fb8ba00e94b7e9757b8df941272ff6834cd84db3459b0f875ac`; it records exact source/tree,
-environment, raw outcome/performance hashes, warm-ups and measured launcher intervals. These bounded
-local observations neither qualify Linux nor establish a full-PR performance improvement.
+The initial cheap samples measure +5.2920% launcher overhead with substantial child-process variation. A fixed 15-pair confirmation preserves all 32 complete outcomes; its reported worktree population changes during collection, so no aggregate matched-environment qualification is claimed. The two matching groups retain all seven and eight pairs and measure +0.2564% and +2.0116% respectively. Earlier 7c, 4b and a32 measurements remain historical evidence, not qualification of this implementation. The operator explicitly approved a 3% cap after these measurements and their tradeoff were explained. Both matching cheap groups and the expensive group meet that revised cap. The original 2% seal and failed measurements remain retained. Resource ceilings, outcome parity and the program target are unchanged.
 
 For a prospective v3 Build, the coordinator measures each committed node through `work verify` before
 integration, then measures the complete candidate separately. Node evidence binds the claim base, attempt,
@@ -153,6 +137,6 @@ A missing or incompatible legacy baseline uses bounded measurement bootstrap and
 success. New declarations, duplicate controls and correctness still apply. Unavailable actual-base resource
 comparisons, descendant coverage and noisy timing remain visible for disposition. Every observed required
 path of at least 1,200 seconds needs investigation; 900 seconds remains the program target, not this child's
-completion promise. Qualification of observer overhead retains the <=2% median target and alternating
+completion promise. Qualification of observer overhead uses the explicitly approved <=3% median target and alternating
 comparable samples. Do not create hard wall-clock assertions or claim the broader relevance/cadence audit
 is complete. See the baseline evidence and limitations above.

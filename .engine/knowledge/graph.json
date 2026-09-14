@@ -5381,7 +5381,7 @@
       },
       "slug": "test-cost-contracts",
       "source": {
-        "fingerprint": "sha256:3ccb3927307fb01435f4b8243f87325ac534048d4d3f40eaa23630652d1a92d1",
+        "fingerprint": "sha256:6a65a7c8211e689cb0946622d990bc9295f789f90373290d0855463d25e04af3",
         "path": ".engine/docs/test-cost-contracts.md"
       },
       "status": "active",
@@ -7045,7 +7045,7 @@
       },
       "slug": "test-cost",
       "source": {
-        "fingerprint": "sha256:5073fa65f1b03b8ec6c9fbb51baf33cd8012cf03cbeeb9f21f0c2c02679c3c5e",
+        "fingerprint": "sha256:6f294d4a6b223b64cd675524d1412bef07f8176aa5da7577701eecd9a688ab35",
         "path": ".engine/policies/test-cost.json"
       },
       "status": "active",
@@ -7065,7 +7065,7 @@
       },
       "slug": "test-cost-activation",
       "source": {
-        "fingerprint": "sha256:ddfb8c6cfc0bb7795dea8bc9456c66bddc97eeddf2f848cbd30ee18fa36936a3",
+        "fingerprint": "sha256:5afcdd4eefb1c36c14189abfc4b0c01dc00f2cd2649ac5f3b92841a848f78199",
         "path": ".engine/policies/test-cost-activation.json"
       },
       "status": "active",
@@ -7125,7 +7125,7 @@
       },
       "slug": "test-cost-legacy-baseline",
       "source": {
-        "fingerprint": "sha256:62fdf283a0e0d6107cae8844e7bdfbf0798abf9550486851fa4a41d8613a2d61",
+        "fingerprint": "sha256:935c56528dd6549ad167e549f0197213a03474d5544976a00fa72ea35f36557d",
         "path": ".engine/policies/test-cost-legacy-baseline.json"
       },
       "status": "active",
@@ -7165,7 +7165,7 @@
       },
       "slug": "test-cost-parity",
       "source": {
-        "fingerprint": "sha256:bf59c71c3c3b62b96d58ee42b032abbbbecbde347793f2f7ef8a091da3e2a9ba",
+        "fingerprint": "sha256:7abf7a5beb235f00dc624fe5e7c97754eb1be846c694f211e623015e824a0c74",
         "path": ".engine/policies/test-cost-parity.json"
       },
       "status": "active",
