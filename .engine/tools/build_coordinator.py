@@ -59,7 +59,8 @@ SESSION_BINDING_SCHEMA_V1 = ROOT / ".engine" / "schemas" / "session-binding.v1.j
 # longer a v1 entry to fall back to, and nothing here defaults an absent version: a document that
 # does not say what it is is refused by name (`_state_schema_for`, `dag.plan_version`), because
 # guessing v1 for a versionless document is how an unreadable file became a silently-misread one.
-PLAN_SCHEMAS = {"build-plan.v2": PLAN_SCHEMA_V2}
+PLAN_SCHEMAS = {"build-plan.v2": PLAN_SCHEMA_V2,
+                "build-plan.v3": ROOT / ".engine/schemas/build-plan.v3.json"}
 STATE_SCHEMAS = {"build-state.v2": STATE_SCHEMA_V2}
 HANDOFF_SCHEMAS = {"build-handoff.v2": HANDOFF_SCHEMA_V2}
 # The registered validation commands (id, operator label, argv) are declared in build-protocol.json, so
@@ -302,7 +303,7 @@ def _verb(args) -> tuple[str, str | None]:
     command = getattr(args, "command", None)
     for attr in ("plan_command", "review_command", "finding_command", "assumption_command",
                  "state_command", "repair_command", "handoff_command", "submit_command",
-                 "contract_command", "work_command"):
+                 "contract_command", "work_command", "cost_command"):
         sub = getattr(args, attr, None)
         if sub:
             return command, sub
@@ -437,6 +438,9 @@ def _initial_state(repo: str, pr: int, base: str, plan_id: str, sealed_digest: s
         "checkout_snapshot": None
     }
     state["work"] = {}
+    if _plan_version(plan) == "build-plan.v3":
+        state["cost"] = {"schema_version": "build-cost-evidence.v1", "nodes": {},
+                         "candidate": None, "review": None, "exceptions": []}
     return state
 
 
@@ -444,6 +448,8 @@ def _assert_plan(state: dict, plan: dict) -> None:
     actual = _digest(plan)
     if actual != state["plan"]["digest"]:
         raise CoordinatorError(f"supplied plan digest {actual} does not match approved Build plan {state['plan']['digest']}")
+    if _plan_version(plan) == "build-plan.v3" and not state.get("cost"):
+        raise CoordinatorError("cost-applicable plan has no admitted cost evidence state")
 
 
 def _issue_body(repo: str, issue: int) -> str:
@@ -969,7 +975,7 @@ def _next_incomplete(plan: dict, state: dict) -> str | None:
     slot, so a busy slot or a resource hold (which claimable_set subtracts) must not change which item
     is "next" to advance — only dependency readiness does.
     """
-    if _plan_version(plan) == "build-plan.v2":
+    if _plan_version(plan) in ("build-plan.v2", "build-plan.v3"):
         return dag.next_ready(plan, state)
     ordered = [item["id"] for item in plan["work_items"]]
     completed = {item["id"] for item in state["progress"]["completed"]}
@@ -1897,6 +1903,11 @@ def plan_store_module():
 
 
 def _reset_after_revision(state: dict, plan: dict) -> None:
+    if state.get("cost") and _plan_version(plan) != "build-plan.v3":
+        raise CoordinatorError("a cost-applicable Build cannot amend its payload into a legacy enforcement exemption")
+    if _plan_version(plan) == "build-plan.v3":
+        state["cost"] = {"schema_version": "build-cost-evidence.v1", "nodes": {},
+                         "candidate": None, "review": None, "exceptions": []}
     # `plan_id` and `sealed_digest` deliberately survive a revision: the sealed plan is still the plan of
     # record and the authority this Build entered on. What changes is that the EXECUTED payload no longer
     # equals the sealed one, and that is recorded rather than inferred — a seal whose divergence is only
@@ -2486,6 +2497,14 @@ def _packet(args, store: Snapshot | None) -> None:
               "spec": canonical_spec, "commit": commit, "base_commit": _base() if commit else None,
               "impact": impact, "protocol_digest": _digest(protocol),
               "installed_lenses": installed_names, "required_lenses": required}
+    if state.get("cost") and commit:
+        import selftest_cost
+        assessment = _live_candidate_cost(state, commit)
+        referent["cost_assessment"] = {"digest": selftest_cost.digest(assessment), "assessment": assessment}
+        if not any(c["lens"] == "technical-integrity" and
+                   (c.get("result_contract") or {}).get("id") == "technical-integrity-review.v1"
+                   for c in required_contracts):
+            raise CoordinatorError("cost-applicable review requires the approved technical-integrity cost envelope")
     if frozen:
         referent["review_contract"] = frozen
         referent["approval_authority"] = {"owner": scoped_agents.build_owner(state), "sealed_digest": state["plan"]["sealed_digest"]}
@@ -2713,6 +2732,8 @@ def cmd_review_record(args, store: Snapshot) -> None:
     finding_ids = _receipt_finding_ids(args)
     if len(finding_ids) != len(set(finding_ids)):
         raise CoordinatorError("review finding ids must be unique")
+    if before.get("cost") and not frozen:
+        raise CoordinatorError("cost-applicable review requires its frozen approved reviewer contract")
     reports = None
     source = getattr(args, "findings_from_file", None)
     controller_entries = _findings_batch(source, args.stage, args.lens) if source else None
@@ -2809,6 +2830,13 @@ def cmd_review_record(args, store: Snapshot) -> None:
         scoped_agents.accept_build(_library(), state, receipt,
             providers.resolve_session(explicit=getattr(args, "session", None)), supplied_reports=reports,
             controller_entries=controller_entries)
+        if state.get("cost") and args.lens == "technical-integrity":
+            observed_store = scoped_agents.Store(_library(), _library().resolve(state["plan"]["plan_id"]))
+            observed = observed_store.review_report(assignment, scoped_agents.build_owner(state))["report"]
+            assessment = _live_candidate_cost(state, receipt["commit"])
+            review.cost_judgment(observed, assessment)
+            state["cost"]["review"] = {"report": observed, "receipt_key": scoped_agents.receipt_key(receipt),
+                                        "disposition": None}
         if args.stage == "repair" and not _outstanding_repair_lenses(state["repair"], state=state):
             # Advance only after the new receipt has accepted execution evidence. Coverage must
             # never count an unaccepted receipt simply because it is already in this transaction.
@@ -3157,8 +3185,42 @@ def _split_validation(state) -> dict:
 def _candidate_ok(state, commit: str) -> bool:
     """Green candidate evidence at exactly this commit — the gate packets and repairs stand on."""
     candidate = _split_validation(state)["candidate"]
-    return bool(candidate and candidate["commit"] == commit and candidate["results"]
-                and all(x["passed"] for x in candidate["results"]))
+    valid = bool(candidate and candidate["commit"] == commit and candidate["results"]
+                 and all(x["passed"] for x in candidate["results"]))
+    if valid and state.get("cost"):
+        try:
+            _live_candidate_cost(state, commit)
+        except CoordinatorError:
+            return False
+    return valid
+
+
+def _live_candidate_cost(state, commit, *, require_review=False):
+    """Every acceptance rechecks live permissions; immutable observations retain their identity."""
+    if not state.get("cost"):
+        return None
+    import selftest_cost as cost
+    reference = state["cost"]["candidate"]
+    identity = (reference or {}).get("identity", {})
+    candidate = _split_validation(state)["candidate"] or {}
+    if (identity.get("source_commit") != commit or identity.get("stage") != "candidate"
+            or identity.get("node") is not None or identity.get("plan_digest") != state["plan"]["digest"]
+            or identity.get("base_commit") != candidate.get("merge_base")
+            or identity.get("artifact_digest") != _tree_digest_at(str(ROOT), commit)
+            or identity.get("observer_digest") != cost.observer_fingerprint(ROOT)
+            or identity.get("policy_digest") != cost.digest(core.json_file(ROOT / ".engine/policies/test-cost.json"))):
+        raise CoordinatorError("whole-Build cost evidence is missing or stale for this candidate")
+    assessment = _consume_cost(reference, expected_identity=identity,
+        exceptions=[entry["exception"] for entry in state["cost"]["exceptions"]])
+    if assessment["violations"]:
+        raise CoordinatorError("cost resource violations remain under current unwaived policy")
+    if require_review:
+        accepted = state["cost"].get("review") or {}
+        review.cost_disposition(accepted.get("report"), assessment, accepted.get("disposition"))
+        if not any(scoped_agents.receipt_key(receipt) == accepted.get("receipt_key")
+                   for _, receipt in review.retained_receipts(state)):
+            raise CoordinatorError("cost judgment has no retained review receipt")
+    return assessment
 
 
 def _final_ok(state, commit: str) -> bool:
@@ -3387,6 +3449,7 @@ def _final_import(args, store: Snapshot) -> None:
         raw = current.get("validation")
         if raw is None or "candidate" not in raw:
             raise CoordinatorError("candidate evidence disappeared while importing; re-run `validate`")
+        _live_candidate_cost(current, head)
         raw["final"] = final
 
     store.mutate(record, from_revision=revision)
@@ -3473,6 +3536,7 @@ def cmd_validate(args, store: Snapshot) -> None:
     protocol_validation = _protocol()["validation_commands"]
     results = []
     run_record_summary = None
+    cost_reference = None
     with core.StableCommit(ROOT, "validation") as head:
         head_tree = _run(["git", "rev-parse", "HEAD^{tree}"]).stdout.strip()
         merge_base = _merge_base()
@@ -3486,6 +3550,7 @@ def cmd_validate(args, store: Snapshot) -> None:
                 and all(existing.get(key) is not None and existing.get(key) == identity[key]
                         for key in identity)
                 and existing["results"] and all(x["passed"] for x in existing["results"])):
+            _live_candidate_cost(state, head)
             print("cache hit: nothing re-ran — the head, merge base, protocol, argv and inventory "
                   "digests all match the recorded green candidate run (use --force to re-run).")
             print(json.dumps({"cached": True, "commit": head,
@@ -3495,6 +3560,7 @@ def cmd_validate(args, store: Snapshot) -> None:
         for item in protocol_validation["candidate"]:
             argv = [token.replace("{merge_base}", merge_base) for token in item["command"]]
             record_path = None
+            cost_paths = None
             if any("{run_record_path}" in token for token in argv):
                 # Minted fresh, private and unpredictable (mkdtemp is 0700 with a random name), so a
                 # peer process cannot pre-plant or race the file the coordinator will read back; the
@@ -3502,6 +3568,10 @@ def cmd_validate(args, store: Snapshot) -> None:
                 record_dir = __import__("tempfile").mkdtemp(prefix="engine-candidate-record-")
                 record_path = str(Path(record_dir) / "record.json")
                 argv = [token.replace("{run_record_path}", record_path) for token in argv]
+                if state.get("cost"):
+                    cost_paths = {key: Path(record_dir) / (key + ".json") for key in ("cost", "outcomes", "performance")}
+                    argv += ["--cost-path", str(cost_paths["cost"]), "--results-path", str(cost_paths["outcomes"]),
+                             "--performance-path", str(cost_paths["performance"])]
             stamp = f"{int(time.time())}-{item['id']}-{head[:12]}-{secrets.token_hex(6)}.log"
             log_path = Path(__import__("tempfile").gettempdir()) / stamp
             returncode = _run_validation(argv, log_path)
@@ -3525,13 +3595,34 @@ def cmd_validate(args, store: Snapshot) -> None:
                     run_record_summary = {"id": item["id"], "digest": _digest(record_bytes),
                                           "scope": record["scope"], "tree": record["tree"]}
                 summary += f"; run record at {record_path}"
+            if cost_paths is not None and passed:
+                try:
+                    import selftest_results
+                    evidence = _cost_context_from_run(plan, state, source=head, base=merge_base, node=None,
+                        attempt=secrets.token_hex(16), raw=selftest_results.read(cost_paths["cost"]),
+                        outcomes=selftest_results.read(cost_paths["outcomes"]),
+                        performance=selftest_results.read(cost_paths["performance"]))
+                    assessment = work.assess_retained_cost(evidence,
+                        expected_identity=evidence["context"]["expected_identity"], now=moment.utc_now())
+                    cost_reference = _save_cost_evidence(store, evidence)
+                    summary += "; cost assessment: " + assessment["status"]
+                    results.append({"id": "test-cost", "commit": head, "passed": not assessment["violations"],
+                        "summary": "Resource assessment: " + assessment["status"],
+                        "log_path": str(log_path), "log_digest": log_digest})
+                except (OSError, ValueError, KeyError, TypeError, CoordinatorError) as exc:
+                    passed = False
+                    summary += "; cost observation refused: " + str(exc)
             results.append({"id": item["id"], "commit": head, "passed": passed,
                             "summary": summary, "log_path": str(log_path), "log_digest": log_digest})
     # A same-head candidate re-run preserves valid final evidence; any other head drops it.
     preserved_final = split["final"] if (split["final"] and split["final"].get("commit") == head) else None
     candidate = {**identity, "run_record": run_record_summary, "results": results}
-    store.mutate(lambda s: s.update({"validation": {"candidate": candidate, "final": preserved_final}}),
-                 from_revision=revision)
+    def record_candidate(current):
+        current["validation"] = {"candidate": candidate, "final": preserved_final}
+        if current.get("cost"):
+            current["cost"]["candidate"] = cost_reference
+            current["cost"]["review"] = None
+    store.mutate(record_candidate, from_revision=revision)
     print(json.dumps({"commit": head, "results": results}, indent=2, sort_keys=True))
     if not all(x["passed"] for x in results):
         raise CoordinatorError("validation failed; the failed results remain recorded")
@@ -5250,6 +5341,7 @@ def _submit_preview(store: Snapshot, plan_path: str) -> dict:
         store.mutate(lambda s: s.update({"submission": "draft"}), from_revision=revision)
         raise CoordinatorError("recovered an uncertain prior ready transition by returning the PR to draft; rerun preview")
     with core.StableCommit(ROOT, "submission") as stable_head:
+        _live_candidate_cost(state, stable_head, require_review=True)
         status = _status(state, plan)
         pr = github.pr_state(ROOT, repo, pr_number)
     if pr.get("number") != state["build"]["pr"] or pr.get("state") != "OPEN":
@@ -5280,6 +5372,7 @@ def _submit_preview(store: Snapshot, plan_path: str) -> dict:
         raise CoordinatorError("engine-ci is red for this head — the required check must pass before "
                                "submission; fix the failure or re-run the check, then re-import the proof")
     action = "mark-ready" if pr.get("isDraft") else "record-ready"
+    _live_candidate_cost(state, stable_head, require_review=True)
     if stable_head != status["head_commit"]:
         raise CoordinatorError("submission status was not derived from the stable final commit")
     return {"repository": repo, "pr": pr_number, "commit": status["head_commit"],
@@ -5298,6 +5391,7 @@ def cmd_submit_apply(args, store: Snapshot) -> None:
     try:
         with core.StableCommit(ROOT, "ready transition"):
             preview = _submit_preview(store, args.plan)
+            _live_candidate_cost(store.read(), preview["commit"], require_review=True)
             if preview["action"] == "mark-ready":
                 github.set_ready(ROOT, preview["repository"], preview["pr"])
             try:
@@ -5368,7 +5462,7 @@ def _work_mutate(store: Snapshot, change) -> Any:
 
 
 def _require_dag_plan(plan: dict) -> None:
-    if _plan_version(plan) != "build-plan.v2":
+    if _plan_version(plan) not in ("build-plan.v2", "build-plan.v3"):
         raise CoordinatorError("work verbs require a build-plan.v2 Build")
 
 
@@ -5596,6 +5690,153 @@ def cmd_work_attach(args, store: Snapshot) -> None:
     print(f"attached worker reference to {args.item} attempt {args.attempt}")
 
 
+def cmd_cost_dispose(args, store):
+    """Record the senior's judgment separately from the accepted observed reviewer output."""
+    disposition = json.loads(_input(args.input))
+    def change(state):
+        if not state.get("cost"):
+            raise CoordinatorError("this historical Build has no prospective cost-review obligation")
+        assessment = _live_candidate_cost(state, _head())
+        accepted = state["cost"].get("review") or {}
+        review.cost_disposition(accepted.get("report"), assessment, disposition)
+        accepted["disposition"] = disposition
+        state["cost"]["review"] = accepted
+    store.mutate(change)
+    print("Recorded controller cost disposition; unavailable evidence receives no qualified cost credit.")
+
+
+def cmd_cost_exception(args, store):
+    import selftest_cost
+    exception = json.loads(_input(args.input))
+    if not args.operator_decided or not args.reason.strip():
+        raise CoordinatorError("granting or renewing a cost allowance requires the operator's explicit decision and reason")
+    def change(state):
+        if not state.get("cost"):
+            raise CoordinatorError("this historical Build has no prospective cost exception state")
+        if not selftest_cost.exception_applies(exception, exception.get("case", {}), exception.get("resource"),
+                _head(), now=moment.utc_now()):
+            raise CoordinatorError("exception must be live, bounded, fault-preserving and scoped to this exact commit")
+        previous = [entry for entry in state["cost"]["exceptions"] if entry["exception"]["id"] == exception["id"]]
+        if any(entry["exception"] == exception for entry in previous):
+            return
+        # Retain old permission bytes; only a currently valid non-overlapping interval authorizes work.
+        for entry in state["cost"]["exceptions"]:
+            old = entry["exception"]
+            if (old["case"] == exception["case"] and old["resource"] == exception["resource"]
+                    and old["source_commit"] == exception["source_commit"]
+                    and selftest_cost.exception_applies(old, old["case"], old["resource"], _head(), now=moment.utc_now())):
+                raise CoordinatorError("a live allowance already covers this case and resource; do not overlap permissions")
+        state["cost"]["exceptions"].append({"exception": exception, "permission_reason": args.reason.strip(),
+                                             "approved_at": moment.utc_now()})
+        candidate = _split_validation(state)["candidate"]
+        reference = state["cost"].get("candidate")
+        if candidate and reference and candidate["commit"] == _head():
+            assessment = _consume_cost(reference, expected_identity=reference["identity"],
+                exceptions=[entry["exception"] for entry in state["cost"]["exceptions"]])
+            for result in candidate["results"]:
+                if result["id"] == "test-cost":
+                    result["passed"] = not assessment["violations"]
+                    result["summary"] = "Resource assessment re-evaluated under explicit permission: " + assessment["status"]
+        state["pr_contract"] = None
+        state["preflights"] = []
+    store.mutate(change)
+    print("Recorded the explicitly approved bounded exception; raw observations retain their original identity.")
+
+
+def _cost_context_from_run(plan, state, **kwargs):
+    import selftest_results
+    base = kwargs['base']
+    retained = state.get('cost') or {}
+    references = [retained.get('candidate'), *retained.get('nodes', {}).values()]
+    for reference in references:
+        if not reference or reference.get('identity', {}).get('source_commit') != base:
+            continue
+        try:
+            evidence = selftest_results.read(reference['path'])
+            if (evidence.get('digest') != reference['digest']
+                    or evidence.get('context', {}).get('expected_identity') != reference['identity']):
+                raise ValueError('retained comparison differs from its controller reference')
+            kwargs['base_evidence'] = evidence
+            break
+        except (OSError, ValueError, KeyError, TypeError):
+            kwargs['base_evidence_issue'] = 'retained controller comparison is unavailable or invalid'
+    return work.collect_cost_evidence(ROOT, plan, state, **kwargs)
+
+
+def _save_cost_evidence(store, evidence):
+    import selftest_cost as cost
+    path = store.path.parent / ("cost-" + evidence["digest"].split(":")[1] + ".json")
+    core.write_private_path(path, json.dumps(evidence, sort_keys=True, allow_nan=False))
+    return {"path": str(path), "digest": evidence["digest"],
+            "identity": evidence["context"]["expected_identity"]}
+
+
+def _consume_cost(reference, *, expected_identity, exceptions=None):
+    import selftest_results
+    if not reference or reference.get("identity") != expected_identity:
+        raise CoordinatorError("fresh controller cost evidence is required for this source and attempt")
+    try:
+        evidence = selftest_results.read(reference["path"])
+        if evidence.get("digest") != reference["digest"]:
+            raise CoordinatorError("cost artifact differs from its retained controller reference")
+        return work.assess_retained_cost(evidence, expected_identity=expected_identity,
+                                        now=moment.utc_now(), exceptions=exceptions)
+    except (OSError, ValueError, KeyError, TypeError) as exc:
+        raise CoordinatorError("retained controller cost evidence is unavailable or invalid") from exc
+
+
+def _cost_verification_claim(state, node, attempt, *, recovery=False):
+    claim = (_node_work(state, node).get("claim") or {})
+    if not recovery:
+        if claim.get("attempt_id") != attempt:
+            raise CoordinatorError("node verification requires the current claim attempt")
+        return claim
+    event = (state.get("rewrite_recoveries") or [None])[-1]
+    original = (event or {}).get("prior_work", {}).get(node, {}).get("integration") or {}
+    if (not event or node not in event["invalidated_nodes"] or claim or original.get("attempt_id") != attempt
+            or _head() != event["to_commit"] or not original.get("receipt")):
+        raise CoordinatorError("cost recovery verification requires the recorded original attempt and recovered HEAD")
+    return {"attempt_id": attempt, "base_sha": original["receipt"]["claim_base"],
+            "recovery_id": event["preparation"]["id"]}
+
+
+def cmd_work_verify(args, store: Snapshot) -> None:
+    """The existing serial launcher measures a node before integration, outside the state lock."""
+    import tempfile
+    import selftest_results
+    plan, state = _plan(args.plan), store.read()
+    _assert_plan(state, plan)
+    if _plan_version(plan) != "build-plan.v3":
+        raise CoordinatorError("work verify cost evidence is prospective; this Build retains its original verification contract")
+    claim = _cost_verification_claim(state, args.item, args.attempt, recovery=getattr(args, "recovery", False))
+    with core.StableCommit(ROOT, "node cost verification") as source:
+        directory = Path(tempfile.mkdtemp(prefix="engine-node-cost-"))
+        paths = {key: directory / (key + ".json") for key in ("cost", "outcomes", "performance", "record")}
+        argv = [sys.executable, str(ROOT / ".engine/tools/selftest.py"), "--start-dir", str(ROOT / ".engine/tools"),
+                "--changed-from", claim["base_sha"],
+                "--cost-path", str(paths["cost"]), "--results-path", str(paths["outcomes"]),
+                "--performance-path", str(paths["performance"]), "--run-record-path", str(paths["record"])]
+        code = _run_validation(argv, directory / "run.log")
+        if code:
+            raise CoordinatorError(f"node verification failed (exit {code}); evidence retained at {directory}")
+        evidence = _cost_context_from_run(plan, state, source=source, base=claim["base_sha"], node=args.item,
+            attempt=args.attempt, raw=selftest_results.read(paths["cost"]),
+            outcomes=selftest_results.read(paths["outcomes"]), performance=selftest_results.read(paths["performance"]))
+        assessment = work.assess_retained_cost(evidence,
+            expected_identity=evidence["context"]["expected_identity"], now=moment.utc_now())
+        reference = _save_cost_evidence(store, evidence)
+    def record(current):
+        _assert_plan(current, plan)
+        if _cost_verification_claim(current, args.item, args.attempt,
+                recovery=getattr(args, "recovery", False)) != claim or _head() != source:
+            raise CoordinatorError("source or claim changed during node verification")
+        current["cost"]["nodes"][args.item] = reference
+    store.mutate(record, from_revision=state["revision"])
+    print(json.dumps({"assessment": assessment, "evidence": reference}, indent=2))
+    if assessment["violations"]:
+        raise CoordinatorError("node cost violations require repair before integration")
+
+
 def cmd_work_result(args, store: Snapshot) -> None:
     plan = _plan(args.plan)
     _require_dag_plan(plan)
@@ -5698,6 +5939,22 @@ def cmd_work_integrate(args, store: Snapshot) -> None:
     def change(state):
         _assert_plan(state, plan)
         nw = _node_work(state, args.item)
+        if _plan_version(plan) == "build-plan.v3":
+            reference = state["cost"]["nodes"].get(args.item)
+            identity = (reference or {}).get("identity", {})
+            claim = _cost_verification_claim(state, args.item, args.attempt, recovery=getattr(args, "recovery", False))
+            import selftest_cost as cost
+            if (identity.get("source_commit") != args.commit or identity.get("attempt") != args.attempt
+                    or identity.get("node") != args.item or identity.get("stage") != "node-focused"
+                    or identity.get("base_commit") != claim.get("base_sha")
+                    or identity.get("plan_digest") != _digest(plan)
+                    or identity.get("contract_digest") != cost.digest(item["test_cost"])
+                    or identity.get("artifact_digest") != _tree_digest_at(str(ROOT), args.commit)):
+                raise CoordinatorError("run work verify for this exact node commit and attempt before integration")
+            assessment = _consume_cost(reference, expected_identity=identity,
+                exceptions=[entry["exception"] for entry in state["cost"]["exceptions"]])
+            if assessment["violations"]:
+                raise CoordinatorError("node cost violations require repair or a live approved exception")
         if getattr(args, "recovery", False):
             return _integrate_recovered_work(args, state, plan, item, nw)
         result = nw.get("latest_result")
@@ -6878,6 +7135,10 @@ def parser() -> argparse.ArgumentParser:
     cpreview = contract_p.add_parser("preview"); cpreview.add_argument("--plan", required=True); cpreview.add_argument("--claim", required=True); cpreview.add_argument("--output"); cpreview.add_argument("--json", action="store_true"); cpreview.set_defaults(func=cmd_contract_preview)
     capply = contract_p.add_parser("apply"); capply.add_argument("--plan", required=True); capply.add_argument("--claim", required=True); capply.add_argument("--source-body-digest", required=True); capply.add_argument("--ack-visibility", action="store_true"); capply.add_argument("--json", action="store_true"); capply.set_defaults(func=cmd_contract_apply)
     work_p = sub.add_parser("work").add_subparsers(dest="work_command", required=True)
+    cost_p = sub.add_parser("cost").add_subparsers(dest="cost_command", required=True)
+    cdispose = cost_p.add_parser("dispose"); cdispose.add_argument("--input", required=True); cdispose.set_defaults(func=cmd_cost_dispose)
+    cexception = cost_p.add_parser("exception"); cexception.add_argument("--input", required=True); cexception.add_argument("--operator-decided", action="store_true"); cexception.add_argument("--reason", required=True); cexception.set_defaults(func=cmd_cost_exception)
+    wverify = work_p.add_parser("verify"); wverify.add_argument("--item", required=True); wverify.add_argument("--attempt", required=True); wverify.add_argument("--plan", required=True); wverify.add_argument("--recovery", action="store_true"); wverify.set_defaults(func=cmd_work_verify)
     wfrontier = work_p.add_parser("frontier"); wfrontier.add_argument("--plan", required=True); wfrontier.add_argument("--json", action="store_true"); wfrontier.set_defaults(func=cmd_work_frontier)
     wpacket = work_p.add_parser("packet"); wpacket.add_argument("--item", required=True); wpacket.add_argument("--provider", choices=["claude", "codex"], required=True); wpacket.add_argument("--plan", required=True); wpacket.add_argument("--worktree"); wpacket.set_defaults(func=cmd_work_packet)
     wclaim = work_p.add_parser("claim"); wclaim.add_argument("--item", required=True); wclaim.add_argument("--provider", choices=["claude", "codex"], required=True); wclaim.add_argument("--plan", required=True); wclaim.add_argument("--worktree", required=True); wclaim.set_defaults(func=cmd_work_claim)

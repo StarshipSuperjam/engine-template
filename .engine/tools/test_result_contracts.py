@@ -246,5 +246,74 @@ class ResultContracts(unittest.TestCase):
                     rc.resolve("plan-review-finding.v1", root=tmp)
 
 
+import selftest_cost
+
+
+@selftest_cost.declaration({
+    "schema_version": "test-cost-contract.v1", "supported_fault": "Cost advice laundered through empty legacy findings",
+    "boundary": "pure", "boundary_rationale": "Exercise real canonical ingress on bounded dictionaries",
+    "fixture_owner": "test_result_contracts.CostReviewIngress", "dependencies": ["jsonschema"],
+    "data_reads": [".engine/schemas/*.json"], "cadence": "pr",
+    "limits": {**selftest_cost.zeros(), "schema_decodes": 100, "metaschema_validations": 3},
+    "mutable_state": "Case-local reports and bindings", "cache_lifetime": "case",
+    "added_cost_risk": "No subprocesses or full fixtures; at most six reports per case", "families": []})
+class CostReviewIngress(unittest.TestCase):
+    def setUp(self):
+        import build_coordinator_review
+        self.review = build_coordinator_review
+        self.binding = rc.resolve("technical-integrity-review.v1", role="pre-submission-review")
+        identity = {k: "sha256:" + "a" * 64 for k in (
+            "observer_digest", "plan_digest", "contract_digest", "policy_digest", "inventory_digest",
+            "environment_digest", "artifact_digest")}
+        identity.update(source_commit="a" * 40, base_commit="b" * 40, observer_commit="c" * 40,
+                        cache_state="unknown", topology="serial", stage="candidate", attempt="candidate-1", node=None)
+        self.assessment = {"identity": identity, "cost_clearance": True, "violations": [], "unknown": []}
+        self.report = {"findings": [], "cost_review": {
+            "assessment_digest": selftest_cost.digest(self.assessment), "candidate_identity": identity,
+            "status": "acceptable", "rationale": "Observed bounded work preserves the supported fault."}}
+
+    def test_new_envelope_and_historical_empty_array_remain_distinct(self):
+        compiled = self.review.ingest_review_report(json.dumps(self.report), self.binding, lens="technical-integrity")
+        self.assertEqual(compiled["report"], self.report)
+        self.assertEqual(compiled["findings"], [])
+        self.assertEqual(compiled["cost_review"], self.report["cost_review"])
+        with self.assertRaises(Exception):
+            self.review.ingest_review_report("[]", self.binding, lens="technical-integrity")
+        historical = rc.resolve("pre-submission-review-finding.v1")
+        self.assertEqual([], self.review.ingest_review_report("[]", historical,
+            lens="technical-integrity", retained=True)["report"])
+        with self.assertRaises(Exception):
+            self.review.ingest_review_report(json.dumps(self.report), self.binding, lens="usability")
+
+    def test_exact_assessment_and_separate_disposition(self):
+        disposition = {"assessment_digest": self.report["cost_review"]["assessment_digest"],
+                       "decision": "accept", "rationale": "Counts and fault coverage are adequate."}
+        self.assertTrue(self.review.cost_disposition(self.report, self.assessment, disposition)["cost_clearance"])
+        for field, value in (("assessment_digest", "sha256:" + "b" * 64),
+                             ("status", "not-applicable"), ("rationale", " ")):
+            altered = copy.deepcopy(self.report)
+            altered["cost_review"][field] = value
+            with self.assertRaises(Exception):
+                self.review.cost_disposition(altered, self.assessment, disposition)
+        with self.assertRaises(Exception):
+            self.review.cost_disposition(self.report, self.assessment, None)
+
+    def test_unavailable_requires_disclosed_limit_and_violations_cannot_be_disposed_away(self):
+        assessment = {**self.assessment, "cost_clearance": False, "unknown": ["cache state unknown"]}
+        report = copy.deepcopy(self.report)
+        report["cost_review"]["assessment_digest"] = selftest_cost.digest(assessment)
+        with self.assertRaises(Exception):
+            self.review.cost_judgment(report, assessment)
+        report["cost_review"]["status"] = "unavailable"
+        disposition = {"assessment_digest": report["cost_review"]["assessment_digest"],
+                       "decision": "accept-with-limitations", "rationale": "Timing cannot qualify on unknown cache."}
+        self.assertFalse(self.review.cost_disposition(report, assessment, disposition)["cost_clearance"])
+        assessment["violations"] = ["process ceiling exceeded"]
+        report["cost_review"]["assessment_digest"] = selftest_cost.digest(assessment)
+        disposition["assessment_digest"] = report["cost_review"]["assessment_digest"]
+        with self.assertRaises(Exception):
+            self.review.cost_disposition(report, assessment, disposition)
+
+
 if __name__ == "__main__":
     unittest.main()

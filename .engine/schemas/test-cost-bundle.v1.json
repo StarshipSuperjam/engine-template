@@ -1,0 +1,33 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_version",
+    "encoding",
+    "document_digest",
+    "expanded_bytes",
+    "data"
+  ],
+  "properties": {
+    "schema_version": {
+      "const": "test-cost-bundle.v1"
+    },
+    "encoding": {
+      "const": "zlib-base64"
+    },
+    "document_digest": {
+      "type": "string",
+      "pattern": "^sha256:[0-9a-f]{64}$"
+    },
+    "expanded_bytes": {
+      "type": "integer",
+      "minimum": 0,
+      "maximum": 16777216
+    },
+    "data": {
+      "type": "string",
+      "maxLength": 16777216
+    }
+  }
+}

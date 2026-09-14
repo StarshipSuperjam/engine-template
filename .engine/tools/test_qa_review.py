@@ -27,6 +27,7 @@ import unittest
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import validate  # noqa: E402
+import selftest_cost as cost  # noqa: E402
 
 AGENTS_DIR = os.path.join(validate.ROOT, ".claude", "agents")
 FINDING_SCHEMA = validate.load_json(os.path.join(validate.SCHEMAS_DIR, "pre-submission-review-finding.v1.json"))
@@ -92,6 +93,17 @@ class TestPreSubmissionReviewFindingSchema(unittest.TestCase):
 class TestQaReviewPersonas(unittest.TestCase):
     """The five personas declare the right routing fields and each conforms to agent.v1."""
 
+    @cost.declaration({
+        "schema_version": "test-cost-contract.v1",
+        "supported_fault": "A QA persona routes to the wrong lens or output contract",
+        "boundary": "filesystem", "boundary_rationale": "Read five persona files and validate their frontmatter in process",
+        "fixture_owner": "test_qa_review.TestQaReviewPersonas", "dependencies": ["validate", "jsonschema"],
+        "data_reads": [".claude/agents/engine-qa-review-*.md", ".engine/schemas/agent.v1.json"],
+        "cadence": "pr", "limits": cost.zeros(),
+        "mutable_state": "Fresh parsed frontmatter per persona", "cache_lifetime": "module",
+        "added_cost_risk": "Two focused observations measured zero counted resources; the module loads its schema once",
+        "families": [],
+    })
     def test_one_persona_per_lens_with_correct_routing(self):
         for lens, fname in PERSONA_FILES.items():
             path = os.path.join(AGENTS_DIR, fname)
@@ -102,7 +114,9 @@ class TestQaReviewPersonas(unittest.TestCase):
             self.assertEqual(fm.get("lens"), lens, fname)
             self.assertEqual(fm.get("model-tier"), "judgment", fname)
             self.assertEqual(fm.get("permissions"), "read-only", fname)
-            self.assertEqual(fm.get("output-contract"), "pre-submission-review-finding.v1", fname)
+            expected_contract = ("technical-integrity-review.v1" if lens == "technical-integrity"
+                                 else "pre-submission-review-finding.v1")
+            self.assertEqual(fm.get("output-contract"), expected_contract, fname)
             self.assertEqual(_errors(AGENT_SCHEMA, fm), [], f"{fname} frontmatter must conform to agent.v1")
 
 

@@ -25,6 +25,7 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import selftest_support  # noqa: E402  (the suite's single-homed guard helpers, #940)
 import validate          # noqa: E402
 import module_coherence  # noqa: E402
+import selftest_cost as cost  # noqa: E402
 import wiring            # noqa: E402
 
 MODULE_SCHEMA = validate.load_json(os.path.join(validate.SCHEMAS_DIR, "module.v1.json"))
@@ -525,6 +526,18 @@ class TestModuleCoherenceConsumer(unittest.TestCase):
                                 f"{rel} is claimed by no module, so it ships to no deployment — add it "
                                 f"to the provides `{group}` group of the module that owns it")
 
+    @cost.declaration({
+        "schema_version": "test-cost-contract.v1", "supported_fault": 'Check files are orphaned, multiply owned or assigned to the wrong module',
+        "boundary": "process", "boundary_rationale": "The complete tracked-file partition requires one Git inventory command",
+        "fixture_owner": "test_modules.TestModuleCoherenceConsumer",
+        "dependencies": ["module_coherence", "selftest_support"],
+        "data_reads": [".engine/modules/*/manifest.json", ".engine/check/*.json", ".engine/docs/*.md"],
+        "cadence": "pr", "limits": {**cost.zeros(), "processes": 1, "git_commands": 1,
+                                     "schema_decodes": 13},
+        "mutable_state": "Local ownership mappings only", "cache_lifetime": "none",
+        "added_cost_risk": "Two focused observations measured 13 decodes and 1 Git launches; module growth requires explicit rebudgeting",
+        "families": [],
+    })
     def test_check_corpus_split_core_two_guards_validators_core_owns_the_rest(self):
         # The locked engine/corpus boundary:
         # core ships the validation engine and owns ZERO rules EXCEPT the two frozen-named guards;
@@ -557,12 +570,12 @@ class TestModuleCoherenceConsumer(unittest.TestCase):
         # test pins that exact split so a future wildcard re-introduction (which would double-claim the
         # corpus) cannot pass silently.
         # An OPTIONAL module may additionally own a *domain* check — one that inspects the operator's
-        # PRODUCT, not the engine itself — categorically distinct from core's two engine guards and from
+        # PRODUCT, not the engine itself — categorically distinct from core's weakening and test-cost guards and from
         # validators-core's engine-self-validation corpus. dependency-discipline is the first: it owns the
         # dependency-pinning rule and the dependency-review gate, the module being "the
         # content" over core's check engine. The partition below therefore admits a third owner; the real
-        # boundary this test pins is unchanged — each check is owned by exactly ONE module, core stays frozen
-        # at its two guards, and no wildcard may re-claim the corpus.
+        # boundary this test pins is unchanged — each check is owned by exactly ONE module, core keeps an explicit
+        # guard list, and no wildcard may re-claim the corpus.
         manifests = module_coherence.discover_manifests()
         ids = {m.get("id") for _path, m in manifests}
         self.assertIn("validators-core", ids, "validators-core must be a present module")
@@ -591,7 +604,8 @@ class TestModuleCoherenceConsumer(unittest.TestCase):
         self.assertEqual(core_checks, [
             ".engine/check/guardrail-weakening.json",
             ".engine/check/protection.json",
-        ], "core owns exactly the two weakening guards")
+            ".engine/check/test-cost.json",
+        ], "core owns the weakening guards and the mandatory test-cost guard")
         self.assertEqual(vc_checks, [
             ".engine/check/agent-coherence.json",
             ".engine/check/agent-frontmatter.json",
@@ -678,7 +692,7 @@ class TestModuleCoherenceConsumer(unittest.TestCase):
         # OUTGOING cross-fork contribution diff for engine-owned paths. Like dependency-discipline's domain
         # checks it is an optional-module-owned check, neither core's guard nor validators-core's
         # self-validation corpus; the partition must admit it. The real boundary is unchanged — exactly one
-        # owner per check, core frozen at its two guards, no wildcard re-claiming the corpus.
+        # owner per check, core bound to its explicit guard list, no wildcard re-claiming the corpus.
         ec_checks = optional_owner("external-contribution", [
             ".engine/check/upstream-clean.json",
         ], "external-contribution owns exactly the upstream-clean nudge")
@@ -686,7 +700,7 @@ class TestModuleCoherenceConsumer(unittest.TestCase):
         # the PRODUCT's own database migrations for a separate rollback script. Like dependency-discipline's
         # and external-contribution's domain checks it is an optional-module-owned check, neither core's
         # guard nor validators-core's self-validation corpus; the partition must admit it. The real boundary
-        # is unchanged — exactly one owner per check, core frozen at its two guards, no wildcard re-claiming
+        # is unchanged — exactly one owner per check, core bound to its explicit guard list, no wildcard re-claiming
         # the corpus.
         md_checks = optional_owner("migration-discipline", [
             ".engine/check/migration-rollback.json",
@@ -696,8 +710,8 @@ class TestModuleCoherenceConsumer(unittest.TestCase):
         # acceptance-criteria table, every doc reachable from the index). Like dependency-discipline's,
         # external-contribution's, and migration-discipline's domain checks it is an optional-module-owned
         # check, neither core's guard nor validators-core's self-validation corpus; the partition must
-        # admit it. The real boundary is unchanged — exactly one owner per check, core frozen at its two
-        # guards, no wildcard re-claiming the corpus. (This exact list extends as the
+        # admit it. The real boundary is unchanged — exactly one owner per check, core bound to its explicit
+        # guard list, no wildcard re-claiming the corpus. (This exact list extends as the
         # acceptance-criteria-coverage check lands.)
         pd_checks = optional_owner("product-design", [
             ".engine/check/product-adr-form.json",
@@ -856,6 +870,18 @@ class TestModuleCoherenceConsumer(unittest.TestCase):
            "foundation file), the intake operation, the spec-structure-integrity policy, the engine-design "
            "skill (both runtime forms), the orientation doc, and the scaffold")
 
+    @cost.declaration({
+        "schema_version": "test-cost-contract.v1", "supported_fault": "Documentation claims overlap or silently reclaim another module's documents",
+        "boundary": "filesystem", "boundary_rationale": "Read installed module manifests and expand ownership globs without processes",
+        "fixture_owner": "test_modules.TestModuleCoherenceConsumer",
+        "dependencies": ["module_coherence", "selftest_support"],
+        "data_reads": [".engine/modules/*/manifest.json", ".engine/check/*.json", ".engine/docs/*.md"],
+        "cadence": "pr", "limits": {**cost.zeros(), "processes": 0, "git_commands": 0,
+                                     "schema_decodes": 26},
+        "mutable_state": "Local ownership mappings only", "cache_lifetime": "none",
+        "added_cost_risk": "Two focused observations measured 26 decodes and 0 Git launches; module growth requires explicit rebudgeting",
+        "families": [],
+    })
     def test_doc_ownership_is_partitioned_core_and_product_design(self):
         # The orientation doc lives under .engine/docs/, which core used to claim by a whole-surface glob
         # (.engine/docs/*.md). product-design now owns one doc there, so core's glob was narrowed to an
@@ -873,9 +899,10 @@ class TestModuleCoherenceConsumer(unittest.TestCase):
                          [".engine/docs/accepted-hook-qualification.md",
                           ".engine/docs/ci-assurance.md", ".engine/docs/getting-started.md",
                           ".engine/docs/reader-health-recovery.md",
-                          ".engine/docs/result-contracts.md"],
+                          ".engine/docs/result-contracts.md",
+                          ".engine/docs/test-cost-contracts.md"],
                          "core owns exactly the accepted-hook guide, generated CI assurance, and "
-                         "getting-started, reader-health and executable result-contract docs")
+                         "getting-started, reader-health, executable result-contract and test-cost docs")
         # product-design is OPTIONAL, so its footprint is asserted only when it is actually installed —
         # the same reason the check-ownership leg above is conditional. Requiring it to be present would red
         # a deployment's required self-tests for declining an add-on it was offered at setup.

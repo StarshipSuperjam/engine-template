@@ -1,0 +1,865 @@
+{
+  "schema_version": "test-cost-declarations.v1",
+  "cases": [
+    {
+      "id": "test_plan_contract.ProspectiveCostContracts.test_exceptions_require_expiry_and_observation_identity_has_no_inferred_stage",
+      "occurrence": 1,
+      "path": ".engine/tools/test_plan_contract.py",
+      "qualified_name": "ProspectiveCostContracts.test_exceptions_require_expiry_and_observation_identity_has_no_inferred_stage",
+      "source_digest": "sha256:9f3b0765519f9640e79af679627447b4690b9640597e9f654b9417f086eb96ca",
+      "contract": {
+        "schema_version": "test-cost-contract.v1",
+        "supported_fault": "Malformed or legacy plan admission",
+        "boundary": "pure",
+        "boundary_rationale": "The contract decision is pure; source schemas are read without launching a process",
+        "fixture_owner": "test_plan_contract",
+        "dependencies": [
+          "jsonschema"
+        ],
+        "data_reads": [
+          ".engine/schemas/engine-plan.v1.json",
+          ".engine/schemas/build-plan.v3.json",
+          ".engine/schemas/test-cost-exception.v1.json"
+        ],
+        "cadence": "pr",
+        "limits": {
+          "processes": 0,
+          "git_commands": 0,
+          "schema_decodes": 50,
+          "metaschema_validations": 0,
+          "whole_tree_fixtures": 0,
+          "nested_journeys": 0
+        },
+        "mutable_state": "Fresh payload or environment mapping for every case",
+        "cache_lifetime": "module",
+        "added_cost_risk": "Bounded pure negative controls; no process, clone or nested journey budget",
+        "families": []
+      }
+    },
+    {
+      "id": "test_plan_contract.ProspectiveCostContracts.test_new_seals_require_declarations_while_legacy_reads_preserve_bytes",
+      "occurrence": 1,
+      "path": ".engine/tools/test_plan_contract.py",
+      "qualified_name": "ProspectiveCostContracts.test_new_seals_require_declarations_while_legacy_reads_preserve_bytes",
+      "source_digest": "sha256:f91d04978fda51c4ac12f6198d24a964ed367cb881c18e387829aa499f080273",
+      "contract": {
+        "schema_version": "test-cost-contract.v1",
+        "supported_fault": "Malformed or legacy plan admission",
+        "boundary": "pure",
+        "boundary_rationale": "The contract decision is pure; source schemas are read without launching a process",
+        "fixture_owner": "test_plan_contract",
+        "dependencies": [
+          "jsonschema"
+        ],
+        "data_reads": [
+          ".engine/schemas/engine-plan.v1.json",
+          ".engine/schemas/build-plan.v3.json",
+          ".engine/schemas/test-cost-exception.v1.json"
+        ],
+        "cadence": "pr",
+        "limits": {
+          "processes": 0,
+          "git_commands": 0,
+          "schema_decodes": 50,
+          "metaschema_validations": 0,
+          "whole_tree_fixtures": 0,
+          "nested_journeys": 0
+        },
+        "mutable_state": "Fresh payload or environment mapping for every case",
+        "cache_lifetime": "module",
+        "added_cost_risk": "Bounded pure negative controls; no process, clone or nested journey budget",
+        "families": []
+      }
+    },
+    {
+      "id": "test_plan_contract.ProspectiveCostContracts.test_pure_boundaries_cannot_hide_process_work_or_disable_applicability",
+      "occurrence": 1,
+      "path": ".engine/tools/test_plan_contract.py",
+      "qualified_name": "ProspectiveCostContracts.test_pure_boundaries_cannot_hide_process_work_or_disable_applicability",
+      "source_digest": "sha256:ab291f579fa226aed538e5e5220f3eeb84bd6612ba366c0f198dfa87228be633",
+      "contract": {
+        "schema_version": "test-cost-contract.v1",
+        "supported_fault": "Malformed or legacy plan admission",
+        "boundary": "pure",
+        "boundary_rationale": "The contract decision is pure; source schemas are read without launching a process",
+        "fixture_owner": "test_plan_contract",
+        "dependencies": [
+          "jsonschema"
+        ],
+        "data_reads": [
+          ".engine/schemas/engine-plan.v1.json",
+          ".engine/schemas/build-plan.v3.json",
+          ".engine/schemas/test-cost-exception.v1.json"
+        ],
+        "cadence": "pr",
+        "limits": {
+          "processes": 0,
+          "git_commands": 0,
+          "schema_decodes": 50,
+          "metaschema_validations": 0,
+          "whole_tree_fixtures": 0,
+          "nested_journeys": 0
+        },
+        "mutable_state": "Fresh payload or environment mapping for every case",
+        "cache_lifetime": "module",
+        "added_cost_risk": "Bounded pure negative controls; no process, clone or nested journey budget",
+        "families": []
+      }
+    },
+    {
+      "id": "test_plan_contract.ProspectiveCostContracts.test_v3_retains_graph_checks_and_rejects_ambiguous_scaling",
+      "occurrence": 1,
+      "path": ".engine/tools/test_plan_contract.py",
+      "qualified_name": "ProspectiveCostContracts.test_v3_retains_graph_checks_and_rejects_ambiguous_scaling",
+      "source_digest": "sha256:69d90e7695100dbf0eb1aaefdfcce540cca865dda10566b328cd1d7f8157b779",
+      "contract": {
+        "schema_version": "test-cost-contract.v1",
+        "supported_fault": "Malformed or legacy plan admission",
+        "boundary": "pure",
+        "boundary_rationale": "The contract decision is pure; source schemas are read without launching a process",
+        "fixture_owner": "test_plan_contract",
+        "dependencies": [
+          "jsonschema"
+        ],
+        "data_reads": [
+          ".engine/schemas/engine-plan.v1.json",
+          ".engine/schemas/build-plan.v3.json",
+          ".engine/schemas/test-cost-exception.v1.json"
+        ],
+        "cadence": "pr",
+        "limits": {
+          "processes": 0,
+          "git_commands": 0,
+          "schema_decodes": 50,
+          "metaschema_validations": 0,
+          "whole_tree_fixtures": 0,
+          "nested_journeys": 0
+        },
+        "mutable_state": "Fresh payload or environment mapping for every case",
+        "cache_lifetime": "module",
+        "added_cost_risk": "Bounded pure negative controls; no process, clone or nested journey budget",
+        "families": []
+      }
+    },
+    {
+      "id": "test_plan_contract.SealBlockers.test_an_unresolved_decision_blocks_the_seal_but_not_the_draft",
+      "occurrence": 1,
+      "path": ".engine/tools/test_plan_contract.py",
+      "qualified_name": "SealBlockers.test_an_unresolved_decision_blocks_the_seal_but_not_the_draft",
+      "source_digest": "sha256:9f52ffc2cf8f435ce91e13a5f3cce4dafb557804a1272c44829c444fc9c6ac91",
+      "contract": {
+        "schema_version": "test-cost-contract.v1",
+        "supported_fault": "Malformed or legacy plan admission",
+        "boundary": "pure",
+        "boundary_rationale": "The contract decision is pure; source schemas are read without launching a process",
+        "fixture_owner": "test_plan_contract",
+        "dependencies": [
+          "jsonschema"
+        ],
+        "data_reads": [
+          ".engine/schemas/engine-plan.v1.json",
+          ".engine/schemas/build-plan.v3.json",
+          ".engine/schemas/test-cost-exception.v1.json"
+        ],
+        "cadence": "pr",
+        "limits": {
+          "processes": 0,
+          "git_commands": 0,
+          "schema_decodes": 50,
+          "metaschema_validations": 0,
+          "whole_tree_fixtures": 0,
+          "nested_journeys": 0
+        },
+        "mutable_state": "Fresh payload or environment mapping for every case",
+        "cache_lifetime": "module",
+        "added_cost_risk": "Bounded pure negative controls; no process, clone or nested journey budget",
+        "families": []
+      }
+    },
+    {
+      "id": "test_plan_contract.SealBlockers.test_an_unresolved_assumption_blocks_the_seal",
+      "occurrence": 1,
+      "path": ".engine/tools/test_plan_contract.py",
+      "qualified_name": "SealBlockers.test_an_unresolved_assumption_blocks_the_seal",
+      "source_digest": "sha256:e37a62f07fc7ec31259dfb208ac7dabe2810abb4da7ab2965043349b3f2202f5",
+      "contract": {
+        "schema_version": "test-cost-contract.v1",
+        "supported_fault": "Malformed or legacy plan admission",
+        "boundary": "pure",
+        "boundary_rationale": "The contract decision is pure; source schemas are read without launching a process",
+        "fixture_owner": "test_plan_contract",
+        "dependencies": [
+          "jsonschema"
+        ],
+        "data_reads": [
+          ".engine/schemas/engine-plan.v1.json",
+          ".engine/schemas/build-plan.v3.json",
+          ".engine/schemas/test-cost-exception.v1.json"
+        ],
+        "cadence": "pr",
+        "limits": {
+          "processes": 0,
+          "git_commands": 0,
+          "schema_decodes": 50,
+          "metaschema_validations": 0,
+          "whole_tree_fixtures": 0,
+          "nested_journeys": 0
+        },
+        "mutable_state": "Fresh payload or environment mapping for every case",
+        "cache_lifetime": "module",
+        "added_cost_risk": "Bounded pure negative controls; no process, clone or nested journey budget",
+        "families": []
+      }
+    },
+    {
+      "id": "test_plan_contract.SealBlockers.test_verified_and_accepted_risk_assumptions_do_not_block",
+      "occurrence": 1,
+      "path": ".engine/tools/test_plan_contract.py",
+      "qualified_name": "SealBlockers.test_verified_and_accepted_risk_assumptions_do_not_block",
+      "source_digest": "sha256:e467c4624435af16741b4d42a3befdda0f1c0e0c546185c61c2c7f4400213168",
+      "contract": {
+        "schema_version": "test-cost-contract.v1",
+        "supported_fault": "Malformed or legacy plan admission",
+        "boundary": "pure",
+        "boundary_rationale": "The contract decision is pure; source schemas are read without launching a process",
+        "fixture_owner": "test_plan_contract",
+        "dependencies": [
+          "jsonschema"
+        ],
+        "data_reads": [
+          ".engine/schemas/engine-plan.v1.json",
+          ".engine/schemas/build-plan.v3.json",
+          ".engine/schemas/test-cost-exception.v1.json"
+        ],
+        "cadence": "pr",
+        "limits": {
+          "processes": 0,
+          "git_commands": 0,
+          "schema_decodes": 50,
+          "metaschema_validations": 0,
+          "whole_tree_fixtures": 0,
+          "nested_journeys": 0
+        },
+        "mutable_state": "Fresh payload or environment mapping for every case",
+        "cache_lifetime": "module",
+        "added_cost_risk": "Bounded pure negative controls; no process, clone or nested journey budget",
+        "families": []
+      }
+    },
+    {
+      "id": "test_plan_contract.SealBlockers.test_a_v1_payload_reads_but_cannot_seal",
+      "occurrence": 1,
+      "path": ".engine/tools/test_plan_contract.py",
+      "qualified_name": "SealBlockers.test_a_v1_payload_reads_but_cannot_seal",
+      "source_digest": "sha256:5dacf298b6ca5e7f60713c93f8d1d733798535bdfb5fd98c41d94aca60f5c7df",
+      "contract": {
+        "schema_version": "test-cost-contract.v1",
+        "supported_fault": "Malformed or legacy plan admission",
+        "boundary": "pure",
+        "boundary_rationale": "The contract decision is pure; source schemas are read without launching a process",
+        "fixture_owner": "test_plan_contract",
+        "dependencies": [
+          "jsonschema"
+        ],
+        "data_reads": [
+          ".engine/schemas/engine-plan.v1.json",
+          ".engine/schemas/build-plan.v3.json",
+          ".engine/schemas/test-cost-exception.v1.json"
+        ],
+        "cadence": "pr",
+        "limits": {
+          "processes": 0,
+          "git_commands": 0,
+          "schema_decodes": 50,
+          "metaschema_validations": 0,
+          "whole_tree_fixtures": 0,
+          "nested_journeys": 0
+        },
+        "mutable_state": "Fresh payload or environment mapping for every case",
+        "cache_lifetime": "module",
+        "added_cost_risk": "Bounded pure negative controls; no process, clone or nested journey budget",
+        "families": []
+      }
+    },
+    {
+      "id": "test_plan_contract.SealBlockers.test_a_clean_plan_has_no_blockers",
+      "occurrence": 1,
+      "path": ".engine/tools/test_plan_contract.py",
+      "qualified_name": "SealBlockers.test_a_clean_plan_has_no_blockers",
+      "source_digest": "sha256:d70f2efd1abd40918debc3ebbadfc4c88396e7420b962337ec988d1ad7b74ca6",
+      "contract": {
+        "schema_version": "test-cost-contract.v1",
+        "supported_fault": "Malformed or legacy plan admission",
+        "boundary": "pure",
+        "boundary_rationale": "The contract decision is pure; source schemas are read without launching a process",
+        "fixture_owner": "test_plan_contract",
+        "dependencies": [
+          "jsonschema"
+        ],
+        "data_reads": [
+          ".engine/schemas/engine-plan.v1.json",
+          ".engine/schemas/build-plan.v3.json",
+          ".engine/schemas/test-cost-exception.v1.json"
+        ],
+        "cadence": "pr",
+        "limits": {
+          "processes": 0,
+          "git_commands": 0,
+          "schema_decodes": 50,
+          "metaschema_validations": 0,
+          "whole_tree_fixtures": 0,
+          "nested_journeys": 0
+        },
+        "mutable_state": "Fresh payload or environment mapping for every case",
+        "cache_lifetime": "module",
+        "added_cost_risk": "Bounded pure negative controls; no process, clone or nested journey budget",
+        "families": []
+      }
+    },
+    {
+      "id": "test_plan_contract.SealBlockers.test_blockers_are_reported_together_not_one_at_a_time",
+      "occurrence": 1,
+      "path": ".engine/tools/test_plan_contract.py",
+      "qualified_name": "SealBlockers.test_blockers_are_reported_together_not_one_at_a_time",
+      "source_digest": "sha256:8a36a02781d67a5adfdb4cdc88ebe458f7ef998acc14b41adef07e540a3548ea",
+      "contract": {
+        "schema_version": "test-cost-contract.v1",
+        "supported_fault": "Malformed or legacy plan admission",
+        "boundary": "pure",
+        "boundary_rationale": "The contract decision is pure; source schemas are read without launching a process",
+        "fixture_owner": "test_plan_contract",
+        "dependencies": [
+          "jsonschema"
+        ],
+        "data_reads": [
+          ".engine/schemas/engine-plan.v1.json",
+          ".engine/schemas/build-plan.v3.json",
+          ".engine/schemas/test-cost-exception.v1.json"
+        ],
+        "cadence": "pr",
+        "limits": {
+          "processes": 0,
+          "git_commands": 0,
+          "schema_decodes": 50,
+          "metaschema_validations": 0,
+          "whole_tree_fixtures": 0,
+          "nested_journeys": 0
+        },
+        "mutable_state": "Fresh payload or environment mapping for every case",
+        "cache_lifetime": "module",
+        "added_cost_risk": "Bounded pure negative controls; no process, clone or nested journey budget",
+        "families": []
+      }
+    },
+    {
+      "id": "test_plan_contract.SealBlockers.test_an_invalid_document_reports_that_rather_than_a_crash",
+      "occurrence": 1,
+      "path": ".engine/tools/test_plan_contract.py",
+      "qualified_name": "SealBlockers.test_an_invalid_document_reports_that_rather_than_a_crash",
+      "source_digest": "sha256:06e198a60e3fbea6d5eafb804f6479db7d741d40cf75586a7ca6a03a2b624532",
+      "contract": {
+        "schema_version": "test-cost-contract.v1",
+        "supported_fault": "Malformed or legacy plan admission",
+        "boundary": "pure",
+        "boundary_rationale": "The contract decision is pure; source schemas are read without launching a process",
+        "fixture_owner": "test_plan_contract",
+        "dependencies": [
+          "jsonschema"
+        ],
+        "data_reads": [
+          ".engine/schemas/engine-plan.v1.json",
+          ".engine/schemas/build-plan.v3.json",
+          ".engine/schemas/test-cost-exception.v1.json"
+        ],
+        "cadence": "pr",
+        "limits": {
+          "processes": 0,
+          "git_commands": 0,
+          "schema_decodes": 50,
+          "metaschema_validations": 0,
+          "whole_tree_fixtures": 0,
+          "nested_journeys": 0
+        },
+        "mutable_state": "Fresh payload or environment mapping for every case",
+        "cache_lifetime": "module",
+        "added_cost_risk": "Bounded pure negative controls; no process, clone or nested journey budget",
+        "families": []
+      }
+    },
+    {
+      "id": "test_plan_contract.ImportedDraftAllowance.test_an_imported_draft_can_never_be_sealed_and_the_refusal_names_the_work",
+      "occurrence": 1,
+      "path": ".engine/tools/test_plan_contract.py",
+      "qualified_name": "ImportedDraftAllowance.test_an_imported_draft_can_never_be_sealed_and_the_refusal_names_the_work",
+      "source_digest": "sha256:f18c0b52f18a9dfc6f1b5c9eaf3be927a7c4456676aa2cf40b21aff3619aa510",
+      "contract": {
+        "schema_version": "test-cost-contract.v1",
+        "supported_fault": "Malformed or legacy plan admission",
+        "boundary": "pure",
+        "boundary_rationale": "The contract decision is pure; source schemas are read without launching a process",
+        "fixture_owner": "test_plan_contract",
+        "dependencies": [
+          "jsonschema"
+        ],
+        "data_reads": [
+          ".engine/schemas/engine-plan.v1.json",
+          ".engine/schemas/build-plan.v3.json",
+          ".engine/schemas/test-cost-exception.v1.json"
+        ],
+        "cadence": "pr",
+        "limits": {
+          "processes": 0,
+          "git_commands": 0,
+          "schema_decodes": 50,
+          "metaschema_validations": 0,
+          "whole_tree_fixtures": 0,
+          "nested_journeys": 0
+        },
+        "mutable_state": "Fresh payload or environment mapping for every case",
+        "cache_lifetime": "module",
+        "added_cost_risk": "Bounded pure negative controls; no process, clone or nested journey budget",
+        "families": []
+      }
+    },
+    {
+      "id": "test_selftest_support.TestShapeVerdict.test_process_configuration_is_fresh_and_ambient_discovery_is_explicit",
+      "occurrence": 1,
+      "path": ".engine/tools/test_selftest_support.py",
+      "qualified_name": "TestShapeVerdict.test_process_configuration_is_fresh_and_ambient_discovery_is_explicit",
+      "source_digest": "sha256:377352123233764d8392100df1053058a2f576ce6244ca16da418fdf5ca85237",
+      "contract": {
+        "schema_version": "test-cost-contract.v1",
+        "supported_fault": "Configuration leaks between sibling test processes",
+        "boundary": "pure",
+        "boundary_rationale": "Inspect independently returned environment dictionaries",
+        "fixture_owner": "test_selftest_support",
+        "dependencies": [],
+        "data_reads": [],
+        "cadence": "pr",
+        "limits": {
+          "processes": 0,
+          "git_commands": 0,
+          "schema_decodes": 0,
+          "metaschema_validations": 0,
+          "whole_tree_fixtures": 0,
+          "nested_journeys": 0
+        },
+        "mutable_state": "Fresh payload or environment mapping for every case",
+        "cache_lifetime": "none",
+        "added_cost_risk": "Bounded pure negative controls; no process, clone or nested journey budget",
+        "families": []
+      }
+    },
+    {
+      "id": "test_build_coordinator.TestFrozenBuildContracts.test_a_carried_original_receipt_earns_the_scoped_round_exemption_over_real_git",
+      "occurrence": 1,
+      "path": ".engine/tools/test_build_coordinator.py",
+      "qualified_name": "TestFrozenBuildContracts.test_a_carried_original_receipt_earns_the_scoped_round_exemption_over_real_git",
+      "source_digest": "sha256:baed3549d69a71df3d18100cdb3f56363254e5b37a01fb8fde826d82cbea72ce",
+      "contract": {
+        "schema_version": "test-cost-contract.v1",
+        "supported_fault": "Refreshed review anchors or retained receipt coverage become incorrect after another repair or rewrite",
+        "boundary": "integration",
+        "boundary_rationale": "Existing imported regression preserves real Git ancestry and accepted receipt transitions",
+        "fixture_owner": "test_build_coordinator.TestFrozenBuildContracts",
+        "dependencies": [
+          "git",
+          "build_coordinator",
+          "reviewer_contracts",
+          "selftest_support.review_fixture"
+        ],
+        "data_reads": [
+          ".engine/schemas/*.json",
+          ".engine/personas/",
+          ".engine/operations/",
+          ".engine/policies/",
+          ".codex/agents/",
+          ".claude/agents/"
+        ],
+        "cadence": "pr",
+        "limits": {
+          "processes": 250,
+          "git_commands": 250,
+          "schema_decodes": 4000,
+          "metaschema_validations": 3,
+          "whole_tree_fixtures": 0,
+          "nested_journeys": 0
+        },
+        "mutable_state": "Case-local plan library, Build state and disposable Git history; no shared mutation",
+        "cache_lifetime": "run",
+        "added_cost_risk": "Imported PR1307 regression, newly declared without changing its body; measured existing fixture cost remains for the program fixture audit",
+        "families": []
+      }
+    },
+    {
+      "id": "test_build_coordinator.TestFrozenBuildContracts.test_a_reconcile_after_a_refreshed_review_measures_the_rewrite_from_it_over_real_git",
+      "occurrence": 1,
+      "path": ".engine/tools/test_build_coordinator.py",
+      "qualified_name": "TestFrozenBuildContracts.test_a_reconcile_after_a_refreshed_review_measures_the_rewrite_from_it_over_real_git",
+      "source_digest": "sha256:a53de4ef496221995f40d23ee686e3623b207b3a69635e8bdb5d0472ad2387d4",
+      "contract": {
+        "schema_version": "test-cost-contract.v1",
+        "supported_fault": "Refreshed review anchors or retained receipt coverage become incorrect after another repair or rewrite",
+        "boundary": "integration",
+        "boundary_rationale": "Existing imported regression preserves real Git ancestry and accepted receipt transitions",
+        "fixture_owner": "test_build_coordinator.TestFrozenBuildContracts",
+        "dependencies": [
+          "git",
+          "build_coordinator",
+          "reviewer_contracts",
+          "selftest_support.review_fixture"
+        ],
+        "data_reads": [
+          ".engine/schemas/*.json",
+          ".engine/personas/",
+          ".engine/operations/",
+          ".engine/policies/",
+          ".codex/agents/",
+          ".claude/agents/"
+        ],
+        "cadence": "pr",
+        "limits": {
+          "processes": 250,
+          "git_commands": 250,
+          "schema_decodes": 4000,
+          "metaschema_validations": 3,
+          "whole_tree_fixtures": 0,
+          "nested_journeys": 0
+        },
+        "mutable_state": "Case-local plan library, Build state and disposable Git history; no shared mutation",
+        "cache_lifetime": "run",
+        "added_cost_risk": "Imported PR1307 regression, newly declared without changing its body; measured existing fixture cost remains for the program fixture audit",
+        "families": []
+      }
+    },
+    {
+      "id": "test_build_coordinator.TestFrozenBuildContracts.test_a_refreshed_review_anchors_the_next_round_and_exempts_fresh_lenses_over_real_git",
+      "occurrence": 1,
+      "path": ".engine/tools/test_build_coordinator.py",
+      "qualified_name": "TestFrozenBuildContracts.test_a_refreshed_review_anchors_the_next_round_and_exempts_fresh_lenses_over_real_git",
+      "source_digest": "sha256:94d06345167f922695fe1c22f0c6fe417eb21dcba6184499f6e60c1a8c265b64",
+      "contract": {
+        "schema_version": "test-cost-contract.v1",
+        "supported_fault": "Refreshed review anchors or retained receipt coverage become incorrect after another repair or rewrite",
+        "boundary": "integration",
+        "boundary_rationale": "Existing imported regression preserves real Git ancestry and accepted receipt transitions",
+        "fixture_owner": "test_build_coordinator.TestFrozenBuildContracts",
+        "dependencies": [
+          "git",
+          "build_coordinator",
+          "reviewer_contracts",
+          "selftest_support.review_fixture"
+        ],
+        "data_reads": [
+          ".engine/schemas/*.json",
+          ".engine/personas/",
+          ".engine/operations/",
+          ".engine/policies/",
+          ".codex/agents/",
+          ".claude/agents/"
+        ],
+        "cadence": "pr",
+        "limits": {
+          "processes": 250,
+          "git_commands": 250,
+          "schema_decodes": 4000,
+          "metaschema_validations": 3,
+          "whole_tree_fixtures": 0,
+          "nested_journeys": 0
+        },
+        "mutable_state": "Case-local plan library, Build state and disposable Git history; no shared mutation",
+        "cache_lifetime": "run",
+        "added_cost_risk": "Imported PR1307 regression, newly declared without changing its body; measured existing fixture cost remains for the program fixture audit",
+        "families": []
+      }
+    },
+    {
+      "id": "test_build_coordinator.TestFrozenBuildContracts.test_a_terminal_none_after_a_refreshed_review_verifies_from_it_over_real_git",
+      "occurrence": 1,
+      "path": ".engine/tools/test_build_coordinator.py",
+      "qualified_name": "TestFrozenBuildContracts.test_a_terminal_none_after_a_refreshed_review_verifies_from_it_over_real_git",
+      "source_digest": "sha256:9b04ffa2de81ae1add8a03383dceebb33f153a3b0ee8b4f603dfdaec240e28bc",
+      "contract": {
+        "schema_version": "test-cost-contract.v1",
+        "supported_fault": "Refreshed review anchors or retained receipt coverage become incorrect after another repair or rewrite",
+        "boundary": "integration",
+        "boundary_rationale": "Existing imported regression preserves real Git ancestry and accepted receipt transitions",
+        "fixture_owner": "test_build_coordinator.TestFrozenBuildContracts",
+        "dependencies": [
+          "git",
+          "build_coordinator",
+          "reviewer_contracts",
+          "selftest_support.review_fixture"
+        ],
+        "data_reads": [
+          ".engine/schemas/*.json",
+          ".engine/personas/",
+          ".engine/operations/",
+          ".engine/policies/",
+          ".codex/agents/",
+          ".claude/agents/"
+        ],
+        "cadence": "pr",
+        "limits": {
+          "processes": 250,
+          "git_commands": 250,
+          "schema_decodes": 4000,
+          "metaschema_validations": 3,
+          "whole_tree_fixtures": 0,
+          "nested_journeys": 0
+        },
+        "mutable_state": "Case-local plan library, Build state and disposable Git history; no shared mutation",
+        "cache_lifetime": "run",
+        "added_cost_risk": "Imported PR1307 regression, newly declared without changing its body; measured existing fixture cost remains for the program fixture audit",
+        "families": []
+      }
+    },
+    {
+      "id": "test_build_coordinator.TestValidationRepairAndStatus.test_a_none_after_a_refreshed_review_is_ledgered_at_the_refreshed_commit",
+      "occurrence": 1,
+      "path": ".engine/tools/test_build_coordinator.py",
+      "qualified_name": "TestValidationRepairAndStatus.test_a_none_after_a_refreshed_review_is_ledgered_at_the_refreshed_commit",
+      "source_digest": "sha256:d119519c314856e8fdc92057dd0d04cbfcb95c5123eedbbb2926553b03202bd3",
+      "contract": {
+        "schema_version": "test-cost-contract.v1",
+        "supported_fault": "Refreshed review anchors or retained receipt coverage become incorrect after another repair or rewrite",
+        "boundary": "integration",
+        "boundary_rationale": "Existing imported coordinator fixture checks persisted round decisions and disclosure with explicit Git seams",
+        "fixture_owner": "test_build_coordinator.TestValidationRepairAndStatus",
+        "dependencies": [
+          "git",
+          "build_coordinator",
+          "reviewer_contracts",
+          "selftest_support.review_fixture"
+        ],
+        "data_reads": [
+          ".engine/schemas/*.json",
+          ".engine/personas/",
+          ".engine/operations/",
+          ".engine/policies/",
+          ".codex/agents/",
+          ".claude/agents/"
+        ],
+        "cadence": "pr",
+        "limits": {
+          "processes": 10,
+          "git_commands": 10,
+          "schema_decodes": 120,
+          "metaschema_validations": 3,
+          "whole_tree_fixtures": 0,
+          "nested_journeys": 0
+        },
+        "mutable_state": "Case-local plan library, Build state and disposable Git history; no shared mutation",
+        "cache_lifetime": "run",
+        "added_cost_risk": "Imported PR1307 regression, newly declared without changing its body; measured existing fixture cost remains for the program fixture audit",
+        "families": []
+      }
+    },
+    {
+      "id": "test_build_coordinator.TestValidationRepairAndStatus.test_a_round_after_a_refreshed_deliverable_review_is_measured_from_that_review",
+      "occurrence": 1,
+      "path": ".engine/tools/test_build_coordinator.py",
+      "qualified_name": "TestValidationRepairAndStatus.test_a_round_after_a_refreshed_deliverable_review_is_measured_from_that_review",
+      "source_digest": "sha256:0771a873c3133e84229e4667aa10c4207aac59f666d6e753ccb3a206d5d30628",
+      "contract": {
+        "schema_version": "test-cost-contract.v1",
+        "supported_fault": "Refreshed review anchors or retained receipt coverage become incorrect after another repair or rewrite",
+        "boundary": "integration",
+        "boundary_rationale": "Existing imported coordinator fixture checks persisted round decisions and disclosure with explicit Git seams",
+        "fixture_owner": "test_build_coordinator.TestValidationRepairAndStatus",
+        "dependencies": [
+          "git",
+          "build_coordinator",
+          "reviewer_contracts",
+          "selftest_support.review_fixture"
+        ],
+        "data_reads": [
+          ".engine/schemas/*.json",
+          ".engine/personas/",
+          ".engine/operations/",
+          ".engine/policies/",
+          ".codex/agents/",
+          ".claude/agents/"
+        ],
+        "cadence": "pr",
+        "limits": {
+          "processes": 10,
+          "git_commands": 10,
+          "schema_decodes": 120,
+          "metaschema_validations": 3,
+          "whole_tree_fixtures": 0,
+          "nested_journeys": 0
+        },
+        "mutable_state": "Case-local plan library, Build state and disposable Git history; no shared mutation",
+        "cache_lifetime": "run",
+        "added_cost_risk": "Imported PR1307 regression, newly declared without changing its body; measured existing fixture cost remains for the program fixture audit",
+        "families": []
+      }
+    },
+    {
+      "id": "test_build_coordinator.TestValidationRepairAndStatus.test_the_anchor_stays_on_the_previous_round_on_commit_shape_alone",
+      "occurrence": 1,
+      "path": ".engine/tools/test_build_coordinator.py",
+      "qualified_name": "TestValidationRepairAndStatus.test_the_anchor_stays_on_the_previous_round_on_commit_shape_alone",
+      "source_digest": "sha256:90d83c10b0a3963fa3ba986745e4a8c5e8773a7b5f37f7d26ab0f5bf16731dd5",
+      "contract": {
+        "schema_version": "test-cost-contract.v1",
+        "supported_fault": "Refreshed review anchors or retained receipt coverage become incorrect after another repair or rewrite",
+        "boundary": "integration",
+        "boundary_rationale": "Existing imported coordinator fixture checks persisted round decisions and disclosure with explicit Git seams",
+        "fixture_owner": "test_build_coordinator.TestValidationRepairAndStatus",
+        "dependencies": [
+          "git",
+          "build_coordinator",
+          "reviewer_contracts",
+          "selftest_support.review_fixture"
+        ],
+        "data_reads": [
+          ".engine/schemas/*.json",
+          ".engine/personas/",
+          ".engine/operations/",
+          ".engine/policies/",
+          ".codex/agents/",
+          ".claude/agents/"
+        ],
+        "cadence": "pr",
+        "limits": {
+          "processes": 30,
+          "git_commands": 30,
+          "schema_decodes": 350,
+          "metaschema_validations": 3,
+          "whole_tree_fixtures": 0,
+          "nested_journeys": 0
+        },
+        "mutable_state": "Case-local plan library, Build state and disposable Git history; no shared mutation",
+        "cache_lifetime": "run",
+        "added_cost_risk": "Imported PR1307 regression, newly declared without changing its body; measured existing fixture cost remains for the program fixture audit",
+        "families": []
+      }
+    },
+    {
+      "id": "test_build_coordinator.TestValidationRepairAndStatus.test_the_growth_signal_stays_live_across_a_refreshed_review",
+      "occurrence": 1,
+      "path": ".engine/tools/test_build_coordinator.py",
+      "qualified_name": "TestValidationRepairAndStatus.test_the_growth_signal_stays_live_across_a_refreshed_review",
+      "source_digest": "sha256:b8e11d8cbd4b7550ec0f41622227fb6069e7d3a8eee9f79678c0aedbba65dad7",
+      "contract": {
+        "schema_version": "test-cost-contract.v1",
+        "supported_fault": "Refreshed review anchors or retained receipt coverage become incorrect after another repair or rewrite",
+        "boundary": "integration",
+        "boundary_rationale": "Existing imported coordinator fixture checks persisted round decisions and disclosure with explicit Git seams",
+        "fixture_owner": "test_build_coordinator.TestValidationRepairAndStatus",
+        "dependencies": [
+          "git",
+          "build_coordinator",
+          "reviewer_contracts",
+          "selftest_support.review_fixture"
+        ],
+        "data_reads": [
+          ".engine/schemas/*.json",
+          ".engine/personas/",
+          ".engine/operations/",
+          ".engine/policies/",
+          ".codex/agents/",
+          ".claude/agents/"
+        ],
+        "cadence": "pr",
+        "limits": {
+          "processes": 10,
+          "git_commands": 10,
+          "schema_decodes": 120,
+          "metaschema_validations": 3,
+          "whole_tree_fixtures": 0,
+          "nested_journeys": 0
+        },
+        "mutable_state": "Case-local plan library, Build state and disposable Git history; no shared mutation",
+        "cache_lifetime": "run",
+        "added_cost_risk": "Imported PR1307 regression, newly declared without changing its body; measured existing fixture cost remains for the program fixture audit",
+        "families": []
+      }
+    },
+    {
+      "id": "test_build_coordinator.TestValidationRepairAndStatus.test_the_refreshed_disclosure_reads_as_one_sentence_in_every_case",
+      "occurrence": 1,
+      "path": ".engine/tools/test_build_coordinator.py",
+      "qualified_name": "TestValidationRepairAndStatus.test_the_refreshed_disclosure_reads_as_one_sentence_in_every_case",
+      "source_digest": "sha256:96bb28b1f149e76c80007c70d7aa6c1908d0dad035eb3e2b2d6668a0c3fd94fa",
+      "contract": {
+        "schema_version": "test-cost-contract.v1",
+        "supported_fault": "Refreshed review anchors or retained receipt coverage become incorrect after another repair or rewrite",
+        "boundary": "integration",
+        "boundary_rationale": "Existing imported coordinator fixture checks persisted round decisions and disclosure with explicit Git seams",
+        "fixture_owner": "test_build_coordinator.TestValidationRepairAndStatus",
+        "dependencies": [
+          "git",
+          "build_coordinator",
+          "reviewer_contracts",
+          "selftest_support.review_fixture"
+        ],
+        "data_reads": [
+          ".engine/schemas/*.json",
+          ".engine/personas/",
+          ".engine/operations/",
+          ".engine/policies/",
+          ".codex/agents/",
+          ".claude/agents/"
+        ],
+        "cadence": "pr",
+        "limits": {
+          "processes": 10,
+          "git_commands": 10,
+          "schema_decodes": 120,
+          "metaschema_validations": 3,
+          "whole_tree_fixtures": 0,
+          "nested_journeys": 0
+        },
+        "mutable_state": "Case-local plan library, Build state and disposable Git history; no shared mutation",
+        "cache_lifetime": "run",
+        "added_cost_risk": "Imported PR1307 regression, newly declared without changing its body; measured existing fixture cost remains for the program fixture audit",
+        "families": []
+      }
+    },
+    {
+      "id": "test_build_coordinator.TestValidationRepairAndStatus.test_the_refreshed_marking_is_rendered_from_the_ledger_and_says_when_it_cannot_count",
+      "occurrence": 1,
+      "path": ".engine/tools/test_build_coordinator.py",
+      "qualified_name": "TestValidationRepairAndStatus.test_the_refreshed_marking_is_rendered_from_the_ledger_and_says_when_it_cannot_count",
+      "source_digest": "sha256:0c9356b560eafa6be85c34d8f62502ba0e190f5b8856817f30a74e9865b305bc",
+      "contract": {
+        "schema_version": "test-cost-contract.v1",
+        "supported_fault": "Refreshed review anchors or retained receipt coverage become incorrect after another repair or rewrite",
+        "boundary": "integration",
+        "boundary_rationale": "Existing imported coordinator fixture checks persisted round decisions and disclosure with explicit Git seams",
+        "fixture_owner": "test_build_coordinator.TestValidationRepairAndStatus",
+        "dependencies": [
+          "git",
+          "build_coordinator",
+          "reviewer_contracts",
+          "selftest_support.review_fixture"
+        ],
+        "data_reads": [
+          ".engine/schemas/*.json",
+          ".engine/personas/",
+          ".engine/operations/",
+          ".engine/policies/",
+          ".codex/agents/",
+          ".claude/agents/"
+        ],
+        "cadence": "pr",
+        "limits": {
+          "processes": 10,
+          "git_commands": 10,
+          "schema_decodes": 120,
+          "metaschema_validations": 3,
+          "whole_tree_fixtures": 0,
+          "nested_journeys": 0
+        },
+        "mutable_state": "Case-local plan library, Build state and disposable Git history; no shared mutation",
+        "cache_lifetime": "run",
+        "added_cost_risk": "Imported PR1307 regression, newly declared without changing its body; measured existing fixture cost remains for the program fixture audit",
+        "families": []
+      }
+    }
+  ],
+  "mappings": []
+}

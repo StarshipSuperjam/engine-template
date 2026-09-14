@@ -19,6 +19,7 @@ import unittest
 from unittest import mock
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+import selftest_cost as cost
 import selftest_support  # noqa: E402  (the suite's single-homed guard helpers, #940)
 import validate          # noqa: E402
 import weakening_guard   # noqa: E402
@@ -3823,9 +3824,26 @@ class TestReuseGateIsGuarded(unittest.TestCase):
     #                   everything the Engine owns?). Guarded at least as strongly as the gate: it is in BOTH
     #                   _FLOOR_ENFORCEMENT_HOOKS and _HARD_EXACT (test_weakening_guard pins the binding), and
     #                   imported lazily inside classify_checkout so an import failure resolves to more work
-    _PERMITTED_IMPORTS = frozenset({"github_client", "ci_assurance", "issue_event", "validate", "moment",
+    #   selftest_results — validates and reads the retained cost evidence envelope
+    #   selftest_cost — binds observation identity and current cost policy
+    #   build_coordinator_core — the canonical artifact digest and coordinator error type
+    #   build_coordinator_work — re-assesses retained evidence against current permission
+    # These four participate in the reuse decision and must retain the gate's hard floor.
+    _COST_IMPORTS = frozenset({"selftest_results", "selftest_cost", "build_coordinator_core",
+                               "build_coordinator_work"})
+    _PERMITTED_IMPORTS = _COST_IMPORTS | frozenset({"github_client", "ci_assurance", "issue_event", "validate", "moment",
                                     "change_classification"})
 
+    @cost.declaration({
+        'schema_version': 'test-cost-contract.v1',
+        'supported_fault': 'A reuse decision helper is added without hard guard ownership',
+        'boundary': 'pure', 'boundary_rationale': 'Read source and guard constants without processes',
+        'fixture_owner': 'test_seed.TestReuseGateIsGuarded',
+        'dependencies': ['weakening_guard', 'validate', 'ast'],
+        'data_reads': ['.engine/tools/ci_gatekeeper.py', '.engine/tools/*.py'],
+        'cadence': 'pr', 'limits': cost.zeros(), 'mutable_state': 'Local parsed source only',
+        'cache_lifetime': 'case', 'added_cost_risk': 'One bounded AST parse', 'families': [],
+    })
     def test_the_gate_grows_no_unreviewed_helper(self):
         # The StarshipSuperjam/engine-template#895 shape: guarding the file but not the logic it calls. If the
         # decision or the verification moves into a new module, guarding this file alone stops meaning
@@ -3833,6 +3851,12 @@ class TestReuseGateIsGuarded(unittest.TestCase):
         # belongs and how it is guarded.
         import ast
 
+        for module in self._COST_IMPORTS:
+            path = f".engine/tools/{module}.py"
+            self.assertIn(path, weakening_guard.GUARDRAIL_EXACT)
+            self.assertIn(path, weakening_guard._HARD_EXACT)
+            self.assertEqual(weakening_guard.classify(path, "modified", instance_guards=(set(), ())),
+                             "hard", f"{module} can weaken the reuse decision")
         source = _read_text(os.path.join(validate.ENGINE_DIR, "tools", "ci_gatekeeper.py"))
         reached = set()
         for node in ast.walk(ast.parse(source)):

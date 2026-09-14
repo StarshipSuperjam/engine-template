@@ -1,0 +1,422 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_version",
+    "baseline_digest",
+    "source_tree",
+    "identity",
+    "native_outcomes_digest",
+    "observed_outcomes_digest",
+    "observation_digest",
+    "outcomes_parity",
+    "legacy_case_count",
+    "static_definition_count",
+    "owner",
+    "reason",
+    "revisit",
+    "environment",
+    "unknown",
+    "timing",
+    "cost_clearance",
+    "parity_rules_digest",
+    "native_environment",
+    "environment_differences"
+  ],
+  "properties": {
+    "schema_version": {
+      "const": "test-cost-activation.v1"
+    },
+    "baseline_digest": {
+      "type": "string",
+      "pattern": "^sha256:[0-9a-f]{64}$"
+    },
+    "source_tree": {
+      "type": "string",
+      "pattern": "^[0-9a-f]{40}$"
+    },
+    "identity": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "source_commit",
+        "base_commit",
+        "observer_commit",
+        "plan_digest",
+        "contract_digest",
+        "policy_digest",
+        "inventory_digest",
+        "environment_digest",
+        "cache_state",
+        "topology",
+        "stage",
+        "attempt",
+        "node",
+        "artifact_digest",
+        "observer_digest"
+      ],
+      "properties": {
+        "source_commit": {
+          "type": "string",
+          "pattern": "^[0-9a-f]{40}$"
+        },
+        "base_commit": {
+          "type": "string",
+          "pattern": "^[0-9a-f]{40}$"
+        },
+        "observer_commit": {
+          "type": "string",
+          "pattern": "^[0-9a-f]{40}$"
+        },
+        "plan_digest": {
+          "type": "string",
+          "pattern": "^sha256:[0-9a-f]{64}$"
+        },
+        "contract_digest": {
+          "type": "string",
+          "pattern": "^sha256:[0-9a-f]{64}$"
+        },
+        "policy_digest": {
+          "type": "string",
+          "pattern": "^sha256:[0-9a-f]{64}$"
+        },
+        "inventory_digest": {
+          "type": "string",
+          "pattern": "^sha256:[0-9a-f]{64}$"
+        },
+        "environment_digest": {
+          "type": "string",
+          "pattern": "^sha256:[0-9a-f]{64}$"
+        },
+        "cache_state": {
+          "enum": [
+            "cold",
+            "warm",
+            "unknown"
+          ]
+        },
+        "topology": {
+          "enum": [
+            "serial"
+          ]
+        },
+        "stage": {
+          "enum": [
+            "node-focused",
+            "candidate",
+            "full",
+            "bootstrap"
+          ]
+        },
+        "attempt": {
+          "type": "string",
+          "minLength": 1
+        },
+        "node": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "artifact_digest": {
+          "type": "string",
+          "pattern": "^sha256:[0-9a-f]{64}$"
+        },
+        "observer_digest": {
+          "type": "string",
+          "pattern": "^sha256:[0-9a-f]{64}$"
+        }
+      }
+    },
+    "native_outcomes_digest": {
+      "type": "string",
+      "pattern": "^sha256:[0-9a-f]{64}$"
+    },
+    "observed_outcomes_digest": {
+      "type": "string",
+      "pattern": "^sha256:[0-9a-f]{64}$"
+    },
+    "observation_digest": {
+      "type": "string",
+      "pattern": "^sha256:[0-9a-f]{64}$"
+    },
+    "outcomes_parity": {
+      "const": true
+    },
+    "legacy_case_count": {
+      "type": "integer",
+      "minimum": 0
+    },
+    "static_definition_count": {
+      "type": "integer",
+      "minimum": 0
+    },
+    "owner": {
+      "type": "string",
+      "minLength": 1
+    },
+    "reason": {
+      "type": "string",
+      "minLength": 1
+    },
+    "revisit": {
+      "type": "string",
+      "minLength": 1
+    },
+    "environment": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "os": {
+          "type": "string",
+          "maxLength": 4096
+        },
+        "release": {
+          "type": "string",
+          "maxLength": 4096
+        },
+        "architecture": {
+          "type": "string",
+          "maxLength": 4096
+        },
+        "python": {
+          "type": "string",
+          "maxLength": 4096
+        },
+        "cpu_count": {
+          "anyOf": [
+            {
+              "type": "integer",
+              "minimum": 1
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "runner_os": {
+          "anyOf": [
+            {
+              "type": "string",
+              "maxLength": 4096
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "runner_arch": {
+          "anyOf": [
+            {
+              "type": "string",
+              "maxLength": 4096
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "uv": {
+          "anyOf": [
+            {
+              "type": "string",
+              "maxLength": 4096
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "memory_bytes": {
+          "anyOf": [
+            {
+              "type": "integer",
+              "minimum": 1
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "worktree_count": {
+          "anyOf": [
+            {
+              "type": "integer",
+              "minimum": 0
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "cache": {
+          "type": "string",
+          "maxLength": 4096
+        }
+      },
+      "required": [
+        "os",
+        "release",
+        "architecture",
+        "python",
+        "cpu_count",
+        "runner_os",
+        "runner_arch",
+        "uv",
+        "memory_bytes",
+        "worktree_count",
+        "cache"
+      ]
+    },
+    "unknown": {
+      "type": "array",
+      "items": {
+        "type": "string",
+        "minLength": 1
+      }
+    },
+    "timing": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "native_child_seconds",
+        "observed_child_seconds",
+        "qualification"
+      ],
+      "properties": {
+        "native_child_seconds": {
+          "type": "number",
+          "minimum": 0
+        },
+        "observed_child_seconds": {
+          "type": "number",
+          "minimum": 0
+        },
+        "qualification": {
+          "type": "string",
+          "minLength": 1
+        }
+      }
+    },
+    "cost_clearance": {
+      "const": false
+    },
+    "parity_rules_digest": {
+      "type": "string",
+      "pattern": "^sha256:[0-9a-f]{64}$"
+    },
+    "native_environment": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "os": {
+          "type": "string",
+          "maxLength": 4096
+        },
+        "release": {
+          "type": "string",
+          "maxLength": 4096
+        },
+        "architecture": {
+          "type": "string",
+          "maxLength": 4096
+        },
+        "python": {
+          "type": "string",
+          "maxLength": 4096
+        },
+        "cpu_count": {
+          "anyOf": [
+            {
+              "type": "integer",
+              "minimum": 1
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "runner_os": {
+          "anyOf": [
+            {
+              "type": "string",
+              "maxLength": 4096
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "runner_arch": {
+          "anyOf": [
+            {
+              "type": "string",
+              "maxLength": 4096
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "uv": {
+          "anyOf": [
+            {
+              "type": "string",
+              "maxLength": 4096
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "memory_bytes": {
+          "anyOf": [
+            {
+              "type": "integer",
+              "minimum": 1
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "worktree_count": {
+          "anyOf": [
+            {
+              "type": "integer",
+              "minimum": 0
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "cache": {
+          "type": "string",
+          "maxLength": 4096
+        }
+      },
+      "required": [
+        "os",
+        "release",
+        "architecture",
+        "python",
+        "cpu_count",
+        "runner_os",
+        "runner_arch",
+        "uv",
+        "memory_bytes",
+        "worktree_count",
+        "cache"
+      ]
+    },
+    "environment_differences": {
+      "type": "array",
+      "items": {
+        "type": "string",
+        "minLength": 1
+      }
+    }
+  }
+}

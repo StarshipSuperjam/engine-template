@@ -534,6 +534,31 @@ def _filter_to_modules(suite, selected: frozenset):
 
 
 def _run_child(args: argparse.Namespace) -> int:
+    if not getattr(args, 'cost_path', None):
+        return _run_child_observed(args)
+    import selftest_cost
+    limits = selftest_cost.runtime_limits()
+    recorder = selftest_cost.Recorder(max_owners=limits['max_owners'], max_counter=limits['max_counter'])
+    rc = None
+    try:
+        with recorder:
+            rc = _run_child_observed(args, costs=recorder)
+        return rc
+    finally:
+        try:
+            source = recorder.source_binding
+            if source is None:
+                raise ValueError('resource source binding unavailable')
+            outcomes = selftest_results.read(args.results_path)
+            complete = bool(rc is not None and outcomes.get('complete') and outcomes.get('source') == source)
+            document = recorder.document(source=source, scope=outcomes.get('scope', 'unknown'),
+                                         complete=complete, process_exit=rc)
+            selftest_results.write(args.cost_path, document, max_bytes=limits['max_observation_bytes'])
+        except (OSError, ValueError, TypeError):
+            print('selftest: resource observations unavailable', file=sys.stderr)
+
+
+def _run_child_observed(args: argparse.Namespace, *, costs=None) -> int:
     """Discover and run in-process; return 0 on success, non-zero otherwise. A discovery/import failure
     is surfaced as a non-zero exit, never swallowed.
 
@@ -572,6 +597,13 @@ def _run_child(args: argparse.Namespace) -> int:
     collection_seconds = time.monotonic() - monotonic_started
     inventory_modules, inventory_ids = _inventory(suite)
     inventory_cases = list(_flatten(suite))
+    if costs:
+        import selftest_cost
+        costs.suspended = True
+        try:
+            costs.runtime = selftest_cost.runtime_inventory(inventory_cases)
+        finally:
+            costs.suspended = False
     selection = _read_selection(args.selection_path)
     scope = "full"
     unmatched: list = []
@@ -616,10 +648,14 @@ def _run_child(args: argparse.Namespace) -> int:
     result_path = getattr(args, "results_path", None)
     timing_path = getattr(args, "performance_path", None)
     source = _tree_binding(args.start_dir)
+    if costs is not None:
+        # The runner owns this post-discovery binding for both artifacts. Keep
+        # an independent copy rather than repeating Git or trusting file input.
+        costs.source_binding = dict(source)
     observation = selftest_results.Observation(
         inventory_cases, selected_cases, source=source, scope=scope,
         invocation={"start_dir": selftest_results.text(args.start_dir), "pattern": args.pattern,
-                    "selection_digest": _selection_digest(selection)}, timing=bool(timing_path))
+                    "selection_digest": _selection_digest(selection)}, timing=bool(timing_path), costs=costs)
     if loader.errors:
         observation.issue("test discovery contained import or load errors")
     if not selected_cases:
@@ -1036,6 +1072,8 @@ def _run_parent(args: argparse.Namespace) -> int:
     child_cmd += ["--results-path", os.path.abspath(args.results_path)]
     if args.performance_path:
         child_cmd += ["--performance-path", os.path.abspath(args.performance_path)]
+    if getattr(args, 'cost_path', None):
+        child_cmd += ["--cost-path", os.path.abspath(args.cost_path)]
     if selection_path:
         child_cmd += ["--selection-path", selection_path]
     # Ambient qualification OFF for the whole suite. It reaches live GitHub and writes activation state into
@@ -1216,6 +1254,8 @@ def _build_parser() -> argparse.ArgumentParser:
     p.add_argument("--pattern", default=_DEFAULT_PATTERN, help="unittest discovery pattern (default: test_*.py)")
     p.add_argument("--results-path", default=None, metavar="PATH",
                    help="retain required complete case outcomes (selftest-results.v1)")
+    p.add_argument("--cost-path", default=None, metavar="PATH",
+                   help="retain bounded resource observations (test-cost-run.v1)")
     p.add_argument("--performance-path", default=None, metavar="PATH",
                    help="retain advisory per-case and phase timing (selftest-performance.v1)")
     p.add_argument("--cwd", default=None, help=argparse.SUPPRESS)
@@ -1249,7 +1289,7 @@ def main(argv: Optional[list] = None) -> int:
         if not args.results_path:
             args.results_path = os.path.join(directory, "results.json")
         paths = [os.path.abspath(p) for p in (args.results_path, args.performance_path,
-                                             args.run_record_path, args.log_path) if p]
+                                             args.run_record_path, args.log_path, args.cost_path) if p]
         if len(paths) != len(set(paths)):
             print("selftest: output paths must be distinct", file=sys.stderr)
             return 2
@@ -1261,6 +1301,9 @@ def main(argv: Optional[list] = None) -> int:
                             "pattern": args.pattern, "selection_digest": None})
             not_started.issue("child has not produced an authoritative discovered inventory")
             selftest_results.write(args.results_path, not_started.document())
+            if args.cost_path:
+                selftest_results.write(args.cost_path, {'schema_version': 'test-cost-run.v1',
+                                                       'complete': False, 'unknown': ['child has not finalized']})
             if args.performance_path:
                 try:
                     selftest_results.write(args.performance_path, {"schema_version": "selftest-performance.v1",

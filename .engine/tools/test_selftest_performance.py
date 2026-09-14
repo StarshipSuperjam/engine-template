@@ -304,4 +304,339 @@ class Controls(unittest.TestCase):
                 self.assertIn('mode=reuse',(folder/('decoy-'+name)).read_text())
 
 
+import selftest_cost as cost
+
+_COST_CONTRACT = {
+    'schema_version': 'test-cost-contract.v1', 'supported_fault': 'Incorrect or stale cost comparison',
+    'boundary': 'pure', 'boundary_rationale': 'Pure bounded identity, counter and clock examples',
+    'fixture_owner': 'test_selftest_performance.CostAssessment', 'dependencies': ['jsonschema', 'selftest_cost'],
+    'data_reads': ['.engine/policies/test-cost.json', '.engine/schemas/test-cost-*.json',
+                   '.engine/schemas/ci-test-performance.v1.json'], 'cadence': 'pr',
+    'limits': {**cost.zeros(), 'schema_decodes': 50}, 'mutable_state': 'Fresh one-case dictionaries',
+    'cache_lifetime': 'case', 'added_cost_risk': 'At most three timing or scaling samples per example', 'families': [],
+}
+
+
+def cost_example():
+    policy = json.loads((cost.ROOT / '.engine/policies/test-cost.json').read_text())
+    case = {'id': 'test_example.C.test_behavior', 'occurrence': 1}
+    source = 'class C:\n def test_behavior(self): pass\n'
+    census = cost.static_census({'test_example.py': source}, 'a'*40)
+    runtime = [{**case, 'path': 'test_example.py', 'qualified_name': 'C.test_behavior',
+                'contract': None, 'family': None, 'input_size': None}]
+    identity = {'source_commit': 'a'*40, 'base_commit': 'a'*40, 'observer_commit': 'c'*40,
+                'observer_digest': cost.digest('observer'), 'plan_digest': cost.digest('plan'),
+                'contract_digest': cost.digest('contract'), 'policy_digest': cost.digest(policy),
+                'inventory_digest': cost.digest([case]), 'environment_digest': cost.digest('environment'),
+                'cache_state': 'cold', 'topology': 'serial', 'stage': 'bootstrap', 'attempt': 'base',
+                'node': None, 'artifact_digest': cost.digest('base-tree')}
+    owner = 'case:' + json.dumps(case, sort_keys=True, separators=(',', ':'))
+    base = {'schema_version': 'test-cost-observation.v1', 'identity': identity, 'complete': True,
+            'unknown': [], 'totals': cost.zeros(), 'owners': [{'owner': owner, 'counts': cost.zeros()}],
+            'cases': [{'case': case, 'owner': owner, 'counts': cost.zeros(), 'family': None, 'input_size': None}]}
+    enrollment = cost.enroll_baseline(base, census, runtime, owner='team', reason='Explicit fixture debt', revisit='Review')
+    census['source_commit'] = 'b'*40
+    base = copy.deepcopy(base);base['identity']['stage'] = 'full'
+    candidate = copy.deepcopy(base)
+    candidate['identity'].update(source_commit='b'*40, attempt='candidate', artifact_digest=cost.digest('candidate-tree'))
+    context = {'expected_identity': copy.deepcopy(candidate['identity']), 'baseline': enrollment,
+        'expected_baseline_digest': cost.digest(enrollment), 'runtime': runtime, 'census': census,
+        'policy': policy, 'now': '2026-09-13T12:00:00Z', 'base_observation': base,
+        'expected_base_identity': copy.deepcopy(base['identity'])}
+    context['timing_pairs'] = [{'baseline_identity': copy.deepcopy(base['identity']),
+       'candidate_identity': copy.deepcopy(candidate['identity']), 'baseline_seconds': 100, 'candidate_seconds': 100}
+       for _ in range(3)]
+    for index, pair in enumerate(context['timing_pairs']):
+        pair['baseline_sample_digest'] = cost.digest(['base sample', index])
+        pair['candidate_sample_digest'] = cost.digest(['candidate sample', index])
+    return candidate, context
+
+
+def cost_counts(observation, resource, value):
+    result = copy.deepcopy(observation)
+    result['cases'][0]['counts'][resource] = value
+    result['owners'][0]['counts'][resource] = value
+    result['totals'][resource] = value
+    return result
+
+
+@cost.declaration(_COST_CONTRACT)
+class CostAssessment(unittest.TestCase):
+    def test_existing_ci_report_retains_metrics_and_refuses_unrelated_cost_evidence(self):
+        observation, context = cost_example()
+        left = report(ReportAPI());right = copy.deepcopy(left)
+        left['head'] = 'a'*40;right['head'] = 'b'*40
+        for document in (left, right):
+            document['cases'][0]['id'] = observation['cases'][0]['case']['id']
+        value = performance.compare_reports(left, right, cost_evidence={'observation': observation, **context})
+        self.assertEqual(value['cost_assessment']['status'], 'acceptable')
+        self.assertEqual(value['raw_samples']['candidate'], right['metrics'])
+        right['head'] = 'd'*40
+        value = performance.compare_reports(left, right, cost_evidence={'observation': observation, **context})
+        self.assertEqual(value['cost_assessment']['status'], 'unavailable')
+        self.assertFalse(value['qualified'])
+
+    @cost.declaration({**_COST_CONTRACT, 'boundary': 'filesystem',
+        'boundary_rationale': 'Verify written reports, live clock consumption and stale-file refusal',
+        'mutable_state': 'Fresh bounded input/output files in a temporary directory'})
+    def test_cli_distinguishes_clear_violation_and_review_and_invalidates_old_output(self):
+        observation, context = cost_example()
+        with tempfile.TemporaryDirectory() as directory:
+            source, output = Path(directory) / 'input.json', Path(directory) / 'output.json'
+            for current, settings, expected in ((observation, context, 0),
+                (cost_counts(observation, 'processes', 1), context, 1),
+                (observation, {**context, 'base_observation': None}, 2)):
+                source.write_text(json.dumps({'observation': current, **settings}))
+                with mock.patch.object(performance.moment, 'utc_now', return_value=context['now']):
+                    self.assertEqual(performance.main(['assess-cost', '--input', str(source), '--output', str(output)]), expected)
+                value = json.loads(output.read_text())
+                self.assertEqual(value['cost_clearance'], expected == 0)
+            context['exceptions'] = [{'id': 'temporary', 'owner': 'team', 'reason': 'Fixture repair',
+                'revisit': 'Repair', 'supported_fault': 'Real boundary', 'fault_preservation_evidence': 'Regression retained',
+                'issued_at': '2026-09-13T00:00:00Z', 'expires_at': '2026-09-14T00:00:00Z',
+                'source_commit': 'b'*40, 'case': observation['cases'][0]['case'], 'resource': 'processes', 'ceiling': 1}]
+            source.write_text(json.dumps({'observation': cost_counts(observation, 'processes', 1), **context}))
+            with mock.patch.object(performance.moment, 'utc_now', return_value='2026-09-14T00:00:00Z'):
+                self.assertEqual(performance.main(['assess-cost', '--input', str(source), '--output', str(output)]), 1)
+            self.assertEqual(json.loads(output.read_text())['exceptions'], [])
+            source.write_text('{broken')
+            with mock.patch('sys.stdout', new=io.StringIO()):
+                self.assertEqual(performance.main(['assess-cost', '--input', str(source), '--output', str(output)]), 1)
+            with self.assertRaises(ValueError):
+                records.validate_shape(json.loads(output.read_text()), 'test-cost-assessment.v1')
+
+    def test_bootstrap_retains_new_source_checks_without_learning_legacy_limits(self):
+        observation, context = cost_example()
+        source = {'schema_version': 'test-cost-inventory.v1', 'source_commit': 'a'*40,
+            'source': {'tree': 'c'*40, 'worktree_dirty': False}, 'runtime': context['runtime'],
+            'census': {**context['census'], 'source_commit': 'a'*40}}
+        legacy = cost.identity_only_inventory(source, expected_commit='a'*40, expected_tree='c'*40)
+        self.assertNotIn('limits', legacy['cases'][0])
+        context.update(baseline=None, expected_baseline_digest=None, bootstrap_inventory=legacy)
+        self.assertEqual(performance.compare_cost(observation, **context)['status'], 'unavailable')
+        context['census'] = cost.static_census({'test_example.py': 'class C:\n def test_behavior(self): return 2\n'}, 'b'*40)
+        result = performance.compare_cost(observation, **context)
+        self.assertTrue(any('declaration' in finding for finding in result['violations']))
+        with self.assertRaises(ValueError):
+            cost.identity_only_inventory(source, expected_commit='d'*40, expected_tree='c'*40)
+
+    def test_shared_cost_growth_fails_with_identical_case_source_and_fast_timing(self):
+        observation, context = cost_example()
+        self.assertEqual(performance.compare_cost(observation, **context)['status'], 'acceptable')
+        changed = cost_counts(observation, 'processes', 1)
+        result = performance.compare_cost(changed, **context)
+        self.assertEqual(result['status'], 'concerns')
+        self.assertFalse(result['cost_clearance'])
+        self.assertTrue(any('processes' in finding for finding in result['violations']))
+        self.assertEqual(result['case_deltas'][0]['delta']['processes'], 1)
+        self.assertEqual(result['common'], [observation['cases'][0]['case']])
+        self.assertEqual(result['timing']['status'], 'acceptable')
+
+    def test_renamed_cases_remain_added_and_removed_and_need_fault_preservation(self):
+        observation, context = cost_example()
+        old = copy.deepcopy(observation['cases'][0]['case'])
+        new = {**old, 'id': 'test_example.C.test_renamed'}
+        owner = 'case:'+json.dumps(new, sort_keys=True, separators=(',', ':'))
+        observation['cases'][0].update(case=new, owner=owner)
+        observation['owners'][0]['owner'] = owner
+        observation['identity']['inventory_digest'] = cost.digest([new])
+        context['expected_identity'] = copy.deepcopy(observation['identity'])
+        context['runtime'][0].update(new)
+        context['runtime'][0].update(qualified_name='C.test_renamed', contract=_COST_CONTRACT)
+        context['census'] = cost.static_census({'test_example.py': 'class C:\n def test_renamed(self): pass\n'}, 'b'*40)
+        result = performance.compare_cost(observation, **context)
+        self.assertEqual(result['added'], [new]);self.assertEqual(result['removed'], [old])
+        self.assertTrue(any('removed case lacks' in finding for finding in result['violations']))
+        context['mappings'] = [{'source': old, 'target': new, 'path': 'test_example.py',
+            'qualified_name': 'C.test_renamed', 'reason': 'Rename only', 'supported_fault': 'The same boundary remains tested'}]
+        self.assertEqual(performance.compare_cost(observation, **context)['violations'], [])
+
+    def test_wrong_source_attempt_policy_and_omitted_base_are_unavailable(self):
+        observation, context = cost_example()
+        for field, value in [('source_commit', 'd'*40), ('attempt', 'other'),
+                             ('artifact_digest', cost.digest('wrong-tree')), ('policy_digest', cost.digest('wrong-policy')),
+                             ('contract_digest', cost.digest('wrong-contract')), ('topology', 'parallel')]:
+            with self.subTest(field=field):
+                changed = copy.deepcopy(observation);changed['identity'][field] = value
+                self.assertEqual(performance.compare_cost(changed, **context)['status'], 'unavailable')
+        for change in ({'base_observation': None}, {'expected_baseline_digest': cost.digest('changed-budget')},
+                       {'census': {**context['census'], 'source_commit': 'd'*40}}):
+            result = performance.compare_cost(observation, **{**context, **change})
+            self.assertEqual(result['status'], 'unavailable')
+            self.assertFalse(result['cost_clearance'])
+        observation['complete'] = False
+        self.assertEqual(performance.compare_cost(observation, **context)['status'], 'unavailable')
+
+    def test_environment_cache_and_scope_mismatch_cannot_borrow_qualified_comparison(self):
+        observation, context = cost_example()
+        for field, value in [('environment_digest', cost.digest('other-host')), ('cache_state', 'warm'), ('stage', 'node-focused')]:
+            with self.subTest(field=field):
+                changed = copy.deepcopy(context)
+                changed['base_observation']['identity'][field] = value
+                changed['expected_base_identity'][field] = value
+                result = performance.compare_cost(observation, **changed)
+                self.assertEqual(result['status'], 'unavailable')
+                self.assertTrue(any(field in reason for reason in result['unknown']))
+
+    def test_expiry_reassesses_the_same_observation_without_renewing_permission(self):
+        observation, context = cost_example();observation = cost_counts(observation, 'processes', 2)
+        exception = {'id': 'repair', 'owner': 'team', 'reason': 'Bounded real process fixture',
+            'revisit': 'Repair fixture', 'supported_fault': 'Real process boundary',
+            'fault_preservation_evidence': 'The unchanged process regression remains',
+            'issued_at': '2026-09-13T00:00:00Z', 'expires_at': '2026-09-14T00:00:00Z',
+            'source_commit': 'b'*40, 'case': observation['cases'][0]['case'], 'resource': 'processes', 'ceiling': 2}
+        context['exceptions'] = [exception];before = cost.digest(observation)
+        result = performance.compare_cost(observation, **context)
+        self.assertEqual(result['status'], 'acceptable');self.assertEqual(result['exceptions'], [exception])
+        context['now'] = '2026-09-14T00:00:00Z'
+        self.assertEqual(performance.compare_cost(observation, **context)['status'], 'concerns')
+        self.assertEqual(cost.digest(observation), before)
+        repaired = cost_counts(observation, 'processes', 0)
+        result = performance.compare_cost(repaired, **context)
+        self.assertEqual(result['status'], 'acceptable');self.assertEqual(result['exceptions'], [])
+
+    def test_scaling_uses_count_growth_and_requires_every_declared_size(self):
+        family = {'id': 'scan', 'case_patterns': ['case-*'], 'input_sizes': [1, 2, 4],
+                  'growth_limits': {**cost.zeros(), 'schema_decodes': 2}}
+        contract = {**_COST_CONTRACT, 'families': [family]}
+        cases = [{'case': {'id': 'case-'+str(n), 'occurrence': 1}, 'family': 'scan', 'input_size': n,
+                  'counts': {**cost.zeros(), 'schema_decodes': n}} for n in family['input_sizes']]
+        self.assertEqual(cost.scaling_assessment(cases, {('case', 1): contract})[1:], ([], []))
+        cases[-1]['counts']['schema_decodes'] = 16
+        self.assertTrue(cost.scaling_assessment(cases, {('case', 1): contract})[1])
+        self.assertTrue(cost.scaling_assessment(cases[:-1], {('case', 1): contract})[2])
+
+    def test_timing_keeps_measured_noise_and_remains_advisory(self):
+        observation, context = cost_example()
+        for pair, base, candidate in zip(context['timing_pairs'], [100, 102, 101], [103, 105, 104]):
+            pair.update(baseline_seconds=base, candidate_seconds=candidate)
+        result = performance.compare_cost(observation, **context)
+        self.assertEqual(result['violations'], [])
+        self.assertEqual(result['timing']['noise_envelope_seconds'], 2)
+        self.assertTrue(result['timing']['material_growth'])
+        self.assertEqual(result['status'], 'concerns')
+        context['timing_pairs'][1]['candidate_seconds'] = 102
+        self.assertFalse(performance.compare_cost(observation, **context)['timing']['material_growth'])
+        context['timing_pairs'] = []
+        self.assertEqual(performance.compare_cost(observation, **context)['status'], 'unavailable')
+
+    def test_ambient_legacy_debt_cannot_authorize_new_or_declared_effects(self):
+        observation, context = cost_example()
+        context['runtime'][0].pop('contract', None)
+        fact = {'owner': observation['cases'][0]['owner'], 'kind': 'git-config'}
+        observation['ambient_facts'] = [fact]
+        self.assertTrue(any('ambient Git configuration' in v for v in cost.assess_cost(
+            observation, **context)['violations']))
+        context['baseline']['ambient_facts'] = [fact]
+        context['expected_baseline_digest'] = cost.digest(context['baseline'])
+        result = cost.assess_cost(observation, **context)
+        self.assertEqual([], result['violations'])
+        self.assertTrue(any('enrolled ambient Git debt' in v for v in result['unknown']))
+        context['runtime'][0]['contract'] = copy.deepcopy(_COST_CONTRACT)
+        self.assertTrue(any('ambient Git configuration' in v for v in cost.assess_cost(
+            observation, **context)['violations']))
+        context['runtime'][0].pop('contract')
+        context['bootstrap_inventory'] = context['baseline']
+        context['baseline'] = None
+        result = cost.assess_cost(observation, **context)
+        self.assertEqual([], result['violations'])
+        self.assertFalse(result['cost_clearance'])
+        self.assertTrue(any('ambient Git baseline unavailable' in v for v in result['unknown']))
+        context['runtime'][0]['contract'] = copy.deepcopy(_COST_CONTRACT)
+        self.assertTrue(any('ambient Git configuration' in v for v in cost.assess_cost(
+            observation, **context)['violations']))
+
+    def test_observed_long_duration_requires_disclosure_without_a_comparable_pair(self):
+        observation, context = cost_example()
+        context['timing_pairs'] = []
+        context['candidate_duration_seconds'] = 1200
+        result = performance.compare_cost(observation, **context)
+        self.assertEqual(result['status'], 'concerns')
+        self.assertTrue(any('observed candidate duration' in finding for finding in result['timing_findings']))
+
+    def test_repeating_one_timing_sample_does_not_create_qualification(self):
+        observation, context = cost_example()
+        context['timing_pairs'] = [context['timing_pairs'][0]] * 3
+        result = performance.compare_cost(observation, **context)
+        self.assertEqual(result['status'], 'unavailable')
+        self.assertTrue(any('reused' in reason for reason in result['timing']['reasons']))
+
+    def test_fixture_growth_cannot_hide_in_unchanged_case_totals(self):
+        observation, context = cost_example()
+        fixture = {'owner': 'fixture:_handleClassSetUp:fixture.C', 'counts': {**cost.zeros(), 'git_commands': 1}}
+        for document in (context['baseline'], context['base_observation'], observation):
+            document['owners'].append(copy.deepcopy(fixture));document['totals']['git_commands'] = 1
+        context['expected_baseline_digest'] = cost.digest(context['baseline'])
+        observation['owners'][-1]['counts']['git_commands'] = 2;observation['totals']['git_commands'] = 2
+        result = performance.compare_cost(observation, **context)
+        self.assertTrue(any('fixture:' in finding for finding in result['violations']))
+        self.assertEqual(result['owner_deltas'][0]['delta']['git_commands'], 1)
+        self.assertEqual(result['case_deltas'][0]['delta']['git_commands'], 0)
+
+    @cost.declaration({**_COST_CONTRACT, 'boundary': 'process',
+        'boundary_rationale': 'Measure a real helper-only process regression through the existing serial launcher',
+        'dependencies': ['git', 'subprocess', 'selftest', 'selftest_cost', 'selftest_results'],
+        'data_reads': ['.engine/policies/test-cost*.json', '.engine/schemas/test-cost-*.json', '.engine/tools/selftest.py'],
+        'limits': {**cost.zeros(), 'processes': 20, 'git_commands': 16, 'schema_decodes': 100, 'nested_journeys': 2},
+        'mutable_state': 'Disposable Git repository and two separately retained launcher outputs'})
+    def test_real_helper_change_keeps_test_source_and_raises_a_resource_finding(self):
+        import hashlib
+        with tempfile.TemporaryDirectory() as directory:
+            folder = Path(directory);root = folder / 'repo';root.mkdir()
+            env = {k: v for k, v in os.environ.items() if not k.startswith('GIT_')}
+            env.update(HOME=str(folder), GIT_CONFIG_NOSYSTEM='1', GIT_CONFIG_GLOBAL=os.devnull)
+            def git(*args, binary=False):
+                return subprocess.check_output(['git', '-C', str(root), *args], env=env,
+                                               stderr=subprocess.DEVNULL, text=not binary)
+            git('init', '-q');git('config', 'user.email', 'fixture@example.invalid');git('config', 'user.name', 'Fixture')
+            test_source = 'import unittest, helper\nclass C(unittest.TestCase):\n def test_behavior(self): helper.run()\n'
+            (root / 'test_example.py').write_text(test_source)
+            (root / '.gitignore').write_text('__pycache__/\n')
+            (root / 'helper.py').write_text('def run(): pass\n')
+            script = ('import functools,sys\nsys.path.insert(0,sys.argv[1])\n'
+                      'import selftest_cost as cost, selftest\n'
+                      'cost.runtime_inventory=functools.partial(cost.runtime_inventory,root=sys.argv[2])\n'
+                      'raise SystemExit(selftest.main(["--child","--start-dir",sys.argv[2],'
+                      '"--cost-path",sys.argv[3],"--results-path",sys.argv[4],"--performance-path",sys.argv[5]]))')
+            reports = []
+            for index in range(2):
+                if index:
+                    (root / 'helper.py').write_text('import subprocess,sys\ndef run(): subprocess.run([sys.executable,"-c","pass"],check=True)\n')
+                git('add', '.');git('commit', '-qm', 'Fixture version '+str(index))
+                head = git('rev-parse', 'HEAD').strip();tree = git('rev-parse', 'HEAD^{tree}').strip()
+                paths = [folder / (str(index)+'-'+name+'.json') for name in ('cost', 'outcomes', 'performance')]
+                run = subprocess.run([sys.executable, '-c', script, str(cost.ROOT / '.engine/tools'), str(root),
+                                      *map(str, paths)], env=env, capture_output=True, text=True, timeout=20)
+                self.assertEqual(run.returncode, 0, run.stdout+run.stderr)
+                raw, outcomes, timing = [json.loads(path.read_text()) for path in paths]
+                artifact = 'sha256:'+hashlib.sha256(git('ls-tree', '-r', '--full-tree', '-z', head, binary=True)).hexdigest()
+                reports.append((head, tree, artifact, raw, outcomes, timing))
+            self.assertEqual((root / 'test_example.py').read_text(), test_source)
+            self.assertEqual(git('diff', reports[0][0], reports[1][0], '--', 'test_example.py'), '')
+            observation, context = cost_example()
+            base_head, _, _, _, _, _ = reports[0]
+            activation = json.loads((cost.ROOT / '.engine/policies/test-cost-activation.json').read_text())
+            normalized = []
+            for head, tree, artifact, raw, outcomes, timing in reports:
+                identity = {**context['expected_identity'], 'source_commit': head, 'base_commit': base_head,
+                    'observer_commit': activation['identity']['observer_commit'], 'observer_digest': cost.observer_fingerprint(),
+                    'environment_digest': cost.digest(timing['environment']), 'cache_state': timing['environment']['cache'],
+                    'artifact_digest': artifact, 'inventory_digest': cost.digest(outcomes['inventory'])}
+                normalized.append(cost.normalize_run(raw, identity, expected_tree=tree, outcomes=outcomes))
+            base, observation = normalized
+            census = cost.static_census({'test_example.py': test_source}, base_head)
+            bootstrap = copy.deepcopy(base);bootstrap['identity']['stage'] = 'bootstrap'
+            enrollment = cost.enroll_baseline(bootstrap, census, reports[0][3]['inventory'],
+                                              owner='fixture', reason='Measured original helper', revisit='This regression')
+            census['source_commit'] = reports[1][0]
+            context.update(expected_identity=observation['identity'], baseline=enrollment,
+                expected_baseline_digest=cost.digest(enrollment), runtime=reports[1][3]['inventory'], census=census,
+                base_observation=base, expected_base_identity=base['identity'], timing_pairs=[])
+            result = performance.compare_cost(observation, **context)
+            self.assertEqual(result['status'], 'concerns')
+            self.assertTrue(any('processes' in finding for finding in result['violations']))
+            self.assertEqual(result['case_deltas'][0]['delta']['processes'], 1)
+            self.assertIn('descendant work is not instrumented', result['unknown'])
+
+
 if __name__=='__main__':unittest.main()

@@ -1,0 +1,15 @@
+{
+  "id": "engine/check/test-cost",
+  "target": {
+    "path": ".github/workflows/engine-ci.yml"
+  },
+  "kind": "custom/script",
+  "params": {
+    "script": ".engine/tools/selftest_cost_check.py"
+  },
+  "tier": "hard",
+  "suites": [
+    "CI"
+  ],
+  "message": "Require complete serial cost observation, common assessment, provenance-bound full receipts and live permission consumption at reuse/completion. The full-run cost step rejects actual deterministic violations; unavailable timing or baseline coverage is not qualified success. Static duplicate control and eight actual bounded negative fixtures protect this wiring without narrowing final CI."
+}

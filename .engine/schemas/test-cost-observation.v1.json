@@ -1,0 +1,331 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_version",
+    "identity",
+    "complete",
+    "unknown",
+    "totals",
+    "owners",
+    "cases"
+  ],
+  "properties": {
+    "schema_version": {
+      "const": "test-cost-observation.v1"
+    },
+    "identity": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "source_commit",
+        "base_commit",
+        "observer_commit",
+        "plan_digest",
+        "contract_digest",
+        "policy_digest",
+        "inventory_digest",
+        "environment_digest",
+        "cache_state",
+        "topology",
+        "stage",
+        "attempt",
+        "node",
+        "artifact_digest",
+        "observer_digest"
+      ],
+      "properties": {
+        "source_commit": {
+          "type": "string",
+          "pattern": "^[0-9a-f]{40}$"
+        },
+        "base_commit": {
+          "type": "string",
+          "pattern": "^[0-9a-f]{40}$"
+        },
+        "observer_commit": {
+          "type": "string",
+          "pattern": "^[0-9a-f]{40}$"
+        },
+        "plan_digest": {
+          "type": "string",
+          "pattern": "^sha256:[0-9a-f]{64}$"
+        },
+        "contract_digest": {
+          "type": "string",
+          "pattern": "^sha256:[0-9a-f]{64}$"
+        },
+        "policy_digest": {
+          "type": "string",
+          "pattern": "^sha256:[0-9a-f]{64}$"
+        },
+        "inventory_digest": {
+          "type": "string",
+          "pattern": "^sha256:[0-9a-f]{64}$"
+        },
+        "environment_digest": {
+          "type": "string",
+          "pattern": "^sha256:[0-9a-f]{64}$"
+        },
+        "cache_state": {
+          "enum": [
+            "cold",
+            "warm",
+            "unknown"
+          ]
+        },
+        "topology": {
+          "enum": [
+            "serial"
+          ]
+        },
+        "stage": {
+          "enum": [
+            "node-focused",
+            "candidate",
+            "full",
+            "bootstrap"
+          ]
+        },
+        "attempt": {
+          "type": "string",
+          "minLength": 1
+        },
+        "node": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "artifact_digest": {
+          "type": "string",
+          "pattern": "^sha256:[0-9a-f]{64}$"
+        },
+        "observer_digest": {
+          "type": "string",
+          "pattern": "^sha256:[0-9a-f]{64}$"
+        }
+      }
+    },
+    "complete": {
+      "type": "boolean"
+    },
+    "unknown": {
+      "type": "array",
+      "items": {
+        "type": "string",
+        "minLength": 1
+      },
+      "minItems": 0
+    },
+    "ambient_facts": {
+      "type": "array",
+      "maxItems": 200000,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "owner",
+          "kind"
+        ],
+        "properties": {
+          "owner": {
+            "type": "string",
+            "minLength": 1
+          },
+          "kind": {
+            "enum": [
+              "git-config",
+              "network-connect"
+            ]
+          }
+        }
+      }
+    },
+    "totals": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "processes",
+        "git_commands",
+        "schema_decodes",
+        "metaschema_validations",
+        "whole_tree_fixtures",
+        "nested_journeys"
+      ],
+      "properties": {
+        "processes": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "git_commands": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "schema_decodes": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "metaschema_validations": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "whole_tree_fixtures": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "nested_journeys": {
+          "type": "integer",
+          "minimum": 0
+        }
+      }
+    },
+    "owners": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "owner",
+          "counts"
+        ],
+        "properties": {
+          "owner": {
+            "type": "string",
+            "minLength": 1
+          },
+          "counts": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "processes",
+              "git_commands",
+              "schema_decodes",
+              "metaschema_validations",
+              "whole_tree_fixtures",
+              "nested_journeys"
+            ],
+            "properties": {
+              "processes": {
+                "type": "integer",
+                "minimum": 0
+              },
+              "git_commands": {
+                "type": "integer",
+                "minimum": 0
+              },
+              "schema_decodes": {
+                "type": "integer",
+                "minimum": 0
+              },
+              "metaschema_validations": {
+                "type": "integer",
+                "minimum": 0
+              },
+              "whole_tree_fixtures": {
+                "type": "integer",
+                "minimum": 0
+              },
+              "nested_journeys": {
+                "type": "integer",
+                "minimum": 0
+              }
+            }
+          }
+        }
+      },
+      "minItems": 0
+    },
+    "cases": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "case",
+          "owner",
+          "counts",
+          "family",
+          "input_size"
+        ],
+        "properties": {
+          "case": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "id",
+              "occurrence"
+            ],
+            "properties": {
+              "id": {
+                "type": "string",
+                "minLength": 1
+              },
+              "occurrence": {
+                "type": "integer",
+                "minimum": 1
+              }
+            }
+          },
+          "owner": {
+            "type": "string",
+            "minLength": 1
+          },
+          "counts": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "processes",
+              "git_commands",
+              "schema_decodes",
+              "metaschema_validations",
+              "whole_tree_fixtures",
+              "nested_journeys"
+            ],
+            "properties": {
+              "processes": {
+                "type": "integer",
+                "minimum": 0
+              },
+              "git_commands": {
+                "type": "integer",
+                "minimum": 0
+              },
+              "schema_decodes": {
+                "type": "integer",
+                "minimum": 0
+              },
+              "metaschema_validations": {
+                "type": "integer",
+                "minimum": 0
+              },
+              "whole_tree_fixtures": {
+                "type": "integer",
+                "minimum": 0
+              },
+              "nested_journeys": {
+                "type": "integer",
+                "minimum": 0
+              }
+            }
+          },
+          "family": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "input_size": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "minimum": 1
+          }
+        }
+      },
+      "minItems": 0
+    }
+  }
+}

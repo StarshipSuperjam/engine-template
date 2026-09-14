@@ -5,7 +5,8 @@
   "provides": {
     "check": [
       ".engine/check/guardrail-weakening.json",
-      ".engine/check/protection.json"
+      ".engine/check/protection.json",
+      ".engine/check/test-cost.json"
     ],
     "schema": [
       ".engine/schemas/*.json"
@@ -113,7 +114,8 @@
       ".engine/docs/accepted-hook-qualification.md",
       ".engine/docs/ci-assurance.md",
       ".engine/docs/getting-started.md",
-      ".engine/docs/result-contracts.md"
+      ".engine/docs/result-contracts.md",
+      ".engine/docs/test-cost-contracts.md"
     ],
     "state": [
       ".engine/state/*.json"
@@ -134,13 +136,21 @@
       ".engine/policies/model-routing.md",
       ".engine/policies/session-economy.md",
       ".engine/policies/supported-upgrade-matrix.md",
-      ".engine/policies/triage-threshold.md"
+      ".engine/policies/triage-threshold.md",
+      ".engine/policies/test-cost-activation.json",
+      ".engine/policies/test-cost-calibration.json",
+      ".engine/policies/test-cost-declarations.json",
+      ".engine/policies/test-cost-legacy-baseline.json",
+      ".engine/policies/test-cost-legacy-static.json",
+      ".engine/policies/test-cost-parity.json",
+      ".engine/policies/test-cost.json"
     ],
     "conduct": [
       ".engine/conduct/defaults.md"
     ],
     "template": [
-      ".engine/templates/*.md"
+      ".engine/templates/*.md",
+      ".engine/templates/test-authoring.py"
     ],
     "foundation": [
       ".engine/build-orchestration-obligations.json",

@@ -23,7 +23,7 @@ import project_manager
 import plan_lifecycle
 import plan_program
 import plan_store
-from test_plan_store import _document
+from test_project_manager import _document
 
 
 class _Ceremony(unittest.TestCase):
@@ -31,7 +31,7 @@ class _Ceremony(unittest.TestCase):
 
     def setUp(self):
         from selftest_support import review_fixture
-        review_fixture(self)
+        review_fixture(self, prospective=True)
         self._tmp = tempfile.TemporaryDirectory()
         self.tmp = Path(self._tmp.name)
         self.root = self.tmp / "plans"

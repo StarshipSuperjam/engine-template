@@ -26,7 +26,8 @@ import unittest
 import plan_projection
 import plan_store
 
-from test_plan_store import _document, _payload
+from test_plan_store import _payload
+from test_project_manager import _document
 
 
 class _Projected(unittest.TestCase):

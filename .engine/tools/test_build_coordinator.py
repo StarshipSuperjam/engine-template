@@ -4992,6 +4992,8 @@ class TestV2CompletionGate(CoordinatorCase):
         self.assertIn("work integrate", routine)
         self.assertIn("work integrate", implementation)
 
+import selftest_cost as cost
+
 class TestV1Sunset(unittest.TestCase):
     """The v1 generation is gone, and this is the search that PROVES it — with its one exclusion.
 
@@ -5048,8 +5050,14 @@ class TestV1Sunset(unittest.TestCase):
         self.assertIn("issue 1070", source,
                       "the kept v1 map does not name the issue that retires it")
 
+    @cost.declaration({
+        "schema_version": "test-cost-contract.v1", "supported_fault": "The removed v1 Build generation remains dispatchable",
+        "boundary": "pure", "boundary_rationale": "Inspect three in-memory schema maps and removed symbols",
+        "fixture_owner": "test_build_coordinator.TestV1Sunset", "dependencies": ["build_coordinator"],
+        "data_reads": [], "cadence": "pr", "limits": cost.zeros(), "mutable_state": "None",
+        "cache_lifetime": "case", "added_cost_risk": "Bounded constant comparisons only", "families": []})
     def test_the_coordinator_dispatches_one_generation_only(self):
-        self.assertEqual(sorted(bc.PLAN_SCHEMAS), ["build-plan.v2"])
+        self.assertEqual(sorted(bc.PLAN_SCHEMAS), ["build-plan.v2", "build-plan.v3"])
         self.assertEqual(sorted(bc.STATE_SCHEMAS), ["build-state.v2"])
         self.assertEqual(sorted(bc.HANDOFF_SCHEMAS), ["build-handoff.v2"])
         for gone in ("PLAN_V1_REMOVE_AT_MAJOR", "cmd_plan_migrate_v1", "_migrate_v1_to_v2",
@@ -7924,7 +7932,7 @@ class TestFrozenBuildContracts(CoordinatorCase):
         import reviewer_contracts
         self.seed(); self.approve('thorough'); self.integrate_all()
         record = self.review_library.read_record(self.review_slug)
-        self.frozen = reviewer_contracts.capture(bc.ROOT,
+        self.frozen = reviewer_contracts.capture(Path(bc.scoped_agents.__file__).resolve().parents[2],
             {'plan_id':PLAN_ID,'revision':1,'plan_digest':record['current']['plan_digest']},
             'thorough', ['architecture','feasibility','product-intent','risk-governance'],
             self.DELIVERABLE_LENSES, instructions='Read the complete approved plan and change.')
@@ -8673,13 +8681,22 @@ class TestFrozenBuildContracts(CoordinatorCase):
             with self.assertRaises(bc.CoordinatorError):
                 bc.cmd_build_contract_apply(args,self.store)
 
+    @cost.declaration({
+        "schema_version": "test-cost-contract.v1", "supported_fault": "Adopting one changed reviewer mandate loses retained reads or stale disclosure escapes",
+        "boundary": "integration", "boundary_rationale": "Real observed review ingress and coordinator Git queries preserve renewal evidence",
+        "fixture_owner": "test_build_coordinator.TestFrozenBuildContracts", "dependencies": ["build_coordinator", "reviewer_contracts", "scoped_agents", "git"],
+        "data_reads": [".engine/schemas/*.json", ".engine/policies/model-bindings.json", ".engine/build-protocol.json", ".claude/agents/*.md"],
+        "cadence": "pr", "limits": {**cost.zeros(), "processes": 80, "git_commands": 80,
+                                     "schema_decodes": 1500, "metaschema_validations": 3},
+        "mutable_state": "Disposable Build, plan library, native event fixtures and one renewed reviewer",
+        "cache_lifetime": "case", "added_cost_risk": "Observed 71 Git queries and 1424 JSON decodes; descendant work remains unknown", "families": []})
     def test_adopted_mandate_requires_only_changed_lens_and_refreshes_disclosure(self):
         import copy
         packet = self.packet()
         for lens in self.DELIVERABLE_LENSES:
             self.record_frozen(packet,lens)
         original = copy.deepcopy(self.store.read()['reviews']['deliverable']['receipts'])
-        available = bc.reviewer_contracts.discover(bc.ROOT)
+        available = bc.reviewer_contracts.discover(Path(bc.scoped_agents.__file__).resolve().parents[2])
         changed = next(p for p in available if p['lens']=='technical-integrity')
         changed['semantic']['mandate']['version'] += 1
         changed['semantic_digest'] = bc._digest(changed['semantic'])

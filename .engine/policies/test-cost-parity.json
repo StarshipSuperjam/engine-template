@@ -1,0 +1,93 @@
+[
+  {
+    "case": {
+      "id": "memory.test_erasure_observer.ReadTargetsTests.test_rejects_a_batch_whose_costs_do_not_pin_one_to_one_with_targets",
+      "occurrence": 1
+    },
+    "path": ".engine/tools/memory/test_erasure_observer.py",
+    "qualified_name": "ReadTargetsTests.test_rejects_a_batch_whose_costs_do_not_pin_one_to_one_with_targets",
+    "source_digest": "sha256:c468b8113088e354cb6a1efcfcc5a5a65a1fd6920c7fcc24c5ee5bb36992d17d",
+    "source_tree": "1d3a082d6819b4bf5620ad09a589df312e65f866",
+    "mode": "opaque-uuid4",
+    "owner": "prg_1276f4a3c217",
+    "reason": "The retained fixture mints UUID4 record, Build or assignment IDs. Preserve their prefixes, distinctness and repeated references, all other input values, subtest order and outcomes."
+  },
+  {
+    "case": {
+      "id": "memory.test_mutation_contract.TestConfiguredMutationCoverage.test_dispatcher_and_registry_have_the_same_automatic_mutator_roster",
+      "occurrence": 1
+    },
+    "path": ".engine/tools/memory/test_mutation_contract.py",
+    "qualified_name": "TestConfiguredMutationCoverage.test_dispatcher_and_registry_have_the_same_automatic_mutator_roster",
+    "source_digest": "sha256:b8a3ec2d99aab29371f4c3612ed2f10a108104194a07538517630998b67acfd2",
+    "source_tree": "1d3a082d6819b4bf5620ad09a589df312e65f866",
+    "mode": "unordered-subtests",
+    "owner": "prg_1276f4a3c217",
+    "reason": "The retained method iterates a set of independent registry entries; hash iteration order is not stable. Preserve every label, outcome and multiplicity."
+  },
+  {
+    "case": {
+      "id": "test_build_state_store.TransactionalOwnership.test_active_bind_retains_original_admission_without_network_or_consent",
+      "occurrence": 1
+    },
+    "path": ".engine/tools/test_build_state_store.py",
+    "qualified_name": "TransactionalOwnership.test_active_bind_retains_original_admission_without_network_or_consent",
+    "source_digest": "sha256:60e4507a8cdf7ccc8cbfff4bb0f3775aa8168e793875a77db19e239492c51057",
+    "source_tree": "1d3a082d6819b4bf5620ad09a589df312e65f866",
+    "mode": "opaque-uuid4",
+    "owner": "prg_1276f4a3c217",
+    "reason": "The retained fixture mints UUID4 record, Build or assignment IDs. Preserve their prefixes, distinctness and repeated references, all other input values, subtest order and outcomes."
+  },
+  {
+    "case": {
+      "id": "test_build_state_store.TransactionalOwnership.test_command_entry_fences_stale_identity_and_revision",
+      "occurrence": 1
+    },
+    "path": ".engine/tools/test_build_state_store.py",
+    "qualified_name": "TransactionalOwnership.test_command_entry_fences_stale_identity_and_revision",
+    "source_digest": "sha256:dd64707f13db02f5c967702b2ca556a9b851b801ffa761cdb8753a99785f7595",
+    "source_tree": "1d3a082d6819b4bf5620ad09a589df312e65f866",
+    "mode": "opaque-uuid4",
+    "owner": "prg_1276f4a3c217",
+    "reason": "The retained fixture mints UUID4 record, Build or assignment IDs. Preserve their prefixes, distinctness and repeated references, all other input values, subtest order and outcomes."
+  },
+  {
+    "case": {
+      "id": "test_build_state_store.TransactionalOwnership.test_legacy_active_bind_continues_without_claiming_new_freshness",
+      "occurrence": 1
+    },
+    "path": ".engine/tools/test_build_state_store.py",
+    "qualified_name": "TransactionalOwnership.test_legacy_active_bind_continues_without_claiming_new_freshness",
+    "source_digest": "sha256:067e5cd44e34a65ce8cc44332eaed174eea43dc925cfc19d584dc87e3dd5b00d",
+    "source_tree": "1d3a082d6819b4bf5620ad09a589df312e65f866",
+    "mode": "opaque-uuid4",
+    "owner": "prg_1276f4a3c217",
+    "reason": "The retained fixture mints UUID4 record, Build or assignment IDs. Preserve their prefixes, distinctness and repeated references, all other input values, subtest order and outcomes."
+  },
+  {
+    "case": {
+      "id": "test_reviewer_contracts.HistoricalContracts.test_source_capabilities_use_real_named_transitions_and_refuse_modern_downgrade",
+      "occurrence": 1
+    },
+    "path": ".engine/tools/test_reviewer_contracts.py",
+    "qualified_name": "HistoricalContracts.test_source_capabilities_use_real_named_transitions_and_refuse_modern_downgrade",
+    "source_digest": "sha256:2c645396394e6fbb849ab77d09675353629eda1bfc1c7af2f3beaa70b90347b6",
+    "source_tree": "1d3a082d6819b4bf5620ad09a589df312e65f866",
+    "mode": "opaque-git-sha",
+    "owner": "prg_1276f4a3c217",
+    "reason": "setUpClass creates disposable Git commits for named capability transitions. Their timestamps vary; preserve distinct commits, sequence, malformed-date input and every outcome."
+  },
+  {
+    "case": {
+      "id": "test_scoped_agents.ScopedAssignments.test_queue_is_denied_while_active_and_after_turn_end",
+      "occurrence": 1
+    },
+    "path": ".engine/tools/test_scoped_agents.py",
+    "qualified_name": "ScopedAssignments.test_queue_is_denied_while_active_and_after_turn_end",
+    "source_digest": "sha256:df7c56ea8b35f69c920cb347581aaf1fcc977ac7d89015381b0e5c911cccce49",
+    "source_tree": "1d3a082d6819b4bf5620ad09a589df312e65f866",
+    "mode": "opaque-uuid4",
+    "owner": "prg_1276f4a3c217",
+    "reason": "The retained fixture mints UUID4 record, Build or assignment IDs. Preserve their prefixes, distinctness and repeated references, all other input values, subtest order and outcomes."
+  }
+]

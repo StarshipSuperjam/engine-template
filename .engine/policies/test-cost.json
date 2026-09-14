@@ -1,0 +1,37 @@
+{
+  "schema_version": "test-cost-policy.v1",
+  "resources": [
+    "processes",
+    "git_commands",
+    "schema_decodes",
+    "metaschema_validations",
+    "whole_tree_fixtures",
+    "nested_journeys"
+  ],
+  "target_seconds": 900,
+  "concern_seconds": 1200,
+  "observer_overhead_target_fraction": 0.03,
+  "max_exception_seconds": 2592000,
+  "max_observation_bytes": 16777216,
+  "max_owners": 200000,
+  "max_counter": 2147483647,
+  "timing": {
+    "decision": "advisory",
+    "minimum_pairs": 3,
+    "algorithm": "For matching identities and complete observations, compare paired candidate-minus-baseline seconds. Flag material growth only when every paired delta exceeds the maximum absolute adjacent baseline-sample difference; retain all samples and the computed noise envelope. Missing calibration is unavailable, never a deterministic violation."
+  },
+  "rollout": {
+    "missing_baseline": "measurement-bootstrap",
+    "bootstrap_grants_cost_approval": false,
+    "legacy_growth": "refuse above explicitly enrolled limits",
+    "new_authoring_version": "build-plan.v3",
+    "baseline_file": ".engine/policies/test-cost-legacy-baseline.json",
+    "activation_file": ".engine/policies/test-cost-activation.json",
+    "declarations_file": ".engine/policies/test-cost-declarations.json"
+  },
+  "handoffs": {
+    "PROFILE-STAGES": "Preserve node-focused, candidate, full and bootstrap stages; do not substitute them.",
+    "ARTIFACT-IDENTITY": "Join existing immutable source/base/artifact and attempt identities; an observer adapter is not the measured source.",
+    "EVIDENCE-OUTCOME": "Incomplete or unknown observation cannot become acceptable; test outcome authority remains selftest-results.v1."
+  }
+}

@@ -9,12 +9,51 @@ import result_contracts
 import reviewer_contracts
 
 
+def cost_judgment(report, assessment):
+    """Bind advice to controller-produced evidence; do not turn advice into disposition."""
+    import selftest_cost
+    if not isinstance(report, dict) or not isinstance(report.get("cost_review"), dict):
+        raise core.CoordinatorError("an explicit technical-integrity cost judgment is required")
+    judgment = report["cost_review"]
+    if (judgment.get("assessment_digest") != selftest_cost.digest(assessment)
+            or judgment.get("candidate_identity") != assessment.get("identity")):
+        raise core.CoordinatorError("cost judgment does not attest the current assessment")
+    if judgment.get("status") == "not-applicable":
+        raise core.CoordinatorError("this approved cost contract is applicable; the reviewer cannot exempt it")
+    if not isinstance(judgment.get("rationale"), str) or not judgment["rationale"].strip():
+        raise core.CoordinatorError("cost judgment requires a rationale")
+    if judgment.get("status") == "acceptable" and not assessment.get("cost_clearance"):
+        raise core.CoordinatorError("unavailable or concerning cost evidence cannot be presented as clean")
+    return judgment
+
+
+def cost_disposition(report, assessment, disposition):
+    """Explicit controller judgment can carry a disclosed limit, never qualified cost credit."""
+    judgment = cost_judgment(report, assessment)
+    if assessment.get("violations"):
+        raise core.CoordinatorError("deterministic cost violations require repair or a live approved exception")
+    if not isinstance(disposition, dict) or set(disposition) != {"assessment_digest", "decision", "rationale"}:
+        raise core.CoordinatorError("a separate controller cost disposition is required")
+    if disposition["assessment_digest"] != judgment["assessment_digest"]:
+        raise core.CoordinatorError("controller disposition is stale for this cost assessment")
+    if not isinstance(disposition["rationale"], str) or not disposition["rationale"].strip():
+        raise core.CoordinatorError("controller cost disposition requires its rationale")
+    required = "accept" if judgment["status"] == "acceptable" else "accept-with-limitations"
+    if disposition["decision"] != required:
+        raise core.CoordinatorError("cost concerns or unavailable evidence need an explicit limitations disposition")
+    return {"judgment": judgment, "disposition": disposition,
+            "cost_clearance": judgment["status"] == "acceptable" and assessment["cost_clearance"]}
+
+
 def ingest_review_report(raw, binding, *, lens, retained=False):
     """Canonical deliverable/repair report ingress, before controller adjudication."""
     try:
+        contract = (binding or {}).get("id", "pre-submission-review-finding.v1")
+        if contract not in ("pre-submission-review-finding.v1", "technical-integrity-review.v1"):
+            result_contracts.reject("review_ingress_contract", category="authority", contract=contract)
         report = result_contracts.ingest(raw, binding,
-            contract="pre-submission-review-finding.v1", role="pre-submission-review", retained=retained)
-        return result_contracts.compile_review(report, lens=lens)
+            contract=contract, role="pre-submission-review", retained=retained)
+        return result_contracts.compile_review(report, lens=lens, contract=contract)
     except result_contracts.Rejection as exc:
         raise core.CoordinatorError(str(exc)) from exc
 

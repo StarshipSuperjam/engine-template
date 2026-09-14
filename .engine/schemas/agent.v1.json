@@ -122,6 +122,11 @@
       "pattern": "^[a-z][a-z0-9.-]*:[a-z][a-z0-9.-]*$",
       "description": "Stable namespaced review mandate identity. Required for review roles by coherence; editorial edits retain it."
     },
+    "supports-frozen-cost-predecessor": {
+      "type": "integer",
+      "const": 1,
+      "description": "Supports the original frozen technical-integrity array mandate while new approvals use version 2. Exact transition compatibility is enforced by reviewer_contracts; this marker grants no broader renewal."
+    },
     "reviewer-contract-version": {
       "type": "integer",
       "minimum": 1,

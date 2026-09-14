@@ -79,6 +79,76 @@ def _document(**over) -> dict:
     return doc
 
 
+
+def _cost_payload():
+    payload = _payload()
+    payload["schema_version"] = "build-plan.v3"
+    for item in payload["work_items"]:
+        item["test_cost"] = {
+            "schema_version": "test-cost-contract.v1",
+            "supported_fault": "Invalid plan admission",
+            "boundary": "pure", "boundary_rationale": "Pure schema and DAG validation suffices.",
+            "fixture_owner": "test_plan_contract", "dependencies": ["jsonschema"],
+            "data_reads": [".engine/schemas/build-plan.v3.json"], "cadence": "pr",
+            "limits": {name: 0 for name in ("processes", "git_commands", "schema_decodes",
+                       "metaschema_validations", "whole_tree_fixtures", "nested_journeys")},
+            "mutable_state": "Fresh dictionaries per case", "cache_lifetime": "none",
+            "added_cost_risk": "Bounded in-memory examples", "families": [],
+        }
+    return payload
+
+
+class ProspectiveCostContracts(unittest.TestCase):
+    def test_exceptions_require_expiry_and_observation_identity_has_no_inferred_stage(self):
+        import build_coordinator_core as core
+        exception = {"id": "temporary-debt", "owner": "maintainer", "reason": "Repair pending",
+                     "revisit": "Repair the real process fixture", "issued_at": "2026-09-13T00:00:00Z",
+                     "expires_at": "2026-09-14T00:00:00Z", "case": {"id": "case", "occurrence": 1},
+                     "resource": "processes", "ceiling": 2, "source_commit": "a" * 40}
+        schema = plan_contract.ROOT / ".engine/schemas/test-cost-exception.v1.json"
+        core.validate(exception, schema)
+        del exception["expires_at"]
+        with self.assertRaises(core.CoordinatorError):
+            core.validate(exception, schema)
+        # Unknown future provider capability is not a fictional identity accepted by the contract.
+        observation = json.loads((plan_contract.ROOT / ".engine/schemas/test-cost-observation.v1.json").read_text())
+        from jsonschema import Draft202012Validator
+        stage = observation["properties"]["identity"]["properties"]["stage"]
+        self.assertFalse(Draft202012Validator(stage).is_valid("sandbox-attested"))
+
+    def test_new_seals_require_declarations_while_legacy_reads_preserve_bytes(self):
+        legacy = _document()
+        before = plan_contract.document_digest(legacy)
+        self.assertEqual(plan_contract.validate_document(legacy), "build-plan.v2")
+        self.assertEqual(plan_contract.document_digest(legacy), before)
+        self.assertTrue(any("build-plan.v3" in x for x in plan_contract.seal_blockers(legacy)))
+        current = _document(build_plan=_cost_payload())
+        self.assertEqual(plan_contract.seal_blockers(current), [])
+        for key in ("supported_fault", "boundary", "fixture_owner", "limits", "mutable_state"):
+            bad = copy.deepcopy(current)
+            del bad["build_plan"]["work_items"][0]["test_cost"][key]
+            with self.subTest(key=key), self.assertRaises(plan_contract.PlanContractError):
+                plan_contract.validate_document(bad)
+
+    def test_pure_boundaries_cannot_hide_process_work_or_disable_applicability(self):
+        for change in ({"applicable": False}, {"limits": {**_cost_payload()["work_items"][0]["test_cost"]["limits"], "processes": 1}}):
+            payload = _cost_payload()
+            payload["work_items"][0]["test_cost"].update(change)
+            with self.assertRaises(plan_contract.PlanContractError):
+                plan_contract.validate_document(_document(build_plan=payload))
+
+    def test_v3_retains_graph_checks_and_rejects_ambiguous_scaling(self):
+        payload = _cost_payload()
+        payload["work_items"][0]["depends_on"] = ["second"]
+        with self.assertRaisesRegex(plan_contract.PlanContractError, "cycle"):
+            plan_contract.validate_document(_document(build_plan=payload))
+        payload = _cost_payload()
+        contract = payload["work_items"][0]["test_cost"]
+        contract["families"] = [{"id": "inputs", "case_patterns": ["test_inputs.*"],
+                                  "input_sizes": [2, 2], "growth_limits": contract["limits"]}]
+        with self.assertRaisesRegex(plan_contract.PlanContractError, "increasing"):
+            plan_contract.validate_document(_document(build_plan=payload))
+
 class DelegatesPayloadAuthority(unittest.TestCase):
     """Each of the Build Coordinator's three layers, refused here by the same code that refuses it there."""
 
@@ -166,22 +236,22 @@ class StructuralDefects(unittest.TestCase):
 
 class SealBlockers(unittest.TestCase):
     def test_an_unresolved_decision_blocks_the_seal_but_not_the_draft(self):
-        doc = _document()
+        doc = _document(build_plan=_cost_payload())
         doc["deliberation"]["unresolved_decisions"] = ["Who owns the retention policy?"]
         # Still a perfectly valid DRAFT — that is the point of recording the question.
-        self.assertEqual(plan_contract.validate_document(doc), "build-plan.v2")
+        self.assertEqual(plan_contract.validate_document(doc), "build-plan.v3")
         blockers = plan_contract.seal_blockers(doc)
         self.assertTrue(any("unresolved" in b for b in blockers), blockers)
         self.assertTrue(any("Who owns the retention policy?" in b for b in blockers), blockers)
 
     def test_an_unresolved_assumption_blocks_the_seal(self):
-        doc = _document()
+        doc = _document(build_plan=_cost_payload())
         doc["build_plan"]["assumptions"] = [{"claim": "The disk is durable.", "status": "unresolved"}]
         blockers = plan_contract.seal_blockers(doc)
         self.assertTrue(any("The disk is durable." in b for b in blockers), blockers)
 
     def test_verified_and_accepted_risk_assumptions_do_not_block(self):
-        doc = _document()
+        doc = _document(build_plan=_cost_payload())
         doc["build_plan"]["assumptions"] = [{"claim": "Proven.", "status": "verified"},
                                             {"claim": "Known and accepted.", "status": "accepted-risk"}]
         self.assertEqual(plan_contract.seal_blockers(doc), [])
@@ -197,19 +267,19 @@ class SealBlockers(unittest.TestCase):
         doc = _document(build_plan=v1)
         self.assertEqual(plan_contract.validate_document(doc), "build-plan.v1")
         blockers = plan_contract.seal_blockers(doc)
-        self.assertTrue(any("only build-plan.v2 can be sealed" in b for b in blockers), blockers)
+        self.assertTrue(any("only build-plan.v3 can be sealed" in b for b in blockers), blockers)
 
     def test_a_clean_plan_has_no_blockers(self):
-        self.assertEqual(plan_contract.seal_blockers(_document()), [])
+        self.assertEqual(plan_contract.seal_blockers(_document(build_plan=_cost_payload())), [])
 
     def test_blockers_are_reported_together_not_one_at_a_time(self):
-        doc = _document()
+        doc = _document(build_plan=_cost_payload())
         doc["deliberation"]["unresolved_decisions"] = ["An open question."]
         doc["build_plan"]["assumptions"] = [{"claim": "An open assumption.", "status": "unresolved"}]
         self.assertEqual(len(plan_contract.seal_blockers(doc)), 2)
 
     def test_an_invalid_document_reports_that_rather_than_a_crash(self):
-        doc = _document()
+        doc = _document(build_plan=_cost_payload())
         del doc["build_plan"]
         blockers = plan_contract.seal_blockers(doc)
         self.assertEqual(len(blockers), 1)
@@ -330,7 +400,7 @@ class ImportedDraftAllowance(unittest.TestCase):
         blockers = plan_contract.seal_blockers(_imported())
         self.assertTrue(any("imported native plan" in b for b in blockers), blockers)
         remedy = next(b for b in blockers if "imported native plan" in b)
-        self.assertIn("build-plan.v2", remedy)
+        self.assertIn("build-plan.v3", remedy)
         self.assertIn("revise", remedy)
         # And it is not the generic old-version refusal, which would send the operator looking for a
         # migration that does not exist for a plan nobody has decomposed.

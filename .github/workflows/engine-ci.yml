@@ -16,7 +16,8 @@
 # dependency can turn red as a new advisory is published) — and skips the rest of the CI validator rules and the
 # whole self-test inventory, which a tree already judged cannot change. A receipt is honoured for at most 14
 # days — deliberately tighter than the artifact's 30-day physical retention — past which even a metadata event
-# runs full. Any doubt — no receipt, an unreadable one, an API failure — resolves to the full run. A reuse run
+# runs full. Live cost permission is re-evaluated even when raw observations remain reusable.
+# Any doubt — no receipt, an unreadable one, an API failure — resolves to the full run. A reuse run
 # uploads no receipt, so reuse can never chain off reuse.
 #
 # ROUTE THREE, PROJECT-ONLY (StarshipSuperjam/engine-template#758 and StarshipSuperjam/engine-template#883) is
@@ -96,6 +97,8 @@ jobs:
           # turn the project-only arm off without an engine release: off, false, 0, no or disabled (any case,
           # trimmed) disables; anything else, or no variable at all, leaves the arm on.
           ENGINE_CI_PROJECT_ONLY_ARM: ${{ vars.ENGINE_CI_PROJECT_ONLY_ARM }}
+          ENGINE_TEST_COST_APPROVED_EXCEPTIONS: ${{ vars.ENGINE_TEST_COST_APPROVED_EXCEPTIONS }}
+          ENGINE_CI_COST_REUSE_DIR: ${{ runner.temp }}/engine-ci-proof
         run: uv run --directory .engine --frozen -- python tools/ci_gatekeeper.py decide
       - name: Run the seed validator (CI suite)
         # The full arm is the NEGATION of both other modes, so no third state can skip every arm. The platform
@@ -138,7 +141,16 @@ jobs:
           GITHUB_PATH: ${{ runner.temp }}/decoy-github-path
           GITHUB_STATE: ${{ runner.temp }}/decoy-github-state
           GITHUB_STEP_SUMMARY: ${{ runner.temp }}/decoy-github-step-summary
-        run: uv run --directory .engine --frozen -- python tools/selftest.py --start-dir tools --pattern 'test_*.py' --results-path "$RUNNER_TEMP/selftest-results.json" --performance-path "$RUNNER_TEMP/selftest-performance.json"
+        run: uv run --directory .engine --frozen -- python tools/selftest.py --start-dir tools --pattern 'test_*.py' --results-path "$RUNNER_TEMP/selftest-results.json" --performance-path "$RUNNER_TEMP/selftest-performance.json" --cost-path "$RUNNER_TEMP/selftest-cost.json"
+      - name: Assess observed test cost
+        id: cost
+        if: steps.gate.outputs.mode != 'reuse' && steps.gate.outputs.mode != 'project-only'
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          ENGINE_TEST_COST_APPROVED_EXCEPTIONS: ${{ vars.ENGINE_TEST_COST_APPROVED_EXCEPTIONS }}
+        run: |
+          mkdir -p "$RUNNER_TEMP/engine-ci-proof"
+          uv run --directory .engine --frozen -- python tools/ci_gatekeeper.py assess-cost --cost-run "$RUNNER_TEMP/selftest-cost.json" --outcomes "$RUNNER_TEMP/selftest-results.json" --performance "$RUNNER_TEMP/selftest-performance.json" --out "$RUNNER_TEMP/engine-ci-proof/cost-evidence.json"
       - name: Publish observed self-test summary
         id: observations
         if: always() && steps.gate.outputs.mode == 'full'
@@ -162,6 +174,17 @@ jobs:
           path: ${{ runner.temp }}/published-selftest/selftest-performance.json
           retention-days: 30
           if-no-files-found: warn
+      - name: Upload test cost diagnostics
+        if: always() && steps.gate.outputs.mode == 'full'
+        continue-on-error: true
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: engine-selftest-cost-${{ github.run_id }}-${{ github.run_attempt }}
+          path: |
+            ${{ runner.temp }}/selftest-cost.json
+            ${{ runner.temp }}/engine-ci-proof/cost-evidence.json.assessment.json
+          retention-days: 30
+          if-no-files-found: warn
       - name: Run the seed validator alone (project-only change set)
         # The project-only arm: the FULL validator CI suite, and nothing else. It is a separate step rather
         # than a second condition on the validator step above because the terminal assertion reads each arm's
@@ -182,22 +205,30 @@ jobs:
         # the project-only arm (everything that is not reuse); the receipt's MODE is the gate's own verdict,
         # handed in below, so a project-only run can never mint a full attestation. The emitter refuses any
         # mode it cannot vouch for.
-        if: steps.gate.outputs.mode != 'reuse' && github.event_name == 'pull_request'
+        if: steps.gate.outputs.mode != 'reuse'
         env:
           GITHUB_REPOSITORY: ${{ github.repository }}
           ENGINE_CI_MODE: ${{ steps.gate.outputs.mode }}
-        run: uv run --directory .engine --frozen -- python tools/ci_gatekeeper.py emit-receipt --out "$RUNNER_TEMP/receipt.json"
+          ENGINE_TEST_COST_APPROVED_EXCEPTIONS: ${{ vars.ENGINE_TEST_COST_APPROVED_EXCEPTIONS }}
+        run: |
+          cost_args=()
+          if [ "$ENGINE_CI_MODE" = full ]; then
+            cost_args=(--cost-file "$RUNNER_TEMP/engine-ci-proof/cost-evidence.json")
+          fi
+          uv run --directory .engine --frozen -- python tools/ci_gatekeeper.py emit-receipt --out "$RUNNER_TEMP/engine-ci-proof/receipt.json" "${cost_args[@]}"
       - name: Upload the receipt
         # The ONLY merge-receipt upload; separate per-attempt observations carry no merge authority.
         # A reuse run never reaches any upload. The exact receipt artifact name separates a
         # run that left a receipt from a reuse run of the same workflow — run metadata reports the event but
         # not the action, so it cannot make that distinction itself — and the receipt's mode separates a full
         # run from a project-only one; the reuse route accepts only the former.
-        if: steps.gate.outputs.mode != 'reuse' && github.event_name == 'pull_request'
+        if: steps.gate.outputs.mode != 'reuse' && (github.event_name == 'pull_request' || github.event_name == 'push')
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: engine-ci-receipt
-          path: ${{ runner.temp }}/receipt.json
+          path: |
+            ${{ runner.temp }}/engine-ci-proof/receipt.json
+            ${{ runner.temp }}/engine-ci-proof/cost-evidence.json
           retention-days: 30
           if-no-files-found: error
           # A re-run of a full run (`gh run rerun`) re-executes this step; artifacts are namespaced per run, not
@@ -238,4 +269,5 @@ jobs:
           ENGINE_CI_FULL_RAN: ${{ steps.selftests.outcome }}
           ENGINE_CI_REUSE_RAN: ${{ steps.metadata.outcome }}
           ENGINE_CI_PROJECT_ONLY_RAN: ${{ steps.project.outcome }}
-        run: uv run --directory .engine --frozen -- python tools/ci_gatekeeper.py assert-ran
+          ENGINE_TEST_COST_APPROVED_EXCEPTIONS: ${{ vars.ENGINE_TEST_COST_APPROVED_EXCEPTIONS }}
+        run: uv run --directory .engine --frozen -- python tools/ci_gatekeeper.py assert-ran --cost-dir "$RUNNER_TEMP/engine-ci-proof"

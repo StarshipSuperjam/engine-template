@@ -1,0 +1,29 @@
+{
+  "source_commit": "c434b4771efb94bce36894287b8ffeda2555b651",
+  "duplicates": [
+    {
+      "path": ".engine/tools/test_build_coordinator.py",
+      "qualified_name": "TestEvidenceDurability.test_the_reconcile_disclosure_reaches_the_operator_in_the_composed_body",
+      "source_commit": "c434b4771efb94bce36894287b8ffeda2555b651",
+      "occurrences": 2,
+      "ast_digest": "sha256:d725a2b9c27f387bafb2d038680e0b5e470dcc24d2c4837d88248cd45c51c3c8",
+      "owner": "Sustainable PR test performance",
+      "reason": "Existing overwritten definition; preserve fault audit ownership",
+      "revisit": "Comprehensive legacy test relevance audit"
+    },
+    {
+      "path": ".engine/tools/test_build_coordinator.py",
+      "qualified_name": "TestEvidenceDurability.test_a_divergent_reconcile_names_the_paths_in_the_composed_body",
+      "source_commit": "c434b4771efb94bce36894287b8ffeda2555b651",
+      "occurrences": 2,
+      "ast_digest": "sha256:ee93ec6e147eb76780281a30127821bf8517ca5931b68b55358acd08a9bfef8c",
+      "owner": "Sustainable PR test performance",
+      "reason": "Existing overwritten definition; preserve fault audit ownership",
+      "revisit": "Comprehensive legacy test relevance audit"
+    }
+  ],
+  "schema_version": "test-cost-static-enrollment.v1",
+  "note": "Static source census only. This supplies no measured resource exemption or runtime enrollment.",
+  "definition_count": 10024,
+  "definitions_digest": "sha256:0b949935efd08a746abbda84f2e60635c7028492ce96c20a72348cda56b1857f"
+}

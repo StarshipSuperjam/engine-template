@@ -63,7 +63,7 @@ ProjectManagerError = plan_store.PlanStoreError
 # plan approval, and that consent covers both gates.
 #
 # DEPTH SELECTS REVIEWERS AND NOTHING ELSE. It never selects the plan's FORMAT and never selects its
-# GRAPH TOPOLOGY: the document is engine-plan.v1 and the payload build-plan.v2 at every depth, the
+# GRAPH TOPOLOGY: the document is engine-plan.v1 and the payload build-plan.v3 at every depth, the
 # nodes and their dependencies are whatever was authored, and both digests are byte-identical across
 # depths. Stated here and pinned by test rather than left as an obvious-sounding property, because the
 # tempting shortcut is real and would be quiet — letting `quick` accept a thinner document, or fold a
@@ -143,10 +143,13 @@ def installed_deliverable_lenses(root: Path | None = None) -> list[dict]:
     return [found[lens] for lens in sorted(found)]
 
 
-def deliverable_lens_table(root: Path | None = None) -> dict:
+def deliverable_lens_table(root: Path | None = None, *, cost_applicable=False) -> dict:
     """The per-depth deliverable lens table, read from the Build protocol the coordinator runs."""
     base = Path(root) if root is not None else Path(__file__).resolve().parents[2]
-    return core.json_file(base / ".engine" / "build-protocol.json")["deliverable_review"]
+    table = core.json_file(base / ".engine" / "build-protocol.json")["deliverable_review"]
+    if cost_applicable:
+        table = {depth: sorted(set(lenses) | {"technical-integrity"}) for depth, lenses in table.items()}
+    return table
 
 
 def required_lenses(depth: str, roster: list[dict], protocol: dict | None = None) -> list[str]:
@@ -473,14 +476,19 @@ def cmd_depths(args) -> int:
     blockers = plan_contract.seal_blockers(library.head(slug))
     roster = installed_lenses()
     deliverable_roster = installed_deliverable_lenses()
-    deliverable_table = deliverable_lens_table()
+    cost_applicable = library.head(slug)["build_plan"].get("schema_version") == "build-plan.v3"
+    deliverable_table = deliverable_lens_table(cost_applicable=cost_applicable)
+    if cost_applicable:
+        print("This plan requires an explicit technical-integrity cost judgment after the Build at every depth.")
     offered = available_depths(roster, deliverable_roster=deliverable_roster,
                                deliverable_protocol=deliverable_table)
     print(f"review depths for {record['plan_id']} at revision {record['current']['revision']}")
     print("(only those that add coverage over a lighter one):\n")
     for name in offered:
         lenses = required_lenses(name, roster)
-        print(f"  {name:<10} {DEPTHS[name]}")
+        description = ("Your own plan review, automatic checks, and a technical-integrity cost review after the Build."
+                       if cost_applicable and name == "quick" else DEPTHS[name])
+        print(f"  {name:<10} {description}")
         if lenses:
             print(f"             lenses: {', '.join(lenses)}")
         else:
@@ -627,21 +635,29 @@ def cmd_doctor(args) -> int:
 
 # --- governance --------------------------------------------------------------
 
-def _capture_review_contract(record, depth, *, renewal=False):
+def _capture_review_contract(record, depth, *, renewal=False, cost_applicable=False):
     root = Path(__file__).resolve().parents[2]
     plan_names = required_lenses(depth, installed_lenses(root))
-    delivery_names = required_lenses(depth, installed_deliverable_lenses(root), deliverable_lens_table(root))
+    delivery_names = required_lenses(depth, installed_deliverable_lenses(root),
+                                    deliverable_lens_table(root, cost_applicable=cost_applicable))
+    if cost_applicable and "technical-integrity" not in delivery_names:
+        raise ProjectManagerError("cost-applicable plans require the installed technical-integrity reviewer")
     referent = {"plan_id": record["plan_id"], "revision": record["current"]["revision"],
                 "plan_digest": record["current"]["plan_digest"]}
     # Renewal follows the original approved referent even after scoped post-review revisions.
     old = reviewer_contracts.effective(record)
     if old and renewal:
         referent = old["referent"]
-    return reviewer_contracts.capture(root, referent, depth, plan_names, delivery_names,
+    captured = reviewer_contracts.capture(root, referent, depth, plan_names, delivery_names,
         instructions="Read the complete approved plan and raw intent. Inspect relevant source independently. "
         "Report every finding using the frozen result contract. Findings are advice, never dispositions. "
         "Use a fresh native assignment and retain actual execution and read-range evidence. "
         "Effort is harness-controlled; no reviewer effort floor is promised.")
+    if cost_applicable and not any(p["lens"] == "technical-integrity" and
+            p["semantic"]["result_contract"]["id"] == "technical-integrity-review.v1"
+            for p in captured["panels"]["pre-submission-review"]):
+        raise ProjectManagerError("cost-applicable approval requires the versioned technical-integrity cost result contract")
+    return captured
 
 
 def cmd_contract_preview(args):
@@ -652,7 +668,8 @@ def cmd_contract_preview(args):
     old = reviewer_contracts.effective(record)
     if old is None:
         raise ProjectManagerError("historical approval needs explicit historical contract adoption")
-    preview = reviewer_contracts.renewal_preview(record, _capture_review_contract(record, old["depth"], renewal=True),
+    preview = reviewer_contracts.renewal_preview(record, _capture_review_contract(record, old["depth"], renewal=True,
+        cost_applicable=library.head(slug)["build_plan"].get("schema_version") == "build-plan.v3"),
                                                 Path(__file__).resolve().parents[2], args.action,
                                                 getattr(args, 'adopt_lens', None))
     rendered = json.dumps(preview, indent=2, ensure_ascii=False) + "\n"
@@ -677,7 +694,8 @@ def cmd_contract_apply(args):
         old = reviewer_contracts.effective(record)
         if old is None:
             raise ProjectManagerError("historical approval needs explicit adoption")
-        expected = reviewer_contracts.renewal_preview(record, _capture_review_contract(record, old["depth"], renewal=True),
+        expected = reviewer_contracts.renewal_preview(record, _capture_review_contract(record, old["depth"], renewal=True,
+            cost_applicable=library.head(slug)["build_plan"].get("schema_version") == "build-plan.v3"),
                                                      Path(__file__).resolve().parents[2], preview.get("action"),
                                                      preview.get('adopt_lenses'))
         if expected != preview:
@@ -785,12 +803,17 @@ def cmd_approve(args) -> int:
             current.setdefault("approval_history", []).append({"approval": copy.deepcopy(previous),
                 "renewals": current.pop("review_contract_renewals", [])})
         roster = installed_lenses()
-        if args.depth not in available_depths(roster):
+        cost_applicable = library.head(slug)["build_plan"].get("schema_version") == "build-plan.v3"
+        if not cost_applicable:
+            raise ProjectManagerError("new approvals require build-plan.v3 test-cost contracts; historical frozen approvals remain readable")
+        if args.depth not in available_depths(roster,
+                deliverable_protocol=deliverable_lens_table(cost_applicable=cost_applicable)):
             raise ProjectManagerError(
                 f"{args.depth} is not offered here: with this repository's installed reviewers it would run "
                 "exactly what a lighter depth runs, so choosing it would spend consent on nothing. Run "
                 f"`depths {args.plan}` to see what is actually on offer.")
-        contract = _capture_review_contract(current, args.depth)
+        contract = _capture_review_contract(current, args.depth,
+            cost_applicable=cost_applicable)
         if current["current"]["plan_digest"] != digest:
             raise ProjectManagerError("plan changed during approval")
         current["approval"] = {"revision": revision, "plan_digest": digest,
@@ -2072,7 +2095,7 @@ _IMPORTED_GAPS = (
     "What is the strongest honest case AGAINST doing this? The import wrote none, and a placeholder "
     "would be worse than the gap.",
     "How does it decompose into work? The imported payload is empty by construction; a real "
-    "build-plan.v2 payload has to be authored before this plan can be sealed.",
+    "build-plan.v3 payload has to be authored before this plan can be sealed.",
 )
 
 
@@ -2154,7 +2177,7 @@ def arrival_report(arrival: dict) -> str:
         f"The next command is: {arrival['next_command']} — reading the plan whole is what unlocks the "
         "depth choice (`depths`, then `approve --depth ...`), which is where the operator sees the "
         "risk assessment and says how careful the reviews should be. The imported payload is empty "
-        "by construction, so a real build-plan.v2 payload still has to be authored before this plan "
+        "by construction, so a real build-plan.v3 payload still has to be authored before this plan "
         "can be sealed and handed to a Build.")
 
 

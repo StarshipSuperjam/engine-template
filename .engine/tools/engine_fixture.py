@@ -68,6 +68,8 @@ def clone_engine(real_root: str, dest: str) -> str:
     enumeration is empty (a populated surface that produced nothing), it raises `FixtureCloneError` rather
     than falling back to a raw copy — a silent fallback would re-open StarshipSuperjam/engine-template#850 and, worse, pass green.
     """
+    import selftest_cost
+    selftest_cost.event('whole_tree_fixtures')
     tracked = _tracked_under(real_root, (*COPY_DIRS, *COPY_FILES))
     if tracked is None:
         raise FixtureCloneError(

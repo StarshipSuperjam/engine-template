@@ -68,10 +68,17 @@
           "reports": {
             "type": "object",
             "additionalProperties": {
-              "type": "array",
-              "items": {
-                "type": "object"
-              }
+              "oneOf": [
+                {
+                  "type": "array",
+                  "items": {
+                    "type": "object"
+                  }
+                },
+                {
+                  "$ref": "technical-integrity-review.v1.json"
+                }
+              ]
             }
           }
         }

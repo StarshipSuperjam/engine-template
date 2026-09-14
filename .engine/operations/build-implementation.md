@@ -2,15 +2,12 @@
 title: Build implementation — implement and reground
 ---
 ## Purpose
-
 Read when the coordinator reports `implementation`: the plan is bound and approved, and the work is to make the
 change cohesive, commit it through checkpoints, and bring the tree to a validated candidate.
 The surrounding flow is [Build orchestration](build-orchestration.md).
 
 ## Steps
-
 ### Choose the strategy
-
 Choose an implementation strategy proportionate to the work: orchestrator-inline for small or coupled work,
 isolated workers for cleanly separable work when context pressure justifies them, or the durable routine path
 for unattended bulk work. Delegation returns work product to the orchestrator, which remains the single
@@ -64,8 +61,11 @@ Reconcile the target branch before final validation; if it advanced, resolve by 
 `build_coordinator.py sync-artifacts` — it regenerates every registered generated surface (`.engine/knowledge/graph.json` and the rest) in dependency order from the reconciled tree, resolving a derived conflict by regeneration, never a side-pick, and validation refuses until they are current.
 This reconcile is no longer the sole guarantee: the merge floor requires freshness, so GitHub backstops it at the merge boundary.
 
-## Done when
+### Measure before node integration
+For v3 Builds, run `work verify --item <id> --attempt <attempt> --plan <payload>` with normal identity/revision flags after committing and before `work integrate`; candidate/full evidence cannot substitute. Repaired or stale artifacts need matching evidence.
+Declare new/changed case costs and use the smallest meaningful fixture; unchanged cases and shared fixtures remain measured. Follow [Test-cost contracts](../docs/test-cost-contracts.md) for artifact binding and the bounded `demo_test_cost_contracts.py --scenario shared-helper` control.
 
+## Done when
 Every node is integrated, each commit carries an `aligned` checkpoint, the target branch is reconciled and the
 derived surfaces are current, and the tree is ready for candidate validation in
 [Build validation and review](build-validation-and-review.md).

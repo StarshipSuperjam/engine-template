@@ -2,12 +2,9 @@
 title: Plan orchestration — the judgment upstream of a Build
 ---
 ## Purpose
-Every Build begins as a plan authored, reviewed and sealed through the Project Manager. That tool owns the
-sequence — it shows the one next move, names what still blocks a seal, and refuses an out-of-order move while
-naming the way forward. What it cannot supply is judgment: whether the issue in front of you is the real
-problem, what a good fix would even look like, and when to stop and ask the operator rather than push on.
-This runbook is that half. Enter it when agreed work needs to become a plan a later Build can pick up, or
-when a plan already on the shelf is being picked back up.
+Enter when agreed work needs a new plan or a waiting plan resumes. Project Manager owns authoring, approval,
+review and sealing, and names each next step or refusal. This runbook governs judgment: what problem to solve,
+which design serves it and which decisions belong to the operator.
 ## Steps
 
 ### 1. Ground yourself before you have an opinion
@@ -47,10 +44,8 @@ and otherwise ask plainly in the message.
 
 ### 4. Scope the dialogue to the issue's realities
 
-A small issue earns trivially small answers and a small dialogue. The protocol above is judgment to
-exercise, never a checklist to recite: when the grounding questions answer themselves in a sentence each,
-they are answered, and the right dialogue is one exchange or none. Walking an operator through five
-ceremonial questions on a one-line fix is the same failure as skipping them on a change that deserved them.
+Match discussion to the issue. When grounding questions answer themselves, one exchange or none is enough;
+do not turn a small fix into ceremonial questions or skip discussion for a change that warrants it.
 
 ### 5. Work with the intent you actually have
 
@@ -62,10 +57,8 @@ ordinary and should not be forced into the first:
 - **Unattended work needs an authorizing issue.** Nothing runs unattended on intent nobody can point at
   afterwards. If there is no issue and no operator, there is no plan to author yet.
 
-Never file an intake issue for work already in flight. Intake is how work arrives; a plan and its pull
-request are how in-flight work is carried, and an issue opened alongside them records nothing that is not
-already recorded. The seal hand-back and the bind kickoff both say so, so the rule arrives from the ceremony
-rather than from memory.
+Never file an intake issue for work already in flight. Its plan and pull request already carry that work;
+intake is how new work arrives. Seal and bind both relay this rule.
 
 ### 6. Move through the operator's stops, in order
 
@@ -135,17 +128,25 @@ Restating its order here would only give you a second answer, free to drift from
   everything after it, to the phase runbooks [Build orchestration](build-orchestration.md) names.
 
 Approval freezes both reviewer panels. Editorial drift preserves credit; semantic changes use explicit per-lens retain/adopt renewal, with supplemental findings joining disposition and presentation. Historical adoption is a separate decision and never manufactures fresh execution. See [Executable persona result contracts](../docs/result-contracts.md) for renewal, historical recovery, ingress and demonstrations.
+### Test-cost contracts before approval
+
+New authoring uses `build-plan.v3` at every depth. Each node's `test_cost` names its supported fault, cheapest
+meaningful boundary/rationale, fixture owner, dependencies/data reads, cadence, resource limits, mutable state,
+cache lifetime, added cost and scaling families. Use `.engine/templates/test-authoring.py` for declarations.
+Pure work needs no processes/Git, fixture clones or nested journeys; real boundary faults keep bounded real
+processes. Larger limits need evidence and review. Project Manager discloses the required technical-integrity
+cost judgment before every new approval, including quick. Preserve old sealed payloads and frozen contracts;
+scope changes use explicit amendment, and legacy versions cannot bypass new-authoring requirements.
+
 ## Done when
 
-The operator has discussed the shape, seen the drafted plan and had the chance to revise it, chosen its
-review depth and had that recorded, seen what the cold panel found and how each finding was answered, and
-sealed it — and the sealed plan sits in the library ready for a Build to bind. Concluding that this is not
-the change to make is also a finished outcome: nothing is authored, and the operator knows why.
+The operator has discussed the shape, seen and had the chance to revise the draft, approved recorded review
+depth, seen the panel's findings and dispositions, and sealed the plan for a Build to bind. Deciding against
+the change is also a finished outcome: nothing is authored, and the operator knows why.
 
 ## Notes
 
-Exercise judgment rather than reciting the tool's next verb or offering approval without a presented plan.
-Both failures have occurred here. Mechanical completion cannot establish that the design was considered:
-explain the impacts, resolve real questions, and preserve the operator's opportunity to redirect the work.
+Explain impacts, resolve real questions and preserve the operator's opportunity to redirect. Reciting the
+next verb or offering approval without a presented plan cannot establish that the design was considered.
 
 Before any scoped agent dispatch or review acceptance, follow [Scoped native agents](scoped-agent-orchestration.md). Prepare an immutable assignment packet, use a fresh context for each new assignment, and permit recorded same-assignment clarification. Missing observed execution cannot earn independent review coverage.

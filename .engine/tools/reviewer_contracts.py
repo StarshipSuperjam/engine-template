@@ -220,6 +220,27 @@ def panel(envelope, role):
     return copy.deepcopy(envelope["panels"][role])
 
 
+def supports_frozen_cost_predecessor(old, new):
+    """A prospective cost envelope can explicitly retain its one previous frozen contract.
+
+    This never changes the old obligation, output binding, source or model. Other
+    mandate, tool, model or policy changes still follow ordinary renewal.
+    """
+    if not new:
+        return False
+    before, after = copy.deepcopy(old["semantic"]), copy.deepcopy(new["semantic"])
+    fields = frontmatter(new["source"]["instructions"])
+    if (before.get("role") != "pre-submission-review" or before.get("lens") != "technical-integrity"
+            or before["result_contract"]["id"] != "pre-submission-review-finding.v1"
+            or after["result_contract"]["id"] != "technical-integrity-review.v1"
+            or fields.get("supports-frozen-cost-predecessor") != before["mandate"]["version"]
+            or after["mandate"]["version"] != before["mandate"]["version"] + 1):
+        return False
+    after["mandate"]["version"] = before["mandate"]["version"]
+    after["result_contract"] = before["result_contract"]
+    return before == after
+
+
 def drift(envelope, root):
     """Editorial and policy provenance never silently select a new obligation."""
     validate(envelope)
@@ -230,6 +251,8 @@ def drift(envelope, root):
             new = current.get((role, old["lens"]))
             entry = {"role": role, "lens": old["lens"], "old": old["semantic_digest"],
                      "new": new["semantic_digest"] if new else None}
+            if supports_frozen_cost_predecessor(old, new):
+                continue  # Use the original frozen persona and result bytes; do not adopt the new obligation.
             if not new or new["semantic_digest"] != old["semantic_digest"]:
                 changed.append(entry)
             elif old["source"] != new["source"]:

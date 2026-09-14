@@ -39,17 +39,23 @@ _RUNNER_CONTROL_FILES = ("GITHUB_ENV", "GITHUB_OUTPUT", "GITHUB_PATH", "GITHUB_S
 _ISOLATION_CHILD_ENV = "ENGINE_CI_GATEKEEPER_ISOLATION_CHILD"
 
 _CONTROL_FILE_ISOLATION = None
+_LEGACY_COST_REQUIREMENT = None
 
 
 def setUpModule():
-    global _CONTROL_FILE_ISOLATION
+    global _CONTROL_FILE_ISOLATION, _LEGACY_COST_REQUIREMENT
     _CONTROL_FILE_ISOLATION = mock.patch.dict(os.environ, {}, clear=False)
     _CONTROL_FILE_ISOLATION.start()
+    # Historical receipt fixtures retain their original protocol; cost cases bind explicit evidence.
+    _LEGACY_COST_REQUIREMENT = mock.patch.object(gk, "_cost_required", return_value=False)
+    _LEGACY_COST_REQUIREMENT.start()
     for var in _RUNNER_CONTROL_FILES:
         os.environ.pop(var, None)
 
 
 def tearDownModule():
+    if _LEGACY_COST_REQUIREMENT is not None:
+        _LEGACY_COST_REQUIREMENT.stop()
     if _CONTROL_FILE_ISOLATION is not None:
         _CONTROL_FILE_ISOLATION.stop()
 
@@ -113,6 +119,17 @@ ENGINE_AFFECTING = {"schema_version": "change-classification.v1", "verdict": "en
 PROJECT_ONLY = {"schema_version": "change-classification.v1", "verdict": "project-only",
                 "reason": {"code": "project-only", "detail": "fixture"},
                 "changed_paths": ["src/app.py"], "engine_paths": [], "project_paths": ["src/app.py"]}
+
+
+import selftest_cost as cost
+
+WIRING_COST = {
+    "schema_version": "test-cost-contract.v1", "supported_fault": "Required CI proof wiring is silently removed",
+    "boundary": "filesystem", "boundary_rationale": "Parse the checked-in workflow without executing it",
+    "fixture_owner": "test_ci_gatekeeper", "dependencies": ["yaml"],
+    "data_reads": [".github/workflows/engine-ci.yml"], "cadence": "pr",
+    "limits": cost.zeros(), "mutable_state": "Case-local workflow dictionaries",
+    "cache_lifetime": "case", "added_cost_risk": "One small YAML document; no subprocess", "families": []}
 
 
 class DecideMatrix(unittest.TestCase):
@@ -802,6 +819,7 @@ class WorkflowShape(unittest.TestCase):
                    or "tools/selftest.py" in str(step.get("run", ""))]
         self.assertEqual(runners, ["selftests"])
 
+    @cost.declaration(WIRING_COST)
     def test_the_receipt_takes_its_mode_from_the_gate_and_never_runs_on_reuse(self):
         emit, upload = self.steps["Write the receipt"], self.steps["Upload the receipt"]
         self.assertEqual(emit["env"][gk.RECEIPT_MODE_ENV], "${{ steps.gate.outputs.mode }}")
@@ -809,7 +827,7 @@ class WorkflowShape(unittest.TestCase):
             self.assertIn("steps.gate.outputs.mode != 'reuse'", step["if"])
         self.assertEqual(upload["with"]["name"], gk.RECEIPT_ARTIFACT_NAME)
         uploads = [key for key, step in self.steps.items() if "upload-artifact" in str(step.get("uses", ""))]
-        self.assertEqual(uploads, ["Upload test outcomes", "Upload test timing", "Upload the receipt"])
+        self.assertEqual(uploads, ["Upload test outcomes", "Upload test timing", "Upload test cost diagnostics", "Upload the receipt"])
         for key,prefix in [("Upload test outcomes","engine-selftest-results"),
                            ("Upload test timing","engine-selftest-performance")]:
             step=self.steps[key]
@@ -844,6 +862,7 @@ class WorkflowShape(unittest.TestCase):
         self.assertEqual(terminal, len(order) - 1, "the terminal assertion is the last word")
         self.assertLess(order.index("metadata"), terminal)
 
+    @cost.declaration(WIRING_COST)
     def test_the_terminal_step_reads_all_three_outcomes_and_carries_no_condition(self):
         terminal = self.steps["Refuse a run in which no arm did any work"]
         self.assertNotIn("if", terminal)
@@ -851,6 +870,7 @@ class WorkflowShape(unittest.TestCase):
             gk.FULL_RAN_ENV: "${{ steps.selftests.outcome }}",
             gk.REUSE_RAN_ENV: "${{ steps.metadata.outcome }}",
             gk.PROJECT_ONLY_RAN_ENV: "${{ steps.project.outcome }}",
+            gk.COST_EXCEPTION_ENV: "${{ vars.ENGINE_TEST_COST_APPROVED_EXCEPTIONS }}",
         })
 
     def test_the_gate_reads_the_off_switch_and_the_checkout_fetches_the_parent(self):
@@ -918,6 +938,150 @@ class RunnerControlPlaneIsolation(unittest.TestCase):
                 with open(env[var], encoding="utf-8") as fh:
                     self.assertEqual(fh.read(), before[var],
                                      f"a test in this module wrote the runner's {var}")
+
+
+import selftest_cost as cost
+
+
+@cost.declaration({
+    "schema_version": "test-cost-contract.v1", "supported_fault": "Metadata-only CI reuses expired permission",
+    "boundary": "filesystem", "boundary_rationale": "Real receipt and assessment consumers with bounded platform facts",
+    "fixture_owner": "test_ci_gatekeeper.CostReceiptPermission", "dependencies": ["jsonschema", "test_selftest_performance.cost_example"],
+    "data_reads": [".engine/schemas/*.json", ".engine/policies/test-cost.json"], "cadence": "pr",
+    "limits": {**cost.zeros(), "schema_decodes": 160, "metaschema_validations": 3}, "mutable_state": "Case-local reports and explicit platform/clock seams",
+    "cache_lifetime": "case", "added_cost_risk": "One-case reports; no subprocesses or large archive", "families": []})
+class CostReceiptPermission(unittest.TestCase):
+    def setUp(self):
+        import copy
+        import build_coordinator_core as core
+        import build_coordinator_work as work
+        from test_selftest_performance import cost_example, cost_counts
+        observed, context = cost_example()
+        context.pop("now")
+        observed["identity"]["artifact_digest"] = core.digest(b"fixture-tree")
+        context["expected_identity"] = copy.deepcopy(observed["identity"])
+        context["timing_pairs"] = []
+        self.evidence = work.retain_cost(cost_counts(observed, "processes", 1), context)
+        self.unwaived = work.retain_cost(observed, context)
+        self.receipt = receipt(completed_at="2026-09-13T00:00:00Z", cost={
+            "digest": self.evidence["digest"], "identity": context["expected_identity"], "source_tree": TREE})
+        self.exception = {"id": "one-process", "owner": "maintainer", "reason": "Real process proof",
+            "revisit": "Remove after repair", "issued_at": "2026-09-13T01:00:00Z", "expires_at": "2026-09-13T02:00:00Z",
+            "case": observed["cases"][0]["case"], "resource": "processes", "ceiling": 1,
+            "source_commit": observed["identity"]["source_commit"], "supported_fault": "Child failure",
+            "fault_preservation_evidence": "Bounded child failure witness"}
+        self.root = os.path.dirname(os.path.dirname(os.path.dirname(__file__)))
+        for patch in (mock.patch.object(gk, "inventory_digest", return_value=(COUNT, DIGEST)),
+                      mock.patch.object(gk, "_git", return_value="fixture-tree"),
+                      mock.patch.object(gk, "tree_sha", return_value=TREE),
+                      mock.patch.object(cost, "observer_fingerprint", return_value=observed["identity"]["observer_digest"]),
+                      mock.patch.dict(os.environ, {gk.COST_EXCEPTION_ENV: json.dumps([self.exception])})):
+            patch.start(); self.addCleanup(patch.stop)
+
+    def verify(self, hour, evidence=None, value=None):
+        return gk.verify_receipt(value or self.receipt, repo=REPO, pr_number=PR, head_sha=HEAD,
+            expected_tree=TREE, run=run_record(), root=self.root,
+            now=datetime.datetime(2026, 9, 13, hour, tzinfo=datetime.timezone.utc),
+            cost_evidence=evidence or self.evidence)
+
+    def test_reused_full_receipt_rechecks_current_time_without_mutating_observations(self):
+        before = json.dumps(self.evidence, sort_keys=True)
+        self.assertEqual((True, None), self.verify(1))
+        self.assertEqual((False, gk.REASON_COST_PERMISSION), self.verify(2))
+        self.assertEqual(before, json.dumps(self.evidence, sort_keys=True))
+        self.receipt["cost"]["digest"] = self.unwaived["digest"]
+        self.assertEqual((True, None), self.verify(2, evidence=self.unwaived))
+
+    def test_old_permission_bytes_do_not_replace_current_registry_or_association(self):
+        with mock.patch.dict(os.environ, {gk.COST_EXCEPTION_ENV: "[]"}):
+            self.assertEqual((False, gk.REASON_COST_PERMISSION), self.verify(1))
+        wrong = {**self.receipt, "head_sha": "f" * 40}
+        self.assertEqual((False, "wrong-head-commit"), self.verify(1, value=wrong))
+        wrong = {**self.receipt, "cost": {**self.receipt["cost"], "digest": "sha256:" + "f" * 64}}
+        self.assertFalse(self.verify(1, value=wrong)[0])
+
+    def test_archive_reuse_and_terminal_reconsume_the_original_proof(self):
+        from pathlib import Path
+        import selftest_results
+        payload = io.BytesIO()
+        with zipfile.ZipFile(payload, "w") as archive:
+            archive.writestr(gk.RECEIPT_FILENAME, json.dumps(self.receipt))
+            archive.writestr(gk.COST_FILENAME, json.dumps(self.evidence))
+        with tempfile.TemporaryDirectory() as folder, \
+             mock.patch.dict(os.environ, {gk.COST_REUSE_DIR_ENV: folder,
+                 gk.FULL_RAN_ENV: "skipped", gk.REUSE_RAN_ENV: "success", gk.PROJECT_ONLY_RAN_ENV: "skipped"}), \
+             mock.patch.object(gk, "_repo_root", return_value=self.root), \
+             mock.patch.object(gk, "download_artifact", return_value=payload.getvalue()), \
+             mock.patch.object(gk, "_age_ok", return_value=None), \
+             mock.patch.object(gk.moment, "utc_now", return_value="2026-09-13T01:30:00Z") as clock:
+            kwargs = dict(repo=REPO, token="fixture", pr_number=PR, head_sha=HEAD,
+                expected_tree=TREE, root=self.root, transport=transport_for([run_record()], {900: ARTIFACT}))
+            found, detail = gk.find_reusable_receipt(**kwargs)
+            self.assertTrue(found, detail)
+            retained = selftest_results.read(Path(folder) / gk.COST_FILENAME)
+            self.assertEqual(self.evidence, retained)
+            self.assertEqual(0, gk.main(["assert-ran", "--cost-dir", folder]))
+            clock.return_value = "2026-09-13T02:00:00Z"
+            self.assertEqual(1, gk.main(["assert-ran", "--cost-dir", folder]))
+            found, detail = gk.find_reusable_receipt(**kwargs)
+            self.assertFalse(found)
+            self.assertEqual(gk.REASON_COST_PERMISSION, detail["reason"])
+            self.assertEqual(retained, selftest_results.read(Path(folder) / gk.COST_FILENAME))
+
+    def test_actual_base_comparison_requires_a_verified_full_push_receipt(self):
+        import build_coordinator_core as core
+        value = {**self.receipt, "pr_number": None,
+                 "cost": {**self.receipt["cost"], "digest": self.unwaived["digest"]}}
+        def archive(body):
+            output = io.BytesIO()
+            with zipfile.ZipFile(output, "w") as zipped:
+                zipped.writestr(gk.RECEIPT_FILENAME, json.dumps(body))
+                zipped.writestr(gk.COST_FILENAME, json.dumps(self.unwaived))
+            return output.getvalue()
+        push = {**run_record(), "event": "push"}
+        kwargs = dict(repo=REPO, token="fixture", base=HEAD, root=self.root)
+        def fixture_checkout(argv, **kwargs):
+            from pathlib import Path
+            if argv[2] == "add":
+                policy = Path(argv[4]) / ".engine/policies/test-cost.json"
+                policy.parent.mkdir(parents=True)
+                policy.write_bytes((Path(self.root) / ".engine/policies/test-cost.json").read_bytes())
+            return ""
+        with mock.patch.object(core, "must_run", side_effect=fixture_checkout) as git, \
+             mock.patch.object(gk, "_age_ok", return_value=None), \
+             mock.patch.object(gk, "download_artifact", return_value=archive(value)) as download:
+            found, issue = gk.base_cost_evidence(**kwargs,
+                transport=transport_for([push], {900: ARTIFACT}))
+            self.assertEqual(self.unwaived, found)
+            self.assertIsNone(issue)
+            self.assertEqual("remove", git.call_args.args[0][2])
+            for run in ({**push, "event": "pull_request"}, {**push, "head_sha": BASE},
+                        {**push, "path": ".github/workflows/other.yml"},
+                        {**push, "conclusion": "failure"}):
+                download.reset_mock()
+                found, issue = gk.base_cost_evidence(**kwargs,
+                    transport=transport_for([run], {900: ARTIFACT}))
+                self.assertIsNone(found)
+                self.assertIn("no eligible", issue)
+                download.assert_not_called()
+            download.return_value = archive({**value, "cost": {**value["cost"],
+                "digest": "sha256:" + "f" * 64}})
+            found, issue = gk.base_cost_evidence(**kwargs,
+                transport=transport_for([push], {900: ARTIFACT}))
+            self.assertIsNone(found)
+            self.assertIn("no eligible", issue)
+
+    def test_required_full_receipt_cannot_omit_cost_evidence(self):
+        value = dict(self.receipt); value.pop("cost")
+        with mock.patch.object(gk, "_cost_required", return_value=True):
+            self.assertFalse(self.verify(1, value=value)[0])
+
+    def test_permission_refusal_does_not_publish_a_full_rerun(self):
+        with mock.patch.object(gk, "_load_event", return_value=event("edited")), \
+             mock.patch.object(gk, "decide", return_value=(gk.MODE_FULL, gk.REASON_COST_PERMISSION, {})), \
+             mock.patch.object(gk, "_publish_mode") as publish:
+            self.assertEqual(1, gk.main(["decide"]))
+            publish.assert_not_called()
 
 
 if __name__ == "__main__":

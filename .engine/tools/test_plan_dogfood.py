@@ -34,10 +34,18 @@ import plan_contract
 import plan_program
 import plan_projection
 import plan_store
+import selftest_cost as cost
 
 
 def _plan_document() -> dict:
-    return json.loads(PLAN_JSON)
+    # Retain the original historical bytes below; new approval exercises a prospective handoff.
+    document = json.loads(PLAN_JSON)
+    from test_project_manager import _document
+    contract = _document()["build_plan"]["work_items"][0]["test_cost"]
+    document["build_plan"]["schema_version"] = "build-plan.v3"
+    for node in document["build_plan"]["work_items"]:
+        node["test_cost"] = json.loads(json.dumps(contract))
+    return document
 
 
 def _fold_in_the_review_fix(document: dict) -> dict:
@@ -87,7 +95,7 @@ DISPOSITIONS = {
 class _Dogfood(unittest.TestCase):
     def setUp(self):
         from selftest_support import review_fixture
-        review_fixture(self)
+        review_fixture(self, prospective=True)
         self._tmp = tempfile.TemporaryDirectory()
         self.root = Path(self._tmp.name) / "plans"
         self.lib = plan_store.PlanLibrary(self.root)
@@ -101,11 +109,19 @@ class _Dogfood(unittest.TestCase):
 
 
 class TheSeededPlanIsReal(_Dogfood):
+    @cost.declaration({
+        "schema_version": "test-cost-contract.v1", "supported_fault": "A prospective plan example cannot pass the real schema",
+        "boundary": "filesystem", "boundary_rationale": "Validate the inline plan using tracked schemas and disposable reviewer files",
+        "fixture_owner": "test_plan_dogfood.TheSeededPlanIsReal", "dependencies": ["plan_contract", "jsonschema"],
+        "data_reads": [".engine/schemas/*.json", ".engine/policies/model-bindings.json", ".engine/build-protocol.json"],
+        "cadence": "pr", "limits": {**cost.zeros(), "schema_decodes": 20, "metaschema_validations": 3},
+        "mutable_state": "One disposable plan library and reviewer root", "cache_lifetime": "case",
+        "added_cost_risk": "Observed 13 JSON decodes; bounded allowance includes cold schema validation", "families": []})
     def test_it_validates_as_engine_plan_v1_unconditionally(self):
         # No escape hatch. If the hand-authored plan and the shipped schema disagree, one of them is
         # wrong and this test is how we find out — not a note explaining why it is fine.
         document = _plan_document()
-        self.assertEqual(plan_contract.validate_document(document), "build-plan.v2")
+        self.assertEqual(plan_contract.validate_document(document), "build-plan.v3")
 
     def test_it_carries_the_whole_ten_node_graph_the_build_coordinator_would_accept(self):
         document = _plan_document()

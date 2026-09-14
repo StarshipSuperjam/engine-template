@@ -349,7 +349,13 @@ def completed_report(api, head, primary_run, primary_attempt, contexts=None, bas
     return report
 
 
-def compare_reports(baseline, candidate):
+def compare_cost(observation, **context):
+    """The same versioned assessment serves focused work, CI and live receipt consumption."""
+    from selftest_cost import assess_cost
+    return assess_cost(observation, **context)
+
+
+def compare_reports(baseline, candidate, *, cost_evidence=None):
     """A comparison is evidence, not a wall-clock gate. Unknown dimensions cannot qualify."""
     for report in (baseline,candidate):
         records.validate_shape(report,'ci-test-performance.v1')
@@ -396,11 +402,29 @@ def compare_reports(baseline, candidate):
                'note':'Common identities do not imply unchanged cost: shared code and fixtures can change their work.'}
     else:
         reasons.append('case observations unavailable')
-    return {'schema_version':'ci-test-performance-comparison.v1','qualified':not reasons,'reasons':reasons,
+    result = {'schema_version':'ci-test-performance-comparison.v1','qualified':not reasons,'reasons':reasons,
             'raw_samples':raw,'deltas':deltas,'cases':cases,
             'candidate_concern':bool(candidate['metrics'] and candidate['metrics']['elapsed_seconds']>=CONCERN_SECONDS),
             'target_seconds':TARGET_SECONDS,'concern_seconds':CONCERN_SECONDS,
             'note':'One pair cannot qualify the program target; retain failed/retried samples. No p90 claim is made.'}
+    if cost_evidence is not None:
+        result['cost_assessment'] = compare_cost(**cost_evidence)
+        from selftest_cost import digest
+        assessment = result['cost_assessment']
+        association_problems = []
+        if (assessment['identity']['source_commit'] != candidate['head']
+                or assessment['identity']['base_commit'] != baseline['head']):
+            association_problems.append('cost evidence does not describe these CI report heads')
+        for report, identity in ((candidate, assessment['identity']), (baseline, assessment['base_identity'])):
+            if (identity is None or report['cases'] is None or digest([
+                    {k: row[k] for k in ('id', 'occurrence')} for row in report['cases']]) != identity['inventory_digest']):
+                association_problems.append('cost and CI report inventories differ or are unavailable')
+        if association_problems:
+            assessment['unknown'] = sorted(set(assessment['unknown'] + association_problems))
+            assessment['status'] = 'unavailable';assessment['cost_clearance'] = False
+            result['qualified'] = False
+            result['reasons'] += association_problems
+    return result
 
 
 def sample_summary(reports):
@@ -499,7 +523,11 @@ def main(argv=None):
     compare=subs.add_parser('compare',help='compare explicit baseline/candidate report files')
     compare.add_argument('--baseline',required=True)
     compare.add_argument('--candidate',required=True)
+    compare.add_argument('--cost-evidence', help='controller-assembled resource observation and assessment context')
     compare.add_argument('--output')
+    cost_report = subs.add_parser('assess-cost', help='evaluate live cost evidence: exit 0 clear, 1 resource violation, 2 review required')
+    cost_report.add_argument('--input', required=True)
+    cost_report.add_argument('--output', required=True)
     samples=subs.add_parser('samples',help='show every supplied report sample and descriptive statistics')
     samples.add_argument('reports',nargs='+')
     samples.add_argument('--output')
@@ -511,7 +539,17 @@ def main(argv=None):
                                        [association(s) for s in args.context],args.base)
                 code=0 if value['complete'] else 1
             elif args.command=='compare':
-                value=compare_reports(records.read(args.baseline),records.read(args.candidate));code=0
+                evidence = records.read(args.cost_evidence) if args.cost_evidence else None
+                if evidence is not None:
+                    evidence['now'] = moment.utc_now()
+                value=compare_reports(records.read(args.baseline),records.read(args.candidate),cost_evidence=evidence);code=0
+            elif args.command=='assess-cost':
+                records.write(args.output, {'schema_version': 'test-cost-assessment.v1', 'status': 'unavailable',
+                                             'unknown': ['assessment has not finalized']})
+                evidence = records.read(args.input)
+                evidence['now'] = moment.utc_now()
+                value = compare_cost(**evidence)
+                code = 1 if value['violations'] else 0 if value['cost_clearance'] else 2
             else:
                 reports=[records.read(path) for path in args.reports]
                 for item in reports:records.validate_shape(item,'ci-test-performance.v1')

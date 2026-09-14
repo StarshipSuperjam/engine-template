@@ -307,7 +307,9 @@ class Store:
                 raise EvidenceError("review lens/role is outside the frozen approval contract")
             obligation = obligations[0]
             available = reviewer_contracts.discover(Path(__file__).resolve().parents[2], panel_role)
-            matching = [p for p in available if p["lens"] == lens and p["semantic_digest"] == obligation["semantic_digest"]]
+            matching = [p for p in available if p["lens"] == lens and
+                        (p["semantic_digest"] == obligation["semantic_digest"] or
+                         reviewer_contracts.supports_frozen_cost_predecessor(obligation, p))]
             if not matching:
                 raise EvidenceError(f"{lens}: installed capability differs from the frozen mandate; restore it or explicitly renew this lens")
             binding = obligation["semantic"]["result_contract"]
@@ -433,7 +435,10 @@ class Store:
                         role = "plan-review" if a["owner"]["kind"] == "plan" else "pre-submission-review"
                         old = next(p for p in a["review_contract"]["panels"][role] if p["lens"] == a["lens"])
                         available = reviewer_contracts.discover(Path(__file__).resolve().parents[2], role)
-                        if not any(p["lens"] == a["lens"] and p["semantic_digest"] == old["semantic_digest"] for p in available):
+                        if not any(p["lens"] == a["lens"] and
+                                   (p["semantic_digest"] == old["semantic_digest"] or
+                                    reviewer_contracts.supports_frozen_cost_predecessor(old, p))
+                                   for p in available):
                             return hooks.block("The installed reviewer mandate changed after packet preparation; restore it or explicitly renew the obligation.")
                     if a["launch"] and a["launch"]["call_id"] == call.get("call_id") and a["launch"]["input_digest"] == core.digest(call["input"]):
                         return hooks.proceed()  # repeat observation of the same native call
@@ -692,8 +697,13 @@ class Store:
                     output = result_contracts.parse(a["stops"][-1]["output"])
                 except (TypeError, ValueError):
                     continue
-                # Existing finding-array contract. A partial/blocked object or prose is not coverage.
-                if not isinstance(output, list) or any(not isinstance(f, dict) for f in output):
+                if (a.get("result_contract") or {}).get("id") == "technical-integrity-review.v1":
+                    try:
+                        self.review_report(a, owner)
+                    except (EvidenceError, core.CoordinatorError):
+                        continue
+                elif not isinstance(output, list) or any(not isinstance(f, dict) for f in output):
+                    # Historical finding arrays retain their original admission shape.
                     continue
             elif not _text(a["stops"][-1]["output"]):
                 continue
@@ -930,7 +940,9 @@ def validate_initial_build_finding(library, state, receipt, entry):
         raise EvidenceError("initial finding requires verified observed review evidence")
     data = store.read()
     accepted = data["acceptances"][receipt_key(receipt)]
-    reports = [result_contracts.compile_review(accepted["reports"][key], lens=receipt["lens"])
+    reports = [result_contracts.compile_review(accepted["reports"][key], lens=receipt["lens"],
+               contract=(data["assignments"][key].get("result_contract") or {}).get(
+                   "id", "pre-submission-review-finding.v1"))
                for key in accepted["assignments"]]
     originals = [f for report in reports for f in report["findings"]]
     if len(originals) != len(receipt["finding_ids"]):

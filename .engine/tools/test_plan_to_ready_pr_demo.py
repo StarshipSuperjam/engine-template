@@ -22,6 +22,10 @@ import json
 import os
 import re
 import unittest
+import sys
+
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+import selftest_cost as cost
 
 ROOT = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
@@ -191,10 +195,45 @@ class TheOperatorFacingSurfacesDescribeDepthByLenses(unittest.TestCase):
 
 
 class TheFrontDoorDemoStillWalks(unittest.TestCase):
+    @cost.declaration({
+        "schema_version": "test-cost-contract.v1",
+        "supported_fault": "Fresh plan admission or recovery cannot reach a ready PR with preserved evidence",
+        "boundary": "integration", "boundary_rationale": "Real command, Git, and persistence boundaries across three arcs",
+        "fixture_owner": "demo_plan_to_ready_pr", "dependencies": ["git", "build_coordinator", "project_manager"],
+        "data_reads": [".engine/", ".claude/", ".codex/", ".agents/", ".github/"], "cadence": "pr",
+        "limits": {**cost.zeros(), "processes": 220, "git_commands": 130, "schema_decodes": 300,
+                   "metaschema_validations": 3, "whole_tree_fixtures": 3, "nested_journeys": 2},
+        "mutable_state": "Three disposable repositories and private plan libraries; source remains read-only",
+        "cache_lifetime": "case", "added_cost_risk": "Three integration journeys; subprocess descendants remain unavailable",
+        "families": [],
+    })
     def test_the_plan_to_ready_pull_request_demo_passes(self):
+        import errno
+        import subprocess
+        from unittest import mock
         import quiet_call
         import demo_plan_to_ready_pr as demo
-        self.assertEqual(quiet_call.run(demo.main), 0)
+        real_run = subprocess.run
+        argument_limit = 128 * 1024  # Linux MAX_ARG_STRLEN with a 4 KiB page, including NUL.
+        largest_stdin = 0
+
+        def linux_bounded_run(argv, *args, **kwargs):
+            nonlocal largest_stdin
+            if any(len(os.fsencode(arg)) + 1 > argument_limit for arg in argv):
+                raise OSError(errno.E2BIG, "Argument list too long")
+            payload = kwargs.get("input")
+            if isinstance(payload, str):
+                largest_stdin = max(largest_stdin, len(payload.encode()))
+            return real_run(argv, *args, **kwargs)
+
+        with self.assertRaises(OSError) as refusal:
+            linux_bounded_run(["unexecuted", "x" * argument_limit])
+        self.assertEqual(refusal.exception.errno, errno.E2BIG)
+        # Execute every real arc; only reproduce the OS's argument bound, never substitute success.
+        with mock.patch.object(subprocess, "run", side_effect=linux_bounded_run):
+            self.assertEqual(quiet_call.run(demo.main), 0)
+        self.assertGreaterEqual(largest_stdin, argument_limit,
+                                "the real review packet must exercise transport beyond Linux's argv limit")
 
 
 if __name__ == "__main__":

@@ -7,8 +7,9 @@ model-tier: judgment
 model: sonnet
 permissions: read-only
 reviewer-contract: engine:engine-qa-review-technical-integrity
-reviewer-contract-version: 1
-output-contract: pre-submission-review-finding.v1
+reviewer-contract-version: 2
+supports-frozen-cost-predecessor: 1
+output-contract: technical-integrity-review.v1
 disallowedTools: [Edit, Write, NotebookEdit]
 ---
 
@@ -22,7 +23,11 @@ You receive the raw initiating request, exact operator-approved Build plan and d
 
 ## What you produce
 
-Findings only, each on the shared finding shape: how serious it is — a blocking problem, a serious one worth weighing, or a minor nit — a clear plain-language sentence on what is wrong and why it matters, and where it points, or that it is about the change as a whole. You explain any technical term rather than assume it, so a non-engineer can weigh the finding. You never decide what happens to a finding; the orchestrator critically adjudicates it and records the disposition.
+For a prospective cost-applicable assignment, return the bound `technical-integrity-review.v1` envelope: the findings array plus `cost_review`. Bind its assessment digest and full candidate identity to the controller-produced assessment in the packet. Judge supported fault value, cheapest meaningful boundary, actual counts, shared-path growth, baseline comparability, coverage gaps and any live exception. `acceptable` requires qualified applicable evidence; `unavailable` or `concerns` must remain explicit. You cannot invent `not-applicable`, grant an exception, or dispose your own judgment. The controller records its disposition separately.
+
+Historical assignments frozen to `pre-submission-review-finding.v1` retain that exact array contract and their original obligations; this prospective transition does not rewrite prior consent.
+
+Each finding uses the shared finding shape: how serious it is — a blocking problem, a serious one worth weighing, or a minor nit — a clear plain-language sentence on what is wrong and why it matters, and where it points, or that it is about the change as a whole. You explain any technical term rather than assume it, so a non-engineer can weigh the finding. You never decide what happens to a finding; the orchestrator critically adjudicates it and records the disposition.
 
 ## Boundaries
 
@@ -36,6 +41,6 @@ Read the entire immutable assignment packet when one is supplied. If ambiguity o
 
 ### Executable result boundary
 
-Return one complete JSON array matching the result contract bound in your packet. Every finding has `severity`, `message`, and `location` (null or an object with `file` and optional `line`). `[]` means a completed empty report; absent output, null and clarification status do not count as completed review. Do not supply finding ids, lens identity or dispositions. The Engine validates the whole observed report before compiling it and refuses substituted caller copies.
+Return the complete JSON shape bound in your immutable packet. New `technical-integrity-review.v1` assignments require `{"findings": [...], "cost_review": {"assessment_digest": "sha256:…", "candidate_identity": {...}, "status": "acceptable|concerns|unavailable|not-applicable", "rationale": "…"}}`. Historical array-bound assignments still return one complete JSON array. An empty findings array inside a new envelope does not replace the required cost judgment. Every finding has `severity`, `message`, and `location` (null or an object with `file` and optional `line`). `[]` means a completed empty report; absent output, null and clarification status do not count as completed review. Do not supply finding ids, lens identity or dispositions. The Engine validates the whole observed report before compiling it and refuses substituted caller copies.
 
 The dispatch binding names the canonical schema and resource limits. Native formatting assistance is unqualified; canonical ingress remains authoritative.

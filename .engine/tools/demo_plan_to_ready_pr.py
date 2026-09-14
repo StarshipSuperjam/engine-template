@@ -35,7 +35,8 @@ Four things are stood in for, and each is named rather than hidden:
     seam its own tests stub, and the same one demo_959_finalize_ready_transition.py uses.
   * THE SUBMISSION ACCOUNTING. Reaching the ready gate honestly needs a full validation run (the CI
     suite and the self-tests, minutes of work) plus preflight results and a composed pull-request body.
-    Those are seeded, exactly as demo_959 seeds them, because they are that demonstration's subject and
+    Cost observations are also seeded and explicitly unavailable: no test run or qualified cost credit
+    is claimed. Those are seeded, exactly as demo_959 seeds them, because they are that demonstration's subject and
     this one's is the ENTRY DOOR.
   * THE REVIEWER. Synthetic launch, packet-read and completed-output events in the throwaway library
     stand in for reviewers. The real review acceptance commands consume them; this demonstration
@@ -62,6 +63,7 @@ from unittest import mock
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import build_coordinator as bc  # noqa: E402 — the real coordinator, for schema-true seeding only
+import selftest_cost as cost
 import validate                  # noqa: E402 — locates this repo's root (validate.ROOT) to copy
 
 REPO = "owner/entry-door-demo"
@@ -114,6 +116,15 @@ def _work_item(node_id="W1"):
         "id": node_id, "description": "Add the widget cache and its tests.",
         "paths": [".engine/tools/widget_cache.py"], "verification": ["Run the widget-cache tests."],
         "depends_on": [], "exclusive_resources": [], "executor_class": "integrator",
+        "test_cost": {
+            "schema_version": "test-cost-contract.v1",
+            "supported_fault": "Entry or recovery loses the original integration evidence",
+            "boundary": "pure", "boundary_rationale": "Widget cache has no process boundary",
+            "fixture_owner": "demo_plan_to_ready_pr", "dependencies": [], "data_reads": [],
+            "cadence": "pr", "limits": cost.zeros(), "mutable_state": "Disposable cache dictionary",
+            "cache_lifetime": "case", "added_cost_risk": "Synthetic accounting only; no performance credit",
+            "families": [],
+        },
         "output_contract": {"deliverable": "The widget cache and its tests",
                             "artifact_kinds": ["integrated-commit"],
                             "required_evidence": ["changed_paths", "verification_results"]},
@@ -122,7 +133,7 @@ def _work_item(node_id="W1"):
 
 def _payload():
     return {
-        "schema_version": "build-plan.v2", "profile": "trivial",
+        "schema_version": "build-plan.v3", "profile": "trivial",
         "intent_source": {"kind": "direct"},
         "raw_intent": "Cache the widgets; looking them up is slow.",
         "objective": "Add a small widget cache so repeated lookups stop hitting the store.",
@@ -313,6 +324,66 @@ def _write(path, value):
     return path
 
 
+def _seed_cost_fixture(copy, state_path, head, *, node=None, attempt=None, recovery=False):
+    """DEMO FIXTURE ONLY: synthetic accounting, unavailable measurement, no qualified cost credit.
+
+    Keep the real immutable checkout/plan/attempt association so ordinary consumers still check
+    freshness. This fixture cannot stand in for work verify or validation on a real Build.
+    """
+    from test_selftest_performance import cost_example
+    store = bc.StateStore(state_path)
+    state = store.read()
+    observation, context = cost_example()
+    context.pop("now")
+    context.pop("base_observation")
+    context.pop("expected_base_identity")
+    context["timing_pairs"] = []
+    base = head
+    if node:
+        work = state["work"][node]
+        if recovery:
+            base = state["rewrite_recoveries"][-1]["prior_work"][node]["integration"]["receipt"]["claim_base"]
+        else:
+            base = work["claim"]["base_sha"]
+    identity = observation["identity"]
+    identity.update(source_commit=head, base_commit=base, observer_commit=head,
+        observer_digest=cost.observer_fingerprint(Path(copy)), plan_digest=state["plan"]["digest"],
+        contract_digest=cost.digest(_work_item()["test_cost"]),
+        artifact_digest=bc._tree_digest_at(copy, head), stage="node-focused" if node else "candidate",
+        node=node, attempt=attempt or "demo-fixture-candidate")
+    observation["unknown"] = ["DEMO FIXTURE ONLY: no cost measurement or timing was executed"]
+    context["expected_identity"] = dict(identity)
+    context["census"]["source_commit"] = head
+    evidence = bc.work.retain_cost(observation, context)
+    assessment = bc.work.assess_retained_cost(evidence, expected_identity=identity, now=bc.moment.utc_now())
+    if assessment["violations"] or assessment["cost_clearance"]:
+        raise RuntimeError("synthetic accounting must stay unavailable without a deterministic violation")
+    reference = bc._save_cost_evidence(store, evidence)
+    def fill(current):
+        if node:
+            current["cost"]["nodes"][node] = reference
+        else:
+            current["cost"]["candidate"] = reference
+    store.mutate(fill, from_revision=state["revision"])
+    return assessment
+
+
+def _accept_demo_build_reviews(copy, env, state_path, payload, build, *, stage="deliverable"):
+    packet = json.loads(_require(build("review", "packet", "--stage", stage,
+        "--plan", payload, "--json"), "Build review packet"))
+    for contract in packet["reviewer_contracts"]:
+        lens = contract["lens"]
+        _require(_observe_demo_build_review(copy, env, state_path, packet, lens), "observe Build reviewer fixture")
+        _require(build("review", "record", "--stage", stage, "--lens", lens,
+            "--packet-digest", packet["packet_digest"], "--lens-packet-digest", contract["lens_packet_digest"],
+            "--code-execution", "none", "--session", "demo-review-root"), "accept Build reviewer fixture")
+    assessment = packet["cost_assessment"]
+    disposition = _write(os.path.join(os.path.dirname(state_path), "demo-cost-disposition.json"), {
+        "assessment_digest": assessment["digest"], "decision": "accept-with-limitations",
+        "rationale": "DEMO FIXTURE ONLY: synthetic unavailable measurement grants no qualified cost credit."})
+    _require(build("cost", "dispose", "--input", disposition), "record explicit fixture cost limitations")
+
+
 def _seed_submission(state_path, head, plan_digest):
     """Seed the submission accounting demo_959 owns: validation, preflights, the composed body."""
     required = [x["id"] for x in bc._protocol()["preflights"] if x["required"]]
@@ -401,7 +472,7 @@ def _arc_one(copy, head, env, pr_state, holder):
     approved = _plan_cmd(copy, env, "approve", plan_id, "--depth", "quick",
                          "--operator-decided")
     ok &= _pass("approved, after the whole plan was rendered", approved.returncode == 0,
-                "care level: quick — your own read, no cold reviewers")
+                "care level: quick — own plan read; technical-integrity cost review still follows the Build")
 
     sealed = _plan_cmd(copy, env, "seal", plan_id, "--delta-judgment", "none",
                            "--operator-decided")
@@ -460,6 +531,7 @@ def _arc_one(copy, head, env, pr_state, holder):
     pr["headRefOid"] = new_head
     with open(pr_state, "w", encoding="utf-8") as fh:
         json.dump(pr, fh)
+    _seed_cost_fixture(copy, state_path, new_head, node="W1", attempt=attempt)
     integrated = build("work", "integrate", "--item", "W1",
                             "--attempt", attempt, "--commit", new_head, "--plan", payload,
                             "--verification-input", "Demo fixture source inspected at this commit; no test-run claim.")
@@ -467,6 +539,9 @@ def _arc_one(copy, head, env, pr_state, holder):
                 "one node, done and proven on the branch by an Engine-computed receipt")
 
     _seed_submission(state_path, new_head, json.loads(bound.stdout)["plan_digest"] if bound.returncode == 0 else "")
+    _seed_cost_fixture(copy, state_path, new_head)
+    _accept_demo_build_reviews(copy, env, state_path, payload, build)
+    _seed_submission(state_path, new_head, "fixture")
     submitted = build("submit", "apply", "--plan", payload)
     with open(pr_state, encoding="utf-8") as fh:
         final = json.load(fh)
@@ -596,28 +671,41 @@ import build_coordinator as bc
 import plan_store, scoped_agents
 from test_build_coordinator import observe_review_execution
 state = json.loads(open(sys.argv[1]).read())
-packet = json.loads(sys.argv[2])
-lens = sys.argv[3]
-library = plan_store.PlanLibrary(sys.argv[4])
+packet = json.load(sys.stdin)
+lens = sys.argv[2]
+library = plan_store.PlanLibrary(sys.argv[3])
 slug = library.resolve(state['plan']['plan_id'])
 contract = next(c for c in packet['reviewer_contracts'] if c['lens'] == lens)
+report = []
+if lens == 'technical-integrity':
+    assessment = packet['cost_assessment']
+    report = {'findings': [], 'cost_review': {'assessment_digest': assessment['digest'],
+        'candidate_identity': assessment['assessment']['identity'], 'status': 'unavailable',
+        'rationale': 'DEMO FIXTURE ONLY: no measured costs, timing or qualified cost credit.'}}
 observe_review_execution(library, slug, scoped_agents.build_owner(state), lens,
-    contract['lens_packet_digest'], [], root='demo-review-root',
+    contract['lens_packet_digest'], report, root='demo-review-root',
     review_contract=bc.reviewer_contracts.effective_build(state), packet_content=json.dumps(packet))
 """
-    return subprocess.run([sys.executable, "-c", script, state_path, json.dumps(packet), lens,
+    # Full review packets exceed Linux's per-argument exec limit; stdin preserves the same JSON
+    # bytes without making the packet an operating-system command-line argument.
+    return subprocess.run([sys.executable, "-c", script, state_path, lens,
         env["ENGINE_PLAN_DIR"]], cwd=os.path.join(copy, ".engine", "tools"),
-        capture_output=True, text=True, env=env)
+        input=json.dumps(packet), capture_output=True, text=True, env=env)
 
 
-def _seed_candidate_fixture(state_path, head):
+def _seed_candidate_fixture(copy, state_path, head):
     """Accounting fixture only. This does not represent a validation run or CI evidence."""
     store = bc.StateStore(state_path)
     state = store.read()
-    store.mutate(lambda s: s.update(validation={"commit": head, "results": [{
+    store.mutate(lambda s: s.update(validation={"candidate": {
+        "commit": head, "merge_base": head, "protocol_digest": cost.digest("demo-protocol"),
+        "argv_digests": {"fixture-candidate": cost.digest("demo-argv")},
+        "inventory_digest": "fixture-inventory", "run_record": None, "results": [{
         "id": "fixture-candidate", "commit": head, "passed": True,
-        "summary": "DEMO FIXTURE ONLY: synthetic green candidate accounting; no validation run claimed"}]}),
+        "summary": "DEMO FIXTURE ONLY: synthetic green candidate accounting; no validation run claimed"}]},
+        "final": None}),
         from_revision=state["revision"])
+    _seed_cost_fixture(copy, state_path, head)
 
 
 def _arc_three(copy, head, env, pr_state, holder):
@@ -693,6 +781,7 @@ def _arc_three(copy, head, env, pr_state, holder):
     _require(_git(copy, "commit", "-q", "-m", "Disposable cache implementation"), "commit fixture work")
     implemented = _git(copy, "rev-parse", "HEAD").stdout.strip()
     _publish_head(copy, pr_state, implemented)
+    _seed_cost_fixture(copy, state_path, implemented, node="W1", attempt=attempt)
     _require(build("work", "integrate", "--item", "W1", "--attempt", attempt, "--commit", implemented,
         "--plan", payload, "--verification-input", "Fixture source inspected: local cache key present."), "integrate actual receipt")
     original = read()
@@ -711,6 +800,7 @@ def _arc_three(copy, head, env, pr_state, holder):
     ok &= _pass("divergent recovery preserves history and invalidates completion", not recovered["work"]["W1"]["integration"]
         and recovered["rewrite_recoveries"][-1]["prior_work"] == original["work"]
         and recovered["reviews"] == original["reviews"], "review fields remain empty; original receipt survives in canonical history")
+    _seed_cost_fixture(copy, state_path, rebased, node="W1", attempt=attempt, recovery=True)
     _require(build("work", "integrate", "--recovery", "--item", "W1", "--attempt", attempt,
         "--commit", rebased, "--plan", payload,
         "--verification-input", "Fixture reinspection: resolved cache contains both local and upstream keys."), "reverify resolved integration")
@@ -731,18 +821,12 @@ def _arc_three(copy, head, env, pr_state, holder):
         "original commit receipt is re-derived, private recovery records stay canonical")
     _require(build("approve", "--plan", payload, "--depth", "thorough"), "ordinary mutation after restore")
     def review_fixture(stage, commit):
-        _seed_candidate_fixture(state_path, commit)
-        packet = json.loads(_require(build("review", "packet", "--stage", stage, "--plan", payload, "--json"), "Build review packet"))
-        for contract in packet["reviewer_contracts"]:
-            lens = contract["lens"]
-            _require(_observe_demo_build_review(copy, env, state_path, packet, lens), "observe Build reviewer fixture")
-            _require(build("review", "record", "--stage", stage, "--lens", lens,
-                "--packet-digest", packet["packet_digest"], "--lens-packet-digest", contract["lens_packet_digest"],
-                "--code-execution", "none", "--session", "demo-review-root"), "accept Build reviewer fixture")
+        _seed_candidate_fixture(copy, state_path, commit)
+        _accept_demo_build_reviews(copy, env, state_path, payload, build, stage=stage)
     review_fixture("deliverable", clean_head)
     repaired = _commit(copy, work_path, "CACHE = {'local': 1, 'upstream': 2, 'repair': 3}\n", "Disposable authored repair")
     _publish_head(copy, pr_state, repaired)
-    _require(build("repair", "assess", "--judgment", "scoped", "--lens", "usability", "--lens", "spec-conformance",
+    _require(build("repair", "assess", "--judgment", "scoped", "--lens", "usability", "--lens", "spec-conformance", "--lens", "technical-integrity",
         "--rationale", "DEMO FIXTURE: independently review the authored repair with simulated reviewer events"), "assess authored repair")
     review_fixture("repair", repaired)
     _advance(copy, pr_state, "merge-upstream.txt", "target to merge\n")
@@ -754,7 +838,7 @@ def _arc_three(copy, head, env, pr_state, holder):
         "--verification-ref", "DEMO FIXTURE: real automatic merge and unchanged original receipt bytes")
     ok &= _pass("merge preservation requires current candidate accounting", refused.returncode != 0
         and Path(state_path).read_bytes() == before_validation, "actual merged head has no candidate result yet")
-    _seed_candidate_fixture(state_path, merged)
+    _seed_candidate_fixture(copy, state_path, merged)
     before_merge_assess = read()
     _require(build("repair", "assess", "--judgment", "none", "--rationale", "Automatic target merge; fixture candidate accounting is current",
         "--verification-ref", "DEMO FIXTURE: real automatic merge and unchanged original receipt bytes"),
@@ -845,7 +929,8 @@ def main(_argv=None) -> int:
         return 1
     print("What this checks: a plan cannot be sealed before it is approved, cannot start a Build before")
     print("it is sealed, and — once it is — carries all the way to a pull request ready for you.\n")
-    print("GitHub, submission accounting and reviewer events are simulated; acceptance commands are real.")
+    print("GitHub, submission and cost accounting, and reviewer events are simulated; acceptance commands are real.")
+    print("Cost measurement is unavailable; no test execution or qualified cost credit is claimed.")
     print("The exact logical-origin identity query is also a fixture substitution.")
     print("All fetching, ancestry, rebasing, merging and ownership persistence use the real tools.\n")
     holder = tempfile.mkdtemp(prefix="entry-door-demo-")

@@ -236,8 +236,11 @@ class HistoricalContracts(unittest.TestCase):
             shutil.copytree(ROOT / rel, cls.source_root / rel)
         shutil.copy(ROOT / '.engine/build-protocol.json', cls.source_root / '.engine/build-protocol.json')
         for path in (cls.source_root / '.claude/agents').glob('*.md'):
-            path.write_text('\n'.join(line for line in path.read_text().split('\n')
-                                      if not line.startswith(('reviewer-contract:', 'reviewer-contract-version:'))))
+            text = '\n'.join(line for line in path.read_text().split('\n')
+                             if not line.startswith(('reviewer-contract:', 'reviewer-contract-version:',
+                                                       'supports-frozen-cost-predecessor:')))
+            path.write_text(text.replace('output-contract: technical-integrity-review.v1',
+                                         'output-contract: pre-submission-review-finding.v1'))
         import project_manager
         folder = cls.source_root / '.engine/tools'; folder.mkdir()
         (folder / 'project_manager.py').write_text('PLAN_REVIEW_LENSES = ' + repr(project_manager.PLAN_REVIEW_LENSES))
@@ -247,6 +250,13 @@ class HistoricalContracts(unittest.TestCase):
         git('add', '.');git('commit', '-qm', 'synthetic native collector transition')
         cls.collector_commit = git('rev-parse', 'HEAD')
         (folder / 'result_contracts.py').write_text((ROOT / '.engine/tools/result_contracts.py').read_text())
+        for path in (ROOT / '.claude/agents').glob('*.md'):
+            text = path.read_text().replace('reviewer-contract-version: 2', 'reviewer-contract-version: 1')
+            text = '\n'.join(line for line in text.split('\n')
+                             if not line.startswith('supports-frozen-cost-predecessor:'))
+            (cls.source_root / '.claude/agents' / path.name).write_text(
+                text.replace('output-contract: technical-integrity-review.v1',
+                             'output-contract: pre-submission-review-finding.v1'))
         git('add', '.');git('commit', '-qm', 'synthetic result-binding transition')
         cls.observed_commit = git('rev-parse', 'HEAD')
         (folder / 'reviewer_contracts.py').write_text('# synthetic envelope capability marker\n')
@@ -493,7 +503,8 @@ class HistoricalContracts(unittest.TestCase):
             for packet_value, records in ((delivery,receipts),(repair,repair_receipts)):
                 for receipt in records:
                     report=[{'severity':f['severity'],'message':f['summary'],'location':None} for f in state['findings'] if f['id'] in receipt['finding_ids']]
-                    observe_review_execution(self.library,self.slug,scoped_agents.build_owner(state),receipt['lens'],receipt['lens_packet_digest'],report,packet_content=json.dumps(packet_value))
+                    observe_review_execution(self.library,self.slug,scoped_agents.build_owner(state),receipt['lens'],receipt['lens_packet_digest'],report,
+                                             review_contract=source['contract'],packet_content=json.dumps(packet_value))
                     scoped_agents.accept_build(self.library,state,receipt,'fixture-root')
         self.store=bc.StateStore(str(self.root/'build-state.json'));self.store.create(state)
         self.record=self.store.read();self.backup=self.root/'retained-build-snapshot.json'
@@ -767,6 +778,56 @@ class HistoricalContracts(unittest.TestCase):
             recovered=contracts.reconstruct_source(self.source_root,self.observed_commit,ref,'thorough')
         for panel in recovered['contract']['panels'].values():
             self.assertTrue(all(p['semantic']['result_contract']['limits']==original for p in panel))
+
+
+import selftest_cost
+
+
+@selftest_cost.declaration({
+    'schema_version': 'test-cost-contract.v1', 'supported_fault': 'Prospective cost review silently changes prior consent',
+    'boundary': 'filesystem', 'boundary_rationale': 'Capture actual versioned personas from a small disposable roster',
+    'fixture_owner': 'test_reviewer_contracts.CostContractTransition', 'dependencies': ['jsonschema', 'reviewer_contracts'],
+    'data_reads': ['.engine/schemas/*.json', '.engine/policies/model-bindings.json', '.engine/build-protocol.json'],
+    'cadence': 'pr', 'limits': {**selftest_cost.zeros(), 'schema_decodes': 200, 'metaschema_validations': 3},
+    'mutable_state': 'Disposable roster and approval envelopes', 'cache_lifetime': 'case',
+    'added_cost_risk': 'No Engine clone, subprocess or nested suite', 'families': []})
+class CostContractTransition(unittest.TestCase):
+    def test_new_cost_approval_requires_the_envelope_and_preserves_the_frozen_predecessor(self):
+        import project_manager as pm
+        import build_coordinator_review as review
+        temporary = tempfile.TemporaryDirectory(); self.addCleanup(temporary.cleanup)
+        root = Path(temporary.name)
+        for relative in ('.claude/agents', '.engine/tools', '.engine/policies'):
+            (root / relative).mkdir(parents=True)
+        (root / '.engine/schemas').symlink_to(ROOT / '.engine/schemas', target_is_directory=True)
+        for relative in ('.engine/policies/model-bindings.json', '.engine/build-protocol.json'):
+            (root / relative).write_bytes((ROOT / relative).read_bytes())
+        path = root / '.claude/agents/engine-qa-review-technical-integrity.md'
+        path.write_text('---\nname: engine-qa-review-technical-integrity\nrole: pre-submission-review\n'
+            'lens: technical-integrity\nmodel-tier: judgment\npermissions: read-only\n'
+            'reviewer-contract: engine:engine-qa-review-technical-integrity\nreviewer-contract-version: 1\n'
+            'output-contract: pre-submission-review-finding.v1\n---\nFrozen fixture obligation.\n')
+        location = patch.object(pm, '__file__', str(root / '.engine/tools/project_manager.py'))
+        location.start(); self.addCleanup(location.stop)
+        ref = {'plan_id': 'pln_0123456789ab', 'revision': 1, 'plan_digest': 'sha256:' + 'a' * 64}
+        record = {'plan_id': ref['plan_id'], 'current': ref}
+        old = contracts.capture(root, ref, 'quick', [], ['technical-integrity'], instructions='Read the frozen obligation.')
+        before = copy.deepcopy(old)
+        with self.assertRaises(pm.ProjectManagerError):
+            pm._capture_review_contract(record, 'quick', cost_applicable=True)
+        text = path.read_text().replace('reviewer-contract-version: 1',
+            'reviewer-contract-version: 2\nsupports-frozen-cost-predecessor: 1').replace(
+            'output-contract: pre-submission-review-finding.v1', 'output-contract: technical-integrity-review.v1')
+        path.write_text(text)
+        new = pm._capture_review_contract(record, 'quick', cost_applicable=True)
+        self.assertEqual(['technical-integrity'], [p['lens'] for p in new['panels']['pre-submission-review']])
+        self.assertEqual([], contracts.drift(old, root)['changed'])
+        binding = old['panels']['pre-submission-review'][0]['semantic']['result_contract']
+        self.assertEqual([], review.ingest_review_report('[]', binding, lens='technical-integrity', retained=True)['report'])
+        self.assertEqual(before, old)
+        # The compatibility promise cannot also waive a tools/permission change.
+        path.write_text(text.replace('permissions: read-only', 'permissions: write'))
+        self.assertEqual(1, len(contracts.drift(old, root)['changed']))
 
 
 if __name__ == '__main__': unittest.main()
