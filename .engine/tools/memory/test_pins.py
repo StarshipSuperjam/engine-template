@@ -42,6 +42,47 @@ class PinTests(_Base):
         self.assertEqual(len(index.search("filing").records), 1)
         self.assertEqual(len(index.search("filing", force_scan=True).records), 1)
 
+    def test_dedup_returns_the_existing_pin_on_the_same_session_lane_instead_of_a_second(self):
+        # Round 4, TI-2: the direct API's dedup path, outside the dispatch child. Same normalized text on the
+        # same session lane is one pin; the same text from another session, or with dedup off, is a new one.
+        first = pins.add("Always  ask before filing an issue.", session_id="s-1", dedup=True)
+        again = pins.add("  Always ask before filing an issue. ", session_id="s-1", dedup=True)
+        self.assertEqual(again[records.RECORD_ID_KEY], first[records.RECORD_ID_KEY])
+        self.assertEqual(len(pins.list_pins()), 1)
+        other = pins.add("Always ask before filing an issue.", session_id="s-2", dedup=True)
+        self.assertNotEqual(other[records.RECORD_ID_KEY], first[records.RECORD_ID_KEY])
+        self.assertEqual(len(pins.list_pins()), 2)
+        pins.add("Always ask before filing an issue.", session_id="s-1")          # dedup off: appends
+        self.assertEqual(len(pins.list_pins()), 3)
+
+    def test_add_honours_a_pre_minted_id_and_emits_begin_then_committed_or_already_pinned(self):
+        # Round 4, TI-2: `accepted_id` becomes the record's own id and `emit` sees "begin" before the lock
+        # and "committed" after the append; a dedup hit emits "already_pinned" carrying the existing record.
+        events = []
+        record = pins.add("Prefer the smallest safe change.", session_id="s-1", accepted_id="acc-pin-1",
+                          dedup=True, emit=lambda e, p: events.append((e, p)))
+        self.assertEqual(record[records.RECORD_ID_KEY], "acc-pin-1")
+        self.assertEqual([e for e, _ in events], ["begin", "committed"])
+        self.assertEqual(events[0][1][records.RECORD_ID_KEY], "acc-pin-1")
+        self.assertEqual(events[1][1]["record"], record)
+        self.assertGreater(events[1][1]["bytes"], 0)
+        events.clear()
+        duplicate = pins.add("Prefer the smallest safe change.", session_id="s-1", accepted_id="acc-pin-2",
+                             dedup=True, emit=lambda e, p: events.append((e, p)))
+        self.assertEqual(duplicate[records.RECORD_ID_KEY], "acc-pin-1")     # the existing pin, not acc-pin-2
+        self.assertEqual([e for e, _ in events], ["begin", "already_pinned"])
+        self.assertEqual(events[1][1]["record"], duplicate)
+        self.assertEqual(len(pins.list_pins()), 1)
+
+    def test_a_failing_emit_never_turns_a_landed_pin_into_a_refusal(self):
+        def broken(event, payload):
+            if event == "committed":
+                raise BrokenPipeError("parent went away")
+
+        record = pins.add("Keep the operator informed.", emit=broken)
+        self.assertEqual(len(pins.list_pins()), 1)
+        self.assertEqual(pins.list_pins()[0][records.RECORD_ID_KEY], record[records.RECORD_ID_KEY])
+
     def test_secret_shaped_text_is_scrubbed_before_it_is_stored(self):
         # A pin does not travel through capture, so capture's scrub never sees it — and a pinned credential
         # would be read into the briefing of every future session. There must be no unscrubbed copy anywhere.
@@ -119,6 +160,125 @@ class PinTests(_Base):
         self.assertIn("nothing was saved", message)
         self.assertIn("/engine-status", message)
         self.assertEqual(caught.exception.raw_detail, raw)
+
+    # -- round 8 (R8 DH-1): the writer reconciles a fault raised after the bytes may have landed --------------
+    def _flush_fails_after_the_bytes_land(self):
+        import errno
+        from unittest import mock
+        return mock.patch.object(ledger.os, "fsync", side_effect=OSError(errno.EIO, "injected: the flush failed"))
+
+    def test_an_io_error_in_the_flush_after_the_bytes_landed_returns_the_saved_pin(self):
+        # The bytes are on disk when the flush fails; the pin is readable, so it is returned as saved.
+        with self._flush_fails_after_the_bytes_land():
+            record = pins.add("landed before the flush failed")
+        self.assertEqual(record["text"], "landed before the flush failed")
+        self.assertEqual([r["text"] for r in pins.list_pins()], ["landed before the flush failed"])
+
+    def test_the_command_line_says_pinned_not_nothing_saved_when_only_the_flush_failed(self):
+        import io
+        from contextlib import redirect_stdout
+        buffer = io.StringIO()
+        with self._flush_fails_after_the_bytes_land(), redirect_stdout(buffer):
+            code = pins.main(["add", "a command-line pin whose flush failed"])
+        self.assertEqual(code, 0)
+        self.assertIn("Pinned [", buffer.getvalue())
+        self.assertNotIn("Not saved", buffer.getvalue())
+        # R9 DH-1: saved, but never reported as a CLEAN save — the failed flush step is named.
+        self.assertIn(pins.UNFLUSHED_NOTE, buffer.getvalue())
+        self.assertEqual([r["text"] for r in pins.list_pins()], ["a command-line pin whose flush failed"])
+
+    def test_a_clean_save_carries_no_flush_note_and_a_landed_despite_fault_save_carries_the_fault(self):
+        # R9 DH-1: the disclosure travels on the committed line, so every route (the dispatched child, the
+        # command line) can tell a clean save from one whose flush failed after the bytes landed.
+        import io
+        from contextlib import redirect_stdout
+        lines = []
+        pins.add("a clean pin", emit=lambda kind, payload: lines.append((kind, payload)))
+        self.assertEqual([k for k, _ in lines], ["begin", "committed"])
+        self.assertNotIn("fault", lines[1][1])
+        buffer = io.StringIO()
+        with redirect_stdout(buffer):
+            self.assertEqual(pins.main(["add", "another clean pin"]), 0)
+        self.assertNotIn("not cleanly", buffer.getvalue())
+        lines.clear()
+        with self._flush_fails_after_the_bytes_land():
+            record = pins.add("a pin whose flush failed", emit=lambda kind, payload: lines.append((kind, payload)))
+        self.assertEqual([k for k, _ in lines], ["begin", "committed"])
+        self.assertEqual(lines[1][1]["record"], record)
+        self.assertIsNone(lines[1][1]["bytes"])                      # the byte length is unknown
+        self.assertIn("injected: the flush failed", lines[1][1]["fault"])
+
+    def test_landed_despite_answers_from_the_real_ledger_in_all_three_states(self):
+        # R9 DH-3: the writer-side helper against a real ledger — a record that is there, one that is not
+        # (searched, absent), and a ledger that cannot be read (None, never "absent").
+        record = pins.add("a pin that is there")
+        target = ledger.ledger_path()
+        self.assertIs(pins._landed_despite(record, target), True)
+        self.assertIs(pins._landed_despite({records.RECORD_ID_KEY: "never-written"}, target), False)
+        self.assertIs(pins._landed_despite(None, target), False)
+        unreadable = os.path.join(os.path.dirname(target), "a-directory")
+        os.mkdir(unreadable)
+        self.assertIsNone(pins._landed_despite(record, unreadable))
+
+    def test_removing_a_pin_from_the_command_line_tells_the_truth_about_its_own_flush(self):
+        # R9 DH-2: the remove headline. Only the flush failed: removed, with the flush note. The ledger cannot
+        # be read back: "Not confirmed", never "Not removed" over a sentence that says it is not known.
+        import io
+        from contextlib import redirect_stdout
+        from unittest import mock
+        rid = pins.add("a pin to remove")[records.RECORD_ID_KEY]
+        buffer = io.StringIO()
+        with self._flush_fails_after_the_bytes_land(), redirect_stdout(buffer):
+            code = pins.main(["remove", rid])
+        self.assertEqual(code, 0)
+        self.assertTrue(buffer.getvalue().startswith("Removed from recall."))
+        self.assertIn(forget.UNFLUSHED_NOTE, buffer.getvalue())
+        self.assertEqual(pins.list_pins(), [])
+        other = pins.add("a pin nobody can confirm removing")[records.RECORD_ID_KEY]
+        unreadable = mock.patch.object(ledger, "find_raw_record",
+                                       side_effect=ledger.LedgerUnreadable("injected: cannot read back"))
+        buffer = io.StringIO()
+        with self._flush_fails_after_the_bytes_land(), unreadable, redirect_stdout(buffer):
+            code = pins.main(["remove", other])
+        self.assertEqual(code, 1)
+        self.assertTrue(buffer.getvalue().startswith("Not confirmed: "))
+        self.assertNotIn("Not removed", buffer.getvalue())
+        buffer = io.StringIO()
+        with redirect_stdout(buffer):
+            self.assertEqual(pins.main(["remove", "no-such-pin"]), 1)
+        self.assertTrue(buffer.getvalue().startswith("Not removed: "))
+
+    def test_a_flush_failure_with_an_unreadable_ledger_is_unconfirmed_never_nothing_saved(self):
+        import io
+        from contextlib import redirect_stdout
+        from unittest import mock
+        unreadable = mock.patch.object(ledger, "find_raw_record",
+                                       side_effect=ledger.LedgerUnreadable("injected: cannot read back"))
+        with self._flush_fails_after_the_bytes_land(), unreadable:
+            with self.assertRaises(pins.PinUnconfirmed) as caught:
+                pins.add("a pin nobody can confirm")
+        message = str(caught.exception)
+        self.assertIsInstance(caught.exception, pins.PinRefused)      # every existing handler still catches it
+        self.assertIn("not confirmed", message)
+        self.assertNotIn("nothing was saved", message.lower())
+        self.assertIn("/engine-status", message)
+        buffer = io.StringIO()
+        with self._flush_fails_after_the_bytes_land(), unreadable, redirect_stdout(buffer):
+            code = pins.main(["add", "a command-line pin nobody can confirm"])
+        self.assertEqual(code, 1)
+        self.assertTrue(buffer.getvalue().startswith("Not confirmed: "))
+        self.assertNotIn("Not saved", buffer.getvalue())
+
+    def test_a_fault_before_the_append_still_says_nothing_was_saved(self):
+        # The reconciliation only ever CONFIRMS a landed write: with nothing appended, the ledger is searched,
+        # holds nothing, and the plain refusal stands.
+        from unittest import mock
+        with mock.patch.object(ledger, "append", side_effect=OSError("disk went away")):
+            with self.assertRaises(pins.PinRefused) as caught:
+                pins.add("a pin that never reached the disk")
+        self.assertNotIsInstance(caught.exception, pins.PinUnconfirmed)
+        self.assertIn("nothing was saved", str(caught.exception))
+        self.assertEqual(pins.list_pins(), [])
 
     def test_an_over_long_pin_is_refused_rather_than_truncated(self):
         with self.assertRaises(pins.PinRefused) as caught:

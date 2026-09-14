@@ -42,6 +42,7 @@ import os
 import re
 import shutil
 import shlex
+import stat
 import subprocess
 import sys
 import tempfile
@@ -1174,6 +1175,9 @@ class _AcceptedDispatchRepo:
                 print(json.dumps([{"number": 42, "merged_at": "2026-01-01T00:00:00Z",
                     "merge_commit_sha": commit,
                     "base": {"ref": os.environ.get("ENGINE_TEST_GH_DEFAULT", "main")}}]))
+            elif "/compare/" in endpoint:
+                # The reachability compare (default_branch...commit): reachable unless a test says otherwise.
+                print(json.dumps({"status": os.environ.get("ENGINE_TEST_GH_COMPARE", "identical")}))
             elif "/releases/tags/" in endpoint:
                 print(json.dumps({"id": 77, "tag_name": endpoint.rsplit("/", 1)[-1]}))
             elif "/git/ref/tags/" in endpoint:
@@ -1224,7 +1228,7 @@ class _AcceptedDispatchRepo:
         self._put(".engine/tools/boot.py", "raise SystemExit(0)\n")
         self._put(".engine/tools/memory/__init__.py", "")
         for name in ("execution_context.py", "mutation_contract.py", "mutation_authority.py",
-                     "candidate_invocation.py", "qualification_health.py"):
+                     "candidate_invocation.py", "qualification_health.py", "write_dispatch.py"):
             self._put(f".engine/tools/memory/{name}",
                       (_ACCEPTED_TOOLS / "memory" / name).read_text(encoding="utf-8"))
         for name in ("compact.py", "erasure_observer.py", "backup_vault.py"):
@@ -2012,8 +2016,8 @@ class TestAmbientActivationLifecycle(unittest.TestCase):
         self.assertEqual(result.returncode, 0, result.stderr)
         return json.loads(result.stdout)
 
-    def _advance_canonical(self) -> str:
-        (self.repo.root / "product.txt").write_text("a merged change\n", encoding="utf-8")
+    def _advance_canonical(self, text: str = "a merged change\n") -> str:
+        (self.repo.root / "product.txt").write_text(text, encoding="utf-8")
         self.repo.git("add", "product.txt")
         self.repo.git("commit", "-m", "merged change")
         return self.repo.git("rev-parse", "HEAD")
@@ -2080,6 +2084,59 @@ class TestAmbientActivationLifecycle(unittest.TestCase):
         self.assertTrue(any("does not descend" in notice or "no longer descends" in notice
                             for notice in result["notices"]), result["notices"])
 
+    def test_a_confirmed_loss_does_not_relax_the_forward_only_rule(self):
+        """Round 4, SG-1/DH-1 (reverting round 3's DH-1): a recorded reachability loss holds the helper writes,
+        it never unlocks a non-descendant tip. After a force-pushed rollback, every later session start keeps
+        the activation where it was — even when the rolled-back tip carries its own merged-PR proof — and the
+        'lost' mark stays for that generation. Automatic recovery from a rewritten default branch is a plan
+        non-goal; it is an explicit operator step through an engine issue."""
+        self._ambient()                                            # epoch 1 at R
+        stale = self._advance_canonical()                          # S, a descendant of R
+        result = self._ambient(commit=stale)
+        self.assertEqual((result["activation"]["commit"], result["activation"]["epoch"]), (stale, 2))
+        # The operator force-pushes main back to R and lands a fresh commit T (a sibling of S, not a descendant).
+        self.repo.git("reset", "--hard", self.repo.commit)
+        (self.repo.root / "product.txt").write_text("the rollback's replacement\n", encoding="utf-8")
+        self.repo.git("add", "product.txt")
+        self.repo.git("commit", "-m", "replacement after rollback")
+        replacement = self.repo.git("rev-parse", "HEAD")
+        # GitHub confirms S left the default branch: the loss is recorded and the hold is announced.
+        import accepted_hook_dispatch
+        lost = self._ambient(commit=replacement, extra_env={"ENGINE_TEST_GH_COMPARE": "diverged"})
+        self.assertEqual((lost["activation"]["commit"], lost["activation"]["epoch"]), (stale, 2))
+        self.assertEqual(accepted_hook_dispatch.reachability_state(str(self.repo.root), lost["activation"]),
+                         "lost")
+        self.assertTrue(any("through the memory helper" in n for n in lost["notices"]), lost["notices"])
+        # The restart: with the loss on record AND the tip carrying acceptance proof, the activation still
+        # does not move — the forward-only rule is absolute, and the hold stays exactly as announced.
+        for attempt in range(2):
+            with self.subTest(restart=attempt + 1):
+                again = self._ambient(commit=replacement, extra_env={"ENGINE_TEST_GH_COMPARE": "diverged"})
+                self.assertEqual((again["activation"]["commit"], again["activation"]["epoch"]), (stale, 2))
+                self.assertTrue(any("no longer descends" in n for n in again["notices"]), again["notices"])
+                self.assertEqual(accepted_hook_dispatch.reachability_state(str(self.repo.root),
+                                                                           again["activation"]), "lost")
+                self.assertTrue(accepted_hook_dispatch._reachability_lost(str(self.repo.root),
+                                                                          again["activation"]))
+
+    def test_a_forward_advance_after_a_recorded_loss_clears_the_hold(self):
+        """The posture's honest claim: a restart clears the hold when the default branch moved FORWARD. The
+        activated commit's history is merged onward (a descendant tip), the advance is a normal one, and the
+        'lost' mark — keyed to the old generation — stops matching the new activation."""
+        self._ambient()
+        stale = self._advance_canonical()
+        self._ambient(commit=stale)
+        import accepted_hook_dispatch
+        accepted_hook_dispatch._record_reachability(
+            str(self.repo.root), accepted_hook_dispatch.load_activation(str(self.repo.root)), "lost")
+        newer = self._advance_canonical("a second merged change\n")   # a descendant of S: the branch moved forward
+        recovered = self._ambient(commit=newer)
+        self.assertEqual((recovered["activation"]["commit"], recovered["activation"]["epoch"]), (newer, 3))
+        self.assertIsNone(accepted_hook_dispatch.reachability_state(str(self.repo.root),
+                                                                    recovered["activation"]))
+        self.assertFalse(accepted_hook_dispatch._reachability_lost(str(self.repo.root),
+                                                                   recovered["activation"]))
+
     def test_a_failed_advance_never_costs_the_working_activation(self):
         self._ambient()
         self._advance_canonical()
@@ -2134,6 +2191,29 @@ class TestAmbientActivationLifecycle(unittest.TestCase):
         self.assertLess(elapsed, 30, "ambient activation did not abandon a hanging GitHub read")
         self.assertTrue(any("not able to write to memory" in notice for notice in result["notices"]),
                         "a hang must be disclosed, not silently degraded")
+
+    def test_a_hung_reachability_compare_cannot_borrow_the_session_start_repo_read_budget(self):
+        """DH2-6: reachability is measured in its OWN budget after the boot budget has closed. A compare
+        read that hangs must leave activation converged (the repository read kept its full budget) and
+        degrade only reachability to 'unconfirmed', which never holds a write."""
+        fake = self.repo.fake_bin / "gh"
+        source = fake.read_text(encoding="utf-8")
+        hung = source.replace('elif "/compare/" in endpoint:\n',
+                              'elif "/compare/" in endpoint:\n    import time; time.sleep(6)\n')
+        self.assertNotEqual(hung, source)
+        fake.write_text(hung, encoding="utf-8")
+        import accepted_hook_dispatch as d
+        started = time.monotonic()
+        result = self._ambient()
+        elapsed = time.monotonic() - started
+        self.assertIsNotNone(result["activation"], result["notices"])   # the repo read converged
+        self.assertLess(elapsed, 30)
+        self.assertGreaterEqual(elapsed, d.REACHABILITY_BUDGET_SECONDS)  # the compare was really waited on
+        self.assertTrue(any("could not confirm" in n for n in result["notices"]), result["notices"])
+        self.assertFalse(any("not able to write to memory" in n for n in result["notices"]))
+        root = str(self.repo.home)
+        self.assertEqual(d.reachability_state(root, d.load_activation(root)), "unconfirmed")
+        self.assertFalse(d._reachability_lost(root, d.load_activation(root)))
 
     def test_an_authentication_prompt_cannot_block_the_session(self):
         """`gh` reading from stdin must see EOF, not a session that waits forever for an answer nobody can
@@ -2366,6 +2446,32 @@ class TestAcceptedTreeBytecodeHygiene(unittest.TestCase):
                 results.append(future.result())
         for result in results:
             self.assertEqual(result.returncode, 0, result.stderr)
+
+    def test_two_concurrent_attended_launches_while_the_tree_needs_rebuilding_both_succeed(self):
+        # R5-DH-1: the plan's contention case is the REBUILD, not a clean tree. Pollute the published tree so
+        # the next launch must materialize again, then launch twice at once: the materialize lock serializes
+        # the rebuild, the loser finds the winner's valid tree, both run, and exactly one clean, valid tree
+        # (no bytecode, marker present, exact binding intact) is what remains.
+        self.assertEqual(self.repo.run_attended().returncode, 0)
+        seeded = self._tree_path() / ".engine/tools/__pycache__"
+        seeded.mkdir(parents=True, exist_ok=True)
+        (seeded / "poison.cpython-000.pyc").write_bytes(b"\x00\x01poison")
+        self.assertIsNone(self._valid(), "the polluted tree must need rebuilding before the race starts")
+        results = []
+        with concurrent.futures.ThreadPoolExecutor(max_workers=2) as pool:
+            futures = [pool.submit(self.repo.run_attended) for _ in range(2)]
+            for future in concurrent.futures.as_completed(futures):
+                results.append(future.result())
+        for result in results:
+            self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual(self._pycache_dirs(self._tree_path()), [])
+        self.assertIsNotNone(self._valid(), "the race left no valid materialization behind")
+        self.assertTrue(self._marker_path().is_file())
+        # And the tree is now stable: a third launch finds it valid and does not rebuild it again.
+        before = os.stat(self._marker_path())
+        self.assertEqual(self.repo.run_attended().returncode, 0)
+        after = os.stat(self._marker_path())
+        self.assertEqual((after.st_ino, after.st_mtime_ns), (before.st_ino, before.st_mtime_ns))
 
 
 class TestBytecodeBeltScope(unittest.TestCase):
@@ -2618,6 +2724,519 @@ class TestInventoryDriftCheckers(unittest.TestCase):
         self.assertEqual([f for f in claude_only if "over-reports" in f],
                          ["the inventory names modes on UserPromptSubmit, but no engine command mapped to modes "
                           "is bound there in any runtime — the row over-reports"])
+
+
+class TestReachability(unittest.TestCase):
+    """Node-1 default-branch reachability (activation-reachability-and-tree-binding): the sibling mark's
+    reader/recorder and its precedence, plus the network measurement that maps a GitHub compare status to a
+    state. The launcher's place-(b) write hold is exercised end-to-end in TestWriteDispatchReachabilityHold."""
+
+    def setUp(self):
+        import accepted_hook_dispatch
+        self.d = accepted_hook_dispatch
+        self.tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(self.tmp.cleanup)
+        self.root = self.tmp.name
+        _accepted_call("git", "init", "-b", "main", self.root)
+        self.act = {"repository": "owner/project", "commit": "a" * 40, "epoch": 2,
+                    "source": "reviewed-merge"}
+
+    # --- reader / recorder / precedence ---------------------------------------------------------------
+    def test_absent_mark_reads_not_lost(self):
+        self.assertIsNone(self.d.reachability_state(self.root, self.act))
+        self.assertFalse(self.d._reachability_lost(self.root, self.act))
+
+    def test_record_lost_then_reachable_clears_the_mark(self):
+        self.d._record_reachability(self.root, self.act, "lost")
+        self.assertEqual(self.d.reachability_state(self.root, self.act), "lost")
+        self.assertTrue(self.d._reachability_lost(self.root, self.act))
+        self.d._record_reachability(self.root, self.act, "reachable")
+        self.assertIsNone(self.d.reachability_state(self.root, self.act))
+        self.assertFalse(os.path.exists(self.d._reachability_path(self.root)))
+
+    def test_unconfirmed_is_recorded_for_disclosure_but_never_holds_and_never_undoes_a_confirmed_loss(self):
+        self.d._record_reachability(self.root, self.act, "unconfirmed")
+        self.assertEqual(self.d.reachability_state(self.root, self.act), "unconfirmed")  # disclosed...
+        self.assertFalse(self.d._reachability_lost(self.root, self.act))                  # ...never a hold
+        self.d._record_reachability(self.root, self.act, "lost")
+        self.d._record_reachability(self.root, self.act, "unconfirmed")
+        self.assertEqual(self.d.reachability_state(self.root, self.act), "lost")  # loss survives
+
+    def test_newer_generation_loss_is_not_walked_back_by_an_older_measurement(self):
+        newer = {**self.act, "epoch": 5}
+        self.d._record_reachability(self.root, newer, "lost")
+        self.d._record_reachability(self.root, self.act, "reachable")  # older epoch 2
+        self.assertEqual(self.d.reachability_state(self.root, newer), "lost")
+
+    def test_mark_from_a_different_generation_is_ignored(self):
+        self.d._record_reachability(self.root, self.act, "lost")
+        self.assertIsNone(self.d.reachability_state(self.root, {**self.act, "commit": "b" * 40}))
+        self.assertIsNone(self.d.reachability_state(self.root, {**self.act, "epoch": 9}))
+
+    def test_reader_fails_open_when_the_mark_is_a_symlink(self):
+        self.d._record_reachability(self.root, self.act, "lost")
+        path = self.d._reachability_path(self.root)
+        os.unlink(path)
+        os.symlink(os.path.join(self.root, "elsewhere"), path)
+        self.assertIsNone(self.d.reachability_state(self.root, self.act))
+
+    def test_posture_carries_the_restart_recovery_and_escalation_and_never_claims_self_heal(self):
+        from memory import refusals
+        text = self.d._reachability_posture(7)
+        # The hold names the concrete recovery and escalation, verbatim from the shared constants, so the
+        # posture and the operator refusals can never drift apart.
+        self.assertIn(refusals.RESTART_ACTION, text)
+        self.assertIn(refusals.ESCALATION, text)
+        self.assertIn("epoch 7", text)
+        self.assertNotIn("converges by itself", text)          # never claims self-heal
+        self.assertNotIn(self.act["commit"], text)             # no commit hash in an operator refusal
+        # SG2-2: the hold is enforced for helper-dispatched saves only, and the sentence claims no more.
+        self.assertNotIn("saving to memory is held", text)
+        self.assertIn("through the memory helper", text)
+        self.assertIn("automatic turn capture continues", text)
+        self.assertIn("command-line tools are unaffected", text)
+        # US2-1: the recovery is a pull then a restart, never "get back on the default branch".
+        self.assertIn("Pull the project's default branch", text)
+        self.assertNotIn("back on the project's default branch", text)
+        self.assertLess(text.index("Pull the project's default branch"), text.index(refusals.RESTART_ACTION))
+        # Round 4, SG-1/DH-1: the restart clears the hold only when the branch moved forward; a rewound or
+        # rewritten branch is named as the case that stays held, so the sentence promises no recovery the
+        # forward-only rule refuses.
+        self.assertIn("when the branch moved forward", text)
+        self.assertIn("rewound or rewritten, the hold stays", text)
+        self.assertLess(text.index("rewound or rewritten"), text.index(refusals.ESCALATION))
+        # The only path is the sanctioned /engine-status in the escalation; no filesystem path leaks.
+        self.assertNotIn("/", text.replace(refusals.ESCALATION, ""))
+
+    # --- measurement: compare status -> state (GitHub mocked) -----------------------------------------
+    def _measure(self, status, **override):
+        act = {**self.act, **override}
+        notices = []
+        with mock.patch.object(self.d, "_github_default_branch", return_value="main"), \
+             mock.patch.object(self.d, "_github_json", return_value={"status": status}):
+            state = self.d.measure_reachability(self.root, act, notices=notices)
+        return state, notices
+
+    def _clear(self):
+        with contextlib.suppress(OSError):
+            os.unlink(self.d._reachability_path(self.root))
+
+    def test_measure_is_reachable_for_identical_and_behind(self):
+        for status in ("identical", "behind"):
+            with self.subTest(status=status):
+                self._clear()
+                state, notices = self._measure(status)
+                self.assertEqual(state, "reachable")
+                self.assertFalse(self.d._reachability_lost(self.root, self.act))
+                self.assertEqual(notices, [])
+
+    def test_measure_is_lost_for_ahead_and_diverged_and_appends_the_posture_notice(self):
+        for status in ("ahead", "diverged"):
+            with self.subTest(status=status):
+                self._clear()
+                state, notices = self._measure(status)
+                self.assertEqual(state, "lost")
+                self.assertTrue(self.d._reachability_lost(self.root, self.act))
+                self.assertEqual(notices, [self.d._reachability_posture(self.act["epoch"])])
+
+    def test_measure_is_unconfirmed_for_an_unrecognized_status(self):
+        self._clear()
+        state, notices = self._measure("weird")
+        self.assertEqual(state, "unconfirmed")
+        self.assertFalse(self.d._reachability_lost(self.root, self.act))
+        self.assertEqual(self.d.reachability_state(self.root, self.act), "unconfirmed")
+        self.assertEqual(len(notices), 1)                       # disclosed, calmly, with the reason
+        self.assertIn("could not confirm", notices[0])
+        self.assertIn("'weird'", notices[0])
+        self.assertIn("Memory writing continues", notices[0])
+
+    def test_measure_is_unconfirmed_when_github_cannot_be_reached(self):
+        self._clear()
+        notices = []
+        with mock.patch.object(self.d, "_github_default_branch",
+                               side_effect=self.d.QualificationError("offline")):
+            state = self.d.measure_reachability(self.root, self.act, notices=notices)
+        self.assertEqual(state, "unconfirmed")
+        self.assertFalse(self.d._reachability_lost(self.root, self.act))  # offline never holds a write
+        self.assertEqual(len(notices), 1)                                 # ...but the operator is told
+        self.assertIn("offline", notices[0])
+        self.assertIn("Memory writing continues", notices[0])
+
+    def test_a_failed_recheck_after_a_confirmed_loss_reports_the_loss_that_is_actually_enforced(self):
+        # Round 3, DH-2: a confirmed loss is on record for this generation. A later session start cannot
+        # reach GitHub (or gets an unrecognized status). The recorder keeps the loss — dispatched writes stay
+        # held on it — so the returned state and the notice must say LOST and carry the hold's posture, never
+        # "Memory writing continues".
+        self._clear()
+        state, _ = self._measure("diverged")
+        self.assertEqual(state, "lost")
+        for name, do_measure in (
+                ("offline", lambda: self._measure_offline("offline")),
+                ("unrecognized", lambda: self._measure("weird"))):
+            with self.subTest(name=name):
+                state, notices = do_measure()
+                self.assertEqual(state, "lost")
+                self.assertTrue(self.d._reachability_lost(self.root, self.act))
+                self.assertEqual(self.d.reachability_state(self.root, self.act), "lost")
+                self.assertEqual(len(notices), 1)
+                self.assertNotIn("Memory writing continues", notices[0])
+                self.assertIn("earlier confirmed result stands", notices[0])
+                self.assertIn(self.d._reachability_posture(self.act["epoch"]), notices[0])
+
+    def _measure_offline(self, reason):
+        notices = []
+        with mock.patch.object(self.d, "_github_default_branch",
+                               side_effect=self.d.QualificationError(reason)):
+            state = self.d.measure_reachability(self.root, self.act, notices=notices)
+        return state, notices
+
+    def test_a_failed_recheck_with_no_prior_loss_is_still_plain_unconfirmed(self):
+        # DH-2's guard changes nothing when no loss is on record: offline stays unconfirmed, never a hold.
+        self._clear()
+        self.d._record_reachability(self.root, self.act, "unconfirmed")
+        state, notices = self._measure_offline("offline")
+        self.assertEqual(state, "unconfirmed")
+        self.assertFalse(self.d._reachability_lost(self.root, self.act))
+        self.assertIn("Memory writing continues", notices[0])
+
+    def test_a_published_release_is_never_measured_against_the_default_branch(self):
+        with mock.patch.object(self.d, "_github_default_branch") as gb, \
+             mock.patch.object(self.d, "_github_json") as gj:
+            state = self.d.measure_reachability(self.root, {**self.act, "source": "published-release"})
+        self.assertEqual(state, "reachable")
+        gb.assert_not_called()
+        gj.assert_not_called()
+        self.assertIsNone(self.d.reachability_state(self.root, self.act))
+
+
+class TestWriteDispatchReachabilityHold(unittest.TestCase):
+    """Place (b): the outer launcher refuses a dispatched memory write when the activated commit has left the
+    default branch, relaying the posture sentence as the child's response line — no accepted child is run."""
+
+    def setUp(self):
+        self.repo = _AcceptedDispatchRepo()
+        self.addCleanup(self.repo.cleanup)
+
+    def test_dispatched_write_is_held_and_relays_the_posture_verbatim(self):
+        import accepted_hook_dispatch
+        self.assertEqual(self.repo.activate().returncode, 0)
+        activation = accepted_hook_dispatch.load_activation(str(self.repo.worktree))
+        accepted_hook_dispatch._record_reachability(str(self.repo.worktree), activation, "lost")
+        held = self.repo.run_attended("attended-write-dispatch", ".engine/tools/memory/write_dispatch.py")
+        self.assertEqual(held.returncode, 0, held.stderr)
+        response = None
+        for line in held.stdout.splitlines():
+            if line.strip():
+                event = json.loads(line)
+                if event.get("event") == "response":
+                    response = event["response"]
+        self.assertEqual(response, {"refused": accepted_hook_dispatch._reachability_posture(
+            activation["epoch"])})
+
+class TestMaterializationIsAttributeBlind(unittest.TestCase):
+    """SG2-1: the materialized tree is derived from git's object store, never ``git archive``, so a project's
+    own ``.gitattributes`` (export-ignore, eol) cannot make the on-disk tree diverge from the ``ls-tree``
+    manifest the exact binding compares against — which would otherwise hold every memory write forever."""
+
+    def setUp(self):
+        import accepted_hook_dispatch
+        self.d = accepted_hook_dispatch
+        self.repo = _AcceptedDispatchRepo()
+        self.addCleanup(self.repo.cleanup)
+        # A second accepted commit carrying every attribute that makes `git archive` diverge from the tree,
+        # plus an executable and a symlink so every materializable git mode is exercised.
+        self.repo._put(".gitattributes", "docs/ export-ignore\nwin.txt eol=crlf\n")
+        self.repo._put("docs/kept.txt", "archive would drop me\n")
+        self.repo._put("win.txt", "one\ntwo\n")
+        self.repo._put("bin/run.sh", "#!/bin/sh\necho ok\n")
+        os.chmod(self.repo.root / "bin/run.sh", 0o755)
+        os.symlink("win.txt", self.repo.root / "link.txt")
+        _accepted_call("git", "-C", str(self.repo.root), "add", "-A")
+        _accepted_call("git", "-C", str(self.repo.root), "commit", "-q", "-m", "attributes")
+        self.commit = self.repo.git("rev-parse", "HEAD")
+        self.assertEqual(self.repo.activate(commit=self.commit).returncode, 0)
+        self.root = str(self.repo.worktree)
+        self.activation = self.d.load_activation(self.root)
+        self.assertEqual(self.activation["commit"], self.commit)
+        self.d._COMMIT_MANIFEST_MEMO.clear()
+
+    def test_git_archive_would_have_diverged_from_the_manifest(self):
+        # The trap is real in this fixture: archive drops the export-ignored file and rewrites the eol file.
+        import tarfile
+        raw = subprocess.run(["git", "-C", self.root, "archive", "--format=tar", self.commit],
+                             capture_output=True, check=True, timeout=30).stdout
+        with tarfile.open(fileobj=io.BytesIO(raw)) as tf:
+            names = tf.getnames()
+            win = tf.extractfile("win.txt").read()
+        self.assertNotIn("docs/kept.txt", names)
+        self.assertIn(b"\r\n", win)
+
+    def test_the_materialized_tree_matches_the_manifest_despite_gitattributes(self):
+        tree = self.d._materialize(self.root, self.activation)
+        self.assertEqual(self.d._valid_materialization(self.root, self.activation), tree)
+        with open(os.path.join(tree, "docs", "kept.txt"), "rb") as fh:
+            self.assertEqual(fh.read(), b"archive would drop me\n")          # export-ignore did not apply
+        with open(os.path.join(tree, "win.txt"), "rb") as fh:
+            self.assertEqual(fh.read(), b"one\ntwo\n")                       # eol did not rewrite bytes
+        self.assertTrue(os.access(os.path.join(tree, "bin", "run.sh"), os.X_OK))  # 100755 kept
+        self.assertEqual(os.readlink(os.path.join(tree, "link.txt")), "win.txt")   # 120000 kept
+        _inventory, ondisk = self.d._scan_materialized_tree(tree, self.d._object_format(self.root))
+        self.assertEqual(ondisk, self.d._git_manifest(self.root, self.commit))
+
+    def test_an_unsafe_manifest_path_fails_closed(self):
+        forged = frozenset({("../escape.txt", "100644", "0" * 40)})
+        with mock.patch.object(self.d, "_git_manifest", return_value=forged):
+            with self.assertRaises(self.d.QualificationError):
+                self.d._write_tree_from_objects(self.root, self.commit, tempfile.mkdtemp(dir=self.repo.temp.name))
+
+    def _commit_with_symlink(self, name, link):
+        os.symlink(link, self.repo.root / name)
+        _accepted_call("git", "-C", str(self.repo.root), "add", "-A")
+        _accepted_call("git", "-C", str(self.repo.root), "commit", "-q", "-m", f"link {name}")
+        return self.repo.git("rev-parse", "HEAD")
+
+    def test_a_symlink_whose_target_escapes_the_tree_is_refused_and_nothing_is_written(self):
+        # R5-SG-1: the archive path's `tarfile` data filter refused an escaping link; the object-store writer
+        # must too. Both an absolute target and a relative climb are refused BEFORE the link is created, so
+        # no dangling pointer at the operator's home ever exists on disk, even briefly.
+        for name, link in (("abs.txt", os.path.abspath(os.sep)), ("climb.txt", "../../outside.txt")):
+            with self.subTest(link=link):
+                commit = self._commit_with_symlink(name, link)
+                dest = tempfile.mkdtemp(dir=self.repo.temp.name)
+                with self.assertRaises(self.d.QualificationError) as caught:
+                    self.d._write_tree_from_objects(self.root, commit, dest)
+                self.assertIn("escapes the tree", str(caught.exception))
+                self.assertFalse(os.path.lexists(os.path.join(dest, name)))
+                os.unlink(self.repo.root / name)
+
+    def test_a_symlink_that_climbs_but_stays_inside_the_tree_is_kept(self):
+        # `docs/../win.txt` climbs one level and lands inside: contained, so it is written like `link.txt`.
+        self.repo._put("docs/inner.txt", "inner\n")
+        commit = self._commit_with_symlink("docs/up.txt", "../win.txt")
+        dest = tempfile.mkdtemp(dir=self.repo.temp.name)
+        self.d._write_tree_from_objects(self.root, commit, dest)
+        self.assertEqual(os.readlink(os.path.join(dest, "docs", "up.txt")), "../win.txt")
+
+    def test_a_chain_of_links_that_escapes_on_disk_is_refused_and_no_link_remains(self):
+        # R6 DH-1: `dir/hop -> ..` resolves lexically to the tree root (inside), and `x -> dir/hop/../out.txt`
+        # resolves lexically to `dir/out.txt` (inside) — but on disk `dir/hop/..` is the PARENT of the tree, so
+        # the second link reads outside it. The on-disk pass after writing catches what the lexical guard
+        # cannot, and every link written for that tree is removed before the refusal is raised.
+        (self.repo.root / "dir").mkdir(exist_ok=True)
+        self.repo._put("dir/inner.txt", "inner\n")
+        os.symlink("..", self.repo.root / "dir" / "hop")
+        os.symlink("dir/hop/../outside.txt", self.repo.root / "x.txt")
+        _accepted_call("git", "-C", str(self.repo.root), "add", "-A")
+        _accepted_call("git", "-C", str(self.repo.root), "commit", "-q", "-m", "link chain")
+        commit = self.repo.git("rev-parse", "HEAD")
+        dest = tempfile.mkdtemp(dir=self.repo.temp.name)
+        with open(os.path.join(os.path.dirname(dest), "outside.txt"), "w") as fh:
+            fh.write("secret\n")
+        with self.assertRaises(self.d.QualificationError) as caught:
+            self.d._write_tree_from_objects(self.root, commit, dest)
+        self.assertIn("escapes the tree", str(caught.exception))
+        self.assertFalse(os.path.lexists(os.path.join(dest, "x.txt")))
+        self.assertFalse(os.path.lexists(os.path.join(dest, "dir", "hop")))
+        self.assertTrue(os.path.isfile(os.path.join(dest, "dir", "inner.txt")))   # plain files were written
+        os.unlink(self.repo.root / "x.txt")
+        os.unlink(self.repo.root / "dir" / "hop")
+
+    def test_a_chain_of_links_that_stays_inside_on_disk_is_kept(self):
+        # The on-disk pass admits a chain whose every hop lands inside: `dir/hop -> .` then `x -> dir/hop/inner.txt`.
+        (self.repo.root / "dir").mkdir(exist_ok=True)
+        self.repo._put("dir/inner.txt", "inner\n")
+        os.symlink(".", self.repo.root / "dir" / "hop")
+        os.symlink("dir/hop/inner.txt", self.repo.root / "x.txt")
+        _accepted_call("git", "-C", str(self.repo.root), "add", "-A")
+        _accepted_call("git", "-C", str(self.repo.root), "commit", "-q", "-m", "link chain inside")
+        commit = self.repo.git("rev-parse", "HEAD")
+        dest = tempfile.mkdtemp(dir=self.repo.temp.name)
+        self.d._write_tree_from_objects(self.root, commit, dest)
+        with open(os.path.join(dest, "x.txt")) as fh:
+            self.assertEqual(fh.read(), "inner\n")
+        os.unlink(self.repo.root / "x.txt")
+        os.unlink(self.repo.root / "dir" / "hop")
+
+    def test_the_lexical_guard_is_the_pre_write_check_not_the_authority(self):
+        # The helper refuses what it can see before a link exists (absolute, plain climb); the chain case above
+        # is the on-disk pass's job, and this test names that division so nobody reads the helper as complete.
+        base = os.path.realpath(tempfile.mkdtemp(dir=self.repo.temp.name))
+        inside = os.path.join(base, "docs", "up.txt")
+        self.assertTrue(self.d._symlink_target_stays_inside(base, inside, "../win.txt"))
+        self.assertTrue(self.d._symlink_target_stays_inside(base, inside, "sibling.txt"))
+        self.assertFalse(self.d._symlink_target_stays_inside(base, inside, "../../out.txt"))
+        self.assertFalse(self.d._symlink_target_stays_inside(base, inside, os.path.abspath(os.sep)))
+        self.assertFalse(self.d._symlink_target_stays_inside(base, inside, ""))
+
+
+class TestActivationValidationIgnoresTheReachabilityMark(unittest.TestCase):
+    """DH2-6: the reachability mark is a sibling file that only the write hold consults. Loading and validating
+    the activation record must never open it, so a corrupt or hostile mark can neither break activation nor
+    influence which commit is trusted."""
+
+    def test_load_activation_opens_only_the_activation_record(self):
+        import builtins
+        import accepted_hook_dispatch as d
+        repo = _AcceptedDispatchRepo()
+        self.addCleanup(repo.cleanup)
+        self.assertEqual(repo.activate().returncode, 0)
+        root = str(repo.worktree)
+        activation = d.load_activation(root)
+        d._record_reachability(root, activation, "lost")
+        mark = d._reachability_path(root)
+        self.assertTrue(os.path.isfile(mark))
+        opened, statted = [], []
+        real_open, real_lstat = builtins.open, os.lstat
+
+        def spy_open(file, *args, **kwargs):
+            opened.append(os.fspath(file) if not isinstance(file, int) else file)
+            return real_open(file, *args, **kwargs)
+
+        def spy_lstat(path, *args, **kwargs):
+            statted.append(os.fspath(path))
+            return real_lstat(path, *args, **kwargs)
+
+        with mock.patch.object(builtins, "open", spy_open), mock.patch.object(os, "lstat", spy_lstat):
+            again = d.load_activation(root)
+            d._validate_activation(dict(again))
+        self.assertEqual(again, activation)
+        touched = [p for p in opened + statted if isinstance(p, str)]
+        self.assertTrue(touched, "the activation record itself must have been read")
+        self.assertFalse([p for p in touched if p.endswith(d.REACHABILITY_REL)], touched)
+        self.assertTrue(d._reachability_lost(root, activation))   # the mark is intact and still consulted
+
+
+class TestExactTreeBindingRejectsForgedCache(unittest.TestCase):
+    """Obligation 4 - the byte-level tree-binding vulnerability. The marker's inventory self-hash catches
+    accidental drift, but a same-user rewrite could forge the materialized tree AND its marker together. The
+    additive git-manifest check derives its expectation from immutable git objects, never the cache, so it
+    rejects a forged tree even when the marker is rewritten to agree with the forgery. Every case below
+    re-seals the marker's inventory to match the tampered tree first, so the inventory self-check passes and
+    the git manifest is the ONLY thing that can fail the validation."""
+
+    def setUp(self):
+        import accepted_hook_dispatch
+        self.d = accepted_hook_dispatch
+        self.repo = _AcceptedDispatchRepo()
+        self.addCleanup(self.repo.cleanup)
+        self.assertEqual(self.repo.activate().returncode, 0)
+        self.root = str(self.repo.worktree)
+        self.activation = self.d.load_activation(self.root)
+
+    def _fresh_tree(self):
+        self.d._COMMIT_MANIFEST_MEMO.clear()
+        tree_path = self.d._materialize(self.root, self.activation)
+        self.assertTrue(self.d._valid_materialization(self.root, self.activation),
+                        "a pristine materialization must validate before tampering")
+        return tree_path
+
+    def _reseal_marker_to_disk(self, tree_path):
+        # Forge the marker so its inventory self-hash matches the tampered tree - defeating the inventory
+        # check, so any remaining rejection is attributable solely to the git manifest.
+        _, marker_path = self.d._materialized_paths(self.root, self.activation)
+        marker = self.d._read_json(marker_path, "accepted-hook materialization marker")
+        marker["inventory"] = self.d._tree_inventory(tree_path)
+        self.d._atomic_json(marker_path, marker)
+        self.assertEqual(marker["inventory"], self.d._tree_inventory(tree_path))
+
+    def test_a_changed_file_is_rejected_even_with_a_matching_marker(self):
+        tree = self._fresh_tree()
+        with open(os.path.join(tree, ".engine", "tools", "helper.py"), "ab") as fh:
+            fh.write(b"\n# forged content the accepted commit never held\n")
+        self._reseal_marker_to_disk(tree)
+        self.assertIsNone(self.d._valid_materialization(self.root, self.activation))
+
+    def test_an_added_file_is_rejected_even_with_a_matching_marker(self):
+        tree = self._fresh_tree()
+        with open(os.path.join(tree, ".engine", "tools", "smuggled.py"), "w") as fh:
+            fh.write("# a file the accepted commit never contained\n")
+        self._reseal_marker_to_disk(tree)
+        self.assertIsNone(self.d._valid_materialization(self.root, self.activation))
+
+    def test_a_deleted_file_is_rejected_even_with_a_matching_marker(self):
+        tree = self._fresh_tree()
+        os.unlink(os.path.join(tree, ".engine", "tools", "helper.py"))
+        self._reseal_marker_to_disk(tree)
+        self.assertIsNone(self.d._valid_materialization(self.root, self.activation))
+
+    def test_a_mode_flip_is_rejected_even_with_a_matching_marker(self):
+        tree = self._fresh_tree()
+        victim = os.path.join(tree, ".engine", "tools", "helper.py")
+        info = os.stat(victim)
+        self.assertFalse(info.st_mode & stat.S_IXUSR, "victim must start non-executable (git mode 100644)")
+        os.chmod(victim, info.st_mode | stat.S_IXUSR | stat.S_IXGRP | stat.S_IXOTH)
+        self._reseal_marker_to_disk(tree)
+        self.assertIsNone(self.d._valid_materialization(self.root, self.activation))
+
+    def test_a_file_replaced_by_a_symlink_is_rejected_and_the_tree_is_rebuilt(self):
+        # Round 4, DH-4: the plan's fifth fixture. A regular tracked file (git mode 100644) is swapped for a
+        # symlink pointing at another tracked file. The inventory is re-sealed to agree (it binds the link's
+        # own lstat mode), so only the git manifest — which records 100644 for that path, never 120000 — can
+        # reject it. Then the rebuild under the materialize lock restores a regular file with git's bytes.
+        tree = self._fresh_tree()
+        victim = os.path.join(tree, ".engine", "tools", "helper.py")
+        with open(victim, "rb") as fh:
+            original = fh.read()
+        os.unlink(victim)
+        os.symlink("accepted_hook_dispatch.py", victim)       # a link, in place of the file, to a sibling
+        self.assertTrue(os.path.islink(victim))
+        self._reseal_marker_to_disk(tree)
+        self.assertIsNone(self.d._valid_materialization(self.root, self.activation))
+        rebuilt = self.d._materialize(self.root, self.activation)
+        self.assertEqual(rebuilt, tree)
+        self.assertEqual(self.d._valid_materialization(self.root, self.activation), tree)
+        self.assertFalse(os.path.islink(victim))
+        with open(victim, "rb") as fh:
+            self.assertEqual(fh.read(), original)
+
+    def test_the_expected_manifest_is_the_git_manifest_not_the_on_disk_cache(self):
+        tree = self._fresh_tree()
+        self.d._COMMIT_MANIFEST_MEMO.clear()
+        expected = self.d._git_manifest(self.root, self.activation["commit"])
+        ondisk = self.d._ondisk_manifest(tree, self.d._object_format(self.root))
+        self.assertEqual(expected, ondisk)  # a pristine tree agrees with git, entry-for-entry
+        self.assertIn(self.activation["commit"], self.d._COMMIT_MANIFEST_MEMO)  # only the immutable git side is memoized
+
+
+class TestSafeInventoryAndSymlinkScan(unittest.TestCase):
+    """TI-4: the tree readers fail closed on a non-regular filesystem entry rather than following or ignoring
+    it, and the folded scan binds a tracked symlink to git's own blob-oid of the link target (mode 120000) —
+    the target string, never the file it points at."""
+
+    def setUp(self):
+        import accepted_hook_dispatch
+        self.d = accepted_hook_dispatch
+        self.tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(self.tmp.cleanup)
+        self.root = self.tmp.name
+
+    def test_safe_inventory_refuses_a_symlink_rather_than_following_it(self):
+        with open(os.path.join(self.root, "real.txt"), "w") as fh:
+            fh.write("ordinary content\n")
+        os.symlink("real.txt", os.path.join(self.root, "link"))
+        with self.assertRaises(self.d.QualificationError) as caught:
+            self.d._safe_inventory(self.root, details=False)
+        self.assertIn("refused a symlink", str(caught.exception))
+
+    @unittest.skipUnless(hasattr(os, "mkfifo"), "requires POSIX mkfifo")
+    def test_safe_inventory_refuses_a_special_filesystem_entry(self):
+        os.mkfifo(os.path.join(self.root, "pipe"))
+        with self.assertRaises(self.d.QualificationError) as caught:
+            self.d._safe_inventory(self.root, details=False)
+        self.assertIn("special filesystem entry", str(caught.exception))
+
+    def test_scan_materialized_tree_binds_a_symlink_to_gits_own_blob_oid(self):
+        target = "does/not/exist/on/disk"  # a dangling link: git hashes the target string, not any real file
+        os.symlink(target, os.path.join(self.root, "link"))
+        with open(os.path.join(self.root, "plain"), "w") as fh:
+            fh.write("x\n")
+        _, manifest = self.d._scan_materialized_tree(self.root, "sha1")
+        by_rel = {rel: (mode, oid) for rel, mode, oid in manifest}
+        self.assertEqual(by_rel["link"][0], "120000")  # git's symlink mode
+        expected = subprocess.run(["git", "hash-object", "--stdin"], input=target,
+                                  capture_output=True, text=True, check=True).stdout.strip()
+        self.assertEqual(by_rel["link"][1], expected)  # git's own blob-oid of the link target
+
 
 if __name__ == "__main__":
     unittest.main()

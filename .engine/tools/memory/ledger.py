@@ -255,6 +255,31 @@ def read(*, path: str | None = None) -> LedgerRead:
     return result
 
 
+class LedgerUnreadable(RuntimeError):
+    """The ledger could not be read at all — distinct from a ledger that was read and holds no such record.
+    A read-back that raises this establishes nothing about absence."""
+
+
+def find_raw_record(record_id, *, path: str | None = None, id_key: str = "id"):
+    """Three-state read-back of ONE record by id from the RAW ledger: the stored record when it is there;
+    None when the ledger was SEARCHED and no such line exists; `LedgerUnreadable` when the ledger could not
+    be read. Raw on purpose — a withhold/restore marker is a record here too, since that marker may be the
+    very write being confirmed. Never writes. The writers use it inside their catch-all (round 7): an
+    exception raised after the record's bytes were appended (an I/O error in the flush) must not be reported
+    as "nothing was saved" when the record is readable, and must not be reported either way when it cannot
+    be read."""
+    if not record_id:
+        return None
+    try:
+        result = read(path=path)
+    except Exception as exc:  # noqa: BLE001 — every reader fault is the same fact: the ledger could not be read
+        raise LedgerUnreadable("the memory ledger could not be read back") from exc
+    for rec in result.records:
+        if isinstance(rec, dict) and rec.get(id_key) == record_id:
+            return rec
+    return None
+
+
 def iter_records(*, path: str | None = None, with_positions: bool = False):
     """Stream the intact records, quietly skipping malformed and torn lines. The streaming form for
     a full scan (e.g. rebuilding the derived index); use read() when the read-health report is wanted.

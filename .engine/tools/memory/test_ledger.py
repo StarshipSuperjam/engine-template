@@ -482,5 +482,43 @@ class DemoFailureBranchTests(unittest.TestCase):
         self.assertIs(ledger.sys, sys)
 
 
+class FindRawRecordTests(unittest.TestCase):
+    """Round 9 (R9 DH-3): the three-state read-back the writers' reconciliation rests on, proved against a real
+    ledger rather than a stub — present, searched-and-absent, and a genuine read failure."""
+
+    def setUp(self):
+        self._tmp = tempfile.TemporaryDirectory()
+        self.path = os.path.join(self._tmp.name, "ledger.ndjson")
+
+    def tearDown(self):
+        self._tmp.cleanup()
+
+    def test_a_record_that_is_there_is_returned_as_stored(self):
+        ledger.append({"id": "r1", "kind": "pin", "text": "keep"}, path=self.path)
+        ledger.append({"id": "m1", "kind": "withhold", "target": "r1"}, path=self.path)
+        self.assertEqual(ledger.find_raw_record("r1", path=self.path), {"id": "r1", "kind": "pin", "text": "keep"})
+        # Raw on purpose: a withhold marker is a record here too, since it may be the very write being confirmed.
+        self.assertEqual(ledger.find_raw_record("m1", path=self.path)["kind"], "withhold")
+
+    def test_a_readable_ledger_without_the_id_answers_none_not_an_error(self):
+        ledger.append({"id": "r1", "kind": "pin", "text": "keep"}, path=self.path)
+        self.assertIsNone(ledger.find_raw_record("r2", path=self.path))
+        # A ledger that does not exist yet was still SEARCHED: it holds nothing, which is a real answer.
+        self.assertIsNone(ledger.find_raw_record("r1", path=os.path.join(self._tmp.name, "absent.ndjson")))
+        # No id: nothing to look for, never a read.
+        self.assertIsNone(ledger.find_raw_record("", path=self.path))
+        self.assertIsNone(ledger.find_raw_record(None, path=self.path))
+
+    def test_a_ledger_that_cannot_be_read_raises_rather_than_answering_absent(self):
+        # A directory where the ledger file should be: it exists, and every attempt to read it fails. That is
+        # the one answer that must NOT be reported as "searched and absent".
+        unreadable = os.path.join(self._tmp.name, "a-directory")
+        os.mkdir(unreadable)
+        with self.assertRaises(ledger.LedgerUnreadable) as caught:
+            ledger.find_raw_record("r1", path=unreadable)
+        self.assertIsInstance(caught.exception.__cause__, OSError)
+        self.assertIsInstance(caught.exception, RuntimeError)
+
+
 if __name__ == "__main__":
     unittest.main()

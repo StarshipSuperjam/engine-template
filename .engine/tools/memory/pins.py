@@ -40,6 +40,7 @@ import binascii
 import os
 import sys
 import time
+import unicodedata
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
@@ -72,8 +73,98 @@ class PinRefused(refusals.EngineRefusal, ValueError):
         self.raw_detail = raw_detail
 
 
+class PinUnconfirmed(PinRefused):
+    """The save step failed after the record's bytes may already have landed, and the ledger could not be read
+    back to tell: neither "saved" nor "nothing was saved" is honest, so this says so. A PinRefused, so every
+    existing handler still catches it; the command line prints it as "Not confirmed", never "Not saved"."""
+
+
+#: The sentence for `PinUnconfirmed`: it names what is not known and what to do, and never says nothing was saved.
+UNCONFIRMED_SENTENCE = ("the pin's save step did not complete and memory could not be read back to confirm "
+                        "whether it landed, so this is not confirmed either way. Check with a search before "
+                        "saving it again. " + refusals.ESCALATION)
+
+
+#: The note that rides with a pin whose bytes landed but whose flush step then failed (R9 DH-1): the save is
+#: real and readable, and the operator is told so, but never as a clean success — the failed step is named.
+UNFLUSHED_NOTE = ("Saved, but not cleanly: the pin is on disk and readable, but the save step after its bytes "
+                  "landed (the ledger flush) reported an I/O error, so it may not survive a crash until the next "
+                  "write completes cleanly. Nothing was retried. " + refusals.ESCALATION)
+
+
+def _fault_collector():
+    """A line sink for the command line: records whether the write landed despite a fault, so the success
+    line can carry `UNFLUSHED_NOTE` instead of reading as a clean save (R9 DH-1)."""
+    faults = []
+
+    def collect(kind: str, payload: dict) -> None:
+        if kind == "committed" and payload.get("fault") is not None:
+            faults.append(payload["fault"])
+    return collect, faults
+
+
+def _landed_despite(record, target: str):
+    """After an exception inside the append step: True when the record is readable in the ledger (the bytes
+    landed before the fault — an I/O error in the flush is the observed case), False when the ledger was
+    searched and holds no such record, None when the ledger could not be read. Called under the single-writer
+    lock, before the catch-all decides its sentence (round 7)."""
+    if record is None:
+        return False
+    try:
+        return ledger.find_raw_record(record[records.RECORD_ID_KEY], path=target,
+                                      id_key=records.RECORD_ID_KEY) is not None
+    except ledger.LedgerUnreadable:
+        return None
+
+
+def _cli_refusal_line(exc: "PinRefused") -> str:
+    """The command line's one-line report of a refusal: "Not saved" only when nothing was saved, "Not
+    confirmed" when that is not known."""
+    return f"{'Not confirmed' if isinstance(exc, PinUnconfirmed) else 'Not saved'}: {exc}"
+
+
+#: The one explicit identity an omitted session_id collapses to, so a dispatched pin with no session and a
+#: second call that also carries none are recognised as the same lane by the under-lock duplicate check.
+_NO_SESSION_IDENTITY = "\x00no-session"
+
+
+def _normalized_pin_text(text: str) -> str:
+    """The decisive key the duplicate check compares on: NFC-folded, outer whitespace stripped, inner runs
+    collapsed to one space. Two requests that differ only in those land as the same pin, never two."""
+    return " ".join(unicodedata.normalize("NFC", text).split())
+
+
+def _session_identity(session_id: "str | None") -> str:
+    return session_id if (isinstance(session_id, str) and session_id) else _NO_SESSION_IDENTITY
+
+
+def _find_duplicate_pin(cleaned: str, session_identity: str, *, path: str):
+    """The live pin already carrying this exact normalized text on this exact session lane, or None. Called
+    only under the write lock, so what it reads is the committed state the append would extend."""
+    key = _normalized_pin_text(cleaned)
+    for record in list_pins(path=path):
+        if (_normalized_pin_text(record.get("text") or "") == key
+                and _session_identity(record.get(records.PIN_SOURCE_SESSION_KEY)) == session_identity):
+            return record
+    return None
+
+
+def _emit_confirmation(emit, event: str, payload: dict) -> None:
+    """Emit a post-commit forensic line as BEST EFFORT: the write is already durable, so a failure here
+    (a broken pipe to a parent that closed, or any callback error) is swallowed rather than allowed to
+    masquerade as a lost write. The parent's read-back of the pre-minted id is the backstop that still
+    resolves the outcome to `committed` when this line never arrives."""
+    if emit is None:
+        return
+    try:
+        emit(event, payload)
+    except Exception:
+        pass
+
+
 def add(text: str, *, session_id: "str | None" = None, via: str = records.PIN_VIA_ASSISTANT,
-        path: "str | None" = None, now: "int | None" = None) -> dict:
+        path: "str | None" = None, now: "int | None" = None, accepted_id: "str | None" = None,
+        emit=None, dedup: bool = False) -> dict:
     """Save one pin and return the record as written. Raises PinRefused on empty or over-long text.
 
     A pin is standing OPERATOR intent — call this when the operator asked for something to be remembered,
@@ -85,9 +176,11 @@ def add(text: str, *, session_id: "str | None" = None, via: str = records.PIN_VI
     the conversation around the request stays reachable with the window reader; a pin minted outside a session
     simply carries none. `via` records the route, never an authority claim.
 
-    Appends under the single-writer lock and bumps the ledger generation, exactly as the withhold verbs do and
-    for the same reason: without it the fast index stays stamped current and the pin the operator just saved is
-    missing from the next search, answered as though the index were authoritative."""
+    Appends under the single-writer lock and bumps the ledger's INDEX EPOCH (membership changed: a record the
+    index has not seen), exactly as the withhold verbs do and for the same reason: without it the fast index
+    stays stamped current and the pin the operator just saved is missing from the next search, answered as
+    though the index were authoritative. It does not bump the ledger GENERATION — that counter means content
+    was rewritten or removed, which an append never does — and the two have different recovery meanings."""
     if not isinstance(text, str) or not text.strip():
         raise PinRefused("there was nothing to save — a pin needs some words.")
     cleaned = scrub.scrub_text(text.strip())
@@ -103,6 +196,12 @@ def add(text: str, *, session_id: "str | None" = None, via: str = records.PIN_VI
     target = path if path is not None else ledger.ledger_path()
     data_dir = os.path.dirname(target) or "."
     os.makedirs(data_dir, exist_ok=True)
+    record_id = accepted_id if (isinstance(accepted_id, str) and accepted_id) else records.new_record_id()
+    session_identity = _session_identity(session_id)
+    if emit is not None:
+        # Forensic: the pre-minted id crosses to the parent BEFORE the lock, so a child that dies mid-write
+        # leaves the parent a record id to reason about rather than a silent gap.
+        emit("begin", {records.RECORD_ID_KEY: record_id})
     lock_fd = capture._acquire_lock(os.path.join(data_dir, capture.LOCK_FILENAME))
     if lock_fd is None:
         # `None` is not proof of contention: the same value comes back when the store cannot be opened at all.
@@ -114,28 +213,66 @@ def add(text: str, *, session_id: "str | None" = None, via: str = records.PIN_VI
             "memory could not be written to (the memory folder is not writable), so nothing was saved. This will "
             "not clear on its own — check the folder's permissions and that its disk is mounted and has room."
         )
+    duplicate_record = None
+    committed_record = None
+    committed_bytes = None
+    attempted = None
+    landed_despite_fault = None
     try:
-        record = {
-            "v": capture.RECORD_VERSION,
-            "kind": records.PIN_KIND,
-            records.RECORD_ID_KEY: records.new_record_id(),
-            "text": cleaned,
-            "ts": int(time.time()) if now is None else now,
-            "tags": [records.PIN_TAG],
-            records.PIN_VIA_KEY: via,
-        }
-        if isinstance(session_id, str) and session_id:
-            record[records.PIN_SOURCE_SESSION_KEY] = session_id
-        ledger.bump_index_epoch(for_path=target)
-        ledger.append(record, path=path)
-        return record
+        if dedup:
+            duplicate = _find_duplicate_pin(cleaned, session_identity, path=target)
+            if duplicate is not None:
+                duplicate_record = duplicate
+        if duplicate_record is None:
+            record = {
+                "v": capture.RECORD_VERSION,
+                "kind": records.PIN_KIND,
+                records.RECORD_ID_KEY: record_id,
+                "text": cleaned,
+                "ts": int(time.time()) if now is None else now,
+                "tags": [records.PIN_TAG],
+                records.PIN_VIA_KEY: via,
+            }
+            if isinstance(session_id, str) and session_id:
+                record[records.PIN_SOURCE_SESSION_KEY] = session_id
+            ledger.bump_index_epoch(for_path=target)
+            attempted = record
+            appended = ledger.append(record, path=path)
+            committed_record = record
+            committed_bytes = appended.length
     except PinRefused:
         raise
     except Exception as exc:
-        raise PinRefused("the pin could not be saved — an internal memory-write step did not complete, so nothing "
-                         "was saved. " + refusals.ESCALATION, raw_detail=str(exc)) from exc
+        # The append may have LANDED before this was raised: `ledger.append` flushes after its write loop, so
+        # an I/O error in the flush leaves a readable record on disk. Reconcile against the ledger — still
+        # under the lock — before the sentence is chosen (round 7): readable -> the pin is saved and is
+        # returned as such (its byte length is unknown); unreadable -> unconfirmed, never "nothing was
+        # saved"; searched and absent -> nothing was saved.
+        landed = _landed_despite(attempted, target)
+        if landed is True:
+            # Landed, but not cleanly: the fault is carried on the committed line (R9 DH-1) so every route
+            # discloses it, never swallowed into a plain "Pinned".
+            committed_record = attempted
+            landed_despite_fault = exc
+        elif landed is None:
+            raise PinUnconfirmed(UNCONFIRMED_SENTENCE, raw_detail=str(exc)) from exc
+        else:
+            raise PinRefused("the pin could not be saved — an internal memory-write step did not complete, so "
+                             "nothing was saved. " + refusals.ESCALATION, raw_detail=str(exc)) from exc
     finally:
         capture._release_lock(lock_fd)
+    # The append (if any) has LANDED and the lock is released. The forensic confirmation line is best-effort
+    # telemetry for the dispatch parent — its failure (e.g. a BrokenPipeError writing to a parent that already
+    # closed the pipe) must NEVER be reported as a lost write, so it is emitted OUTSIDE the catch-all above,
+    # whose sentence says "nothing was saved". The record is durable and is returned regardless.
+    if duplicate_record is not None:
+        _emit_confirmation(emit, "already_pinned", {"record": duplicate_record})
+        return duplicate_record
+    receipt = {"record": committed_record, "bytes": committed_bytes}
+    if landed_despite_fault is not None:
+        receipt["fault"] = str(landed_despite_fault)
+    _emit_confirmation(emit, "committed", receipt)
+    return committed_record
 
 
 def list_pins(*, path: "str | None" = None, limit: "int | None" = None) -> list:
@@ -153,10 +290,10 @@ def list_pins(*, path: "str | None" = None, limit: "int | None" = None) -> list:
     return out[:limit] if isinstance(limit, int) and limit >= 0 else out
 
 
-def remove(record_id: str, *, path: "str | None" = None) -> dict:
+def remove(record_id: str, *, path: "str | None" = None, emit=None) -> dict:
     """Stop surfacing one pin. Withholds it (module docstring) — nothing is deleted and `forget.restore` on the
-    same id brings it back."""
-    return forget.withhold(record_id=record_id, path=path)
+    same id brings it back. `emit` is the same line sink `forget.withhold` takes."""
+    return forget.withhold(record_id=record_id, path=path, emit=emit)
 
 
 def _print_list(path: "str | None" = None) -> int:
@@ -192,12 +329,13 @@ def main(argv: list) -> int:
     rm.add_argument("record_id", help="the pin's id, as shown by `list`")
     args = parser.parse_args(argv)
     if args.cmd == "add":
+        collect, faults = _fault_collector()
         try:
-            record = add(args.text, session_id=args.session, via=records.PIN_VIA_CLI)
+            record = add(args.text, session_id=args.session, via=records.PIN_VIA_CLI, emit=collect)
         except PinRefused as exc:
-            print(f"Not saved: {exc}")
+            print(_cli_refusal_line(exc))
             return 1
-        print(f"Pinned [{record[records.RECORD_ID_KEY]}].")
+        print(f"Pinned [{record[records.RECORD_ID_KEY]}]." + (f" {UNFLUSHED_NOTE}" if faults else ""))
         return 0
     if args.cmd == "add-base64":
         try:
@@ -209,16 +347,18 @@ def main(argv: list) -> int:
         except (UnicodeEncodeError, UnicodeDecodeError, binascii.Error, ValueError):
             print("Not saved: the pin transport must be canonical URL-safe Base64 of UTF-8 text.")
             return 1
+        collect, faults = _fault_collector()
         try:
-            record = add(text, session_id=args.session, via=records.PIN_VIA_CLI)
+            record = add(text, session_id=args.session, via=records.PIN_VIA_CLI, emit=collect)
         except PinRefused as exc:
-            print(f"Not saved: {exc}")
+            print(_cli_refusal_line(exc))
             return 1
-        print(f"Pinned [{record[records.RECORD_ID_KEY]}].")
+        print(f"Pinned [{record[records.RECORD_ID_KEY]}]." + (f" {UNFLUSHED_NOTE}" if faults else ""))
         return 0
     if args.cmd == "remove":
+        collect, faults = _fault_collector()
         try:
-            remove(args.record_id)
+            remove(args.record_id, emit=collect)
         except forget.ControlNotRecorded as exc:
             # The shared verb speaks of "a single note, or a whole session" because it serves both; this
             # command takes a pin id and nothing else, so offering a session here names a choice the operator
@@ -227,9 +367,11 @@ def main(argv: list) -> int:
                                       "no pin identifier was given.")
             reason = reason.replace("there is no note in memory with that identifier",
                                     "there is no pin with that identifier")
-            print(f"Not removed: {reason}")
+            # "Not removed" only when nothing was changed; an unconfirmed outcome says so (R9 DH-2).
+            print(f"{'Not confirmed' if isinstance(exc, forget.ControlUnconfirmed) else 'Not removed'}: {reason}")
             return 1
-        print("Removed from recall. It is still saved — ask to restore it any time.")
+        print("Removed from recall. It is still saved — ask to restore it any time."
+              + (f" {forget.UNFLUSHED_NOTE}" if faults else ""))
         return 0
     if args.cmd == "list":
         return _print_list()
