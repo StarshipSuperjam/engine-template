@@ -23306,7 +23306,7 @@
       },
       "slug": "test_wiring",
       "source": {
-        "fingerprint": "sha256:45ad89eadb51b9c19d9438df93ac10809170a7157b418f5bcb6ce9256c587b6f",
+        "fingerprint": "sha256:0d5e455a236a8f3d8d1a55da1d3d3cfe161303dac40b83fc46d06cff7f590244",
         "path": ".engine/tools/test_wiring.py"
       },
       "status": "active",
