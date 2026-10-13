@@ -159,7 +159,7 @@ jobs:
       - name: Upload test outcomes
         if: always() && steps.gate.outputs.mode == 'full' && steps.observations.outcome == 'success'
         continue-on-error: true
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: engine-selftest-results-${{ github.run_id }}-${{ github.run_attempt }}
           path: ${{ runner.temp }}/published-selftest/selftest-results.json
@@ -168,7 +168,7 @@ jobs:
       - name: Upload test timing
         if: always() && steps.gate.outputs.mode == 'full' && steps.observations.outcome == 'success'
         continue-on-error: true
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: engine-selftest-performance-${{ github.run_id }}-${{ github.run_attempt }}
           path: ${{ runner.temp }}/published-selftest/selftest-performance.json
@@ -177,7 +177,7 @@ jobs:
       - name: Upload test cost diagnostics
         if: always() && steps.gate.outputs.mode == 'full'
         continue-on-error: true
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: engine-selftest-cost-${{ github.run_id }}-${{ github.run_attempt }}
           path: |
@@ -223,7 +223,7 @@ jobs:
         # not the action, so it cannot make that distinction itself — and the receipt's mode separates a full
         # run from a project-only one; the reuse route accepts only the former.
         if: steps.gate.outputs.mode != 'reuse' && (github.event_name == 'pull_request' || github.event_name == 'push')
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: engine-ci-receipt
           path: |
